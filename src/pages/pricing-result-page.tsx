@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import type { User } from "@supabase/supabase-js";
-import { fetchProduct, fetchProductItems } from "../lib/products";
+import { fetchProduct, fetchProductItems, fetchProductSkus } from "../lib/products";
 import { savePricingResult } from "../lib/pricing-results";
 import { fetchSettings } from "../lib/settings";
 import { calculatePricing, formatCurrency, formatPercent } from "../utils/pricing";
-import type { PricingResult, Product } from "../types";
+import type { PricingResult, Product, ProductSku } from "../types";
 import { getErrorMessage } from "../utils/errors";
 
 type PricingResultPageProps = {
@@ -15,7 +15,9 @@ type PricingResultPageProps = {
 export function PricingResultPage({ user }: PricingResultPageProps) {
   const { productId = "" } = useParams();
   const [product, setProduct] = useState<Product | null>(null);
-  const [result, setResult] = useState<PricingResult | null>(null);
+  const [skuResults, setSkuResults] = useState<
+    Array<{ sku: ProductSku; result: PricingResult }>
+  >([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [emptyItems, setEmptyItems] = useState(false);
@@ -29,13 +31,27 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
       setEmptyItems(false);
 
       try {
-        const [nextProduct, nextItems, settings] = await Promise.all([
+        const [nextProduct, nextItems, nextSkus, settings] = await Promise.all([
           fetchProduct(productId),
           fetchProductItems(productId),
+          fetchProductSkus(productId),
           fetchSettings(user.id),
         ]);
+        const itemsById = Object.fromEntries(
+          nextItems.flatMap((item) => (item.id ? [[item.id, item]] : [])),
+        );
 
-        if (nextItems.length === 0) {
+        const pricedSkus = nextSkus
+          .map((sku) => ({
+            sku,
+            items: sku.component_links.flatMap((link) => {
+              const item = itemsById[link.item_id];
+              return item ? [{ ...item, quantity: link.quantity }] : [];
+            }),
+          }))
+          .filter(({ items }) => items.length > 0);
+
+        if (pricedSkus.length === 0) {
           if (active) {
             setProduct(nextProduct);
             setEmptyItems(true);
@@ -43,18 +59,23 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
           return;
         }
 
-        const nextResult = calculatePricing(
-          nextProduct.package_weight_g,
-          nextItems,
-          settings,
-        );
+        const nextSkuResults = pricedSkus.map(({ sku, items }) => ({
+          sku,
+          result: calculatePricing(nextProduct.package_weight_g, items, settings),
+        }));
 
         if (active) {
           setProduct(nextProduct);
-          setResult(nextResult);
+          setSkuResults(nextSkuResults);
         }
 
-        await savePricingResult(nextProduct.id, nextResult);
+        await Promise.all(
+          nextSkuResults
+            .filter(({ sku }) => sku.id)
+            .map(({ sku, result }) =>
+              savePricingResult(nextProduct.id, sku.id as string, result),
+            ),
+        );
       } catch (error) {
         if (active) {
           setErrorMessage(getErrorMessage(error, "加载核价结果失败"));
@@ -95,26 +116,9 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
     );
   }
 
-  if (!product || !result) {
+  if (!product || skuResults.length === 0) {
     return null;
   }
-
-  const metrics = [
-    ["组合采购成本", formatCurrency(result.purchaseCostRmb)],
-    ["采购运费", formatCurrency(result.purchaseShippingRmb)],
-    ["包装成本", formatCurrency(result.packagingCostRmb)],
-    ["顺丰成本", formatCurrency(result.sfCostRmb)],
-    ["方案 A：淮安空运 + 大阪海外仓", formatCurrency(result.planA)],
-    ["方案 B：淮安空运 + 福冈海外仓", formatCurrency(result.planB)],
-    ["方案 C：OCS + 大阪海外仓", formatCurrency(result.planC)],
-    ["方案 D：OCS + 福冈海外仓", formatCurrency(result.planD)],
-    ["物流成本", formatCurrency(result.logisticsCostRmb)],
-    ["总成本", formatCurrency(result.totalCostRmb)],
-    ["运费补贴", formatCurrency(result.subsidyRmb)],
-    ["最低核价", formatCurrency(result.minimumPriceRmb)],
-    ["利润", formatCurrency(result.profitRmb)],
-    ["利润率", formatPercent(result.profitRate)],
-  ];
 
   return (
     <section className="grid gap-5">
@@ -130,34 +134,66 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
         </Link>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-lg bg-white p-5 shadow-panel">
-          <p className="text-sm text-slate-500">最低核价</p>
-          <p className="mt-2 text-3xl font-semibold text-ink">
-            {formatCurrency(result.minimumPriceRmb)}
-          </p>
-        </div>
-        <div className="rounded-lg bg-white p-5 shadow-panel">
-          <p className="text-sm text-slate-500">利润</p>
-          <p className="mt-2 text-3xl font-semibold text-ink">
-            {formatCurrency(result.profitRmb)}
-          </p>
-        </div>
-        <div className="rounded-lg bg-white p-5 shadow-panel">
-          <p className="text-sm text-slate-500">利润率</p>
-          <p className="mt-2 text-3xl font-semibold text-ink">
-            {formatPercent(result.profitRate)}
-          </p>
-        </div>
-      </div>
+      <div className="grid gap-5">
+        {skuResults.map(({ sku, result }) => {
+          const metrics = [
+            ["组合采购成本", formatCurrency(result.purchaseCostRmb)],
+            ["采购运费", formatCurrency(result.purchaseShippingRmb)],
+            ["包装成本", formatCurrency(result.packagingCostRmb)],
+            ["顺丰成本", formatCurrency(result.sfCostRmb)],
+            ["方案 A：淮安空运 + 大阪海外仓", formatCurrency(result.planA)],
+            ["方案 B：淮安空运 + 福冈海外仓", formatCurrency(result.planB)],
+            ["方案 C：OCS + 大阪海外仓", formatCurrency(result.planC)],
+            ["方案 D：OCS + 福冈海外仓", formatCurrency(result.planD)],
+            ["物流成本", formatCurrency(result.logisticsCostRmb)],
+            ["总成本", formatCurrency(result.totalCostRmb)],
+            ["运费补贴", formatCurrency(result.subsidyRmb)],
+            ["最低核价", formatCurrency(result.minimumPriceRmb)],
+            ["利润", formatCurrency(result.profitRmb)],
+            ["利润率", formatPercent(result.profitRate)],
+          ];
 
-      <div className="grid gap-4 rounded-lg bg-white p-5 shadow-panel sm:grid-cols-2 xl:grid-cols-3">
-        {metrics.map(([label, value]) => (
-          <div key={label} className="rounded-md border border-line p-4">
-            <p className="text-sm text-slate-500">{label}</p>
-            <p className="mt-2 text-lg font-semibold text-ink">{value}</p>
-          </div>
-        ))}
+          return (
+            <article key={sku.id ?? sku.sku_code} className="grid gap-4">
+              <div>
+                <h2 className="text-lg font-semibold text-ink">{sku.sku_code}</h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  {Object.entries(sku.attributes)
+                    .map(([name, value]) => `${name}：${value}`)
+                    .join(" / ") || "未填写规格"}
+                </p>
+              </div>
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="rounded-lg bg-white p-5 shadow-panel">
+                  <p className="text-sm text-slate-500">最低核价</p>
+                  <p className="mt-2 text-3xl font-semibold text-ink">
+                    {formatCurrency(result.minimumPriceRmb)}
+                  </p>
+                </div>
+                <div className="rounded-lg bg-white p-5 shadow-panel">
+                  <p className="text-sm text-slate-500">利润</p>
+                  <p className="mt-2 text-3xl font-semibold text-ink">
+                    {formatCurrency(result.profitRmb)}
+                  </p>
+                </div>
+                <div className="rounded-lg bg-white p-5 shadow-panel">
+                  <p className="text-sm text-slate-500">利润率</p>
+                  <p className="mt-2 text-3xl font-semibold text-ink">
+                    {formatPercent(result.profitRate)}
+                  </p>
+                </div>
+              </div>
+              <div className="grid gap-4 rounded-lg bg-white p-5 shadow-panel sm:grid-cols-2 xl:grid-cols-3">
+                {metrics.map(([label, value]) => (
+                  <div key={label} className="rounded-md border border-line p-4">
+                    <p className="text-sm text-slate-500">{label}</p>
+                    <p className="mt-2 text-lg font-semibold text-ink">{value}</p>
+                  </div>
+                ))}
+              </div>
+            </article>
+          );
+        })}
       </div>
     </section>
   );

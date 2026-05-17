@@ -2,9 +2,14 @@ import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import type { User } from "@supabase/supabase-js";
 import { ProductForm } from "../components/product-form";
-import { createEmptyItem, emptyProductDraft } from "../lib/defaults";
+import {
+  createEmptyItem,
+  createEmptySku,
+  createEmptySpec,
+  emptyProductDraft,
+} from "../lib/defaults";
 import { createProduct } from "../lib/products";
-import type { ProductDraft, ProductItem } from "../types";
+import type { ProductDraft, ProductItem, ProductSkuDraft, ProductSpec } from "../types";
 import { getErrorMessage } from "../utils/errors";
 
 type ProductCreatePageProps = {
@@ -15,6 +20,8 @@ export function ProductCreatePage({ user }: ProductCreatePageProps) {
   const navigate = useNavigate();
   const [product, setProduct] = useState<ProductDraft>(emptyProductDraft);
   const [items, setItems] = useState<ProductItem[]>([createEmptyItem()]);
+  const [specs, setSpecs] = useState<ProductSpec[]>([createEmptySpec()]);
+  const [skus, setSkus] = useState<ProductSkuDraft[]>([createEmptySku()]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -29,7 +36,7 @@ export function ProductCreatePage({ user }: ProductCreatePageProps) {
     setMessage("");
 
     try {
-      await createProduct(product, items);
+      await createProduct(product, items, skus);
       navigate("/products", { state: { message: "保存成功" } });
     } catch (error) {
       setMessage(getErrorMessage(error, "保存商品失败"));
@@ -51,10 +58,14 @@ export function ProductCreatePage({ user }: ProductCreatePageProps) {
       <ProductForm
         product={product}
         items={items}
+        specs={specs}
+        skus={skus}
         busy={busy}
         submitLabel="保存商品"
         onProductChange={setProduct}
         onItemsChange={setItems}
+        onSpecsChange={setSpecs}
+        onSkusChange={setSkus}
         onSubmit={handleSubmit}
       />
     </section>

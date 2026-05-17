@@ -15,11 +15,22 @@ export type Product = {
   updated_at: string;
 };
 
+export type ProductSku = {
+  id?: string;
+  product_id?: string;
+  owner_id?: string;
+  sku_code: string;
+  attributes: Record<string, string>;
+  notes: string;
+  component_links: ProductSkuItemLink[];
+};
+
 export type ProductItem = {
   id?: string;
   product_id?: string;
   owner_id?: string;
   item_name: string;
+  item_spec: string;
   quantity: number;
   item_length_cm: number;
   item_width_cm: number;
@@ -28,6 +39,27 @@ export type ProductItem = {
   purchase_price_rmb: number;
   purchase_shipping_fee_per_500g_rmb: number;
   purchase_url: string;
+};
+
+export type ProductSkuItemLink = {
+  id?: string;
+  sku_id?: string;
+  item_id: string;
+  quantity: number;
+};
+
+export type ProductSkuDraftLink = Omit<ProductSkuItemLink, "item_id"> & {
+  item_key: string;
+};
+
+export type ProductSkuDraft = Omit<ProductSku, "component_links"> & {
+  component_links: ProductSkuDraftLink[];
+};
+
+export type ProductSpec = {
+  id: string;
+  name: string;
+  values: string[];
 };
 
 export type PricingSettings = {
@@ -72,4 +104,24 @@ export type PricingResult = {
   minimumPriceRmb: number;
   profitRmb: number;
   profitRate: number;
+};
+
+export type ProductTransferItem = Omit<
+  ProductItem,
+  "id" | "product_id" | "owner_id"
+>;
+
+export type ProductTransferSku = {
+  sku_code: string;
+  attributes: Record<string, string>;
+  notes: string;
+  component_links: Array<{
+    item_index: number;
+    quantity: number;
+  }>;
+};
+
+export type ProductTransferRecord = ProductDraft & {
+  items: ProductTransferItem[];
+  skus: ProductTransferSku[];
 };

@@ -3,11 +3,13 @@ import type { PricingResult } from "../types";
 
 export async function savePricingResult(
   productId: string,
+  skuId: string,
   result: PricingResult,
 ) {
   const supabase = getSupabaseClient();
   const { error } = await supabase.from("pricing_results").insert({
     product_id: productId,
+    sku_id: skuId,
     purchase_cost_rmb: result.purchaseCostRmb,
     purchase_shipping_cost_rmb: result.purchaseShippingRmb,
     packaging_cost_rmb: result.packagingCostRmb,

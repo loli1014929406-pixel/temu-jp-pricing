@@ -1,4 +1,10 @@
-import type { PricingSettings, ProductDraft, ProductItem } from "../types";
+import type {
+  PricingSettings,
+  ProductDraft,
+  ProductItem,
+  ProductSkuDraft,
+  ProductSpec,
+} from "../types";
 
 export const defaultSettings: PricingSettings = {
   packaging_cost_rmb: 0.2,
@@ -27,8 +33,16 @@ export const emptyProductDraft: ProductDraft = {
   notes: "",
 };
 
+export const createEmptySku = (): ProductSkuDraft => ({
+  sku_code: "",
+  attributes: {},
+  notes: "",
+  component_links: [],
+});
+
 export const createEmptyItem = (): ProductItem => ({
   item_name: "",
+  item_spec: "",
   quantity: 1,
   item_length_cm: 0,
   item_width_cm: 0,
@@ -37,4 +51,10 @@ export const createEmptyItem = (): ProductItem => ({
   purchase_price_rmb: 0,
   purchase_shipping_fee_per_500g_rmb: 0,
   purchase_url: "",
+});
+
+export const createEmptySpec = (): ProductSpec => ({
+  id: crypto.randomUUID(),
+  name: "",
+  values: [""],
 });

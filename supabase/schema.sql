@@ -17,11 +17,26 @@ create table if not exists public.products (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.product_skus (
+  id uuid primary key default gen_random_uuid(),
+  product_id uuid not null references public.products(id) on delete cascade,
+  owner_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  sku_code text not null,
+  attributes jsonb not null default '{}'::jsonb,
+  notes text not null default '',
+  created_at timestamptz not null default now()
+);
+
+grant select, insert, update, delete
+on table public.product_skus
+to authenticated;
+
 create table if not exists public.product_items (
   id uuid primary key default gen_random_uuid(),
   product_id uuid not null references public.products(id) on delete cascade,
   owner_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
   item_name text not null,
+  item_spec text not null default '',
   quantity integer not null default 1,
   item_length_cm numeric not null default 0,
   item_width_cm numeric not null default 0,
@@ -32,6 +47,18 @@ create table if not exists public.product_items (
   purchase_url text not null default '',
   created_at timestamptz not null default now()
 );
+
+create table if not exists public.product_sku_items (
+  id uuid primary key default gen_random_uuid(),
+  sku_id uuid not null references public.product_skus(id) on delete cascade,
+  item_id uuid not null references public.product_items(id) on delete cascade,
+  quantity integer not null default 1,
+  unique (sku_id, item_id)
+);
+
+grant select, insert, update, delete
+on table public.product_sku_items
+to authenticated;
 
 create table if not exists public.pricing_settings (
   id uuid primary key default gen_random_uuid(),
@@ -54,6 +81,7 @@ create table if not exists public.pricing_settings (
 create table if not exists public.pricing_results (
   id uuid primary key default gen_random_uuid(),
   product_id uuid not null references public.products(id) on delete cascade,
+  sku_id uuid not null references public.product_skus(id) on delete cascade,
   owner_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
   purchase_cost_rmb numeric not null default 0,
   purchase_shipping_cost_rmb numeric not null default 0,
@@ -79,11 +107,29 @@ alter column owner_id set default auth.uid();
 alter table public.product_items
 alter column owner_id set default auth.uid();
 
+alter table public.product_items
+add column if not exists item_spec text not null default '';
+
+alter table public.product_skus
+add column if not exists attributes jsonb not null default '{}'::jsonb;
+
+alter table public.product_skus
+drop column if exists color;
+
+alter table public.product_skus
+drop column if exists size;
+
+alter table public.product_skus
+alter column owner_id set default auth.uid();
+
 alter table public.pricing_settings
 alter column owner_id set default auth.uid();
 
 alter table public.pricing_results
 alter column owner_id set default auth.uid();
+
+alter table public.pricing_results
+add column if not exists sku_id uuid references public.product_skus(id) on delete cascade;
 
 create or replace function public.set_updated_at()
 returns trigger
@@ -112,6 +158,8 @@ for each row execute function public.set_updated_at();
 
 alter table public.products enable row level security;
 alter table public.product_items enable row level security;
+alter table public.product_skus enable row level security;
+alter table public.product_sku_items enable row level security;
 alter table public.pricing_settings enable row level security;
 alter table public.pricing_results enable row level security;
 
@@ -165,6 +213,99 @@ create policy "product_items_delete_own"
 on public.product_items for delete
 using (auth.uid() = owner_id);
 
+drop policy if exists "product_skus_select_own" on public.product_skus;
+create policy "product_skus_select_own"
+on public.product_skus for select
+using (auth.uid() = owner_id);
+
+drop policy if exists "product_skus_insert_own" on public.product_skus;
+create policy "product_skus_insert_own"
+on public.product_skus for insert
+with check (
+  auth.uid() = owner_id
+  and exists (
+    select 1
+    from public.products
+    where products.id = product_skus.product_id
+      and products.owner_id = auth.uid()
+  )
+);
+
+drop policy if exists "product_skus_update_own" on public.product_skus;
+create policy "product_skus_update_own"
+on public.product_skus for update
+using (auth.uid() = owner_id)
+with check (auth.uid() = owner_id);
+
+drop policy if exists "product_skus_delete_own" on public.product_skus;
+create policy "product_skus_delete_own"
+on public.product_skus for delete
+using (auth.uid() = owner_id);
+
+drop policy if exists "product_sku_items_select_own" on public.product_sku_items;
+create policy "product_sku_items_select_own"
+on public.product_sku_items for select
+using (
+  exists (
+    select 1
+    from public.product_skus
+    where product_skus.id = product_sku_items.sku_id
+      and product_skus.owner_id = auth.uid()
+  )
+);
+
+drop policy if exists "product_sku_items_insert_own" on public.product_sku_items;
+create policy "product_sku_items_insert_own"
+on public.product_sku_items for insert
+with check (
+  exists (
+    select 1
+    from public.product_skus
+    join public.product_items
+      on product_items.id = product_sku_items.item_id
+    where product_skus.id = product_sku_items.sku_id
+      and product_skus.owner_id = auth.uid()
+      and product_items.owner_id = auth.uid()
+      and product_items.product_id = product_skus.product_id
+  )
+);
+
+drop policy if exists "product_sku_items_update_own" on public.product_sku_items;
+create policy "product_sku_items_update_own"
+on public.product_sku_items for update
+using (
+  exists (
+    select 1
+    from public.product_skus
+    where product_skus.id = product_sku_items.sku_id
+      and product_skus.owner_id = auth.uid()
+  )
+)
+with check (
+  exists (
+    select 1
+    from public.product_skus
+    join public.product_items
+      on product_items.id = product_sku_items.item_id
+    where product_skus.id = product_sku_items.sku_id
+      and product_skus.owner_id = auth.uid()
+      and product_items.owner_id = auth.uid()
+      and product_items.product_id = product_skus.product_id
+  )
+);
+
+drop policy if exists "product_sku_items_delete_own" on public.product_sku_items;
+create policy "product_sku_items_delete_own"
+on public.product_sku_items for delete
+using (
+  exists (
+    select 1
+    from public.product_skus
+    where product_skus.id = product_sku_items.sku_id
+      and product_skus.owner_id = auth.uid()
+  )
+);
+
 drop policy if exists "pricing_settings_select_own" on public.pricing_settings;
 create policy "pricing_settings_select_own"
 on public.pricing_settings for select
@@ -193,9 +334,10 @@ with check (
   auth.uid() = owner_id
   and exists (
     select 1
-    from public.products
-    where products.id = pricing_results.product_id
-      and products.owner_id = auth.uid()
+    from public.product_skus
+    where product_skus.id = pricing_results.sku_id
+      and product_skus.product_id = pricing_results.product_id
+      and product_skus.owner_id = auth.uid()
   )
 );
 
