@@ -17,7 +17,12 @@ export const defaultSettings: PricingSettings = {
   ocs_price_per_kg_rmb: 20,
   osaka_lastmile_jpy: 260,
   fukuoka_lastmile_jpy: 220,
+  test_ocs_3cm_first_price_rmb: 16.5,
+  test_ocs_3cm_extra_price_per_100g_rmb: 1.5,
+  test_ocs_small_parcel_first_price_rmb: 36.5,
+  test_ocs_small_parcel_extra_price_per_500g_rmb: 6,
   target_profit_rate: 0.3,
+  target_post_ad_profit_rate: 0.25,
 };
 
 export const emptyProductDraft: ProductDraft = {

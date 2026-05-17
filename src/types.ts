@@ -76,7 +76,12 @@ export type PricingSettings = {
   ocs_tariff_rate?: number;
   osaka_lastmile_jpy: number;
   fukuoka_lastmile_jpy: number;
+  test_ocs_3cm_first_price_rmb: number;
+  test_ocs_3cm_extra_price_per_100g_rmb: number;
+  test_ocs_small_parcel_first_price_rmb: number;
+  test_ocs_small_parcel_extra_price_per_500g_rmb: number;
   target_profit_rate: number;
+  target_post_ad_profit_rate: number;
 };
 
 export type ProductDraft = Omit<
@@ -104,6 +109,66 @@ export type PricingResult = {
   temuDeclarationPriceRmb: number;
   profitRmb: number;
   profitRate: number;
+};
+
+export type ProfitCalculationInput = {
+  temuPriceRmb: number;
+  trafficDiscountRate: number;
+  activityDiscountRate: number;
+  couponDiscountRate: number;
+};
+
+export type ProfitLogisticsPlanKey =
+  | "huaian_osaka"
+  | "huaian_fukuoka"
+  | "ocs_osaka"
+  | "ocs_fukuoka";
+
+export type ProfitLogisticsPlanResult = {
+  planKey: ProfitLogisticsPlanKey;
+  planName: string;
+  logisticsCostRmb: number;
+  totalCostRmb: number;
+  effectiveSubsidyRmb: number;
+  realizedRevenueRmb: number;
+  profitRmb: number;
+  profitRate: number | null;
+  maxAdSpendRmb: number;
+  breakEvenAdSpendRmb: number;
+  recommendedMinRoas: number | null;
+  breakEvenRoas: number | null;
+};
+
+export type ProfitCalculationResult = {
+  calculationVersion: number;
+  isValid: boolean;
+  finalDiscountRate: number;
+  discountedSalePriceRmb: number;
+  discountedUnitPriceJpy: number | null;
+  singleUnitLosesShippingSubsidy: boolean;
+  freeShippingThresholdQty: number | null;
+  plans: ProfitLogisticsPlanResult[];
+};
+
+export type TestShippingResult = {
+  sfCostRmb: number;
+  ocsKunshan3cmCostRmb: number;
+  ocsKunshanSmallParcelCostRmb: number;
+  canUseOcsKunshan3cm: boolean;
+};
+
+export type SavedProfitCalculation = {
+  id: string;
+  product_id: string;
+  sku_id: string;
+  owner_id: string;
+  temu_price_rmb: number;
+  traffic_discount_rate: number;
+  activity_discount_rate: number;
+  coupon_discount_rate?: number;
+  result_json: ProfitCalculationResult;
+  created_at: string;
+  updated_at: string;
 };
 
 export type ProductTransferItem = Omit<

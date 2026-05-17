@@ -74,7 +74,12 @@ create table if not exists public.pricing_settings (
   ocs_tariff_rate numeric not null default 0,
   osaka_lastmile_jpy numeric not null default 260,
   fukuoka_lastmile_jpy numeric not null default 220,
+  test_ocs_3cm_first_price_rmb numeric not null default 16.5,
+  test_ocs_3cm_extra_price_per_100g_rmb numeric not null default 1.5,
+  test_ocs_small_parcel_first_price_rmb numeric not null default 36.5,
+  test_ocs_small_parcel_extra_price_per_500g_rmb numeric not null default 6,
   target_profit_rate numeric not null default 0.3,
+  target_post_ad_profit_rate numeric not null default 0.25,
   updated_at timestamptz not null default now()
 );
 
@@ -101,6 +106,24 @@ create table if not exists public.pricing_results (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.profit_calculations (
+  id uuid primary key default gen_random_uuid(),
+  product_id uuid not null references public.products(id) on delete cascade,
+  sku_id uuid not null unique references public.product_skus(id) on delete cascade,
+  owner_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  temu_price_rmb numeric not null default 0,
+  traffic_discount_rate numeric not null default 1,
+  activity_discount_rate numeric not null default 1,
+  coupon_discount_rate numeric not null default 10,
+  result_json jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+grant select, insert, update, delete
+on table public.profit_calculations
+to authenticated;
+
 alter table public.products
 alter column owner_id set default auth.uid();
 
@@ -125,11 +148,32 @@ alter column owner_id set default auth.uid();
 alter table public.pricing_settings
 alter column owner_id set default auth.uid();
 
+alter table public.pricing_settings
+add column if not exists target_post_ad_profit_rate numeric not null default 0.25;
+
+alter table public.pricing_settings
+add column if not exists test_ocs_3cm_first_price_rmb numeric not null default 16.5;
+
+alter table public.pricing_settings
+add column if not exists test_ocs_3cm_extra_price_per_100g_rmb numeric not null default 1.5;
+
+alter table public.pricing_settings
+add column if not exists test_ocs_small_parcel_first_price_rmb numeric not null default 36.5;
+
+alter table public.pricing_settings
+add column if not exists test_ocs_small_parcel_extra_price_per_500g_rmb numeric not null default 6;
+
 alter table public.pricing_results
 alter column owner_id set default auth.uid();
 
 alter table public.pricing_results
 add column if not exists sku_id uuid references public.product_skus(id) on delete cascade;
+
+alter table public.profit_calculations
+alter column owner_id set default auth.uid();
+
+alter table public.profit_calculations
+add column if not exists coupon_discount_rate numeric not null default 10;
 
 create or replace function public.set_updated_at()
 returns trigger
@@ -156,12 +200,18 @@ create trigger pricing_results_set_updated_at
 before update on public.pricing_results
 for each row execute function public.set_updated_at();
 
+drop trigger if exists profit_calculations_set_updated_at on public.profit_calculations;
+create trigger profit_calculations_set_updated_at
+before update on public.profit_calculations
+for each row execute function public.set_updated_at();
+
 alter table public.products enable row level security;
 alter table public.product_items enable row level security;
 alter table public.product_skus enable row level security;
 alter table public.product_sku_items enable row level security;
 alter table public.pricing_settings enable row level security;
 alter table public.pricing_results enable row level security;
+alter table public.profit_calculations enable row level security;
 
 drop policy if exists "products_select_own" on public.products;
 create policy "products_select_own"
@@ -350,4 +400,34 @@ with check (auth.uid() = owner_id);
 drop policy if exists "pricing_results_delete_own" on public.pricing_results;
 create policy "pricing_results_delete_own"
 on public.pricing_results for delete
+using (auth.uid() = owner_id);
+
+drop policy if exists "profit_calculations_select_own" on public.profit_calculations;
+create policy "profit_calculations_select_own"
+on public.profit_calculations for select
+using (auth.uid() = owner_id);
+
+drop policy if exists "profit_calculations_insert_own" on public.profit_calculations;
+create policy "profit_calculations_insert_own"
+on public.profit_calculations for insert
+with check (
+  auth.uid() = owner_id
+  and exists (
+    select 1
+    from public.product_skus
+    where product_skus.id = profit_calculations.sku_id
+      and product_skus.product_id = profit_calculations.product_id
+      and product_skus.owner_id = auth.uid()
+  )
+);
+
+drop policy if exists "profit_calculations_update_own" on public.profit_calculations;
+create policy "profit_calculations_update_own"
+on public.profit_calculations for update
+using (auth.uid() = owner_id)
+with check (auth.uid() = owner_id);
+
+drop policy if exists "profit_calculations_delete_own" on public.profit_calculations;
+create policy "profit_calculations_delete_own"
+on public.profit_calculations for delete
 using (auth.uid() = owner_id);

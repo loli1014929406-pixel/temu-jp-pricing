@@ -4,8 +4,6 @@ import { Link, useLocation } from "react-router-dom";
 import {
   deleteProduct,
   exportProductsData,
-  fetchProductItemsByProductIds,
-  fetchProductSkusByProductIds,
   fetchProducts,
   importProductsData,
 } from "../lib/products";
@@ -14,9 +12,7 @@ import {
   getTransferValidation,
   parseTransferFile,
 } from "../lib/product-transfer";
-import { fetchSettings } from "../lib/settings";
 import { getErrorMessage } from "../utils/errors";
-import { calculatePricing, formatCurrency } from "../utils/pricing";
 import type { Product } from "../types";
 import type { User } from "@supabase/supabase-js";
 
@@ -26,11 +22,6 @@ type ProductsPageProps = {
 
 export function ProductsPage({ user }: ProductsPageProps) {
   const [products, setProducts] = useState<Product[]>([]);
-  const [temuDeclarationPrices, setTemuDeclarationPrices] = useState<
-    Record<string, number | null>
-  >(
-    {},
-  );
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [deletingProductId, setDeletingProductId] = useState("");
@@ -44,9 +35,6 @@ export function ProductsPage({ user }: ProductsPageProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const location = useLocation();
   const successMessage = (location.state as { message?: string } | null)?.message;
-  const formatTemuDeclarationPrice = (value: number | null | undefined) =>
-    typeof value === "number" ? formatCurrency(value) : "--";
-
   useEffect(() => {
     let active = true;
 
@@ -56,51 +44,9 @@ export function ProductsPage({ user }: ProductsPageProps) {
 
       try {
         const baseProducts = await fetchProducts();
-        const [items, skus, settings] = await Promise.all([
-          fetchProductItemsByProductIds(baseProducts.map((product) => product.id)),
-          fetchProductSkusByProductIds(baseProducts.map((product) => product.id)),
-          fetchSettings(user.id),
-        ]);
-        const itemsById = Object.fromEntries(
-          items.flatMap((item) => (item.id ? [[item.id, item]] : [])),
-        );
-        const skusByProductId = skus.reduce<Record<string, typeof skus>>(
-          (groups, sku) => {
-            if (!sku.product_id) return groups;
-            groups[sku.product_id] ??= [];
-            groups[sku.product_id].push(sku);
-            return groups;
-          },
-          {},
-        );
-        const nextTemuDeclarationPrices = Object.fromEntries(
-          baseProducts.map((product) => {
-            const productSkus = skusByProductId[product.id] ?? [];
-            const productTemuDeclarationPrices = productSkus
-              .map((sku) =>
-                sku.component_links.flatMap((link) => {
-                  const item = itemsById[link.item_id];
-                  return item ? [{ ...item, quantity: link.quantity }] : [];
-                }),
-              )
-              .filter((skuItems) => skuItems.length > 0)
-              .map(
-                (skuItems) =>
-                  calculatePricing(product.package_weight_g, skuItems, settings)
-                    .temuDeclarationPriceRmb,
-              );
-            return [
-              product.id,
-              productTemuDeclarationPrices.length > 0
-                ? Math.min(...productTemuDeclarationPrices)
-                : null,
-            ];
-          }),
-        );
 
         if (active) {
           setProducts(baseProducts);
-          setTemuDeclarationPrices(nextTemuDeclarationPrices);
         }
       } catch (error) {
         if (active) {
@@ -129,11 +75,6 @@ export function ProductsPage({ user }: ProductsPageProps) {
     try {
       await deleteProduct(product.id);
       setProducts((current) => current.filter((item) => item.id !== product.id));
-      setTemuDeclarationPrices((current) => {
-        const next = { ...current };
-        delete next[product.id];
-        return next;
-      });
     } catch (error) {
       setErrorMessage(getErrorMessage(error, "删除商品失败"));
     } finally {
@@ -355,9 +296,10 @@ export function ProductsPage({ user }: ProductsPageProps) {
                 </th>
                 <th className="px-4 py-3 font-medium">商品编号</th>
                 <th className="px-4 py-3 font-medium">产品名称</th>
-                <th className="px-4 py-3 font-medium">日语标题</th>
+                <th className="px-4 py-3 font-medium">包装长</th>
+                <th className="px-4 py-3 font-medium">包装宽</th>
+                <th className="px-4 py-3 font-medium">包装高</th>
                 <th className="px-4 py-3 font-medium">包装重量</th>
-                <th className="px-4 py-3 font-medium">Temu 申报价</th>
                 <th className="px-4 py-3 font-medium">创建时间</th>
                 <th className="px-4 py-3 font-medium">操作</th>
               </tr>
@@ -365,13 +307,13 @@ export function ProductsPage({ user }: ProductsPageProps) {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
                     加载中...
                   </td>
                 </tr>
               ) : products.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
                     暂无商品
                   </td>
                 </tr>
@@ -388,19 +330,15 @@ export function ProductsPage({ user }: ProductsPageProps) {
                     </td>
                     <td className="px-4 py-3">{product.product_code}</td>
                     <td className="px-4 py-3">{product.product_name_cn}</td>
-                    <td className="px-4 py-3">{product.title_jp}</td>
+                    <td className="px-4 py-3">{product.package_length_cm} cm</td>
+                    <td className="px-4 py-3">{product.package_width_cm} cm</td>
+                    <td className="px-4 py-3">{product.package_height_cm} cm</td>
                     <td className="px-4 py-3">{product.package_weight_g} g</td>
-                    <td className="px-4 py-3">
-                      {formatTemuDeclarationPrice(temuDeclarationPrices[product.id])}
-                    </td>
                     <td className="px-4 py-3">
                       {new Date(product.created_at).toLocaleString("zh-CN")}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex min-w-36 items-center gap-4">
-                        <Link className="text-accent" to={`/products/${product.id}/pricing`}>
-                          查看申报价
-                        </Link>
+                      <div className="flex min-w-40 items-center gap-6">
                         <Link className="text-slate-600" to={`/products/${product.id}/edit`}>
                           编辑
                         </Link>

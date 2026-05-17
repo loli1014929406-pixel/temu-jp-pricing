@@ -1,4 +1,11 @@
-import { LogOut, PackageSearch, Settings } from "lucide-react";
+import {
+  Calculator,
+  ClipboardList,
+  LogOut,
+  PackageSearch,
+  Settings,
+  Truck,
+} from "lucide-react";
 import { NavLink, Outlet } from "react-router-dom";
 import { getSupabaseClient } from "../lib/supabase";
 
@@ -22,6 +29,39 @@ export function PageShell() {
             >
               <PackageSearch size={18} />
               商品
+            </NavLink>
+            <NavLink
+              to="/declaration-prices"
+              className={({ isActive }) =>
+                `inline-flex h-10 items-center gap-2 rounded-md px-3 text-sm ${
+                  isActive ? "bg-accent text-white" : "text-slate-600 hover:bg-slate-100"
+                }`
+              }
+            >
+              <ClipboardList size={18} />
+              申报价格
+            </NavLink>
+            <NavLink
+              to="/profit-calculation"
+              className={({ isActive }) =>
+                `inline-flex h-10 items-center gap-2 rounded-md px-3 text-sm ${
+                  isActive ? "bg-accent text-white" : "text-slate-600 hover:bg-slate-100"
+                }`
+              }
+            >
+              <Calculator size={18} />
+              利润测算
+            </NavLink>
+            <NavLink
+              to="/test-shipping"
+              className={({ isActive }) =>
+                `inline-flex h-10 items-center gap-2 rounded-md px-3 text-sm ${
+                  isActive ? "bg-accent text-white" : "text-slate-600 hover:bg-slate-100"
+                }`
+              }
+            >
+              <Truck size={18} />
+              测试阶段发货
             </NavLink>
             <NavLink
               to="/settings"
