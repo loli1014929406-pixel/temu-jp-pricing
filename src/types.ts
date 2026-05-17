@@ -101,7 +101,7 @@ export type PricingResult = {
   planD: number;
   logisticsCostRmb: number;
   totalCostRmb: number;
-  minimumPriceRmb: number;
+  temuDeclarationPriceRmb: number;
   profitRmb: number;
   profitRate: number;
 };

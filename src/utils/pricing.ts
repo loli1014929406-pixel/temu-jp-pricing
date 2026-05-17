@@ -47,11 +47,11 @@ export function calculatePricing(
     packagingCostRmb +
     sfCostRmb +
     logisticsCostRmb;
-  const minimumPriceRmb =
+  const temuDeclarationPriceRmb =
     totalCostRmb / (1 - settings.target_profit_rate) - subsidyRmb;
-  const profitRmb = minimumPriceRmb + subsidyRmb - totalCostRmb;
+  const profitRmb = temuDeclarationPriceRmb + subsidyRmb - totalCostRmb;
   const profitRate =
-    profitRmb / Math.max(minimumPriceRmb + subsidyRmb, Number.EPSILON);
+    profitRmb / Math.max(temuDeclarationPriceRmb + subsidyRmb, Number.EPSILON);
 
   return {
     purchaseCostRmb: round(purchaseCostRmb),
@@ -70,7 +70,7 @@ export function calculatePricing(
     planD: round(planD),
     logisticsCostRmb: round(logisticsCostRmb),
     totalCostRmb: round(totalCostRmb),
-    minimumPriceRmb: round(minimumPriceRmb),
+    temuDeclarationPriceRmb: round(temuDeclarationPriceRmb),
     profitRmb: round(profitRmb),
     profitRate: round(profitRate, 4),
   };

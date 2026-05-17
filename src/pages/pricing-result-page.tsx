@@ -78,7 +78,7 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
         );
       } catch (error) {
         if (active) {
-          setErrorMessage(getErrorMessage(error, "加载核价结果失败"));
+          setErrorMessage(getErrorMessage(error, "加载申报价结果失败"));
         }
       } finally {
         if (active) {
@@ -108,9 +108,9 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
   if (emptyItems) {
     return (
       <section className="grid gap-4">
-        <h1 className="text-2xl font-semibold text-ink">核价结果</h1>
+        <h1 className="text-2xl font-semibold text-ink">申报价结果</h1>
         <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-          暂无组合明细，无法核价
+          暂无组合明细，无法计算申报价
         </div>
       </section>
     );
@@ -124,9 +124,12 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
     <section className="grid gap-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-ink">核价结果</h1>
+          <h1 className="text-2xl font-semibold text-ink">申报价结果</h1>
           <p className="mt-1 text-sm text-slate-500">
             {product.product_code} · {product.product_name_cn}
+          </p>
+          <p className="mt-1 text-sm text-slate-500">
+            在满足目标利润率的前提下，计算给 Temu 的申报价格
           </p>
         </div>
         <Link to={`/products/${product.id}/edit`} className="text-sm text-accent">
@@ -148,7 +151,7 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
             ["物流成本", formatCurrency(result.logisticsCostRmb)],
             ["总成本", formatCurrency(result.totalCostRmb)],
             ["运费补贴", formatCurrency(result.subsidyRmb)],
-            ["最低核价", formatCurrency(result.minimumPriceRmb)],
+            ["Temu 申报价", formatCurrency(result.temuDeclarationPriceRmb)],
             ["利润", formatCurrency(result.profitRmb)],
             ["利润率", formatPercent(result.profitRate)],
           ];
@@ -165,9 +168,9 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
               </div>
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="rounded-lg bg-white p-5 shadow-panel">
-                  <p className="text-sm text-slate-500">最低核价</p>
+                  <p className="text-sm text-slate-500">Temu 申报价</p>
                   <p className="mt-2 text-3xl font-semibold text-ink">
-                    {formatCurrency(result.minimumPriceRmb)}
+                    {formatCurrency(result.temuDeclarationPriceRmb)}
                   </p>
                 </div>
                 <div className="rounded-lg bg-white p-5 shadow-panel">

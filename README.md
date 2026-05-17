@@ -1,4 +1,4 @@
-# Temu 日本站商品核价
+# Temu 日本站申报核算
 
 React + Vite + TypeScript 的 MVP，使用 Supabase 做登录与数据存储，使用 Tailwind CSS 做样式。
 
@@ -30,7 +30,7 @@ npm run dev
 - `/products` 商品列表
 - `/products/new` 新增商品
 - `/products/:id/edit` 编辑商品
-- `/products/:id/pricing` 核价结果
+- `/products/:id/pricing` 申报价结果
 - `/settings` 参数设置
 
 ## 数据隔离

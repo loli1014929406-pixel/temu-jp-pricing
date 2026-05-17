@@ -26,7 +26,9 @@ type ProductsPageProps = {
 
 export function ProductsPage({ user }: ProductsPageProps) {
   const [products, setProducts] = useState<Product[]>([]);
-  const [minimumPrices, setMinimumPrices] = useState<Record<string, number | null>>(
+  const [temuDeclarationPrices, setTemuDeclarationPrices] = useState<
+    Record<string, number | null>
+  >(
     {},
   );
   const [loading, setLoading] = useState(true);
@@ -42,7 +44,7 @@ export function ProductsPage({ user }: ProductsPageProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const location = useLocation();
   const successMessage = (location.state as { message?: string } | null)?.message;
-  const formatMinimumPrice = (value: number | null | undefined) =>
+  const formatTemuDeclarationPrice = (value: number | null | undefined) =>
     typeof value === "number" ? formatCurrency(value) : "--";
 
   useEffect(() => {
@@ -71,10 +73,10 @@ export function ProductsPage({ user }: ProductsPageProps) {
           },
           {},
         );
-        const nextMinimumPrices = Object.fromEntries(
+        const nextTemuDeclarationPrices = Object.fromEntries(
           baseProducts.map((product) => {
             const productSkus = skusByProductId[product.id] ?? [];
-            const productMinimumPrices = productSkus
+            const productTemuDeclarationPrices = productSkus
               .map((sku) =>
                 sku.component_links.flatMap((link) => {
                   const item = itemsById[link.item_id];
@@ -85,12 +87,12 @@ export function ProductsPage({ user }: ProductsPageProps) {
               .map(
                 (skuItems) =>
                   calculatePricing(product.package_weight_g, skuItems, settings)
-                    .minimumPriceRmb,
+                    .temuDeclarationPriceRmb,
               );
             return [
               product.id,
-              productMinimumPrices.length > 0
-                ? Math.min(...productMinimumPrices)
+              productTemuDeclarationPrices.length > 0
+                ? Math.min(...productTemuDeclarationPrices)
                 : null,
             ];
           }),
@@ -98,7 +100,7 @@ export function ProductsPage({ user }: ProductsPageProps) {
 
         if (active) {
           setProducts(baseProducts);
-          setMinimumPrices(nextMinimumPrices);
+          setTemuDeclarationPrices(nextTemuDeclarationPrices);
         }
       } catch (error) {
         if (active) {
@@ -127,7 +129,7 @@ export function ProductsPage({ user }: ProductsPageProps) {
     try {
       await deleteProduct(product.id);
       setProducts((current) => current.filter((item) => item.id !== product.id));
-      setMinimumPrices((current) => {
+      setTemuDeclarationPrices((current) => {
         const next = { ...current };
         delete next[product.id];
         return next;
@@ -355,7 +357,7 @@ export function ProductsPage({ user }: ProductsPageProps) {
                 <th className="px-4 py-3 font-medium">产品名称</th>
                 <th className="px-4 py-3 font-medium">日语标题</th>
                 <th className="px-4 py-3 font-medium">包装重量</th>
-                <th className="px-4 py-3 font-medium">最低核价</th>
+                <th className="px-4 py-3 font-medium">Temu 申报价</th>
                 <th className="px-4 py-3 font-medium">创建时间</th>
                 <th className="px-4 py-3 font-medium">操作</th>
               </tr>
@@ -389,7 +391,7 @@ export function ProductsPage({ user }: ProductsPageProps) {
                     <td className="px-4 py-3">{product.title_jp}</td>
                     <td className="px-4 py-3">{product.package_weight_g} g</td>
                     <td className="px-4 py-3">
-                      {formatMinimumPrice(minimumPrices[product.id])}
+                      {formatTemuDeclarationPrice(temuDeclarationPrices[product.id])}
                     </td>
                     <td className="px-4 py-3">
                       {new Date(product.created_at).toLocaleString("zh-CN")}
@@ -397,7 +399,7 @@ export function ProductsPage({ user }: ProductsPageProps) {
                     <td className="px-4 py-3">
                       <div className="flex min-w-36 items-center gap-4">
                         <Link className="text-accent" to={`/products/${product.id}/pricing`}>
-                          查看核价
+                          查看申报价
                         </Link>
                         <Link className="text-slate-600" to={`/products/${product.id}/edit`}>
                           编辑

@@ -48,7 +48,7 @@ function buildSkuMatrix(specs: ProductSpec[]) {
   }));
 
   if (normalizedSpecs.length === 0) {
-    return [] as Array<Record<string, string>>;
+    return [{}] as Array<Record<string, string>>;
   }
 
   return normalizedSpecs.reduce<Array<Record<string, string>>>(
@@ -593,13 +593,17 @@ export function ProductForm({
                         />
                       </td>
                       <td className="px-4 py-3">
-                        <div className="grid gap-1">
-                          {Object.entries(sku.attributes).map(([name, value]) => (
-                            <span key={name}>
-                              {name}：{value}
-                            </span>
-                          ))}
-                        </div>
+                        {Object.keys(sku.attributes).length === 0 ? (
+                          <span className="text-slate-500">无规格</span>
+                        ) : (
+                          <div className="grid gap-1">
+                            {Object.entries(sku.attributes).map(([name, value]) => (
+                              <span key={name}>
+                                {name}：{value}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </td>
                         <td className="px-4 py-3">
                           <div className="grid gap-2">

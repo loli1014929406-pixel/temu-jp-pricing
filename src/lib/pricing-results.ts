@@ -21,7 +21,7 @@ export async function savePricingResult(
     selected_logistics_cost_rmb: result.logisticsCostRmb,
     total_cost_rmb: result.totalCostRmb,
     shipping_subsidy_rmb: result.subsidyRmb,
-    minimum_temu_price_rmb: result.minimumPriceRmb,
+    minimum_temu_price_rmb: result.temuDeclarationPriceRmb,
     estimated_profit_rmb: result.profitRmb,
     estimated_profit_rate: result.profitRate,
   });
