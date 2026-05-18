@@ -108,9 +108,9 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
   if (emptyItems) {
     return (
       <section className="grid gap-4">
-        <h1 className="text-2xl font-semibold text-ink">申报价结果</h1>
+        <h1 className="text-2xl font-semibold text-ink">核算定价结果</h1>
         <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-          暂无组合明细，无法计算申报价
+          暂无组合明细，无法计算核算定价
         </div>
       </section>
     );
@@ -124,12 +124,12 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
     <section className="grid gap-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-ink">申报价结果</h1>
+          <h1 className="text-2xl font-semibold text-ink">核算定价结果</h1>
           <p className="mt-1 text-sm text-slate-500">
             {product.product_code} · {product.product_name_cn}
           </p>
           <p className="mt-1 text-sm text-slate-500">
-            在满足目标利润率的前提下，计算给 Temu 的申报价格
+            在满足目标利润率的前提下，计算核算定价
           </p>
         </div>
         <Link to={`/products/${product.id}/edit`} className="text-sm text-accent">
@@ -151,7 +151,7 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
             ["物流成本", formatCurrency(result.logisticsCostRmb)],
             ["总成本", formatCurrency(result.totalCostRmb)],
             ["运费补贴", formatCurrency(result.subsidyRmb)],
-            ["Temu 申报价", formatCurrency(result.temuDeclarationPriceRmb)],
+            ["核算定价 (RMB)", formatCurrency(result.temuDeclarationPriceRmb)],
             ["利润", formatCurrency(result.profitRmb)],
             ["利润率", formatPercent(result.profitRate)],
           ];
@@ -168,7 +168,7 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
               </div>
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="rounded-lg bg-white p-5 shadow-panel">
-                  <p className="text-sm text-slate-500">Temu 申报价</p>
+                  <p className="text-sm text-slate-500">核算定价 (RMB)</p>
                   <p className="mt-2 text-3xl font-semibold text-ink">
                     {formatCurrency(result.temuDeclarationPriceRmb)}
                   </p>

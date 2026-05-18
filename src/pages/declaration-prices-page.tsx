@@ -10,6 +10,7 @@ import { fetchSettings } from "../lib/settings";
 import type { Product } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { calculatePricing, formatCurrency } from "../utils/pricing";
+import { PageHeader } from "../components/ui";
 
 type DeclarationPricesPageProps = {
   user: User;
@@ -97,9 +98,7 @@ export function DeclarationPricesPage({ user }: DeclarationPricesPageProps) {
 
   return (
     <section className="grid gap-5">
-      <div>
-        <h1 className="text-2xl font-semibold text-ink">申报价格</h1>
-      </div>
+      <PageHeader title="核算定价" description="查看和维护商品核算定价数据" />
 
       {errorMessage && (
         <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
@@ -107,14 +106,42 @@ export function DeclarationPricesPage({ user }: DeclarationPricesPageProps) {
         </div>
       )}
 
-      <div className="overflow-hidden rounded-lg bg-white shadow-panel">
+      <div className="grid gap-3 md:hidden">
+        {loading ? (
+          <div className="empty-state">加载中...</div>
+        ) : products.length === 0 ? (
+          <div className="empty-state">暂无商品</div>
+        ) : (
+          products.map((product) => (
+            <article key={product.id} className="mobile-summary-card">
+              <p className="mobile-summary-title">{product.product_code}</p>
+              <p className="mobile-summary-subtitle">{product.product_name_cn}</p>
+              <p className="mt-3 text-sm font-medium text-ink">
+                核算定价：{typeof temuDeclarationPrices[product.id] === "number"
+                  ? formatCurrency(temuDeclarationPrices[product.id] as number)
+                  : "--"}
+              </p>
+              <div className="mobile-summary-actions">
+                <Link className="text-action" to={`/products/${product.id}/pricing`}>
+                  查看核算定价
+                </Link>
+                <Link className="text-sm font-medium text-slate-600 hover:underline" to={`/products/${product.id}/edit`}>
+                  编辑
+                </Link>
+              </div>
+            </article>
+          ))
+        )}
+      </div>
+
+      <div className="table-card hidden md:block">
         <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
-            <thead className="bg-slate-50 text-slate-500">
+          <table className="data-table">
+            <thead>
               <tr>
                 <th className="px-4 py-3 font-medium">商品编号</th>
                 <th className="px-4 py-3 font-medium">产品名称</th>
-                <th className="px-4 py-3 font-medium">Temu 申报价</th>
+                <th className="px-4 py-3 font-medium">核算定价 (RMB)</th>
                 <th className="px-4 py-3 font-medium">操作</th>
               </tr>
             </thead>
@@ -133,20 +160,20 @@ export function DeclarationPricesPage({ user }: DeclarationPricesPageProps) {
                 </tr>
               ) : (
                 products.map((product) => (
-                  <tr key={product.id} className="border-t border-line">
+                  <tr key={product.id}>
                     <td className="px-4 py-3">{product.product_code}</td>
                     <td className="px-4 py-3">{product.product_name_cn}</td>
-                    <td className="px-4 py-3">
+                    <td className="money">
                       {typeof temuDeclarationPrices[product.id] === "number"
                         ? formatCurrency(temuDeclarationPrices[product.id] as number)
                         : "--"}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-4">
-                        <Link className="text-accent" to={`/products/${product.id}/pricing`}>
-                          查看申报价格
+                      <div className="flex items-center gap-5">
+                        <Link className="text-action" to={`/products/${product.id}/pricing`}>
+                          查看核算定价
                         </Link>
-                        <Link className="text-slate-600" to={`/products/${product.id}/edit`}>
+                        <Link className="text-sm font-medium text-slate-600 hover:underline" to={`/products/${product.id}/edit`}>
                           编辑
                         </Link>
                       </div>

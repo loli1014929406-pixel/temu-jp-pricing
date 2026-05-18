@@ -1,4 +1,4 @@
-import { Plus, Trash2 } from "lucide-react";
+import { Copy, Plus, Trash2 } from "lucide-react";
 import type { FormEvent } from "react";
 import { createEmptyItem, createEmptySpec } from "../lib/defaults";
 import type {
@@ -92,6 +92,20 @@ export function ProductForm({
       ),
     );
 
+  const duplicateItem = (index: number) => {
+    const { id, product_id, owner_id, ...item } = items[index];
+    void id;
+    void product_id;
+    void owner_id;
+    onItemsChange([...items.slice(0, index + 1), { ...item }, ...items.slice(index + 1)]);
+  };
+
+  const removeItem = (index: number) => {
+    const confirmed = window.confirm(`确认删除配件 ${index + 1} 吗？`);
+    if (!confirmed) return;
+    onItemsChange(items.filter((_, itemIndex) => itemIndex !== index));
+  };
+
   const updateSpec = <K extends keyof ProductSpec>(
     index: number,
     key: K,
@@ -130,7 +144,15 @@ export function ProductForm({
       ),
     );
 
-  const removeSpecValue = (specIndex: number, valueIndex: number) =>
+  const removeSpec = (index: number) => {
+    const confirmed = window.confirm(`确认删除规格 ${index + 1} 吗？`);
+    if (!confirmed) return;
+    onSpecsChange(specs.filter((_, specIndex) => specIndex !== index));
+  };
+
+  const removeSpecValue = (specIndex: number, valueIndex: number) => {
+    const confirmed = window.confirm(`确认删除规格 ${specIndex + 1} 的值 ${valueIndex + 1} 吗？`);
+    if (!confirmed) return;
     onSpecsChange(
       specs.map((spec, currentSpecIndex) =>
         currentSpecIndex === specIndex
@@ -144,6 +166,7 @@ export function ProductForm({
           : spec,
       ),
     );
+  };
 
   const updateSku = <K extends keyof ProductSkuDraft>(
     index: number,
@@ -361,16 +384,28 @@ export function ProductForm({
             >
               <div className="flex items-center justify-between">
                 <p className="text-sm font-medium text-slate-700">配件 {index + 1}</p>
-                {items.length > 1 && (
+                <div className="flex items-center gap-1">
                   <button
                     type="button"
-                    onClick={() => onItemsChange(items.filter((_, itemIndex) => itemIndex !== index))}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-md text-slate-500 hover:bg-rose-50 hover:text-rose-600"
-                    aria-label={`删除配件 ${index + 1}`}
+                    onClick={() => duplicateItem(index)}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                    aria-label={`复制配件 ${index + 1}`}
+                    title="复制配件"
                   >
-                    <Trash2 size={18} />
+                    <Copy size={18} />
                   </button>
-                )}
+                  {items.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => removeItem(index)}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-md text-slate-500 hover:bg-rose-50 hover:text-rose-600"
+                      aria-label={`删除配件 ${index + 1}`}
+                      title="删除配件"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  )}
+                </div>
               </div>
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <Field label="配件名称">
@@ -493,7 +528,7 @@ export function ProductForm({
                 {specs.length > 1 && (
                   <button
                     type="button"
-                    onClick={() => onSpecsChange(specs.filter((_, specIndex) => specIndex !== index))}
+                    onClick={() => removeSpec(index)}
                     className="inline-flex h-10 w-10 items-center justify-center rounded-md text-slate-500 hover:bg-rose-50 hover:text-rose-600"
                     aria-label={`删除规格 ${index + 1}`}
                   >
@@ -551,124 +586,127 @@ export function ProductForm({
 
       <section className="grid gap-4 rounded-lg bg-white p-5 shadow-panel">
         <h2 className="text-base font-semibold text-ink">最终 SKU 属性与 BOM 关联映射表</h2>
-        <div className="overflow-x-auto">
-          <table className="min-w-full table-fixed text-left text-sm">
-            <colgroup>
-              <col className="w-[18%]" />
-              <col className="w-[18%]" />
-              <col className="w-[20%]" />
-              <col className="w-[18%]" />
-              <col className="w-[13%]" />
-              <col className="w-[13%]" />
-            </colgroup>
-            <thead className="bg-slate-50 text-slate-500">
-              <tr>
-                <th className="px-4 py-3 font-medium">SKU 编号</th>
-                <th className="px-4 py-3 font-medium">销售规格属性</th>
-                <th className="px-4 py-3 font-medium">关联配件</th>
-                <th className="px-4 py-3 font-medium">配件数量</th>
-                <th className="px-4 py-3 font-medium">SKU 采购总成本</th>
-                <th className="px-4 py-3 font-medium">SKU 总重量</th>
-              </tr>
-            </thead>
-            <tbody>
-              {skus.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
-                    请先生成 SKU 矩阵
-                  </td>
-                </tr>
-              ) : (
-                skus.map((sku, skuIndex) => {
-                  const metrics = getSkuMetrics(sku);
-                  return (
-                    <tr key={sku.id ?? `sku-${skuIndex}`} className="border-t border-line align-top">
-                      <td className="px-4 py-3">
-                        <TextInput
-                          required
-                          value={sku.sku_code}
-                          onChange={(event) =>
-                            updateSku(skuIndex, "sku_code", event.target.value)
-                          }
-                        />
-                      </td>
-                      <td className="px-4 py-3">
-                        {Object.keys(sku.attributes).length === 0 ? (
-                          <span className="text-slate-500">无规格</span>
-                        ) : (
-                          <div className="grid gap-1">
-                            {Object.entries(sku.attributes).map(([name, value]) => (
-                              <span key={name}>
-                                {name}：{value}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </td>
-                        <td className="px-4 py-3">
-                          <div className="grid gap-2">
-                            {items.map((item, itemIndex) => {
-                              const itemKey = getItemKey(item, itemIndex);
-                            const link = sku.component_links.find(
-                              (candidate) => candidate.item_key === itemKey,
-                              );
-                              return (
-                                <div key={itemKey} className="flex h-11 items-center gap-2">
-                                  <input
-                                  type="checkbox"
-                                  checked={Boolean(link)}
-                                  onChange={(event) =>
-                                    updateSkuItemLink(skuIndex, itemKey, event.target.checked)
-                                  }
-                                  />
-                                  <span className="min-w-24">{item.item_name || `配件 ${itemIndex + 1}`}</span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="grid gap-2">
-                            {items.map((item, itemIndex) => {
-                              const itemKey = getItemKey(item, itemIndex);
-                              const link = sku.component_links.find(
-                                (candidate) => candidate.item_key === itemKey,
-                              );
-                              return link ? (
-                                <div key={itemKey} className="flex h-11 items-center">
-                                  <TextInput
-                                    min="1"
-                                    step="1"
-                                    type="number"
-                                    value={link.quantity}
-                                    onChange={(event) =>
-                                      updateSkuItemQuantity(
-                                        skuIndex,
-                                        itemKey,
-                                        toNumber(event.target.value),
-                                      )
-                                    }
-                                  />
-                                </div>
-                              ) : (
-                                <div key={itemKey} className="h-11" />
-                              );
-                            })}
-                          </div>
-                        </td>
-                      <td className="px-4 py-3">
+        {skus.length === 0 ? (
+          <div className="rounded-md border border-dashed border-line px-4 py-8 text-center text-sm text-slate-500">
+            请先生成 SKU 矩阵
+          </div>
+        ) : (
+          <div className="grid gap-4">
+            {skus.map((sku, skuIndex) => {
+              const metrics = getSkuMetrics(sku);
+              return (
+                <section
+                  key={sku.id ?? `sku-${skuIndex}`}
+                  className="grid gap-4 rounded-md border border-line bg-slate-50/40 p-4"
+                >
+                  <div className="grid gap-4 lg:grid-cols-[220px_minmax(220px,1fr)_auto] lg:items-start">
+                    <Field label="SKU 编号">
+                      <TextInput
+                        required
+                        value={sku.sku_code}
+                        onChange={(event) =>
+                          updateSku(skuIndex, "sku_code", event.target.value)
+                        }
+                      />
+                    </Field>
+
+                    <div className="grid gap-2 text-sm text-slate-700">
+                      <span className="font-medium">销售规格属性</span>
+                      {Object.keys(sku.attributes).length === 0 ? (
+                        <span className="text-slate-500">无规格</span>
+                      ) : (
+                        <div className="flex flex-wrap gap-2">
+                          {Object.entries(sku.attributes).map(([name, value]) => (
+                            <span
+                              key={name}
+                              className="inline-flex rounded-md bg-white px-2.5 py-1 text-xs text-slate-700 ring-1 ring-line"
+                            >
+                              {name}：{value}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="grid gap-2">
+                        <span className="text-sm font-medium text-slate-700">采购总成本</span>
                         <TextInput readOnly value={metrics.cost.toFixed(2)} />
-                      </td>
-                      <td className="px-4 py-3">
+                      </div>
+                      <div className="grid gap-2">
+                        <span className="text-sm font-medium text-slate-700">总重量</span>
                         <TextInput readOnly value={metrics.weight.toFixed(2)} />
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3">
+                    <div className="grid grid-cols-[minmax(0,1fr)_120px] gap-3 px-1 text-xs font-medium text-slate-500">
+                      <span>关联配件</span>
+                      <span>配件数量</span>
+                    </div>
+                    <div className="grid gap-2">
+                      {items.map((item, itemIndex) => {
+                        const itemKey = getItemKey(item, itemIndex);
+                        const link = sku.component_links.find(
+                          (candidate) => candidate.item_key === itemKey,
+                        );
+
+                        return (
+                          <div
+                            key={itemKey}
+                            className={`grid grid-cols-[minmax(0,1fr)_120px] items-center gap-3 rounded-md border p-3 ${
+                              link
+                                ? "border-accent/30 bg-white"
+                                : "border-line bg-white/70"
+                            }`}
+                          >
+                            <label className="flex min-w-0 items-center gap-3">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(link)}
+                                onChange={(event) =>
+                                  updateSkuItemLink(skuIndex, itemKey, event.target.checked)
+                                }
+                              />
+                              <span className="min-w-0">
+                                <span className="block truncate font-medium text-slate-700">
+                                  {item.item_name || `配件 ${itemIndex + 1}`}
+                                </span>
+                                {item.item_spec && (
+                                  <span className="block truncate text-xs text-slate-500">
+                                    {item.item_spec}
+                                  </span>
+                                )}
+                              </span>
+                            </label>
+                            {link ? (
+                              <TextInput
+                                min="1"
+                                step="1"
+                                type="number"
+                                value={link.quantity}
+                                onChange={(event) =>
+                                  updateSkuItemQuantity(
+                                    skuIndex,
+                                    itemKey,
+                                    toNumber(event.target.value),
+                                  )
+                                }
+                              />
+                            ) : (
+                              <div className="h-11 rounded-md border border-dashed border-line bg-slate-50" />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       <div className="flex justify-end">

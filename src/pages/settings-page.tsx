@@ -4,6 +4,7 @@ import { Field, TextInput } from "../components/form-controls";
 import { fetchSettings, saveSettings } from "../lib/settings";
 import type { PricingSettings } from "../types";
 import { getErrorMessage } from "../utils/errors";
+import { PageHeader } from "../components/ui";
 
 type SettingsPageProps = {
   user: User;
@@ -138,16 +139,13 @@ export function SettingsPage({ user }: SettingsPageProps) {
 
   return (
     <section className="grid gap-5">
-      <div>
-        <h1 className="text-2xl font-semibold text-ink">参数设置</h1>
-        <p className="mt-1 text-sm text-slate-500">每个账号保存独立参数</p>
-      </div>
+      <PageHeader title="系统设置" description="每个账号保存独立系统参数" />
       {errorMessage && (
         <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
           {errorMessage}
         </div>
       )}
-      <form onSubmit={handleSubmit} className="grid gap-5 rounded-lg bg-white p-5 shadow-panel">
+      <form onSubmit={handleSubmit} className="surface-card grid gap-5 p-5">
         <div className="grid gap-5">
           {fieldGroups.map((group) => (
             <section key={group.title} className="grid gap-4">
@@ -188,9 +186,9 @@ export function SettingsPage({ user }: SettingsPageProps) {
           <button
             type="submit"
             disabled={busy}
-            className="h-11 rounded-md bg-ink px-5 text-sm font-medium text-white disabled:opacity-60"
+            className="btn-primary"
           >
-            {busy ? "保存中..." : "保存参数"}
+            {busy ? "保存中..." : "保存设置"}
           </button>
         </div>
       </form>

@@ -190,3 +190,115 @@ export type ProductTransferRecord = ProductDraft & {
   items: ProductTransferItem[];
   skus: ProductTransferSku[];
 };
+
+export type Warehouse = {
+  id: string;
+  owner_id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WarehouseSku = {
+  id: string;
+  warehouse_id: string;
+  product_id: string;
+  sku_id: string;
+  owner_id: string;
+  stock_quantity: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WarehouseItemStock = {
+  id: string;
+  warehouse_id: string;
+  item_id: string;
+  owner_id: string;
+  stock_quantity: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WarehouseItemStockAdjustment = {
+  id: string;
+  warehouse_id: string;
+  item_id: string;
+  owner_id: string;
+  previous_quantity: number;
+  next_quantity: number;
+  change_quantity: number;
+  reason: string;
+  purchase_order_id?: string | null;
+  purchase_package_id?: string | null;
+  created_at: string;
+};
+
+export type PurchaseOrder = {
+  id: string;
+  order_code: string;
+  owner_id: string;
+  warehouse_id: string;
+  warehouse_name: string;
+  purchased_at: string;
+  items_total_rmb: number;
+  total_cost_rmb: number;
+  notes: string;
+  status: "pending" | "partially_received" | "received";
+  received_at: string | null;
+  created_at: string;
+  updated_at: string;
+  sources: PurchaseOrderSource[];
+  items: PurchaseOrderItem[];
+  packages: PurchasePackage[];
+};
+
+export type PurchaseOrderSource = {
+  id: string;
+  order_id: string;
+  owner_id: string;
+  purchase_url: string;
+  alibaba_order_no: string;
+  freight_rmb: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PurchaseOrderItem = {
+  id: string;
+  order_id: string;
+  owner_id: string;
+  product_id: string | null;
+  item_id: string | null;
+  source_id: string;
+  product_code: string;
+  product_name_cn: string;
+  item_name: string;
+  item_spec: string;
+  purchase_url: string;
+  quantity: number;
+  unit_price_rmb: number;
+  created_at: string;
+};
+
+export type PurchasePackage = {
+  id: string;
+  order_id: string;
+  owner_id: string;
+  source_id: string;
+  tracking_no: string;
+  status: "pending" | "received";
+  received_at: string | null;
+  created_at: string;
+  updated_at: string;
+  items: PurchasePackageItem[];
+};
+
+export type PurchasePackageItem = {
+  id: string;
+  package_id: string;
+  order_item_id: string;
+  owner_id: string;
+  quantity: number;
+  created_at: string;
+};

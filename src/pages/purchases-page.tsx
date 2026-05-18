@@ -1,0 +1,840 @@
+import { CheckCircle2, Plus, Search, Trash2 } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import type { User } from "@supabase/supabase-js";
+import { Field, TextArea, TextInput } from "../components/form-controls";
+import { Badge, PageHeader } from "../components/ui";
+import { fetchWarehouses } from "../lib/inventory";
+import {
+  createPurchaseOrder,
+  createPurchasePackage,
+  deletePurchasePackage,
+  deletePurchaseOrder,
+  fetchPurchaseOrders,
+  receivePurchasePackage,
+  updatePurchasePackageTrackingNo,
+  updatePurchaseSource,
+} from "../lib/purchases";
+import { fetchProductItemsByProductIds, fetchProducts } from "../lib/products";
+import type {
+  Product,
+  ProductItem,
+  PurchaseOrder,
+  PurchasePackage,
+  Warehouse,
+} from "../types";
+import { getErrorMessage } from "../utils/errors";
+
+type PurchasesPageProps = { user: User; view: "create" | "records" };
+type DraftItem = { id: string; itemId: string; quantity: string; unitPriceRmb: string };
+type DraftProduct = { id: string; productId: string; items: DraftItem[] };
+
+function localDate() {
+  const now = new Date();
+  const offset = now.getTimezoneOffset() * 60 * 1000;
+  return new Date(now.getTime() - offset).toISOString().slice(0, 10);
+}
+
+function createDraftItem(): DraftItem {
+  return { id: crypto.randomUUID(), itemId: "", quantity: "1", unitPriceRmb: "" };
+}
+
+function createDraftProduct(): DraftProduct {
+  return { id: crypto.randomUUID(), productId: "", items: [createDraftItem()] };
+}
+
+export function PurchasesPage({ user, view }: PurchasesPageProps) {
+  const navigate = useNavigate();
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [items, setItems] = useState<ProductItem[]>([]);
+  const [orders, setOrders] = useState<PurchaseOrder[]>([]);
+  const [warehouseId, setWarehouseId] = useState("");
+  const [purchasedAt, setPurchasedAt] = useState(localDate());
+  const [notes, setNotes] = useState("");
+  const [draftProducts, setDraftProducts] = useState<DraftProduct[]>([createDraftProduct()]);
+  const [search, setSearch] = useState("");
+  const [packageTrackingDrafts, setPackageTrackingDrafts] = useState<Record<string, string>>({});
+  const [existingPackageTrackingDrafts, setExistingPackageTrackingDrafts] = useState<Record<string, string>>({});
+  const [sourceDrafts, setSourceDrafts] = useState<
+    Record<string, { alibabaOrderNo: string; freightRmb: string }>
+  >({});
+  const [expandedOrderIds, setExpandedOrderIds] = useState<Record<string, boolean>>({});
+  const [loading, setLoading] = useState(true);
+  const [busyKey, setBusyKey] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    async function load() {
+      setLoading(true);
+      try {
+        const [nextWarehouses, nextProducts, nextOrders] = await Promise.all([
+          fetchWarehouses(),
+          fetchProducts(),
+          fetchPurchaseOrders(),
+        ]);
+        const nextItems = await fetchProductItemsByProductIds(nextProducts.map((item) => item.id));
+        if (!active) return;
+        setWarehouses(nextWarehouses);
+        setProducts(nextProducts);
+        setItems(nextItems);
+        setOrders(nextOrders);
+        setExistingPackageTrackingDrafts(
+          Object.fromEntries(
+            nextOrders.flatMap((order) =>
+              order.packages.map((pkg) => [pkg.id, pkg.tracking_no]),
+            ),
+          ),
+        );
+        setSourceDrafts(
+          Object.fromEntries(
+            nextOrders.flatMap((order) =>
+              order.sources.map((source) => [
+                source.id,
+                {
+                  alibabaOrderNo: source.alibaba_order_no,
+                  freightRmb: String(source.freight_rmb),
+                },
+              ]),
+            ),
+          ),
+        );
+      } catch (error) {
+        if (active) setErrorMessage(getErrorMessage(error, "加载采购信息失败"));
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+    void load();
+    return () => {
+      active = false;
+    };
+  }, [user.id]);
+
+  const warehousesById = useMemo(
+    () => Object.fromEntries(warehouses.map((item) => [item.id, item])),
+    [warehouses],
+  );
+  const productsById = useMemo(
+    () => Object.fromEntries(products.map((item) => [item.id, item])),
+    [products],
+  );
+  const itemsById = useMemo(
+    () => Object.fromEntries(items.flatMap((item) => (item.id ? [[item.id, item]] : []))),
+    [items],
+  );
+  const filteredOrders = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    if (!term) return orders;
+    return orders.filter(
+      (order) =>
+        order.order_code.toLowerCase().includes(term) ||
+        order.sources.some((source) => source.alibaba_order_no.toLowerCase().includes(term)) ||
+        order.items.some(
+          (item) =>
+            item.product_code.toLowerCase().includes(term) ||
+            item.product_name_cn.toLowerCase().includes(term),
+        ),
+    );
+  }, [orders, search]);
+
+  const draftItemsTotal = draftProducts.reduce(
+    (sum, product) =>
+      sum +
+      product.items.reduce(
+        (inner, item) => inner + Number(item.quantity || 0) * Number(item.unitPriceRmb || 0),
+        0,
+      ),
+    0,
+  );
+  const activePurchaseUrls = Array.from(
+    new Set(
+      draftProducts.flatMap((product) =>
+        product.items.flatMap((item) => {
+          const component = itemsById[item.itemId];
+          return component?.purchase_url ? [component.purchase_url] : [];
+        }),
+      ),
+    ),
+  );
+  const [linkMetaDrafts, setLinkMetaDrafts] = useState<
+    Record<string, { alibabaOrderNo: string; freightRmb: string }>
+  >({});
+  const draftFreightTotal = activePurchaseUrls.reduce(
+    (sum, url) => sum + Number(linkMetaDrafts[url]?.freightRmb || 0),
+    0,
+  );
+  const draftTotal = draftItemsTotal + draftFreightTotal;
+  function getProductPurchaseUrls(draftProduct: DraftProduct) {
+    return Array.from(
+      new Set(
+        draftProduct.items.flatMap((item) => {
+          const component = itemsById[item.itemId];
+          return component?.purchase_url ? [component.purchase_url] : [];
+        }),
+      ),
+    );
+  }
+  function getDraftItemsByPurchaseUrl(draftProduct: DraftProduct, purchaseUrl: string) {
+    return draftProduct.items.flatMap((item) => {
+      const component = itemsById[item.itemId];
+      return component?.purchase_url === purchaseUrl
+        ? [{ component, draftItem: item }]
+        : [];
+    });
+  }
+  function getDraftPurchaseUrlTotal(draftProduct: DraftProduct, purchaseUrl: string) {
+    const itemTotal = getDraftItemsByPurchaseUrl(draftProduct, purchaseUrl).reduce(
+      (sum, entry) =>
+        sum + Number(entry.draftItem.quantity || 0) * Number(entry.draftItem.unitPriceRmb || 0),
+      0,
+    );
+    return itemTotal + Number(linkMetaDrafts[purchaseUrl]?.freightRmb || 0);
+  }
+
+  function addDraftProduct() {
+    setDraftProducts((current) => [...current, createDraftProduct()]);
+  }
+
+  function updateDraftProduct(productId: string, nextProductId: string) {
+    setDraftProducts((current) =>
+      current.map((product) =>
+        product.id === productId
+          ? {
+              ...product,
+              productId: nextProductId,
+              items: product.items.map((item) => ({ ...item, itemId: "", unitPriceRmb: "" })),
+            }
+          : product,
+      ),
+    );
+  }
+
+  function updateDraftItem(productId: string, itemId: string, field: keyof Omit<DraftItem, "id">, value: string) {
+    setDraftProducts((current) =>
+      current.map((product) =>
+        product.id === productId
+          ? {
+              ...product,
+              items: product.items.map((item) => {
+                if (item.id !== itemId) return item;
+                if (field !== "itemId") return { ...item, [field]: value };
+                const component = itemsById[value];
+                return {
+                  ...item,
+                  itemId: value,
+                  unitPriceRmb: component ? String(component.purchase_price_rmb) : "",
+                };
+              }),
+            }
+          : product,
+      ),
+    );
+  }
+
+  async function handleCreateOrder() {
+    const warehouse = warehousesById[warehouseId];
+    const preparedItems = draftProducts.flatMap((draftProduct) => {
+      const product = productsById[draftProduct.productId];
+      return draftProduct.items.flatMap((draftItem) => {
+        const component = itemsById[draftItem.itemId];
+        if (!warehouse || !product || !component?.id || component.product_id !== product.id) return [];
+        return [{
+          product_id: product.id,
+          item_id: component.id,
+          product_code: product.product_code,
+          product_name_cn: product.product_name_cn,
+          item_name: component.item_name,
+          item_spec: component.item_spec,
+          purchase_url: component.purchase_url,
+          quantity: Number(draftItem.quantity),
+          unit_price_rmb: Number(draftItem.unitPriceRmb),
+        }];
+      });
+    });
+    const preparedSources = activePurchaseUrls.flatMap((purchaseUrl) => {
+      const meta = linkMetaDrafts[purchaseUrl];
+      return meta?.alibabaOrderNo.trim()
+        ? [{
+            purchase_url: purchaseUrl,
+            alibaba_order_no: meta.alibabaOrderNo.trim(),
+            freight_rmb: Number(meta.freightRmb || 0),
+          }]
+        : [];
+    });
+    if (!warehouse || preparedItems.length === 0 || preparedSources.length !== activePurchaseUrls.length) return;
+
+    setBusyKey("create-order");
+    try {
+      const order = await createPurchaseOrder({
+        warehouse_id: warehouse.id,
+        warehouse_name: warehouse.name,
+        purchased_at: purchasedAt,
+        notes: notes.trim(),
+        sources: preparedSources,
+        items: preparedItems,
+      });
+      setOrders((current) => [order, ...current]);
+      setWarehouseId("");
+      setLinkMetaDrafts({});
+      setNotes("");
+      setDraftProducts([createDraftProduct()]);
+      navigate("/purchases/records");
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, "保存采购管理单失败"));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
+  async function handleSaveSource(order: PurchaseOrder, sourceId: string) {
+    setBusyKey(`source-${sourceId}`);
+    try {
+      const next = await updatePurchaseSource(sourceId, {
+        alibaba_order_no: sourceDrafts[sourceId]?.alibabaOrderNo ?? "",
+        freight_rmb: Number(sourceDrafts[sourceId]?.freightRmb || 0),
+      });
+      setOrders((current) =>
+        current.map((item) =>
+          item.id === order.id
+            ? {
+                ...item,
+                total_cost_rmb:
+                  item.items_total_rmb +
+                  item.sources.reduce(
+                    (sum, source) =>
+                      sum + (source.id === sourceId ? next.freight_rmb : source.freight_rmb),
+                    0,
+                  ),
+                sources: item.sources.map((source) => (source.id === sourceId ? next : source)),
+              }
+            : item,
+        ),
+      );
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, "更新运费失败"));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
+  async function handleAddPackage(order: PurchaseOrder, sourceId: string) {
+    const packageKey = `${order.id}:${sourceId}`;
+    const trackingNos = (packageTrackingDrafts[packageKey] ?? "")
+      .split(/\r?\n/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    const source = order.sources.find((item) => item.id === sourceId);
+    const sourceItems = order.items.filter((item) =>
+      item.source_id === sourceId ||
+      (!item.source_id && item.purchase_url === source?.purchase_url),
+    );
+    const itemsPayload = sourceItems.map((item) => ({
+      order_item_id: item.id,
+      quantity: item.quantity,
+    }));
+    if (trackingNos.length === 0 || itemsPayload.length === 0) return;
+    setBusyKey(`package-${order.id}`);
+    try {
+      const packages = await Promise.all(
+        trackingNos.map((trackingNo) =>
+          createPurchasePackage(order.id, sourceId, trackingNo, itemsPayload),
+        ),
+      );
+      setOrders((current) =>
+        current.map((item) =>
+          item.id === order.id ? { ...item, packages: [...item.packages, ...packages] } : item,
+        ),
+      );
+      setPackageTrackingDrafts((current) => ({ ...current, [packageKey]: "" }));
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, "保存快递包裹失败"));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
+  async function handleReceivePackage(order: PurchaseOrder, pkg: PurchasePackage) {
+    const confirmed = window.confirm(`确认签收快递单号“${pkg.tracking_no}”并增加库存吗？`);
+    if (!confirmed) return;
+    setBusyKey(`receive-${pkg.id}`);
+    try {
+      const result = await receivePurchasePackage(order, pkg);
+      setOrders((current) =>
+        current.map((item) =>
+          item.id === order.id
+            ? {
+                ...item,
+                ...result.order,
+                items: item.items,
+                packages: item.packages.map((entry) =>
+                  entry.id === pkg.id ? result.package : entry,
+                ),
+              }
+            : item,
+        ),
+      );
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, "签收入库失败"));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
+  async function handleSavePackageTracking(order: PurchaseOrder, pkg: PurchasePackage) {
+    const trackingNo = existingPackageTrackingDrafts[pkg.id]?.trim();
+    if (!trackingNo) return;
+    setBusyKey(`update-package-${pkg.id}`);
+    try {
+      const next = await updatePurchasePackageTrackingNo(pkg.id, trackingNo);
+      setOrders((current) =>
+        current.map((item) =>
+          item.id === order.id
+            ? {
+                ...item,
+                packages: item.packages.map((entry) =>
+                  entry.id === pkg.id ? { ...entry, ...next } : entry,
+                ),
+              }
+            : item,
+        ),
+      );
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, "更新快递单号失败"));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
+  async function handleDeletePackage(order: PurchaseOrder, pkg: PurchasePackage) {
+    const confirmed = window.confirm(`确认删除快递单号“${pkg.tracking_no}”吗？`);
+    if (!confirmed) return;
+    setBusyKey(`delete-package-${pkg.id}`);
+    try {
+      await deletePurchasePackage(pkg.id);
+      setOrders((current) =>
+        current.map((item) =>
+          item.id === order.id
+            ? { ...item, packages: item.packages.filter((entry) => entry.id !== pkg.id) }
+            : item,
+        ),
+      );
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, "删除快递包裹失败"));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
+  function openTrackingLookup(trackingNo: string) {
+    const normalizedTrackingNo = trackingNo.trim();
+    if (!normalizedTrackingNo) return;
+    window.open(
+      `https://t.17track.net/zh-cn#nums=${encodeURIComponent(normalizedTrackingNo)}`,
+      "_blank",
+      "noopener,noreferrer",
+    );
+  }
+
+  async function handleDeleteOrder(order: PurchaseOrder) {
+    const confirmed = window.confirm("确认删除这张采购管理单吗？删除后无法恢复。");
+    if (!confirmed) return;
+    setBusyKey(`delete-order-${order.id}`);
+    try {
+      await deletePurchaseOrder(order.id);
+      setOrders((current) => current.filter((item) => item.id !== order.id));
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, "删除采购管理单失败"));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
+  return (
+    <section className="grid gap-5">
+      <PageHeader
+        title={view === "create" ? "新增采购管理单" : "采购管理记录"}
+        description={view === "create" ? "保存采购管理单，后续在记录页补录物流并签收入库" : "查看采购管理单、补录物流并按包裹签收入库"}
+        actions={
+          view === "create" ? (
+            <Link to="/purchases/records" className="btn-secondary">
+              查看采购管理记录
+            </Link>
+          ) : (
+            <Link to="/purchases/new" className="btn-primary">
+              <Plus size={18} />
+              新增采购管理单
+            </Link>
+          )
+        }
+      />
+      {errorMessage && <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{errorMessage}</div>}
+
+      {view === "create" && <section className="surface-card grid gap-4 p-5">
+        <div>
+          <h2 className="text-base font-semibold text-ink">新增采购管理单</h2>
+          <p className="mt-1 text-sm text-slate-500">同一个 1688 订单号保存为一张采购管理单。</p>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <Field label="仓库">
+            <select value={warehouseId} onChange={(event) => setWarehouseId(event.target.value)} className="h-11 rounded-xl border border-line bg-white px-3 text-sm">
+              <option value="">选择仓库</option>
+              {warehouses.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+            </select>
+          </Field>
+          <Field label="采购日期"><TextInput type="date" value={purchasedAt} onChange={(event) => setPurchasedAt(event.target.value)} /></Field>
+        </div>
+
+        <div className="grid gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-ink">采购明细</h3>
+            <button type="button" onClick={addDraftProduct} className="btn-secondary h-10 px-3"><Plus size={16} />增加商品</button>
+          </div>
+          {draftProducts.map((draftProduct, productIndex) => (
+            <div key={draftProduct.id} className="grid gap-3 rounded-2xl border border-line bg-slate-50/60 p-4">
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="min-w-0 flex-1">
+                  <Field label={`商品 ${productIndex + 1}`}>
+                    <select value={draftProduct.productId} onChange={(event) => updateDraftProduct(draftProduct.id, event.target.value)} className="h-11 w-full rounded-xl border border-line bg-white px-3 text-sm">
+                      <option value="">选择商品</option>
+                      {products.map((item) => <option key={item.id} value={item.id}>{item.product_code} · {item.product_name_cn}</option>)}
+                    </select>
+                  </Field>
+                </div>
+                <button type="button" onClick={() => setDraftProducts((current) => current.map((item) => item.id === draftProduct.id ? { ...item, items: [...item.items, createDraftItem()] } : item))} className="btn-secondary h-10 shrink-0 px-3"><Plus size={16} />增加配件</button>
+                <button type="button" disabled={draftProducts.length === 1} onClick={() => setDraftProducts((current) => current.filter((item) => item.id !== draftProduct.id))} className="icon-btn-danger h-10 w-10"><Trash2 size={16} /></button>
+              </div>
+              {draftProduct.items.map((draftItem, itemIndex) => (
+                <div key={draftItem.id} className="grid gap-3 rounded-xl border border-line bg-white p-3 md:grid-cols-[minmax(0,1fr)_110px_130px_44px]">
+                  <Field label={`配件 ${itemIndex + 1}`}>
+                    <select value={draftItem.itemId} onChange={(event) => updateDraftItem(draftProduct.id, draftItem.id, "itemId", event.target.value)} className="h-11 w-full rounded-xl border border-line bg-white px-3 text-sm">
+                      <option value="">选择配件</option>
+                      {items.filter((item) => item.product_id === draftProduct.productId).map((item) => <option key={item.id} value={item.id}>{item.item_name}{item.item_spec ? ` · ${item.item_spec}` : ""}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="采购数量"><TextInput type="number" min="1" step="1" value={draftItem.quantity} onChange={(event) => updateDraftItem(draftProduct.id, draftItem.id, "quantity", event.target.value)} /></Field>
+                  <Field label="采购单价 RMB"><TextInput type="number" min="0" step="0.01" value={draftItem.unitPriceRmb} onChange={(event) => updateDraftItem(draftProduct.id, draftItem.id, "unitPriceRmb", event.target.value)} /></Field>
+                  <div className="flex items-end justify-end"><button type="button" disabled={draftProduct.items.length === 1} onClick={() => setDraftProducts((current) => current.map((item) => item.id === draftProduct.id ? { ...item, items: item.items.filter((entry) => entry.id !== draftItem.id) } : item))} className="icon-btn-danger h-11 w-11"><Trash2 size={16} /></button></div>
+                </div>
+              ))}
+              {getProductPurchaseUrls(draftProduct).length > 0 && (
+                <div className="grid gap-3 rounded-2xl border border-line bg-white p-4">
+                  <h4 className="text-sm font-semibold text-ink">
+                    商品 {productIndex + 1} 的 1688 采购链接信息
+                  </h4>
+                  <div className="grid gap-3">
+                    {getProductPurchaseUrls(draftProduct).map((purchaseUrl) => {
+                      const groupedItems = getDraftItemsByPurchaseUrl(draftProduct, purchaseUrl);
+                      return (
+                        <section
+                          key={purchaseUrl}
+                          className="grid gap-4 rounded-xl border border-line bg-slate-50/60 p-4"
+                        >
+                          <div className="grid gap-1">
+                            <p className="text-sm font-medium text-ink">采购链接</p>
+                            <p className="break-all text-sm text-slate-500">{purchaseUrl}</p>
+                          </div>
+
+                          <div className="overflow-hidden rounded-xl border border-line bg-white">
+                            <table className="min-w-full text-left text-sm">
+                              <thead className="bg-slate-50 text-slate-500">
+                                <tr>
+                                  <th className="px-3 py-2 font-medium">该链接下的配件</th>
+                                  <th className="px-3 py-2 font-medium">数量</th>
+                                  <th className="px-3 py-2 font-medium">单价 RMB</th>
+                                  <th className="px-3 py-2 font-medium">金额 RMB</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {groupedItems.map(({ component, draftItem }) => (
+                                  <tr key={draftItem.id} className="border-t border-line">
+                                    <td className="px-3 py-2">{component.item_name}</td>
+                                    <td className="px-3 py-2">{draftItem.quantity}</td>
+                                    <td className="px-3 py-2">¥{Number(draftItem.unitPriceRmb || 0).toFixed(2)}</td>
+                                    <td className="px-3 py-2">
+                                      ¥
+                                      {(
+                                        Number(draftItem.quantity || 0) *
+                                        Number(draftItem.unitPriceRmb || 0)
+                                      ).toFixed(2)}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_160px_170px]">
+                            <Field label="1688 订单号">
+                              <TextInput
+                                value={linkMetaDrafts[purchaseUrl]?.alibabaOrderNo ?? ""}
+                                onChange={(event) =>
+                                  setLinkMetaDrafts((current) => ({
+                                    ...current,
+                                    [purchaseUrl]: {
+                                      alibabaOrderNo: event.target.value,
+                                      freightRmb: current[purchaseUrl]?.freightRmb ?? "0",
+                                    },
+                                  }))
+                                }
+                              />
+                            </Field>
+                            <Field label="运费 RMB">
+                              <TextInput
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={linkMetaDrafts[purchaseUrl]?.freightRmb ?? "0"}
+                                onChange={(event) =>
+                                  setLinkMetaDrafts((current) => ({
+                                    ...current,
+                                    [purchaseUrl]: {
+                                      alibabaOrderNo:
+                                        current[purchaseUrl]?.alibabaOrderNo ?? "",
+                                      freightRmb: event.target.value,
+                                    },
+                                  }))
+                                }
+                              />
+                            </Field>
+                            <div className="grid content-end gap-2 text-sm xl:min-w-[170px]">
+                              <span className="font-medium text-teal-800">链接总费用</span>
+                              <div className="flex h-11 items-center rounded-xl border border-teal-200 bg-teal-50 px-3 text-base font-bold text-teal-900 shadow-sm tabular-nums">
+                                ¥{getDraftPurchaseUrlTotal(draftProduct, purchaseUrl).toFixed(2)}
+                              </div>
+                            </div>
+                          </div>
+                        </section>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+          <div className="flex justify-end border-t border-dashed border-line pt-3">
+            <button
+              type="button"
+              onClick={addDraftProduct}
+              className="btn-secondary h-10 px-3"
+            >
+              <Plus size={16} />
+              继续增加商品
+            </button>
+          </div>
+        </div>
+        <div className="grid gap-4 lg:grid-cols-[1fr_auto_auto]">
+          <Field label="备注"><TextArea value={notes} onChange={(event) => setNotes(event.target.value)} /></Field>
+          <div className="self-end text-sm text-slate-500">明细金额 ¥{draftItemsTotal.toFixed(2)}</div>
+          <div className="self-end text-sm font-semibold text-ink">总费用 ¥{draftTotal.toFixed(2)}</div>
+        </div>
+        <div className="flex justify-end"><button type="button" disabled={busyKey === "create-order" || !warehouseId || activePurchaseUrls.some((url) => !linkMetaDrafts[url]?.alibabaOrderNo.trim())} onClick={() => void handleCreateOrder()} className="btn-primary"><Plus size={18} />保存采购管理单</button></div>
+      </section>}
+
+      {view === "records" && <section className="grid gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-base font-semibold text-ink">采购管理记录</h2>
+          <div className="relative w-full sm:min-w-[280px] sm:w-auto">
+            <Search size={16} className="absolute left-3 top-3 text-slate-400" />
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索采购管理单号 / 订单号 / 商品编号 / 商品名称" className="h-10 w-full rounded-xl border border-line bg-white pl-9 pr-3 text-sm" />
+          </div>
+        </div>
+        {loading ? <div className="text-sm text-slate-500">加载中...</div> : filteredOrders.length === 0 ? <div className="empty-state">暂无采购管理单</div> : (
+          <div className="grid gap-4">
+            {filteredOrders.map((order) => (
+              <section key={order.id} className="mobile-summary-card grid gap-4 sm:p-5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-semibold text-ink">采购管理单 {order.order_code}</h3>
+                      <Badge tone={order.status === "received" ? "success" : order.status === "partially_received" ? "warning" : "neutral"}>
+                      {order.status === "received" ? "已签收" : order.status === "partially_received" ? "部分签收" : "待签收"}
+                      </Badge>
+                    </div>
+                    <p className="page-description mt-1">{order.warehouse_name} · {order.purchased_at}</p>
+                  </div>
+                  <div className="flex w-full items-center gap-2 sm:w-auto">
+                    <button type="button" onClick={() => setExpandedOrderIds((current) => ({ ...current, [order.id]: !current[order.id] }))} className="btn-secondary h-10 flex-1 px-3 sm:flex-none">
+                      {expandedOrderIds[order.id] ? "收起" : "查看"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busyKey === `delete-order-${order.id}`}
+                      onClick={() => void handleDeleteOrder(order)}
+                      className="icon-btn-danger h-10 w-10 shrink-0"
+                      aria-label="删除采购管理单"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                </div>
+                <div className="mobile-summary-grid sm:grid-cols-3">
+                  <div className="mobile-summary-cell text-sm">明细金额 <span className="font-semibold">¥{order.items_total_rmb.toFixed(2)}</span></div>
+                  <div className="mobile-summary-cell text-sm">运费 <span className="font-semibold">¥{order.sources.reduce((sum, source) => sum + source.freight_rmb, 0).toFixed(2)}</span></div>
+                  <div className="mobile-summary-cell text-sm">总费用 <span className="font-semibold">¥{order.total_cost_rmb.toFixed(2)}</span></div>
+                </div>
+                {expandedOrderIds[order.id] && (
+                  <div className="grid gap-4">
+                    {order.items.length === 0 ? (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                        这张采购管理单没有保存到商品明细，属于早期异常记录。
+                      </div>
+                    ) : (
+                      <>
+                        <div className="grid gap-2 md:hidden">
+                          {order.items.map((item) => (
+                            <article key={item.id} className="mobile-summary-card">
+                              <div className="grid gap-1">
+                                <p className="mobile-summary-title">{item.product_code} · {item.product_name_cn}</p>
+                                <p className="text-xs text-slate-500">{item.item_name}</p>
+                                <p className="text-xs text-slate-500">规格：{item.item_spec || "--"}</p>
+                              </div>
+                              <div className="mobile-summary-grid text-sm">
+                                <div className="mobile-summary-cell">数量：{item.quantity}</div>
+                                <div className="mobile-summary-cell">单价：¥{item.unit_price_rmb.toFixed(2)}</div>
+                              </div>
+                            </article>
+                          ))}
+                        </div>
+                        <div className="table-card hidden shadow-none md:block">
+                          <table className="data-table">
+                            <thead><tr><th>商品编号</th><th>产品名称</th><th>配件</th><th>规格</th><th className="number-cell">数量</th><th className="number-cell">单价</th></tr></thead>
+                            <tbody>{order.items.map((item) => <tr key={item.id}><td>{item.product_code}</td><td>{item.product_name_cn}</td><td>{item.item_name}</td><td>{item.item_spec || "--"}</td><td className="number-cell">{item.quantity}</td><td className="number-cell">¥{item.unit_price_rmb.toFixed(2)}</td></tr>)}</tbody>
+                          </table>
+                        </div>
+                      </>
+                    )}
+                    <div className="grid gap-3">
+                      <h4 className="text-sm font-semibold text-ink">1688 订单与快递包裹</h4>
+                      {order.sources.map((source) => {
+                        const packageKey = `${order.id}:${source.id}`;
+                        const sourceItems = order.items.filter((item) =>
+                          item.source_id === source.id ||
+                          (!item.source_id && item.purchase_url === source.purchase_url),
+                        );
+                        const sourcePackages = order.packages.filter((pkg) => pkg.source_id === source.id);
+                        const pendingSourcePackages = sourcePackages.filter((pkg) => pkg.status === "pending");
+                        const receivedSourcePackages = sourcePackages.filter((pkg) => pkg.status === "received");
+                        return (
+                      <div key={source.id} className="grid gap-4 rounded-2xl border border-line bg-slate-50/60 p-4">
+                        <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
+                          <div className="grid gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm font-semibold text-ink">1688 订单号</span>
+                              <span className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-accent ring-1 ring-line">
+                                {source.alibaba_order_no || "未填写"}
+                              </span>
+                            </div>
+                            <div className="break-all text-xs text-slate-500">{source.purchase_url}</div>
+                            <div className="text-xs text-slate-500">
+                              关联明细：{sourceItems.length} 条
+                            </div>
+                          </div>
+                          <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_160px_auto]">
+                            <Field label="1688 订单号"><TextInput value={sourceDrafts[source.id]?.alibabaOrderNo ?? source.alibaba_order_no} onChange={(event) => setSourceDrafts((current) => ({ ...current, [source.id]: { alibabaOrderNo: event.target.value, freightRmb: current[source.id]?.freightRmb ?? String(source.freight_rmb) } }))} /></Field>
+                            <Field label="运费 RMB"><TextInput type="number" min="0" step="0.01" value={sourceDrafts[source.id]?.freightRmb ?? String(source.freight_rmb)} onChange={(event) => setSourceDrafts((current) => ({ ...current, [source.id]: { alibabaOrderNo: current[source.id]?.alibabaOrderNo ?? source.alibaba_order_no, freightRmb: event.target.value } }))} /></Field>
+                            <div className="flex items-end"><button type="button" onClick={() => void handleSaveSource(order, source.id)} className="btn-secondary">保存</button></div>
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl border border-line bg-white p-3">
+                          <p className="mb-2 text-sm font-medium text-slate-700">该订单包含</p>
+                          <div className="flex flex-wrap gap-2">
+                            {sourceItems.map((item) => (
+                              <span key={item.id} className="rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-700">
+                                {item.product_code} · {item.product_name_cn} · {item.item_name} x {item.quantity}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+
+                        {pendingSourcePackages.length > 0 && (
+                          <div className="grid gap-3">
+                            <p className="text-sm font-medium text-slate-700">已录入快递包裹</p>
+                            <div className="grid gap-3 rounded-xl border border-line bg-white p-4">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium text-slate-500">快递单号</span>
+                                <Badge tone="neutral">待签收</Badge>
+                              </div>
+                              <div className="grid gap-2">
+                                {pendingSourcePackages.map((pkg) => (
+                                  <div key={pkg.id} className="package-action-row grid gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_auto_auto_auto_auto]">
+                                    <TextInput
+                                      value={existingPackageTrackingDrafts[pkg.id] ?? pkg.tracking_no}
+                                      onChange={(event) =>
+                                        setExistingPackageTrackingDrafts((current) => ({
+                                          ...current,
+                                          [pkg.id]: event.target.value,
+                                        }))
+                                      }
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => openTrackingLookup(existingPackageTrackingDrafts[pkg.id] ?? pkg.tracking_no)}
+                                      className="btn-secondary h-10 px-3"
+                                    >
+                                      快递查询
+                                    </button>
+                                    <button type="button" onClick={() => void handleSavePackageTracking(order, pkg)} className="btn-secondary h-10 px-3">保存</button>
+                                    <button type="button" onClick={() => void handleDeletePackage(order, pkg)} className="icon-btn-danger h-10 w-10" aria-label="删除快递包裹"><Trash2 size={16} /></button>
+                                    <button type="button" onClick={() => void handleReceivePackage(order, pkg)} className="btn-primary h-10 px-3"><CheckCircle2 size={16} />确认签收</button>
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="text-sm text-slate-600">
+                                {sourceItems.map((item) => `${item.product_code} · ${item.item_name} x ${item.quantity}`).join("，")}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {receivedSourcePackages.length > 0 && (
+                          <div className="grid gap-3">
+                            <p className="text-sm font-medium text-slate-700">已签收快递包裹</p>
+                            <div className="grid gap-2 rounded-xl border border-line bg-white p-4">
+                              {receivedSourcePackages.map((pkg) => (
+                                <div key={pkg.id} className="flex items-center gap-2 text-sm">
+                                  <Badge tone="success">已签收</Badge>
+                                  <span className="font-medium text-ink">{pkg.tracking_no}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="grid gap-3 rounded-xl border border-dashed border-line bg-white p-4">
+                          <div>
+                            <div className="text-sm font-medium text-ink">为这个订单添加快递包裹</div>
+                            <div className="mt-1 text-xs text-slate-500">下面选择的配件都来自上方这个 1688 订单。</div>
+                          </div>
+                          <Field label="新增快递单号">
+                            <TextArea
+                              value={packageTrackingDrafts[packageKey] ?? ""}
+                              onChange={(event) =>
+                                setPackageTrackingDrafts((current) => ({
+                                  ...current,
+                                  [packageKey]: event.target.value,
+                                }))
+                              }
+                              placeholder={"每行填写一个快递单号"}
+                            />
+                          </Field>
+                          <div className="flex flex-wrap gap-2">
+                            <button type="button" onClick={() => void handleAddPackage(order, source.id)} className="btn-primary h-10 px-3"><Plus size={16} />保存包裹</button>
+                          </div>
+                        </div>
+                      </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </section>
+            ))}
+          </div>
+        )}
+      </section>}
+    </section>
+  );
+}

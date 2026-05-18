@@ -102,7 +102,7 @@ export function ProductEditPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold text-ink">编辑商品</h1>
         <Link to="/products" className="text-sm text-accent">
-          返回商品列表
+          返回商品管理
         </Link>
       </div>
       {message && (
@@ -116,7 +116,7 @@ export function ProductEditPage() {
         specs={specs}
         skus={skus}
         busy={busy}
-        submitLabel="保存修改"
+        submitLabel="保存编辑"
         onProductChange={setProduct}
         onItemsChange={setItems}
         onSpecsChange={setSpecs}

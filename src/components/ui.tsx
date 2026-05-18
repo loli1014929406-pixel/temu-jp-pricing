@@ -1,0 +1,62 @@
+import type { ReactNode } from "react";
+
+type PageHeaderProps = {
+  title: string;
+  description?: string;
+  actions?: ReactNode;
+};
+
+export function PageHeader({ title, description, actions }: PageHeaderProps) {
+  return (
+    <div className="flex flex-wrap items-start justify-between gap-4">
+      <div>
+        <h1 className="page-title">{title}</h1>
+        {description && <p className="page-description">{description}</p>}
+      </div>
+      {actions && <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">{actions}</div>}
+    </div>
+  );
+}
+
+type BadgeProps = {
+  tone?: "success" | "warning" | "danger" | "neutral" | "info";
+  children: ReactNode;
+};
+
+export function Badge({ tone = "neutral", children }: BadgeProps) {
+  const tones = {
+    success: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+    warning: "bg-amber-50 text-amber-700 ring-amber-200",
+    danger: "bg-rose-50 text-rose-700 ring-rose-200",
+    neutral: "bg-slate-100 text-slate-700 ring-slate-200",
+    info: "bg-sky-50 text-sky-700 ring-sky-200",
+  };
+
+  return (
+    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${tones[tone]}`}>
+      {children}
+    </span>
+  );
+}
+
+type StatCardProps = {
+  label: string;
+  value: string;
+  tone?: "default" | "success" | "danger";
+};
+
+export function StatCard({ label, value, tone = "default" }: StatCardProps) {
+  const valueTone =
+    tone === "success"
+      ? "text-emerald-700"
+      : tone === "danger"
+        ? "text-rose-700"
+        : "text-ink";
+
+  return (
+    <div className="surface-card p-4">
+      <p className="text-sm text-slate-500">{label}</p>
+      <p className={`mt-2 text-2xl font-semibold tabular-nums ${valueTone}`}>{value}</p>
+    </div>
+  );
+}

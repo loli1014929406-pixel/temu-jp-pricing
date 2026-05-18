@@ -12,6 +12,7 @@ import type { Product } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { calculatePricing, formatCurrency } from "../utils/pricing";
 import { calculateProfitProjection } from "../utils/profit-calculation";
+import { Badge, PageHeader, StatCard } from "../components/ui";
 
 type ProfitCalculationsPageProps = {
   user: User;
@@ -230,11 +231,28 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
     };
   }, [user.id]);
 
+  const summaries = Object.values(discountSummaries);
+  const validProfitRates = summaries.flatMap((summary) =>
+    typeof summary.profitRate === "number" ? [summary.profitRate] : [],
+  );
+  const validRoas = summaries.flatMap((summary) =>
+    typeof summary.recommendedMinRoas === "number" ? [summary.recommendedMinRoas] : [],
+  );
+  const negativeProfitCount = summaries.filter(
+    (summary) => typeof summary.profitRmb === "number" && summary.profitRmb < 0,
+  ).length;
+  const averageProfitRate =
+    validProfitRates.length > 0
+      ? `${((validProfitRates.reduce((sum, value) => sum + value, 0) / validProfitRates.length) * 100).toFixed(2)}%`
+      : "--";
+  const averageRoas =
+    validRoas.length > 0
+      ? (validRoas.reduce((sum, value) => sum + value, 0) / validRoas.length).toFixed(2)
+      : "--";
+
   return (
     <section className="grid gap-5">
-      <div>
-        <h1 className="text-2xl font-semibold text-ink">利润测算</h1>
-      </div>
+      <PageHeader title="利润数据分析" description="实时分析利润率、折后价及广告投放安全边际" />
 
       {errorMessage && (
         <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
@@ -242,24 +260,83 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
         </div>
       )}
 
-      <div className="overflow-hidden rounded-lg bg-white shadow-panel">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard label="在售商品数" value={String(products.length)} />
+        <StatCard label="平均利润率" value={averageProfitRate} tone="success" />
+        <StatCard label="亏损商品数" value={String(negativeProfitCount)} tone={negativeProfitCount > 0 ? "danger" : "default"} />
+        <StatCard label="平均建议最低 ROAS" value={averageRoas} />
+      </div>
+
+      <div className="grid gap-3 md:hidden">
+        {loading ? (
+          <div className="empty-state">加载中...</div>
+        ) : products.length === 0 ? (
+          <div className="empty-state">暂无商品</div>
+        ) : (
+          products.map((product) => {
+            const summary = discountSummaries[product.id];
+            const profitRmb = summary?.profitRmb;
+            const profitRate = summary?.profitRate;
+            return (
+              <article key={product.id} className="mobile-summary-card">
+                <p className="mobile-summary-title">{product.product_code}</p>
+                <p className="mobile-summary-subtitle">{product.product_name_cn}</p>
+                <div className="mobile-summary-grid">
+                  <div className="mobile-summary-cell">
+                    核定供货价：{typeof temuPrices[product.id] === "number" ? formatCurrency(temuPrices[product.id] as number) : "--"}
+                  </div>
+                  <div className="mobile-summary-cell">
+                    折后结算价：{typeof summary?.discountedSalePriceRmb === "number" ? formatCurrency(summary.discountedSalePriceRmb) : "--"}
+                  </div>
+                  <div className="mobile-summary-cell">
+                    利润：
+                    {typeof profitRmb === "number" ? (
+                      <span className={`money ${profitRmb < 0 ? "text-rose-700" : profitRmb < 1 ? "text-amber-700" : "text-emerald-700"}`}> {formatCurrency(profitRmb)}</span>
+                    ) : " --"}
+                  </div>
+                  <div className="mobile-summary-cell">
+                    利润率：{typeof profitRate === "number" ? `${(profitRate * 100).toFixed(2)}%` : "--"}
+                  </div>
+                </div>
+                <div className="mt-2 flex items-center gap-2">
+                  {typeof profitRate === "number" ? (
+                    <Badge tone={profitRate > 0.3 ? "success" : profitRate >= 0.15 ? "warning" : "danger"}>
+                      {(profitRate * 100).toFixed(2)}%
+                    </Badge>
+                  ) : null}
+                  <span className="text-xs text-slate-500">
+                    建议最低 ROAS：{typeof summary?.recommendedMinRoas === "number" ? summary.recommendedMinRoas.toFixed(2) : "--"}
+                  </span>
+                </div>
+                <div className="mt-3">
+                  <Link className="text-action" to={`/products/${product.id}/profit-calculation`}>
+                    查看利润
+                  </Link>
+                </div>
+              </article>
+            );
+          })
+        )}
+      </div>
+
+      <div className="table-card hidden md:block">
         <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
-            <thead className="bg-slate-50 text-slate-500">
+          <table className="data-table">
+            <thead>
               <tr>
                 <th className="px-4 py-3 font-medium">商品编号</th>
                 <th className="px-4 py-3 font-medium">产品名称</th>
-                <th className="px-4 py-3 font-medium">Temu 核价 RMB</th>
+                <th className="px-4 py-3 font-medium">核定供货价 (RMB)</th>
                 <th className="px-4 py-3 font-medium">流量曝光折扣</th>
-                <th className="px-4 py-3 font-medium">Temu 活动折扣</th>
+                <th className="px-4 py-3 font-medium">活动促销折扣</th>
                 <th className="px-4 py-3 font-medium">优惠券折扣</th>
-                <th className="px-4 py-3 font-medium">最终折扣系数</th>
-                <th className="px-4 py-3 font-medium">折后售价 RMB</th>
+                <th className="px-4 py-3 font-medium">综合折扣系数</th>
+                <th className="px-4 py-3 font-medium">折后结算价 (RMB)</th>
                 <th className="px-4 py-3 font-medium">利润 RMB</th>
                 <th className="px-4 py-3 font-medium">利润率</th>
                 <th className="px-4 py-3 font-medium">建议最低 ROAS</th>
                 <th className="px-4 py-3 font-medium">保本 ROAS</th>
-                <th className="px-4 py-3 font-medium">3500日元免邮临界件数</th>
+                <th className="px-4 py-3 font-medium">免邮起送件数 (3500円)</th>
                 <th className="px-4 py-3 font-medium">操作</th>
               </tr>
             </thead>
@@ -278,27 +355,27 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                 </tr>
               ) : (
                 products.map((product) => (
-                  <tr key={product.id} className="border-t border-line">
+                  <tr key={product.id}>
                     <td className="px-4 py-3">{product.product_code}</td>
                     <td className="px-4 py-3">{product.product_name_cn}</td>
-                    <td className="px-4 py-3">
+                    <td className="money">
                       {typeof temuPrices[product.id] === "number"
                         ? formatCurrency(temuPrices[product.id] as number)
                         : "--"}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="number-cell">
                       {discountSummaries[product.id]?.trafficDiscountRate ?? 10}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="number-cell">
                       {discountSummaries[product.id]?.activityDiscountRate ?? 10}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="number-cell">
                       {discountSummaries[product.id]?.couponDiscountRate ?? 10}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="number-cell">
                       {(discountSummaries[product.id]?.finalDiscountRate ?? 10).toFixed(4)}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="money">
                       {typeof discountSummaries[product.id]?.discountedSalePriceRmb ===
                       "number"
                         ? formatCurrency(
@@ -307,19 +384,44 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                           )
                         : "--"}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-4">
                       {typeof discountSummaries[product.id]?.profitRmb === "number"
-                        ? formatCurrency(discountSummaries[product.id]?.profitRmb as number)
+                        ? (
+                          <span
+                            className={`money ${
+                              (discountSummaries[product.id]?.profitRmb as number) < 0
+                                ? "text-rose-700"
+                                : (discountSummaries[product.id]?.profitRmb as number) < 1
+                                  ? "text-amber-700"
+                                  : "text-emerald-700"
+                            }`}
+                          >
+                            {formatCurrency(discountSummaries[product.id]?.profitRmb as number)}
+                          </span>
+                        )
                         : "--"}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-4">
                       {typeof discountSummaries[product.id]?.profitRate === "number"
-                        ? `${(
-                            (discountSummaries[product.id]?.profitRate as number) * 100
-                          ).toFixed(2)}%`
+                        ? (() => {
+                            const profitRate = discountSummaries[product.id]?.profitRate as number;
+                            return (
+                              <Badge
+                                tone={
+                                  profitRate > 0.3
+                                    ? "success"
+                                    : profitRate >= 0.15
+                                      ? "warning"
+                                      : "danger"
+                                }
+                              >
+                                {(profitRate * 100).toFixed(2)}%
+                              </Badge>
+                            );
+                          })()
                         : "--"}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="number-cell">
                       {typeof discountSummaries[product.id]?.recommendedMinRoas === "number"
                         ? (
                             discountSummaries[product.id]
@@ -327,20 +429,20 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                           ).toFixed(2)
                         : "--"}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="number-cell">
                       {typeof discountSummaries[product.id]?.breakEvenRoas === "number"
                         ? (discountSummaries[product.id]?.breakEvenRoas as number).toFixed(2)
                         : "--"}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="number-cell">
                       {discountSummaries[product.id]?.freeShippingThresholdQty ?? "--"}
                     </td>
                     <td className="px-4 py-3">
                       <Link
-                        className="text-accent"
+                        className="text-action"
                         to={`/products/${product.id}/profit-calculation`}
                       >
-                        查看利润测算
+                        查看利润
                       </Link>
                     </td>
                   </tr>

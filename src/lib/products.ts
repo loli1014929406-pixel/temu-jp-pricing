@@ -8,6 +8,7 @@ import type {
   ProductSkuDraftLink,
   ProductSkuItemLink,
   ProductTransferRecord,
+  SavedProfitCalculation,
 } from "../types";
 
 const requestTimeoutMs = 15000;
@@ -217,6 +218,7 @@ async function insertSkus(
   itemIdsByKey: Map<string, string>,
 ) {
   const { supabase } = await requireSession();
+  const createdSkus: ProductSku[] = [];
 
   for (const sku of skus) {
     const { component_links, id, product_id, owner_id, ...skuPayload } = sku;
@@ -252,7 +254,23 @@ async function insertSkus(
       );
       if (linkError) throw linkError;
     }
+
+    createdSkus.push({
+      ...(createdSku as Omit<ProductSku, "component_links">),
+      component_links: [],
+    });
   }
+
+  return createdSkus;
+}
+
+function getSkuIdentity(sku: Pick<ProductSku, "sku_code" | "attributes">) {
+  return JSON.stringify({
+    sku_code: sku.sku_code,
+    attributes: Object.fromEntries(Object.entries(sku.attributes).sort(([left], [right]) =>
+      left.localeCompare(right),
+    )),
+  });
 }
 
 export async function createProduct(
@@ -279,6 +297,29 @@ export async function updateProduct(
   skus: ProductSkuDraft[],
 ) {
   const { supabase } = await requireSession();
+  const existingSkus = await fetchProductSkus(productId);
+  const existingCalculationsByIdentity = new Map<string, SavedProfitCalculation>();
+  const existingCalculationRows = await Promise.all(
+    existingSkus.flatMap((sku) =>
+      sku.id
+        ? [
+            supabase
+              .from("profit_calculations")
+              .select("*")
+              .eq("sku_id", sku.id)
+              .maybeSingle(),
+          ]
+        : [],
+    ),
+  );
+
+  existingSkus.forEach((sku, index) => {
+    const calculation = existingCalculationRows[index]?.data as SavedProfitCalculation | null;
+    if (calculation) {
+      existingCalculationsByIdentity.set(getSkuIdentity(sku), calculation);
+    }
+  });
+
   const { error } = await withTimeout(
     supabase.from("products").update(product).eq("id", productId),
     "更新商品",
@@ -298,7 +339,33 @@ export async function updateProduct(
   if (deleteItemError) throw deleteItemError;
 
   const itemIdsByKey = await insertItems(productId, items);
-  await insertSkus(productId, skus, itemIdsByKey);
+  const createdSkus = await insertSkus(productId, skus, itemIdsByKey);
+
+  const calculationsToRestore = createdSkus.flatMap((sku) => {
+    if (!sku.id) return [];
+    const previous = existingCalculationsByIdentity.get(getSkuIdentity(sku));
+    return previous
+      ? [
+          {
+            product_id: productId,
+            sku_id: sku.id,
+            temu_price_rmb: previous.temu_price_rmb,
+            traffic_discount_rate: previous.traffic_discount_rate,
+            activity_discount_rate: previous.activity_discount_rate,
+            coupon_discount_rate: previous.coupon_discount_rate ?? 10,
+            result_json: {},
+          },
+        ]
+      : [];
+  });
+
+  if (calculationsToRestore.length > 0) {
+    const { error: restoreCalculationError } = await withTimeout(
+      supabase.from("profit_calculations").insert(calculationsToRestore),
+      "恢复利润测算输入",
+    );
+    if (restoreCalculationError) throw restoreCalculationError;
+  }
 }
 
 export async function deleteProduct(productId: string) {

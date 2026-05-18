@@ -232,13 +232,13 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
     <section className="grid gap-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-        <h1 className="text-2xl font-semibold text-ink">利润测算</h1>
+        <h1 className="text-2xl font-semibold text-ink">利润数据分析</h1>
           <p className="mt-1 text-sm text-slate-500">
             {product.product_code} · {product.product_name_cn}
           </p>
         </div>
         <Link to="/profit-calculation" className="text-sm text-accent">
-          返回利润测算
+          返回利润数据分析
         </Link>
       </div>
 
@@ -265,7 +265,7 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
               }
             />
           </Field>
-          <Field label="Temu 活动折扣">
+          <Field label="活动促销折扣">
             <TextInput
               min="0.01"
               max="10"
@@ -295,7 +295,7 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
               }
             />
           </Field>
-          <Field label="最终折扣系数">
+          <Field label="综合折扣系数">
             <TextInput
               readOnly
               value={(
@@ -336,7 +336,7 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
                       </div>
 
                       <div className="grid gap-4 md:grid-cols-2">
-                        <Field label="Temu 核价 RMB">
+                        <Field label="核定供货价 (RMB)">
                           <TextInput
                             min="0"
                             step="0.01"
@@ -347,7 +347,7 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
                             }
                           />
                         </Field>
-                        <Field label="折后售价 RMB">
+                        <Field label="折后结算价 (RMB)">
                           <TextInput readOnly value={result.discountedSalePriceRmb.toFixed(2)} />
                         </Field>
                       </div>
@@ -377,7 +377,7 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
                               <th className="px-3 py-3 font-medium">建议最低 ROAS</th>
                               <th className="px-3 py-3 font-medium">保本 ROAS</th>
                               <th className="px-3 py-3 font-medium">单件是否失去补贴</th>
-                              <th className="px-3 py-3 font-medium">3500日元免邮临界件数</th>
+                              <th className="px-3 py-3 font-medium">免邮起送件数 (3500円)</th>
                             </tr>
                           </thead>
                           <tbody>

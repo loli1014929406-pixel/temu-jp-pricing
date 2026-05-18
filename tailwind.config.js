@@ -4,15 +4,18 @@ export default {
   theme: {
     extend: {
       colors: {
-        ink: "#172033",
-        mist: "#f5f7fb",
-        line: "#d9e0ea",
+        ink: "#0f172a",
+        mist: "#F8FAFC",
+        line: "#E2E8F0",
         accent: "#0f766e",
+        accentDeep: "#115e59",
         accentSoft: "#ccfbf1",
+        panel: "#ffffff",
         warning: "#b45309",
       },
       boxShadow: {
-        panel: "0 18px 45px rgba(15, 23, 42, 0.08)",
+        panel: "0 16px 40px rgba(15, 23, 42, 0.06)",
+        soft: "0 1px 3px rgba(0,0,0,0.05)",
       },
     },
   },

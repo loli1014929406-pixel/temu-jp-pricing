@@ -31,6 +31,8 @@ npm run dev
 - `/products/new` 新增商品
 - `/products/:id/edit` 编辑商品
 - `/products/:id/pricing` 申报价结果
+- `/purchases` 采购记录
+- `/inventory` 库存
 - `/settings` 参数设置
 
 ## 数据隔离

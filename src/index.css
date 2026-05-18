@@ -3,8 +3,8 @@
 @tailwind utilities;
 
 :root {
-  color: #172033;
-  background: #f5f7fb;
+  color: #0f172a;
+  background: #f8fafc;
   font-family:
     Inter, "PingFang SC", "Microsoft YaHei", system-ui, -apple-system,
     BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -20,10 +20,160 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background: #f5f7fb;
+  background: #f8fafc;
 }
 
 a {
   color: inherit;
   text-decoration: none;
+}
+
+@layer components {
+  .surface-card {
+    @apply rounded-lg border border-line bg-white;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  }
+
+  .page-title {
+    @apply text-2xl font-semibold tracking-normal text-ink;
+  }
+
+  .page-description {
+    @apply mt-1 text-sm text-slate-500;
+  }
+
+  .table-card {
+    @apply overflow-hidden rounded-lg border border-line bg-white;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  }
+
+  .data-table {
+    @apply min-w-full text-left text-sm;
+  }
+
+  .data-table thead {
+    background: #f8fafc;
+    color: #64748b;
+  }
+
+  .data-table th {
+    @apply px-4 py-4 font-semibold;
+  }
+
+  .data-table td {
+    @apply px-4 py-5 align-middle text-slate-700;
+  }
+
+  .data-table tbody tr {
+    border-top: 1px solid #f1f5f9;
+    @apply transition-colors hover:bg-slate-50;
+  }
+
+  .money {
+    @apply font-medium tabular-nums;
+  }
+
+  .number-cell {
+    @apply text-right tabular-nums;
+  }
+
+  .btn-primary {
+    @apply inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-accent px-4 text-sm font-medium text-white transition active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-primary:hover {
+    background: #115e59;
+  }
+
+  .btn-secondary {
+    @apply inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-line bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-danger {
+    @apply inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-rose-200 bg-white px-4 text-sm font-medium text-rose-600 transition hover:bg-rose-50 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .icon-btn-danger {
+    @apply inline-flex h-9 w-9 items-center justify-center rounded-xl border border-rose-200 text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300;
+  }
+
+  .text-action {
+    @apply text-sm font-medium text-accent transition hover:underline;
+  }
+
+  .empty-state {
+    @apply rounded-2xl border border-dashed border-line bg-white px-4 py-10 text-center text-sm text-slate-500;
+  }
+
+  .mobile-summary-card {
+    @apply surface-card p-3;
+  }
+
+  .mobile-summary-title {
+    @apply text-sm font-semibold text-ink;
+  }
+
+  .mobile-summary-subtitle {
+    @apply mt-1 text-sm text-slate-600;
+  }
+
+  .mobile-summary-grid {
+    @apply mt-3 grid grid-cols-2 gap-2 text-xs;
+  }
+
+  .mobile-summary-cell {
+    @apply rounded-lg bg-slate-50 px-2 py-1.5 text-slate-700;
+  }
+
+  .mobile-summary-actions {
+    @apply mt-3 flex flex-wrap items-center gap-2;
+  }
+
+  @media (max-width: 768px) {
+    .page-title {
+      @apply text-xl;
+    }
+
+    .data-table th {
+      @apply px-3 py-3 text-xs;
+    }
+
+    .data-table td {
+      @apply px-3 py-4 text-xs;
+    }
+
+    .btn-primary,
+    .btn-secondary,
+    .btn-danger {
+      @apply h-10 px-3 text-xs;
+    }
+
+    .mobile-summary-card {
+      @apply p-3;
+    }
+  }
+
+  @media (max-width: 380px) {
+    .page-description {
+      @apply text-xs;
+    }
+
+    .btn-primary,
+    .btn-secondary,
+    .btn-danger {
+      @apply h-9 px-2.5 text-xs;
+    }
+
+    .icon-btn-danger {
+      @apply h-8 w-8 rounded-lg;
+    }
+
+    .package-action-row {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .package-action-row > * {
+      width: 100%;
+    }
+  }
 }

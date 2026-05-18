@@ -15,6 +15,7 @@ import {
 import { getErrorMessage } from "../utils/errors";
 import type { Product } from "../types";
 import type { User } from "@supabase/supabase-js";
+import { PageHeader } from "../components/ui";
 
 type ProductsPageProps = {
   user: User;
@@ -176,17 +177,16 @@ export function ProductsPage({ user }: ProductsPageProps) {
 
   return (
     <section className="grid gap-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold text-ink">商品列表</h1>
-          <p className="mt-1 text-sm text-slate-500">按当前账号独立管理</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
+      <PageHeader
+        title="商品管理"
+        description="管理商品尺寸、重量与基础资料"
+        actions={
+          <>
           <button
             type="button"
             onClick={() => void handleExcelExport()}
             disabled={transferring}
-            className="inline-flex h-11 items-center gap-2 rounded-md border border-line bg-white px-4 text-sm font-medium text-slate-700 disabled:opacity-60"
+            className="btn-secondary"
           >
             <Download size={18} />
             下载 Excel
@@ -195,7 +195,7 @@ export function ProductsPage({ user }: ProductsPageProps) {
             type="button"
             onClick={() => void handleBulkDelete()}
             disabled={selectedProductIds.length === 0 || transferring}
-            className="inline-flex h-11 items-center gap-2 rounded-md border border-line bg-white px-4 text-sm font-medium text-slate-700 disabled:opacity-60"
+            className={selectedProductIds.length > 0 ? "btn-danger" : "btn-secondary"}
           >
             <Trash2 size={18} />
             批量删除
@@ -204,7 +204,7 @@ export function ProductsPage({ user }: ProductsPageProps) {
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={transferring}
-            className="inline-flex h-11 items-center gap-2 rounded-md border border-line bg-white px-4 text-sm font-medium text-slate-700 disabled:opacity-60"
+            className="btn-secondary"
           >
             <Upload size={18} />
             上传 Excel
@@ -218,13 +218,14 @@ export function ProductsPage({ user }: ProductsPageProps) {
           />
           <Link
             to="/products/new"
-            className="inline-flex h-11 items-center gap-2 rounded-md bg-accent px-4 text-sm font-medium text-white"
+            className="btn-primary"
           >
             <Plus size={18} />
             新增商品
           </Link>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {successMessage && (
         <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
@@ -239,7 +240,7 @@ export function ProductsPage({ user }: ProductsPageProps) {
       )}
 
       {pendingImport && (
-        <div className="grid gap-3 rounded-lg border border-line bg-white p-4 shadow-panel">
+        <div className="surface-card grid gap-3 p-4">
           <div>
             <p className="text-sm font-medium text-ink">导入预览</p>
             <p className="mt-1 text-sm text-slate-500">
@@ -281,10 +282,66 @@ export function ProductsPage({ user }: ProductsPageProps) {
         </div>
       )}
 
-      <div className="overflow-hidden rounded-lg bg-white shadow-panel">
+      <div className="grid gap-3 md:hidden">
+        {loading ? (
+          <div className="empty-state">加载中...</div>
+        ) : products.length === 0 ? (
+          <div className="empty-state">暂无商品</div>
+        ) : (
+          products.map((product) => (
+            <article key={product.id} className="mobile-summary-card">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="mobile-summary-title">{product.product_code}</p>
+                  <p className="mobile-summary-subtitle">{product.product_name_cn}</p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={selectedProductIds.includes(product.id)}
+                  onChange={() => toggleProduct(product.id)}
+                  aria-label={`选择商品 ${product.product_code}`}
+                />
+              </div>
+              <div className="mobile-summary-grid">
+                <div className="mobile-summary-cell">长：{product.package_length_cm} cm</div>
+                <div className="mobile-summary-cell">宽：{product.package_width_cm} cm</div>
+                <div className="mobile-summary-cell">高：{product.package_height_cm} cm</div>
+                <div className="mobile-summary-cell">重：{product.package_weight_g} g</div>
+              </div>
+              <p className="mt-2 text-xs text-slate-500">
+                创建时间：
+                {new Date(product.created_at).toLocaleString("zh-CN", {
+                  year: "numeric",
+                  month: "2-digit",
+                  day: "2-digit",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </p>
+              <div className="mobile-summary-actions">
+                <Link className="btn-secondary h-9 px-3" to={`/products/${product.id}/edit`}>
+                  编辑
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => void handleDelete(product)}
+                  disabled={deletingProductId === product.id}
+                  className="icon-btn-danger h-9 w-9"
+                  aria-label={`删除${product.product_name_cn}`}
+                  title="删除商品"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            </article>
+          ))
+        )}
+      </div>
+
+      <div className="table-card hidden md:block">
         <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
-            <thead className="bg-slate-50 text-slate-500">
+          <table className="data-table">
+            <thead>
               <tr>
                 <th className="px-4 py-3 font-medium">
                   <input
@@ -307,19 +364,19 @@ export function ProductsPage({ user }: ProductsPageProps) {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={9} className="px-4 py-10 text-center text-slate-500">
                     加载中...
                   </td>
                 </tr>
               ) : products.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={9} className="px-4 py-10 text-center text-slate-500">
                     暂无商品
                   </td>
                 </tr>
               ) : (
                 products.map((product) => (
-                  <tr key={product.id} className="border-t border-line">
+                  <tr key={product.id}>
                     <td className="px-4 py-3">
                       <input
                         type="checkbox"
@@ -330,23 +387,29 @@ export function ProductsPage({ user }: ProductsPageProps) {
                     </td>
                     <td className="px-4 py-3">{product.product_code}</td>
                     <td className="px-4 py-3">{product.product_name_cn}</td>
-                    <td className="px-4 py-3">{product.package_length_cm} cm</td>
-                    <td className="px-4 py-3">{product.package_width_cm} cm</td>
-                    <td className="px-4 py-3">{product.package_height_cm} cm</td>
-                    <td className="px-4 py-3">{product.package_weight_g} g</td>
+                    <td className="number-cell">{product.package_length_cm} cm</td>
+                    <td className="number-cell">{product.package_width_cm} cm</td>
+                    <td className="number-cell">{product.package_height_cm} cm</td>
+                    <td className="number-cell">{product.package_weight_g} g</td>
                     <td className="px-4 py-3">
-                      {new Date(product.created_at).toLocaleString("zh-CN")}
+                      {new Date(product.created_at).toLocaleString("zh-CN", {
+                        year: "numeric",
+                        month: "2-digit",
+                        day: "2-digit",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex min-w-40 items-center gap-6">
-                        <Link className="text-slate-600" to={`/products/${product.id}/edit`}>
+                      <div className="flex min-w-28 items-center gap-3">
+                        <Link className="text-action text-slate-600 hover:no-underline" to={`/products/${product.id}/edit`}>
                           编辑
                         </Link>
                         <button
                           type="button"
                           onClick={() => void handleDelete(product)}
                           disabled={deletingProductId === product.id}
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-rose-200 text-rose-600 hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
+                          className="icon-btn-danger"
                           aria-label={`删除${product.product_name_cn}`}
                           title="删除商品"
                         >

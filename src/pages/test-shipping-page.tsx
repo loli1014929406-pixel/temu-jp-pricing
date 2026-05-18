@@ -11,6 +11,7 @@ import type { Product } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { calculatePricing, formatCurrency } from "../utils/pricing";
 import { calculateTestShipping } from "../utils/test-shipping";
+import { Badge, PageHeader } from "../components/ui";
 
 type TestShippingPageProps = {
   user: User;
@@ -162,9 +163,7 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
 
   return (
     <section className="grid gap-5">
-      <div>
-        <h1 className="text-2xl font-semibold text-ink">测试阶段发货</h1>
-      </div>
+      <PageHeader title="测试发货" description="查看测试发货物流方案与利润表现" />
 
       {errorMessage && (
         <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
@@ -172,14 +171,51 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
         </div>
       )}
 
-      <div className="overflow-hidden rounded-lg bg-white shadow-panel">
+      <div className="grid gap-3 md:hidden">
+        {loading ? (
+          <div className="empty-state">加载中...</div>
+        ) : products.length === 0 ? (
+          <div className="empty-state">暂无商品</div>
+        ) : (
+          products.map((product) => {
+            const summary = summaries[product.id];
+            return (
+              <article key={product.id} className="mobile-summary-card">
+                <p className="mobile-summary-title">{product.product_code}</p>
+                <p className="mobile-summary-subtitle">{product.product_name_cn}</p>
+                <div className="mobile-summary-grid">
+                  <div className="mobile-summary-cell">核定供货价：{typeof summary?.temuPriceRmb === "number" ? formatCurrency(summary.temuPriceRmb) : "--"}</div>
+                  <div className="mobile-summary-cell">顺丰：{typeof summary?.sfCostRmb === "number" ? formatCurrency(summary.sfCostRmb) : "--"}</div>
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {summary?.canUseOcsKunshan3cm === null ||
+                  typeof summary?.canUseOcsKunshan3cm === "undefined"
+                    ? <span className="text-xs text-slate-500">3cm：--</span>
+                    : summary.canUseOcsKunshan3cm
+                      ? <Badge tone="success">3cm 可用</Badge>
+                      : <Badge tone="danger">3cm 不可用</Badge>}
+                  {summary?.logisticsMethod ? <Badge tone="info">{summary.logisticsMethod}</Badge> : null}
+                </div>
+                <p className="mt-2 text-sm">
+                  利润：
+                  {typeof summary?.profitRmb === "number"
+                    ? <span className={summary.profitRmb >= 0 ? "money text-emerald-700" : "money text-rose-700"}> {formatCurrency(summary.profitRmb)}</span>
+                    : " --"}
+                </p>
+              </article>
+            );
+          })
+        )}
+      </div>
+
+      <div className="table-card hidden md:block">
         <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
-            <thead className="bg-slate-50 text-slate-500">
+          <table className="data-table">
+            <thead>
               <tr>
                 <th className="px-4 py-3 font-medium">商品编号</th>
                 <th className="px-4 py-3 font-medium">产品名称</th>
-                <th className="px-4 py-3 font-medium">Temu 核价 RMB</th>
+                <th className="px-4 py-3 font-medium">核定供货价 (RMB)</th>
                 <th className="px-4 py-3 font-medium">顺丰 RMB</th>
                 <th className="px-4 py-3 font-medium">3cm 是否可用</th>
                 <th className="px-4 py-3 font-medium">物流方式</th>
@@ -203,7 +239,7 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                 products.map((product) => {
                   const summary = summaries[product.id];
                   return (
-                    <tr key={product.id} className="border-t border-line">
+                    <tr key={product.id}>
                       <td className="px-4 py-3">{product.product_code}</td>
                       <td className="px-4 py-3">{product.product_name_cn}</td>
                       <td className="px-4 py-3">
@@ -221,13 +257,15 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                         typeof summary?.canUseOcsKunshan3cm === "undefined"
                           ? "--"
                           : summary.canUseOcsKunshan3cm
-                            ? "可用"
-                            : "不能使用 3cm"}
+                            ? <Badge tone="success">可用</Badge>
+                            : <Badge tone="danger">不可用</Badge>}
                       </td>
-                      <td className="px-4 py-3">{summary?.logisticsMethod ?? "--"}</td>
+                      <td className="px-4 py-3">
+                        {summary?.logisticsMethod ? <Badge tone="info">{summary.logisticsMethod}</Badge> : "--"}
+                      </td>
                       <td className="px-4 py-3">
                         {typeof summary?.profitRmb === "number"
-                          ? formatCurrency(summary.profitRmb)
+                          ? <span className={summary.profitRmb >= 0 ? "money text-emerald-700" : "money text-rose-700"}>{formatCurrency(summary.profitRmb)}</span>
                           : "--"}
                       </td>
                     </tr>
