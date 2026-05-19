@@ -8,6 +8,17 @@ import type {
 
 const round = (value: number, digits = 2) => Number(value.toFixed(digits));
 
+export const PROFIT_CALCULATION_VERSION = 4;
+
+export function calculateFinalSalePriceRmb(input: ProfitCalculationInput) {
+  const activityDiscountCoefficient = input.activityDiscountRate / 10;
+  return Math.max(
+    0,
+    (input.temuPriceRmb - input.trafficDiscountRate - input.couponDiscountRate) *
+      activityDiscountCoefficient,
+  );
+}
+
 const logisticsPlans: Array<{
   key: ProfitLogisticsPlanKey;
   name: string;
@@ -40,20 +51,17 @@ export function calculateProfitProjection(
   settings: PricingSettings,
   input: ProfitCalculationInput,
 ): ProfitCalculationResult {
-  const finalDiscountRate =
-    (input.trafficDiscountRate *
-      input.activityDiscountRate *
-      input.couponDiscountRate) /
-    100;
-  const discountedSalePriceRmb = input.temuPriceRmb * (finalDiscountRate / 10);
+  const finalDiscountRate = input.activityDiscountRate / 10;
+  const priceBeforeActivityDiscount =
+    input.temuPriceRmb - input.trafficDiscountRate - input.couponDiscountRate;
+  const discountedSalePriceRmb = calculateFinalSalePriceRmb(input);
   const isValid =
     input.temuPriceRmb > 0 &&
-    input.trafficDiscountRate > 0 &&
-    input.trafficDiscountRate <= 10 &&
+    input.trafficDiscountRate >= 0 &&
     input.activityDiscountRate > 0 &&
     input.activityDiscountRate <= 10 &&
-    input.couponDiscountRate > 0 &&
-    input.couponDiscountRate <= 10 &&
+    input.couponDiscountRate >= 0 &&
+    priceBeforeActivityDiscount > 0 &&
     discountedSalePriceRmb > 0 &&
     settings.exchange_rate_rmb_per_jpy > 0;
   const discountedUnitPriceJpy =
@@ -78,7 +86,7 @@ export function calculateProfitProjection(
     pricing.sfCostRmb;
 
   return {
-    calculationVersion: 3,
+    calculationVersion: PROFIT_CALCULATION_VERSION,
     isValid,
     finalDiscountRate: round(finalDiscountRate, 4),
     discountedSalePriceRmb: round(discountedSalePriceRmb),

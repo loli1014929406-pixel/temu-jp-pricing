@@ -352,7 +352,7 @@ export async function updateProduct(
             temu_price_rmb: previous.temu_price_rmb,
             traffic_discount_rate: previous.traffic_discount_rate,
             activity_discount_rate: previous.activity_discount_rate,
-            coupon_discount_rate: previous.coupon_discount_rate ?? 10,
+            coupon_discount_rate: previous.coupon_discount_rate ?? 0,
             result_json: {},
           },
         ]

@@ -21,7 +21,10 @@ import type {
 } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { calculatePricing, formatCurrency, formatPercent } from "../utils/pricing";
-import { calculateProfitProjection } from "../utils/profit-calculation";
+import {
+  calculateProfitProjection,
+  PROFIT_CALCULATION_VERSION,
+} from "../utils/profit-calculation";
 
 type ProfitCalculationPageProps = {
   user: User;
@@ -37,9 +40,9 @@ type SkuCalculationState = {
 
 const defaultInput: ProfitCalculationInput = {
   temuPriceRmb: 0,
-  trafficDiscountRate: 10,
+  trafficDiscountRate: 0,
   activityDiscountRate: 10,
-  couponDiscountRate: 10,
+  couponDiscountRate: 0,
 };
 
 const formatRoas = (value: number | null, fallback: string) =>
@@ -51,9 +54,9 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
   const [calculations, setCalculations] = useState<Record<string, SkuCalculationState>>({});
   const [settings, setSettings] = useState<PricingSettings | null>(null);
   const [productDiscounts, setProductDiscounts] = useState({
-    trafficDiscountRate: 10,
+    trafficDiscountRate: 0,
     activityDiscountRate: 10,
-    couponDiscountRate: 10,
+    couponDiscountRate: 0,
   });
   const [loading, setLoading] = useState(true);
   const [savingSkuId, setSavingSkuId] = useState("");
@@ -95,12 +98,16 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
 
             const pricing = calculatePricing(nextProduct.package_weight_g, skuItems, settings);
             const saved = savedBySkuId[sku.id];
+            const usesCurrentFormula =
+              saved?.result_json?.calculationVersion === PROFIT_CALCULATION_VERSION;
             const input = saved
               ? {
                   temuPriceRmb: saved.temu_price_rmb,
-                  trafficDiscountRate: saved.traffic_discount_rate,
+                  trafficDiscountRate: usesCurrentFormula ? saved.traffic_discount_rate : 0,
                   activityDiscountRate: saved.activity_discount_rate,
-                  couponDiscountRate: saved.coupon_discount_rate ?? 10,
+                  couponDiscountRate: usesCurrentFormula
+                    ? saved.coupon_discount_rate ?? 0
+                    : 0,
                 }
               : {
                   ...defaultInput,
@@ -118,7 +125,7 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
                   result:
                     saved?.result_json &&
                     Object.keys(saved.result_json).length > 0 &&
-                    saved.result_json.calculationVersion === 3 &&
+                    saved.result_json.calculationVersion === PROFIT_CALCULATION_VERSION &&
                     typeof saved.result_json.isValid === "boolean"
                       ? saved.result_json
                       : calculateProfitProjection(pricing, settings, input),
@@ -133,9 +140,9 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
           setProduct(nextProduct);
           setSettings(settings);
           setProductDiscounts({
-            trafficDiscountRate: firstCalculation?.input.trafficDiscountRate ?? 10,
+            trafficDiscountRate: firstCalculation?.input.trafficDiscountRate ?? 0,
             activityDiscountRate: firstCalculation?.input.activityDiscountRate ?? 10,
-            couponDiscountRate: firstCalculation?.input.couponDiscountRate ?? 10,
+            couponDiscountRate: firstCalculation?.input.couponDiscountRate ?? 0,
           });
           setCalculations(nextCalculations);
         }
@@ -175,7 +182,7 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
     field: "trafficDiscountRate" | "activityDiscountRate" | "couponDiscountRate",
     value: number,
   ) {
-    if (!settings || value > 10) return;
+    if (!settings || value < 0 || (field === "activityDiscountRate" && value > 10)) return;
 
     const nextProductDiscounts = { ...productDiscounts, [field]: value };
     setProductDiscounts(nextProductDiscounts);
@@ -249,11 +256,10 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
       )}
 
       <section className="grid gap-4 rounded-lg bg-white p-5 shadow-panel">
-        <div className="grid gap-4 md:grid-cols-4">
-          <Field label="流量曝光折扣">
+        <div className="grid gap-4 md:grid-cols-3">
+          <Field label="流量加速">
             <TextInput
-              min="0.01"
-              max="10"
+              min="0"
               step="0.01"
               type="number"
               value={productDiscounts.trafficDiscountRate}
@@ -265,7 +271,7 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
               }
             />
           </Field>
-          <Field label="活动促销折扣">
+          <Field label="活动折扣">
             <TextInput
               min="0.01"
               max="10"
@@ -280,10 +286,9 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
               }
             />
           </Field>
-          <Field label="优惠券折扣">
+          <Field label="优惠券价">
             <TextInput
-              min="0.01"
-              max="10"
+              min="0"
               step="0.01"
               type="number"
               value={productDiscounts.couponDiscountRate}
@@ -293,17 +298,6 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
                   Number(event.target.value || 0),
                 )
               }
-            />
-          </Field>
-          <Field label="综合折扣系数">
-            <TextInput
-              readOnly
-              value={(
-                (productDiscounts.trafficDiscountRate *
-                  productDiscounts.activityDiscountRate *
-                  productDiscounts.couponDiscountRate) /
-                100
-              ).toFixed(4)}
             />
           </Field>
         </div>
@@ -347,14 +341,14 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
                             }
                           />
                         </Field>
-                        <Field label="折后结算价 (RMB)">
+                        <Field label="最终售价(RMB)">
                           <TextInput readOnly value={result.discountedSalePriceRmb.toFixed(2)} />
                         </Field>
                       </div>
 
                       {!result.isValid && (
                         <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                          请填写大于 0 的 Temu 核价，且折扣必须大于 0 并且不超过 10
+                          请填写大于 0 的 Temu 核价；流量加速和优惠券价不能小于 0，活动折扣必须大于 0 且不超过 10
                         </div>
                       )}
 

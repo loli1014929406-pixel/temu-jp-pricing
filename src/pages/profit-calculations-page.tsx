@@ -11,7 +11,11 @@ import { fetchSettings } from "../lib/settings";
 import type { Product } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { calculatePricing, formatCurrency } from "../utils/pricing";
-import { calculateProfitProjection } from "../utils/profit-calculation";
+import {
+  calculateFinalSalePriceRmb,
+  calculateProfitProjection,
+  PROFIT_CALCULATION_VERSION,
+} from "../utils/profit-calculation";
 import { Badge, PageHeader, StatCard } from "../components/ui";
 
 type ProfitCalculationsPageProps = {
@@ -28,7 +32,6 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
         trafficDiscountRate: number;
         activityDiscountRate: number;
         couponDiscountRate: number;
-        finalDiscountRate: number;
         discountedSalePriceRmb: number | null;
         profitRmb: number | null;
         profitRate: number | null;
@@ -120,11 +123,15 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                 : [],
             );
             const firstSaved = savedForProduct[0];
-            const trafficDiscountRate = firstSaved?.traffic_discount_rate ?? 10;
+            const usesCurrentFormula =
+              firstSaved?.result_json?.calculationVersion === PROFIT_CALCULATION_VERSION;
+            const trafficDiscountRate = usesCurrentFormula
+              ? firstSaved?.traffic_discount_rate ?? 0
+              : 0;
             const activityDiscountRate = firstSaved?.activity_discount_rate ?? 10;
-            const couponDiscountRate = firstSaved?.coupon_discount_rate ?? 10;
-            const finalDiscountRate =
-              (trafficDiscountRate * activityDiscountRate * couponDiscountRate) / 100;
+            const couponDiscountRate = usesCurrentFormula
+              ? firstSaved?.coupon_discount_rate ?? 0
+              : 0;
             const temuPrice = nextTemuPrices[product.id];
             const runtimeCalculations = productSkus.flatMap((sku) => {
               if (!sku.id) return [];
@@ -148,7 +155,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                   temuPriceRmb,
                   result:
                     saved?.result_json?.isValid &&
-                    saved.result_json.calculationVersion === 3
+                    saved.result_json.calculationVersion === PROFIT_CALCULATION_VERSION
                       ? saved.result_json
                       : calculateProfitProjection(pricing, settings, input),
                 },
@@ -193,10 +200,14 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                 trafficDiscountRate,
                 activityDiscountRate,
                 couponDiscountRate,
-                finalDiscountRate,
                 discountedSalePriceRmb:
                   typeof temuPrice === "number"
-                    ? temuPrice * (finalDiscountRate / 10)
+                    ? calculateFinalSalePriceRmb({
+                        temuPriceRmb: temuPrice,
+                        trafficDiscountRate,
+                        activityDiscountRate,
+                        couponDiscountRate,
+                      })
                     : null,
                 profitRmb: representativePlan?.profitRmb ?? null,
                 profitRate: representativePlan?.profitRate ?? null,
@@ -252,7 +263,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
 
   return (
     <section className="grid gap-5">
-      <PageHeader title="利润数据分析" description="实时分析利润率、折后价及广告投放安全边际" />
+      <PageHeader title="利润数据分析" description="实时分析利润率、最终售价及广告投放安全边际" />
 
       {errorMessage && (
         <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
@@ -286,7 +297,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                     核定供货价：{typeof temuPrices[product.id] === "number" ? formatCurrency(temuPrices[product.id] as number) : "--"}
                   </div>
                   <div className="mobile-summary-cell">
-                    折后结算价：{typeof summary?.discountedSalePriceRmb === "number" ? formatCurrency(summary.discountedSalePriceRmb) : "--"}
+                    最终售价：{typeof summary?.discountedSalePriceRmb === "number" ? formatCurrency(summary.discountedSalePriceRmb) : "--"}
                   </div>
                   <div className="mobile-summary-cell">
                     利润：
@@ -327,11 +338,10 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                 <th className="px-4 py-3 font-medium">商品编号</th>
                 <th className="px-4 py-3 font-medium">产品名称</th>
                 <th className="px-4 py-3 font-medium">核定供货价 (RMB)</th>
-                <th className="px-4 py-3 font-medium">流量曝光折扣</th>
-                <th className="px-4 py-3 font-medium">活动促销折扣</th>
-                <th className="px-4 py-3 font-medium">优惠券折扣</th>
-                <th className="px-4 py-3 font-medium">综合折扣系数</th>
-                <th className="px-4 py-3 font-medium">折后结算价 (RMB)</th>
+                <th className="px-4 py-3 font-medium">流量加速</th>
+                <th className="px-4 py-3 font-medium">活动折扣</th>
+                <th className="px-4 py-3 font-medium">优惠券价</th>
+                <th className="px-4 py-3 font-medium">最终售价(RMB)</th>
                 <th className="px-4 py-3 font-medium">利润 RMB</th>
                 <th className="px-4 py-3 font-medium">利润率</th>
                 <th className="px-4 py-3 font-medium">建议最低 ROAS</th>
@@ -343,13 +353,13 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={14} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={13} className="px-4 py-8 text-center text-slate-500">
                     加载中...
                   </td>
                 </tr>
               ) : products.length === 0 ? (
                 <tr>
-                  <td colSpan={14} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={13} className="px-4 py-8 text-center text-slate-500">
                     暂无商品
                   </td>
                 </tr>
@@ -364,16 +374,13 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                         : "--"}
                     </td>
                     <td className="number-cell">
-                      {discountSummaries[product.id]?.trafficDiscountRate ?? 10}
+                      {discountSummaries[product.id]?.trafficDiscountRate ?? 0}
                     </td>
                     <td className="number-cell">
                       {discountSummaries[product.id]?.activityDiscountRate ?? 10}
                     </td>
                     <td className="number-cell">
-                      {discountSummaries[product.id]?.couponDiscountRate ?? 10}
-                    </td>
-                    <td className="number-cell">
-                      {(discountSummaries[product.id]?.finalDiscountRate ?? 10).toFixed(4)}
+                      {discountSummaries[product.id]?.couponDiscountRate ?? 0}
                     </td>
                     <td className="money">
                       {typeof discountSummaries[product.id]?.discountedSalePriceRmb ===

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Navigate } from "react-router-dom";
 import type { User } from "@supabase/supabase-js";
 import { getSupabaseClient, supabaseConfigError } from "../lib/supabase";
@@ -8,19 +8,22 @@ type AuthPageProps = {
   user: User | null;
 };
 
+const autoLoginEmail = import.meta.env.VITE_AUTO_LOGIN_EMAIL ?? "";
+const autoLoginPassword = import.meta.env.VITE_AUTO_LOGIN_PASSWORD ?? "";
+
 export function AuthPage({ user }: AuthPageProps) {
   const [mode, setMode] = useState<"login" | "register">("login");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [email, setEmail] = useState(autoLoginEmail);
+  const [password, setPassword] = useState(autoLoginPassword);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const autoLoginAttempted = useRef(false);
 
   if (user) {
     return <Navigate to="/products" replace />;
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function authenticate(nextEmail: string, nextPassword: string) {
     if (supabaseConfigError) {
       setMessage(supabaseConfigError);
       return;
@@ -32,8 +35,8 @@ export function AuthPage({ user }: AuthPageProps) {
     const supabase = getSupabaseClient();
     const action =
       mode === "login"
-        ? supabase.auth.signInWithPassword({ email, password })
-        : supabase.auth.signUp({ email, password });
+        ? supabase.auth.signInWithPassword({ email: nextEmail, password: nextPassword })
+        : supabase.auth.signUp({ email: nextEmail, password: nextPassword });
     const { error } = await action;
 
     if (error) {
@@ -46,6 +49,27 @@ export function AuthPage({ user }: AuthPageProps) {
       setMessage(mode === "login" ? "登录成功" : "注册成功，请检查邮箱验证状态");
     }
     setBusy(false);
+  }
+
+  useEffect(() => {
+    if (
+      user ||
+      mode !== "login" ||
+      busy ||
+      autoLoginAttempted.current ||
+      !autoLoginEmail ||
+      !autoLoginPassword
+    ) {
+      return;
+    }
+
+    autoLoginAttempted.current = true;
+    void authenticate(autoLoginEmail, autoLoginPassword);
+  }, [busy, mode, user]);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await authenticate(email, password);
   }
 
   return (
