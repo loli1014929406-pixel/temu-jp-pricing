@@ -5,6 +5,7 @@ import {
   fetchProduct,
   fetchProductItems,
   fetchProductSkus,
+  getProductRoutePath,
   updateProduct,
 } from "../lib/products";
 import { createEmptyItem, createEmptySku, createEmptySpec } from "../lib/defaults";
@@ -17,8 +18,9 @@ import type {
 import { getErrorMessage } from "../utils/errors";
 
 export function ProductEditPage() {
-  const { productId = "" } = useParams();
+  const { productId: productKey = "" } = useParams();
   const navigate = useNavigate();
+  const [productId, setProductId] = useState("");
   const [product, setProduct] = useState<ProductDraft | null>(null);
   const [items, setItems] = useState<ProductItem[]>([]);
   const [specs, setSpecs] = useState<ProductSpec[]>([createEmptySpec()]);
@@ -32,10 +34,16 @@ export function ProductEditPage() {
       setLoadingError("");
 
       try {
-        const [nextProduct, nextItems, nextSkus] = await Promise.all([
-          fetchProduct(productId),
-          fetchProductItems(productId),
-          fetchProductSkus(productId),
+        const nextProduct = await fetchProduct(productKey);
+        const routeKey = nextProduct.product_code.trim() || nextProduct.id;
+        if (productKey !== routeKey) {
+          navigate(getProductRoutePath(nextProduct, "/edit"), { replace: true });
+          return;
+        }
+
+        const [nextItems, nextSkus] = await Promise.all([
+          fetchProductItems(nextProduct.id),
+          fetchProductSkus(nextProduct.id),
         ]);
         const {
           id,
@@ -48,6 +56,7 @@ export function ProductEditPage() {
         void owner_id;
         void created_at;
         void updated_at;
+        setProductId(nextProduct.id);
         setProduct(draft);
         setItems(nextItems.length > 0 ? nextItems : [createEmptyItem()]);
         setSkus(
@@ -67,11 +76,11 @@ export function ProductEditPage() {
     }
 
     void load();
-  }, [productId]);
+  }, [navigate, productKey]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!product) return;
+    if (!product || !productId) return;
     setBusy(true);
     setMessage("");
 

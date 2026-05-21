@@ -12,6 +12,8 @@ import type {
 } from "../types";
 
 const requestTimeoutMs = 15000;
+const uuidPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 async function withTimeout<T>(promise: PromiseLike<T>, label: string) {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -54,13 +56,41 @@ export async function fetchProducts() {
   return data as Product[];
 }
 
-export async function fetchProduct(productId: string) {
+export function getProductRouteKey(product: Pick<Product, "id" | "product_code">) {
+  return encodeURIComponent(product.product_code.trim() || product.id);
+}
+
+export function getProductRoutePath(
+  product: Pick<Product, "id" | "product_code">,
+  suffix: string,
+) {
+  return `/products/${getProductRouteKey(product)}${suffix}`;
+}
+
+export async function fetchProduct(productKey: string) {
   const { supabase, session } = await requireSession();
+  const trimmedProductKey = productKey.trim();
+
+  if (uuidPattern.test(trimmedProductKey)) {
+    const { data: productById, error: productByIdError } = await withTimeout(
+      supabase
+        .from("products")
+        .select("*")
+        .eq("id", trimmedProductKey)
+        .eq("owner_id", session.user.id)
+        .maybeSingle(),
+      "加载商品",
+    );
+
+    if (productByIdError) throw productByIdError;
+    if (productById) return productById as Product;
+  }
+
   const { data, error } = await withTimeout(
     supabase
       .from("products")
       .select("*")
-      .eq("id", productId)
+      .eq("product_code", trimmedProductKey)
       .eq("owner_id", session.user.id)
       .single(),
     "加载商品",
@@ -68,6 +98,30 @@ export async function fetchProduct(productId: string) {
 
   if (error) throw error;
   return data as Product;
+}
+
+async function assertProductCodeAvailable(productCode: string, excludedProductId?: string) {
+  const code = productCode.trim();
+  if (!code) {
+    throw new Error("商品编号不能为空");
+  }
+
+  const { supabase, session } = await requireSession();
+  let request = supabase
+    .from("products")
+    .select("id")
+    .eq("product_code", code)
+    .eq("owner_id", session.user.id);
+
+  if (excludedProductId) {
+    request = request.neq("id", excludedProductId);
+  }
+
+  const { data, error } = await withTimeout(request.limit(1), "检查商品编号");
+  if (error) throw error;
+  if (data.length > 0) {
+    throw new Error(`商品编号“${code}”已存在，请换一个编号`);
+  }
 }
 
 export async function fetchProductItems(productId: string) {
@@ -278,9 +332,15 @@ export async function createProduct(
   items: ProductItem[],
   skus: ProductSkuDraft[],
 ) {
+  const normalizedProduct = {
+    ...product,
+    product_code: product.product_code.trim(),
+  };
+  await assertProductCodeAvailable(normalizedProduct.product_code);
+
   const { supabase } = await requireSession();
   const { data, error } = await withTimeout(
-    supabase.from("products").insert(product).select().single(),
+    supabase.from("products").insert(normalizedProduct).select().single(),
     "保存商品",
   );
   if (error) throw error;
@@ -296,6 +356,12 @@ export async function updateProduct(
   items: ProductItem[],
   skus: ProductSkuDraft[],
 ) {
+  const normalizedProduct = {
+    ...product,
+    product_code: product.product_code.trim(),
+  };
+  await assertProductCodeAvailable(normalizedProduct.product_code, productId);
+
   const { supabase } = await requireSession();
   const existingSkus = await fetchProductSkus(productId);
   const existingCalculationsByIdentity = new Map<string, SavedProfitCalculation>();
@@ -321,7 +387,7 @@ export async function updateProduct(
   });
 
   const { error } = await withTimeout(
-    supabase.from("products").update(product).eq("id", productId),
+    supabase.from("products").update(normalizedProduct).eq("id", productId),
     "更新商品",
   );
   if (error) throw error;

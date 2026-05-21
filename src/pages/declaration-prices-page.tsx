@@ -5,6 +5,7 @@ import {
   fetchProductItemsByProductIds,
   fetchProductSkusByProductIds,
   fetchProducts,
+  getProductRoutePath,
 } from "../lib/products";
 import { fetchSettings } from "../lib/settings";
 import type { Product } from "../types";
@@ -122,10 +123,10 @@ export function DeclarationPricesPage({ user }: DeclarationPricesPageProps) {
                   : "--"}
               </p>
               <div className="mobile-summary-actions">
-                <Link className="text-action" to={`/products/${product.id}/pricing`}>
+                <Link className="text-action" to={getProductRoutePath(product, "/pricing")}>
                   查看核算定价
                 </Link>
-                <Link className="text-sm font-medium text-slate-600 hover:underline" to={`/products/${product.id}/edit`}>
+                <Link className="text-sm font-medium text-slate-600 hover:underline" to={getProductRoutePath(product, "/edit")}>
                   编辑
                 </Link>
               </div>
@@ -170,10 +171,10 @@ export function DeclarationPricesPage({ user }: DeclarationPricesPageProps) {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-5">
-                        <Link className="text-action" to={`/products/${product.id}/pricing`}>
+                        <Link className="text-action" to={getProductRoutePath(product, "/pricing")}>
                           查看核算定价
                         </Link>
-                        <Link className="text-sm font-medium text-slate-600 hover:underline" to={`/products/${product.id}/edit`}>
+                        <Link className="text-sm font-medium text-slate-600 hover:underline" to={getProductRoutePath(product, "/edit")}>
                           编辑
                         </Link>
                       </div>

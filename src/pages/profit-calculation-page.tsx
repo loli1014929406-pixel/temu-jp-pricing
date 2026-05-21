@@ -1,13 +1,14 @@
 import { Save } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { User } from "@supabase/supabase-js";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { Field, TextInput } from "../components/form-controls";
 import { fetchProfitCalculationsBySkuIds, saveProfitCalculation } from "../lib/profit-calculations";
 import {
   fetchProduct,
   fetchProductItems,
   fetchProductSkus,
+  getProductRoutePath,
 } from "../lib/products";
 import { fetchSettings } from "../lib/settings";
 import type {
@@ -49,7 +50,8 @@ const formatRoas = (value: number | null, fallback: string) =>
   value === null ? fallback : value.toFixed(2);
 
 export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
-  const { productId = "" } = useParams();
+  const { productId: productKey = "" } = useParams();
+  const navigate = useNavigate();
   const [product, setProduct] = useState<Product | null>(null);
   const [calculations, setCalculations] = useState<Record<string, SkuCalculationState>>({});
   const [settings, setSettings] = useState<PricingSettings | null>(null);
@@ -71,11 +73,19 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
       setErrorMessage("");
 
       try {
-        const [nextProduct, items, skus, settings] = await Promise.all([
-          fetchProduct(productId),
-          fetchProductItems(productId),
-          fetchProductSkus(productId),
+        const [nextProduct, settings] = await Promise.all([
+          fetchProduct(productKey),
           fetchSettings(user.id),
+        ]);
+        const routeKey = nextProduct.product_code.trim() || nextProduct.id;
+        if (productKey !== routeKey) {
+          navigate(getProductRoutePath(nextProduct, "/profit-calculation"), { replace: true });
+          return;
+        }
+
+        const [items, skus] = await Promise.all([
+          fetchProductItems(nextProduct.id),
+          fetchProductSkus(nextProduct.id),
         ]);
         const savedCalculations = await fetchProfitCalculationsBySkuIds(
           skus.flatMap((sku) => (sku.id ? [sku.id] : [])),
@@ -161,7 +171,7 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
     return () => {
       active = false;
     };
-  }, [productId, user.id]);
+  }, [navigate, productKey, user.id]);
 
   function updateSkuPrice(skuId: string, value: number) {
     const current = calculations[skuId];

@@ -12,6 +12,7 @@ import {
   deletePurchaseOrder,
   fetchPurchaseOrders,
   receivePurchasePackage,
+  repairPurchasePackageInventory,
   updatePurchasePackageTrackingNo,
   updatePurchaseSource,
 } from "../lib/purchases";
@@ -63,6 +64,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const [noticeMessage, setNoticeMessage] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -351,6 +353,8 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
     const confirmed = window.confirm(`确认签收快递单号“${pkg.tracking_no}”并增加库存吗？`);
     if (!confirmed) return;
     setBusyKey(`receive-${pkg.id}`);
+    setErrorMessage("");
+    setNoticeMessage("");
     try {
       const result = await receivePurchasePackage(order, pkg);
       setOrders((current) =>
@@ -369,6 +373,26 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
       );
     } catch (error) {
       setErrorMessage(getErrorMessage(error, "签收入库失败"));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
+  async function handleRepairPackageInventory(order: PurchaseOrder, pkg: PurchasePackage) {
+    const confirmed = window.confirm(`确认为已签收快递单号“${pkg.tracking_no}”补入库存吗？已存在的入库流水会自动跳过。`);
+    if (!confirmed) return;
+    setBusyKey(`repair-${pkg.id}`);
+    setErrorMessage("");
+    setNoticeMessage("");
+    try {
+      const result = await repairPurchasePackageInventory(order, pkg);
+      const count = result.inventory.reduce(
+        (sum, entry) => sum + entry.adjustment.change_quantity,
+        0,
+      );
+      setNoticeMessage(count > 0 ? `已补入库存 ${count} 件` : "该包裹库存流水已存在，无需重复补入");
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, "补入库存失败"));
     } finally {
       setBusyKey("");
     }
@@ -462,6 +486,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
         }
       />
       {errorMessage && <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{errorMessage}</div>}
+      {noticeMessage && <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{noticeMessage}</div>}
 
       {view === "create" && <section className="surface-card grid gap-4 p-5">
         <div>
@@ -818,9 +843,17 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                             <p className="text-sm font-medium text-slate-700">已签收快递包裹</p>
                             <div className="grid gap-2 rounded-xl border border-line bg-white p-4">
                               {receivedSourcePackages.map((pkg) => (
-                                <div key={pkg.id} className="flex items-center gap-2 text-sm">
+                                <div key={pkg.id} className="flex flex-wrap items-center gap-2 text-sm">
                                   <Badge tone="success">已签收</Badge>
                                   <span className="font-medium text-ink">{pkg.tracking_no}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleRepairPackageInventory(order, pkg)}
+                                    disabled={busyKey === `repair-${pkg.id}`}
+                                    className="btn-secondary h-9 px-3"
+                                  >
+                                    补入库存
+                                  </button>
                                 </div>
                               ))}
                             </div>

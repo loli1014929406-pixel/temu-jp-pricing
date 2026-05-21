@@ -7,6 +7,7 @@ import { DeclarationPricesPage } from "./pages/declaration-prices-page";
 import { InventoryPage } from "./pages/inventory-page";
 import { ProfitCalculationPage } from "./pages/profit-calculation-page";
 import { ProfitCalculationsPage } from "./pages/profit-calculations-page";
+import { PromotionRecommendationsPage } from "./pages/promotion-recommendations-page";
 import { PricingResultPage } from "./pages/pricing-result-page";
 import { ProductCreatePage } from "./pages/product-create-page";
 import { ProductEditPage } from "./pages/product-edit-page";
@@ -46,6 +47,10 @@ export default function App() {
         <Route
           path="/profit-calculation"
           element={user ? <ProfitCalculationsPage user={user} /> : null}
+        />
+        <Route
+          path="/profit-calculation/recommendations"
+          element={user ? <PromotionRecommendationsPage user={user} /> : null}
         />
         <Route path="/test-shipping" element={user ? <TestShippingPage user={user} /> : null} />
         <Route path="/purchases" element={<Navigate to="/purchases/records" replace />} />

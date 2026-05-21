@@ -5,6 +5,7 @@ import {
   deleteProduct,
   exportProductsData,
   fetchProducts,
+  getProductRoutePath,
   importProductsData,
 } from "../lib/products";
 import {
@@ -319,7 +320,7 @@ export function ProductsPage({ user }: ProductsPageProps) {
                 })}
               </p>
               <div className="mobile-summary-actions">
-                <Link className="btn-secondary h-9 px-3" to={`/products/${product.id}/edit`}>
+                <Link className="btn-secondary h-9 px-3" to={getProductRoutePath(product, "/edit")}>
                   编辑
                 </Link>
                 <button
@@ -402,7 +403,7 @@ export function ProductsPage({ user }: ProductsPageProps) {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex min-w-28 items-center gap-3">
-                        <Link className="text-action text-slate-600 hover:no-underline" to={`/products/${product.id}/edit`}>
+                        <Link className="text-action text-slate-600 hover:no-underline" to={getProductRoutePath(product, "/edit")}>
                           编辑
                         </Link>
                         <button

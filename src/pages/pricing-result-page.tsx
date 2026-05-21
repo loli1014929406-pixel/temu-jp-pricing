@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import type { User } from "@supabase/supabase-js";
-import { fetchProduct, fetchProductItems, fetchProductSkus } from "../lib/products";
+import {
+  fetchProduct,
+  fetchProductItems,
+  fetchProductSkus,
+  getProductRoutePath,
+} from "../lib/products";
 import { savePricingResult } from "../lib/pricing-results";
 import { fetchSettings } from "../lib/settings";
 import { calculatePricing, formatCurrency, formatPercent } from "../utils/pricing";
@@ -13,7 +18,8 @@ type PricingResultPageProps = {
 };
 
 export function PricingResultPage({ user }: PricingResultPageProps) {
-  const { productId = "" } = useParams();
+  const { productId: productKey = "" } = useParams();
+  const navigate = useNavigate();
   const [product, setProduct] = useState<Product | null>(null);
   const [skuResults, setSkuResults] = useState<
     Array<{ sku: ProductSku; result: PricingResult }>
@@ -31,11 +37,19 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
       setEmptyItems(false);
 
       try {
-        const [nextProduct, nextItems, nextSkus, settings] = await Promise.all([
-          fetchProduct(productId),
-          fetchProductItems(productId),
-          fetchProductSkus(productId),
+        const [nextProduct, settings] = await Promise.all([
+          fetchProduct(productKey),
           fetchSettings(user.id),
+        ]);
+        const routeKey = nextProduct.product_code.trim() || nextProduct.id;
+        if (productKey !== routeKey) {
+          navigate(getProductRoutePath(nextProduct, "/pricing"), { replace: true });
+          return;
+        }
+
+        const [nextItems, nextSkus] = await Promise.all([
+          fetchProductItems(nextProduct.id),
+          fetchProductSkus(nextProduct.id),
         ]);
         const itemsById = Object.fromEntries(
           nextItems.flatMap((item) => (item.id ? [[item.id, item]] : [])),
@@ -91,7 +105,7 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
     return () => {
       active = false;
     };
-  }, [productId, user.id]);
+  }, [navigate, productKey, user.id]);
 
   if (loading) {
     return <div className="text-sm text-slate-500">加载中...</div>;
@@ -132,7 +146,7 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
             在满足目标利润率的前提下，计算核算定价
           </p>
         </div>
-        <Link to={`/products/${product.id}/edit`} className="text-sm text-accent">
+        <Link to={getProductRoutePath(product, "/edit")} className="text-sm text-accent">
           编辑商品
         </Link>
       </div>

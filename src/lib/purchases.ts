@@ -55,6 +55,10 @@ function getItemIdentity(item: Pick<PurchaseOrderItem, "item_name" | "item_spec"
   return `${item.item_name.trim()}\u0000${item.item_spec.trim()}`;
 }
 
+function hasValue(value: string | null | undefined) {
+  return typeof value === "string" && value.trim() !== "";
+}
+
 async function resolvePackageItems(
   order: PurchaseOrder,
   pkg: PurchasePackage,
@@ -65,7 +69,7 @@ async function resolvePackageItems(
     new Set(
       pkg.items.flatMap((packageItem) => {
         const item = itemsById[packageItem.order_item_id];
-        return item?.product_id && !item.item_id ? [item.product_id] : [];
+        return item?.product_id && !hasValue(item.item_id) ? [item.product_id] : [];
       }),
     ),
   );
@@ -86,7 +90,9 @@ async function resolvePackageItems(
   return pkg.items.flatMap((packageItem) => {
     const item = itemsById[packageItem.order_item_id];
     if (!item?.product_id) return [];
-    const itemId = item.item_id ?? productItemsByKey[`${item.product_id}\u0000${getItemIdentity(item)}`];
+    const itemId = hasValue(item.item_id)
+      ? item.item_id
+      : productItemsByKey[`${item.product_id}\u0000${getItemIdentity(item)}`];
     return itemId
       ? [{ packageItem, orderItem: { ...item, product_id: item.product_id, item_id: itemId } }]
       : [];
@@ -359,27 +365,17 @@ async function ensureWarehouseProductInventory(
   }
 }
 
-export async function receivePurchasePackage(order: PurchaseOrder, pkg: PurchasePackage) {
-  if (pkg.status === "received") throw new Error("该包裹已经签收");
+async function applyPurchasePackageInventory(
+  order: PurchaseOrder,
+  pkg: PurchasePackage,
+  equivalentPackageIds: string[] = [pkg.id],
+) {
   const { supabase, session } = await requireSession();
-  let packageToReceive = pkg;
-  const { data: persistedPackageData, error: packageLoadError } = await supabase
-    .from("purchase_packages")
-    .select("*")
-    .eq("id", pkg.id)
-    .eq("owner_id", session.user.id)
-    .maybeSingle();
-  if (packageLoadError) throw packageLoadError;
-  const persistedPackage = (persistedPackageData as Omit<PurchasePackage, "items"> | null);
-  if (!persistedPackage) {
-    packageToReceive = await restoreMissingPurchasePackage(order, pkg);
-  }
-  const activePackage = persistedPackage ?? packageToReceive;
-  if (activePackage.status === "received") {
-    throw new Error("该包裹已经签收");
+  const resolvedItems = await resolvePackageItems(order, pkg);
+  if (pkg.items.length > 0 && resolvedItems.length !== pkg.items.length) {
+    throw new Error("包裹内有配件无法匹配到商品配件库，请检查采购明细后再入库");
   }
 
-  const resolvedItems = await resolvePackageItems(order, packageToReceive);
   const receivableItems = resolvedItems.map((entry) => entry.orderItem);
   await ensureWarehouseProductInventory(
     order.warehouse_id,
@@ -388,7 +384,7 @@ export async function receivePurchasePackage(order: PurchaseOrder, pkg: Purchase
   );
 
   const inventory: Array<{ stock: WarehouseItemStock; adjustment: WarehouseItemStockAdjustment }> = [];
-  const adjustmentPackageIds = Array.from(new Set([pkg.id, packageToReceive.id]));
+  const adjustmentPackageIds = Array.from(new Set([pkg.id, ...equivalentPackageIds]));
   for (const { packageItem, orderItem: item } of resolvedItems) {
     const { data: existingAdjustment, error: existingAdjustmentError } = await supabase
       .from("warehouse_item_stock_adjustments")
@@ -415,17 +411,52 @@ export async function receivePurchasePackage(order: PurchaseOrder, pkg: Purchase
     }
     const current = currentData as WarehouseItemStock;
     const nextQuantity = current.stock_quantity + packageItem.quantity;
-    const { data: nextData, error: nextError } = await supabase.from("warehouse_item_stocks").update({ stock_quantity: nextQuantity }).eq("id", current.id).eq("owner_id", session.user.id).select().single();
+    const { data: nextData, error: nextError } = await supabase
+      .from("warehouse_item_stocks")
+      .update({ stock_quantity: nextQuantity })
+      .eq("id", current.id)
+      .eq("owner_id", session.user.id)
+      .select()
+      .single();
     if (nextError) throw nextError;
     const next = nextData as WarehouseItemStock;
     const { data: adjustmentData, error: adjustmentError } = await supabase.from("warehouse_item_stock_adjustments").insert({
       warehouse_id: order.warehouse_id, item_id: item.item_id, previous_quantity: current.stock_quantity,
       next_quantity: next.stock_quantity, change_quantity: packageItem.quantity, reason: "采购入库",
-      purchase_order_id: order.id, purchase_package_id: packageToReceive.id,
+      purchase_order_id: order.id, purchase_package_id: pkg.id,
     }).select().single();
     if (adjustmentError) throw adjustmentError;
     inventory.push({ stock: next, adjustment: adjustmentData as WarehouseItemStockAdjustment });
   }
+
+  return inventory;
+}
+
+export async function receivePurchasePackage(order: PurchaseOrder, pkg: PurchasePackage) {
+  if (pkg.status === "received") throw new Error("该包裹已经签收");
+  const { supabase, session } = await requireSession();
+  let packageToReceive = pkg;
+  const { data: persistedPackageData, error: packageLoadError } = await supabase
+    .from("purchase_packages")
+    .select("*")
+    .eq("id", pkg.id)
+    .eq("owner_id", session.user.id)
+    .maybeSingle();
+  if (packageLoadError) throw packageLoadError;
+  const persistedPackage = (persistedPackageData as Omit<PurchasePackage, "items"> | null);
+  if (!persistedPackage) {
+    packageToReceive = await restoreMissingPurchasePackage(order, pkg);
+  }
+  const activePackage = persistedPackage ?? packageToReceive;
+  if (activePackage.status === "received") {
+    throw new Error("该包裹已经签收");
+  }
+
+  const inventory = await applyPurchasePackageInventory(
+    order,
+    packageToReceive,
+    [pkg.id, packageToReceive.id],
+  );
   const receivedAt = new Date().toISOString();
   const { data: packageData, error: packageError } = await supabase.from("purchase_packages").update({ status: "received", received_at: receivedAt }).eq("id", packageToReceive.id).eq("owner_id", session.user.id).eq("status", "pending").select().maybeSingle();
   if (packageError) throw packageError;
@@ -453,4 +484,10 @@ export async function receivePurchasePackage(order: PurchaseOrder, pkg: Purchase
   const { data: orderData, error: orderError } = await supabase.from("purchase_orders").update({ status, received_at: status === "received" ? receivedAt : null }).eq("id", order.id).eq("owner_id", session.user.id).select().single();
   if (orderError) throw orderError;
   return { order: orderData as Omit<PurchaseOrder, "sources" | "items" | "packages">, package: { ...(packageData as Omit<PurchasePackage, "items">), items: packageItemsByPackage[packageData.id] ?? packageToReceive.items }, inventory };
+}
+
+export async function repairPurchasePackageInventory(order: PurchaseOrder, pkg: PurchasePackage) {
+  if (pkg.status !== "received") throw new Error("只有已签收包裹才能补入库存");
+  const inventory = await applyPurchasePackageInventory(order, pkg, [pkg.id]);
+  return { inventory };
 }
