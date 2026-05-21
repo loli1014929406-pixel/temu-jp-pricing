@@ -13,6 +13,7 @@ import { usePermissions } from "../hooks/use-permissions";
 import { calculatePricing, formatCurrency, formatPercent } from "../utils/pricing";
 import type { PricingResult, Product, ProductSku } from "../types";
 import { getErrorMessage } from "../utils/errors";
+import { BackToParentAction } from "../components/ui";
 
 type PricingResultPageProps = {
   user: User;
@@ -144,17 +145,20 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
             在满足目标利润率的前提下，计算核算定价
           </p>
         </div>
-        {canEdit && (
-          <Link to={getProductRoutePath(product, "/edit")} className="text-sm text-accent">
-            编辑商品
-          </Link>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <BackToParentAction fallbackTo="/declaration-prices" />
+          {canEdit && (
+            <Link to={getProductRoutePath(product, "/edit")} className="text-sm text-accent">
+              编辑商品
+            </Link>
+          )}
+        </div>
       </div>
 
       <div className="grid gap-5">
         {skuResults.map(({ sku, result }) => {
           const metrics = [
-            ["组合采购成本", formatCurrency(result.purchaseCostRmb)],
+            ["采购成本", formatCurrency(result.purchaseCostRmb)],
             ["采购运费", formatCurrency(result.purchaseShippingRmb)],
             ["包装成本", formatCurrency(result.packagingCostRmb)],
             ["顺丰成本", formatCurrency(result.sfCostRmb)],
@@ -165,7 +169,7 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
             ["物流成本", formatCurrency(result.logisticsCostRmb)],
             ["总成本", formatCurrency(result.totalCostRmb)],
             ["运费补贴", formatCurrency(result.subsidyRmb)],
-            ["核算定价 (RMB)", formatCurrency(result.temuDeclarationPriceRmb)],
+            ["核算定价", formatCurrency(result.temuDeclarationPriceRmb)],
             ["利润", formatCurrency(result.profitRmb)],
             ["利润率", formatPercent(result.profitRate)],
           ];
@@ -182,7 +186,7 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
               </div>
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="rounded-lg bg-white p-5 shadow-panel">
-                  <p className="text-sm text-slate-500">核算定价 (RMB)</p>
+                  <p className="text-sm text-slate-500">核算定价</p>
                   <p className="mt-2 text-3xl font-semibold text-ink">
                     {formatCurrency(result.temuDeclarationPriceRmb)}
                   </p>

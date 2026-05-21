@@ -1,8 +1,6 @@
 import type { User } from "@supabase/supabase-js";
-import { ArrowLeft } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Link } from "react-router-dom";
-import { Badge, PageHeader, StatCard } from "../components/ui";
+import { Badge, BackToParentAction, PageHeader, StatCard } from "../components/ui";
 import {
   fetchProductItemsByProductIds,
   fetchProductSkusByProductIds,
@@ -101,7 +99,7 @@ const featureLabels: Record<RecommendationFeatureKey, string> = {
   traffic: "流量加速",
   coupon: "优惠券",
   activity: "活动折扣",
-  ad: "广告 ROAS",
+  ad: "ROAS",
 };
 
 function getFeatureToggleStorageKey(userId: string) {
@@ -503,7 +501,7 @@ function buildRecommendation({
         ? `ROAS ${roasValue.toFixed(2)}`
         : "不开广告",
     reason: !featureToggles.ad
-      ? "广告 ROAS 未计入本行测算"
+      ? "ROAS 未计入本行测算"
       : !adEnabled || minimumRoas === null
         ? "促销后广告承受空间不足"
         : `最低安全 ROAS ${minimumRoas.toFixed(2)}`,
@@ -903,10 +901,7 @@ export function PromotionRecommendationsPage({
         title="促销投放推荐"
         description="按现有核价、成本和利润设置，给出每个商品的促销与广告建议"
         actions={
-          <Link to="/profit-calculation" className="btn-secondary">
-            <ArrowLeft size={18} />
-            返回利润数据分析
-          </Link>
+          <BackToParentAction fallbackTo="/profit-calculation" />
         }
       />
 
@@ -990,7 +985,7 @@ export function PromotionRecommendationsPage({
                 />
                 <DecisionWithToggle
                   checked={row.featureToggles.ad}
-                  label={`启用广告 ROAS：${row.product.product_code}`}
+                  label={`启用 ROAS：${row.product.product_code}`}
                   decision={row.ad}
                   onChange={(checked) => updateFeatureToggle(row.product.id, "ad", checked)}
                 />
@@ -1017,14 +1012,14 @@ export function PromotionRecommendationsPage({
             </colgroup>
             <thead>
               <tr>
-                <th>商品</th>
+                <th>商品编号</th>
                 <th>核价</th>
                 <th>总成本</th>
-                <th>利润测算</th>
+                <th>利润</th>
                 <th>流量加速</th>
                 <th>优惠券</th>
                 <th>活动折扣</th>
-                <th>广告 ROAS</th>
+                <th>ROAS</th>
                 <th>促销后利润</th>
                 <th>主建议</th>
               </tr>
@@ -1112,7 +1107,7 @@ export function PromotionRecommendationsPage({
                     <td>
                       <DecisionWithToggle
                         checked={row.featureToggles.ad}
-                        label={`启用广告 ROAS：${row.product.product_code}`}
+                        label={`启用 ROAS：${row.product.product_code}`}
                         decision={row.ad}
                         onChange={(checked) => updateFeatureToggle(row.product.id, "ad", checked)}
                       />

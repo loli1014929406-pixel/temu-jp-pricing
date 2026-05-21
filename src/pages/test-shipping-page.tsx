@@ -10,10 +10,7 @@ import { fetchSettings } from "../lib/settings";
 import type { Product } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { calculatePricing, formatCurrency } from "../utils/pricing";
-import {
-  calculateFinalSalePriceRmb,
-  PROFIT_CALCULATION_VERSION,
-} from "../utils/profit-calculation";
+import { calculateFinalSalePriceRmb } from "../utils/profit-calculation";
 import { calculateTestShipping } from "../utils/test-shipping";
 import { Badge, PageHeader } from "../components/ui";
 
@@ -35,6 +32,7 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
       {
         finalSalePriceRmb: number | null;
         sfCostRmb: number | null;
+        sf3cmCostRmb: number | null;
         canUseOcsKunshan3cm: boolean | null;
         logisticsMethod: "OCS 昆山 3cm" | "OCS 昆山小包" | null;
         profitRmb: number | null;
@@ -86,18 +84,17 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                 : [],
             );
             const firstSaved = savedForProduct[0];
-            const usesCurrentFormula =
-              firstSaved?.result_json?.calculationVersion ===
-              PROFIT_CALCULATION_VERSION;
+            const usesDiscountFormula =
+              (firstSaved?.result_json?.calculationVersion ?? 0) >= 4;
             const discounts = {
-              trafficDiscountRate: usesCurrentFormula
+              trafficDiscountRate: usesDiscountFormula
                 ? firstSaved?.traffic_discount_rate ??
                   defaultDiscounts.trafficDiscountRate
                 : defaultDiscounts.trafficDiscountRate,
               activityDiscountRate:
                 firstSaved?.activity_discount_rate ??
                 defaultDiscounts.activityDiscountRate,
-              couponDiscountRate: usesCurrentFormula
+              couponDiscountRate: usesDiscountFormula
                 ? firstSaved?.coupon_discount_rate ??
                   defaultDiscounts.couponDiscountRate
                 : defaultDiscounts.couponDiscountRate,
@@ -208,6 +205,9 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
               {
                 finalSalePriceRmb: displayedFinalSalePrice,
                 sfCostRmb: representativeSummary?.sfCostRmb ?? null,
+                sf3cmCostRmb: productTestShipping.canUseOcsKunshan3cm
+                  ? productTestShipping.sf3cmCostRmb
+                  : null,
                 canUseOcsKunshan3cm: productTestShipping.canUseOcsKunshan3cm,
                 logisticsMethod: (productTestShipping.canUseOcsKunshan3cm
                   ? "OCS 昆山 3cm"
@@ -269,6 +269,7 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                 <div className="mobile-summary-grid">
                   <div className="mobile-summary-cell">最终售价：{typeof summary?.finalSalePriceRmb === "number" ? formatCurrency(summary.finalSalePriceRmb) : "--"}</div>
                   <div className="mobile-summary-cell">顺丰：{typeof summary?.sfCostRmb === "number" ? formatCurrency(summary.sfCostRmb) : "--"}</div>
+                  <div className="mobile-summary-cell">顺丰3cm：{typeof summary?.sf3cmCostRmb === "number" ? formatCurrency(summary.sf3cmCostRmb) : "--"}</div>
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   {summary?.canUseOcsKunshan3cm === null ||
@@ -297,24 +298,25 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
             <thead>
               <tr>
                 <th className="px-4 py-3 font-medium">商品编号</th>
-                <th className="px-4 py-3 font-medium">产品名称</th>
-                <th className="px-4 py-3 font-medium">最终售价(RMB)</th>
-                <th className="px-4 py-3 font-medium">顺丰 RMB</th>
-                <th className="px-4 py-3 font-medium">3cm 是否可用</th>
+                <th className="product-name-col px-4 py-3 font-medium">产品名称</th>
+                <th className="px-4 py-3 font-medium">最终售价</th>
+                <th className="px-4 py-3 font-medium">顺丰</th>
+                <th className="px-4 py-3 font-medium">顺丰3cm</th>
+                <th className="px-4 py-3 font-medium">3cm可用</th>
                 <th className="px-4 py-3 font-medium">物流方式</th>
-                <th className="px-4 py-3 font-medium">利润 RMB</th>
+                <th className="px-4 py-3 font-medium">利润</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
                     加载中...
                   </td>
                 </tr>
               ) : products.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
                     暂无商品
                   </td>
                 </tr>
@@ -324,7 +326,7 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                   return (
                     <tr key={product.id}>
                       <td className="px-4 py-3">{product.product_code}</td>
-                      <td className="px-4 py-3">{product.product_name_cn}</td>
+                      <td className="product-name-col px-4 py-3">{product.product_name_cn}</td>
                       <td className="px-4 py-3">
                         {typeof summary?.finalSalePriceRmb === "number"
                           ? formatCurrency(summary.finalSalePriceRmb)
@@ -333,6 +335,11 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                       <td className="px-4 py-3">
                         {typeof summary?.sfCostRmb === "number"
                           ? formatCurrency(summary.sfCostRmb)
+                          : "--"}
+                      </td>
+                      <td className="px-4 py-3">
+                        {typeof summary?.sf3cmCostRmb === "number"
+                          ? formatCurrency(summary.sf3cmCostRmb)
                           : "--"}
                       </td>
                       <td className="px-4 py-3">

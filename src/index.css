@@ -47,26 +47,91 @@ a {
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   }
 
+  .table-card > .overflow-x-auto {
+    max-height: min(72vh, 760px);
+    overflow: auto;
+  }
+
   .data-table {
     @apply min-w-full text-left text-sm;
+    border-collapse: separate;
+    border-spacing: 0;
   }
 
   .data-table thead {
     background: #f8fafc;
     color: #64748b;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    box-shadow: 0 1px 0 #e2e8f0;
   }
 
   .data-table th {
-    @apply px-4 py-4 font-semibold;
+    @apply py-3 font-semibold;
+    padding-left: 0.5rem !important;
+    padding-right: 0.5rem !important;
+    width: calc(4em + 1rem);
+    min-width: calc(4em + 1rem);
+    max-width: calc(4em + 1rem);
+    line-height: 1.35;
+    white-space: normal;
+    word-break: normal;
+    overflow-wrap: normal;
+    line-break: strict;
+    background: #f8fafc;
+    text-align: left;
   }
 
   .data-table td {
-    @apply px-4 py-5 align-middle text-slate-700;
+    @apply py-3.5 align-middle text-slate-700;
+    padding-left: 0.5rem !important;
+    padding-right: 0.5rem !important;
+    text-align: left;
+  }
+
+  .data-table th.product-name-col,
+  .data-table td.product-name-col {
+    width: calc(10em + 1rem);
+    min-width: calc(10em + 1rem);
+    max-width: calc(10em + 1rem);
+    white-space: normal;
+    word-break: normal;
+    overflow-wrap: normal;
+    line-break: strict;
+  }
+
+  .data-table input {
+    text-align: left !important;
+  }
+
+  .data-table .text-right {
+    text-align: left !important;
   }
 
   .data-table tbody tr {
     border-top: 1px solid #f1f5f9;
-    @apply transition-colors hover:bg-slate-50;
+    transition: background-color 150ms ease;
+  }
+
+  .data-table tbody tr:hover {
+    background: #eef5fa;
+  }
+
+  .data-table tbody tr.is-selected,
+  .data-table tbody tr[data-selected="true"] {
+    background-color: #e6eef5;
+    box-shadow: inset 4px 0 0 #6f879a;
+  }
+
+  .data-table tbody tr.is-selected:hover,
+  .data-table tbody tr[data-selected="true"]:hover {
+    background-color: #e6eef5;
+  }
+
+  .data-table tbody tr.is-selected > td,
+  .data-table tbody tr[data-selected="true"] > td {
+    background-color: inherit;
   }
 
   .money {
@@ -74,7 +139,7 @@ a {
   }
 
   .number-cell {
-    @apply text-right tabular-nums;
+    @apply text-left tabular-nums;
   }
 
   .btn-primary {
@@ -135,11 +200,25 @@ a {
     }
 
     .data-table th {
-      @apply px-3 py-3 text-xs;
+      @apply py-2.5 text-xs;
+      padding-left: 0.4rem !important;
+      padding-right: 0.4rem !important;
+      width: calc(4em + 0.8rem);
+      min-width: calc(4em + 0.8rem);
+      max-width: calc(4em + 0.8rem);
+    }
+
+    .data-table th.product-name-col,
+    .data-table td.product-name-col {
+      width: calc(10em + 0.8rem);
+      min-width: calc(10em + 0.8rem);
+      max-width: calc(10em + 0.8rem);
     }
 
     .data-table td {
-      @apply px-3 py-4 text-xs;
+      @apply py-3 text-xs;
+      padding-left: 0.4rem !important;
+      padding-right: 0.4rem !important;
     }
 
     .btn-primary,

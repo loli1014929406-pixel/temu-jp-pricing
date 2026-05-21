@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import type { User } from "@supabase/supabase-js";
 import { ProductForm } from "../components/product-form";
+import { BackToParentAction } from "../components/ui";
 import {
   createEmptyItem,
   createEmptySku,
@@ -47,8 +48,9 @@ export function ProductCreatePage({ user }: ProductCreatePageProps) {
 
   return (
     <section className="grid gap-5">
-      <div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold text-ink">新增商品</h1>
+        <BackToParentAction fallbackTo="/products" />
       </div>
       {message && (
         <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">

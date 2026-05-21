@@ -1,4 +1,5 @@
 import type { PricingSettings, Product, TestShippingResult } from "../types";
+import { defaultSettings } from "../lib/defaults";
 
 const round = (value: number, digits = 2) => Number(value.toFixed(digits));
 
@@ -38,6 +39,9 @@ export function calculateTestShipping(
 
   return {
     sfCostRmb: 0,
+    sf3cmCostRmb: round(
+      settings.test_sf_3cm_price_rmb ?? defaultSettings.test_sf_3cm_price_rmb,
+    ),
     ocsKunshan3cmCostRmb: round(ocsKunshan3cmCostRmb),
     ocsKunshanSmallParcelCostRmb: round(ocsKunshanSmallParcelCostRmb),
     canUseOcsKunshan3cm,

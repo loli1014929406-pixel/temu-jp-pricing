@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { ProductForm } from "../components/product-form";
+import { BackToParentAction } from "../components/ui";
 import {
   fetchProduct,
   fetchProductItems,
@@ -104,9 +105,7 @@ export function ProductEditPage() {
     <section className="grid gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold text-ink">编辑商品</h1>
-        <Link to="/products" className="text-sm text-accent">
-          返回商品管理
-        </Link>
+        <BackToParentAction fallbackTo="/products" />
       </div>
       {message && (
         <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">

@@ -69,6 +69,7 @@ create table if not exists public.pricing_settings (
   sf_first_weight_kg numeric not null default 1,
   sf_first_price_rmb numeric not null default 8,
   sf_extra_price_per_kg_rmb numeric not null default 2,
+  test_sf_3cm_price_rmb numeric not null default 0.4,
   huaian_air_price_per_kg_rmb numeric not null default 25,
   ocs_price_per_kg_rmb numeric not null default 20,
   ocs_tariff_rate numeric not null default 0,
@@ -303,6 +304,9 @@ add column if not exists test_ocs_3cm_first_price_rmb numeric not null default 1
 
 alter table public.pricing_settings
 add column if not exists test_ocs_3cm_extra_price_per_100g_rmb numeric not null default 1.5;
+
+alter table public.pricing_settings
+add column if not exists test_sf_3cm_price_rmb numeric not null default 0.4;
 
 alter table public.pricing_settings
 add column if not exists test_ocs_small_parcel_first_price_rmb numeric not null default 36.5;

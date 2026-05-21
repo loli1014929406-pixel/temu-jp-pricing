@@ -30,9 +30,11 @@ type ProfitCalculationsPageProps = {
   user: User;
 };
 
-type DiscountFields = Pick<
-  ProfitCalculationInput,
-  "trafficDiscountRate" | "activityDiscountRate" | "couponDiscountRate"
+type DiscountFields = Required<
+  Pick<
+    ProfitCalculationInput,
+    "trafficDiscountRate" | "activityDiscountRate" | "couponDiscountRate" | "adRoas"
+  >
 >;
 
 type ProductRuntimeCalculation = {
@@ -43,11 +45,10 @@ type ProductRuntimeCalculation = {
 
 type DiscountSummary = DiscountFields & {
   discountedSalePriceRmb: number | null;
+  adFeeRmb: number | null;
   totalCostRmb: number | null;
   profitRmb: number | null;
   profitRate: number | null;
-  recommendedMinRoas: number | null;
-  breakEvenRoas: number | null;
   freeShippingThresholdQty: number | null;
 };
 
@@ -64,7 +65,11 @@ const defaultDiscounts: DiscountFields = {
   trafficDiscountRate: 0,
   activityDiscountRate: 10,
   couponDiscountRate: 0,
+  adRoas: 0,
 };
+
+const getSavedCalculationVersion = (calculation: { result_json?: { calculationVersion?: number } } | undefined) =>
+  calculation?.result_json?.calculationVersion ?? 0;
 
 function calculateProductDiscountSummary(
   discounts: DiscountFields,
@@ -72,20 +77,24 @@ function calculateProductDiscountSummary(
   runtimeCalculations: ProductRuntimeCalculation[],
   settings: PricingSettings | null,
 ): DiscountSummary {
+  const displayedFinalSalePriceRmb =
+    typeof displayedTemuPriceRmb === "number"
+      ? calculateFinalSalePriceRmb({
+          temuPriceRmb: displayedTemuPriceRmb,
+          ...discounts,
+        })
+      : null;
+  const displayedAdFeeRmb =
+    displayedFinalSalePriceRmb !== null && (discounts.adRoas ?? 0) > 0
+      ? displayedFinalSalePriceRmb / (discounts.adRoas ?? 0)
+      : 0;
   const baseSummary: DiscountSummary = {
     ...discounts,
-    discountedSalePriceRmb:
-      typeof displayedTemuPriceRmb === "number"
-        ? calculateFinalSalePriceRmb({
-            temuPriceRmb: displayedTemuPriceRmb,
-            ...discounts,
-          })
-        : null,
+    discountedSalePriceRmb: displayedFinalSalePriceRmb,
+    adFeeRmb: displayedFinalSalePriceRmb === null ? null : Number(displayedAdFeeRmb.toFixed(2)),
     totalCostRmb: null,
     profitRmb: null,
     profitRate: null,
-    recommendedMinRoas: null,
-    breakEvenRoas: null,
     freeShippingThresholdQty: null,
   };
 
@@ -135,8 +144,7 @@ function calculateProductDiscountSummary(
     totalCostRmb: representativePlan?.totalCostRmb ?? null,
     profitRmb: representativePlan?.profitRmb ?? null,
     profitRate: representativePlan?.profitRate ?? null,
-    recommendedMinRoas: representativePlan?.recommendedMinRoas ?? null,
-    breakEvenRoas: representativePlan?.breakEvenRoas ?? null,
+    adFeeRmb: representativePlan?.adFeeRmb ?? baseSummary.adFeeRmb,
     freeShippingThresholdQty:
       representativeCalculation?.result.freeShippingThresholdQty ?? null,
   };
@@ -153,7 +161,7 @@ function DiscountInput({
   return (
     <input
       aria-label={label}
-      className="h-9 w-20 rounded-md border border-line bg-white px-2 text-right text-sm tabular-nums outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
+      className="h-8 w-16 rounded-md border border-line bg-white px-1.5 text-left text-sm tabular-nums outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
       disabled={disabled}
       min={min}
       max={max}
@@ -275,17 +283,21 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                 : [],
             );
             const firstSaved = savedForProduct[0];
-            const usesCurrentFormula =
-              firstSaved?.result_json?.calculationVersion === PROFIT_CALCULATION_VERSION;
+            const savedVersion = getSavedCalculationVersion(firstSaved);
+            const usesDiscountFormula = savedVersion >= 4;
+            const usesAdFormula = savedVersion >= PROFIT_CALCULATION_VERSION;
             const discounts = {
-              trafficDiscountRate: usesCurrentFormula
+              trafficDiscountRate: usesDiscountFormula
                 ? firstSaved?.traffic_discount_rate ?? defaultDiscounts.trafficDiscountRate
                 : defaultDiscounts.trafficDiscountRate,
               activityDiscountRate:
                 firstSaved?.activity_discount_rate ?? defaultDiscounts.activityDiscountRate,
-              couponDiscountRate: usesCurrentFormula
+              couponDiscountRate: usesDiscountFormula
                 ? firstSaved?.coupon_discount_rate ?? defaultDiscounts.couponDiscountRate
                 : defaultDiscounts.couponDiscountRate,
+              adRoas: usesAdFormula
+                ? firstSaved?.result_json?.adRoas ?? defaultDiscounts.adRoas
+                : defaultDiscounts.adRoas,
             };
 
             return [
@@ -341,6 +353,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
         trafficDiscountRate: current.trafficDiscountRate,
         activityDiscountRate: current.activityDiscountRate,
         couponDiscountRate: current.couponDiscountRate,
+        adRoas: current.adRoas ?? defaultDiscounts.adRoas,
         [field]: value,
       };
 
@@ -374,9 +387,10 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
       summary.trafficDiscountRate < 0 ||
       summary.activityDiscountRate <= 0 ||
       summary.activityDiscountRate > 10 ||
-      summary.couponDiscountRate < 0
+      summary.couponDiscountRate < 0 ||
+      (summary.adRoas ?? 0) < 0
     ) {
-      setErrorMessage("流量加速和优惠券价不能小于 0，活动折扣必须大于 0 且不超过 10");
+      setErrorMessage("流量加速、优惠券价和 ROAS 不能小于 0，活动折扣必须大于 0 且不超过 10");
       return;
     }
 
@@ -388,6 +402,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
       trafficDiscountRate: summary.trafficDiscountRate,
       activityDiscountRate: summary.activityDiscountRate,
       couponDiscountRate: summary.couponDiscountRate,
+      adRoas: summary.adRoas ?? defaultDiscounts.adRoas,
     };
 
     try {
@@ -418,8 +433,8 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
   const validProfitRates = summaries.flatMap((summary) =>
     typeof summary.profitRate === "number" ? [summary.profitRate] : [],
   );
-  const validRoas = summaries.flatMap((summary) =>
-    typeof summary.recommendedMinRoas === "number" ? [summary.recommendedMinRoas] : [],
+  const validAdFees = summaries.flatMap((summary) =>
+    typeof summary.adFeeRmb === "number" ? [summary.adFeeRmb] : [],
   );
   const negativeProfitCount = summaries.filter(
     (summary) => typeof summary.profitRmb === "number" && summary.profitRmb < 0,
@@ -428,9 +443,9 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
     validProfitRates.length > 0
       ? `${((validProfitRates.reduce((sum, value) => sum + value, 0) / validProfitRates.length) * 100).toFixed(2)}%`
       : "--";
-  const averageRoas =
-    validRoas.length > 0
-      ? (validRoas.reduce((sum, value) => sum + value, 0) / validRoas.length).toFixed(2)
+  const averageAdFee =
+    validAdFees.length > 0
+      ? formatCurrency(validAdFees.reduce((sum, value) => sum + value, 0) / validAdFees.length)
       : "--";
 
   return (
@@ -454,9 +469,9 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="在售商品数" value={String(products.length)} />
-        <StatCard label="平均利润率" value={averageProfitRate} tone="success" />
-        <StatCard label="亏损商品数" value={String(negativeProfitCount)} tone={negativeProfitCount > 0 ? "danger" : "default"} />
-        <StatCard label="平均建议最低 ROAS" value={averageRoas} />
+        <StatCard label="平均广告后利润率" value={averageProfitRate} tone="success" />
+        <StatCard label="广告后亏损商品数" value={String(negativeProfitCount)} tone={negativeProfitCount > 0 ? "danger" : "default"} />
+        <StatCard label="平均广告费" value={averageAdFee} />
       </div>
 
       <div className="grid gap-3 md:hidden">
@@ -475,13 +490,16 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                 <p className="mobile-summary-subtitle">{product.product_name_cn}</p>
                 <div className="mobile-summary-grid">
                   <div className="mobile-summary-cell">
-                    核定供货价：{typeof temuPrices[product.id] === "number" ? formatCurrency(temuPrices[product.id] as number) : "--"}
+                    核价：{typeof temuPrices[product.id] === "number" ? formatCurrency(temuPrices[product.id] as number) : "--"}
                   </div>
                   <div className="mobile-summary-cell">
                     总成本：{typeof summary?.totalCostRmb === "number" ? formatCurrency(summary.totalCostRmb) : "--"}
                   </div>
                   <div className="mobile-summary-cell">
                     最终售价：{typeof summary?.discountedSalePriceRmb === "number" ? formatCurrency(summary.discountedSalePriceRmb) : "--"}
+                  </div>
+                  <div className="mobile-summary-cell">
+                    广告费：{typeof summary?.adFeeRmb === "number" ? formatCurrency(summary.adFeeRmb) : "--"}
                   </div>
                   <div className="mobile-summary-cell">
                     利润：
@@ -493,7 +511,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                     利润率：{typeof profitRate === "number" ? `${(profitRate * 100).toFixed(2)}%` : "--"}
                   </div>
                 </div>
-                <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-slate-600">
+                <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600 sm:grid-cols-4">
                   <label className="grid gap-1">
                     <span>流量加速</span>
                     <DiscountInput
@@ -529,6 +547,17 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                       }
                     />
                   </label>
+                  <label className="grid gap-1">
+                    <span>ROAS</span>
+                    <DiscountInput
+                      label={`${product.product_code} ROAS`}
+                      disabled={!canEdit}
+                      value={summary?.adRoas ?? defaultDiscounts.adRoas}
+                      onChange={(value) =>
+                        updateProductDiscount(product.id, "adRoas", value)
+                      }
+                    />
+                  </label>
                 </div>
                 <div className="mt-2 flex items-center gap-2">
                   {typeof profitRate === "number" ? (
@@ -536,9 +565,6 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                       {(profitRate * 100).toFixed(2)}%
                     </Badge>
                   ) : null}
-                  <span className="text-xs text-slate-500">
-                    建议最低 ROAS：{typeof summary?.recommendedMinRoas === "number" ? summary.recommendedMinRoas.toFixed(2) : "--"}
-                  </span>
                 </div>
                 <div className="mobile-summary-actions">
                   {canEdit && (
@@ -572,19 +598,19 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
             <thead>
               <tr>
                 <th className="px-4 py-3 font-medium">商品编号</th>
-                <th className="px-4 py-3 font-medium">产品名称</th>
-                <th className="px-4 py-3 font-medium">核定供货价 (RMB)</th>
-                <th className="px-4 py-3 font-medium">总成本 RMB</th>
+                <th className="product-name-col px-4 py-3 font-medium">产品名称</th>
+                <th className="px-4 py-3 font-medium">核价</th>
+                <th className="px-4 py-3 font-medium">总成本</th>
                 <th className="px-4 py-3 font-medium">流量加速</th>
                 <th className="px-4 py-3 font-medium">活动折扣</th>
                 <th className="px-4 py-3 font-medium">优惠券价</th>
-                <th className="px-4 py-3 font-medium">最终售价(RMB)</th>
-                <th className="px-4 py-3 font-medium">利润 RMB</th>
+                <th className="px-4 py-3 font-medium">ROAS</th>
+                <th className="px-4 py-3 font-medium">广告费</th>
+                <th className="px-4 py-3 font-medium">最终售价</th>
+                <th className="px-4 py-3 font-medium">利润</th>
                 <th className="px-4 py-3 font-medium">利润率</th>
-                <th className="px-4 py-3 font-medium">建议最低 ROAS</th>
-                <th className="px-4 py-3 font-medium">保本 ROAS</th>
-                <th className="px-4 py-3 font-medium">免邮起送件数 (3500円)</th>
-                <th className="min-w-24 px-4 py-3 font-medium">操作</th>
+                <th className="px-4 py-3 font-medium">免邮件数</th>
+                <th className="min-w-20 px-4 py-3 font-medium">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -607,7 +633,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                   return (
                   <tr key={product.id}>
                     <td className="px-4 py-3">{product.product_code}</td>
-                    <td className="px-4 py-3">{product.product_name_cn}</td>
+                    <td className="product-name-col px-4 py-3">{product.product_name_cn}</td>
                     <td className="money">
                       {typeof temuPrices[product.id] === "number"
                         ? formatCurrency(temuPrices[product.id] as number)
@@ -649,6 +675,21 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                           updateProductDiscount(product.id, "couponDiscountRate", value)
                         }
                       />
+                    </td>
+                    <td className="px-3 py-3 text-right">
+                      <DiscountInput
+                        label={`${product.product_code} ROAS`}
+                        disabled={!canEdit}
+                        value={summary?.adRoas ?? defaultDiscounts.adRoas}
+                        onChange={(value) =>
+                          updateProductDiscount(product.id, "adRoas", value)
+                        }
+                      />
+                    </td>
+                    <td className="money">
+                      {typeof discountSummaries[product.id]?.adFeeRmb === "number"
+                        ? formatCurrency(discountSummaries[product.id]?.adFeeRmb as number)
+                        : "--"}
                     </td>
                     <td className="money">
                       {typeof discountSummaries[product.id]?.discountedSalePriceRmb ===
@@ -697,22 +738,9 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                         : "--"}
                     </td>
                     <td className="number-cell">
-                      {typeof discountSummaries[product.id]?.recommendedMinRoas === "number"
-                        ? (
-                            discountSummaries[product.id]
-                              ?.recommendedMinRoas as number
-                          ).toFixed(2)
-                        : "--"}
-                    </td>
-                    <td className="number-cell">
-                      {typeof discountSummaries[product.id]?.breakEvenRoas === "number"
-                        ? (discountSummaries[product.id]?.breakEvenRoas as number).toFixed(2)
-                        : "--"}
-                    </td>
-                    <td className="number-cell">
                       {discountSummaries[product.id]?.freeShippingThresholdQty ?? "--"}
                     </td>
-                    <td className="min-w-24 px-4 py-3">
+                    <td className="min-w-20 px-4 py-3">
                       <div className="flex flex-col items-start gap-2">
                         {canEdit && (
                           <button

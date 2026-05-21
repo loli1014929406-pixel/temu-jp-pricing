@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import { ArrowLeft } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 type PageHeaderProps = {
   title: string;
@@ -15,6 +17,35 @@ export function PageHeader({ title, description, actions }: PageHeaderProps) {
       </div>
       {actions && <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">{actions}</div>}
     </div>
+  );
+}
+
+type BackToParentActionProps = {
+  fallbackTo: string;
+  label?: string;
+  className?: string;
+};
+
+export function BackToParentAction({
+  fallbackTo,
+  label = "返回上一级",
+  className = "btn-secondary",
+}: BackToParentActionProps) {
+  const navigate = useNavigate();
+
+  function handleBack() {
+    if (window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+    navigate(fallbackTo);
+  }
+
+  return (
+    <button type="button" className={className} onClick={handleBack}>
+      <ArrowLeft size={18} />
+      {label}
+    </button>
   );
 }
 

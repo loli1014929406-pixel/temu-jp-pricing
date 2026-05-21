@@ -491,10 +491,10 @@ export function InventoryPage({ user }: InventoryPageProps) {
                       <thead>
                         <tr>
                           <th className="px-4 py-3 font-medium">商品编号</th>
-                          <th className="px-4 py-3 font-medium">产品名称</th>
-                          <th className="px-4 py-3 font-medium">SKU 编号</th>
+                          <th className="product-name-col px-4 py-3 font-medium">产品名称</th>
+                          <th className="px-4 py-3 font-medium">SKU编号</th>
                           <th className="px-4 py-3 font-medium">销售规格</th>
-                          <th className="px-4 py-3 font-medium">SKU 库存</th>
+                          <th className="px-4 py-3 font-medium">SKU库存</th>
                           <th className="px-4 py-3 font-medium">查看配件</th>
                           <th className="px-4 py-3 font-medium">操作</th>
                         </tr>
@@ -514,7 +514,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                               <Fragment key={item.id}>
                                 <tr>
                                   <td className="px-4 py-3">{product?.product_code ?? "--"}</td>
-                                  <td className="px-4 py-3">{product?.product_name_cn ?? "--"}</td>
+                                  <td className="product-name-col px-4 py-3">{product?.product_name_cn ?? "--"}</td>
                                   <td className="px-4 py-3">{sku?.sku_code ?? "--"}</td>
                                   <td className="px-4 py-3">
                                     {sku && Object.keys(sku.attributes).length > 0 ? (
@@ -571,16 +571,16 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                   </td>
                                 </tr>
                                 {expandedSkuIds[item.id] && (
-                                  <tr className="border-t border-line bg-slate-50/60">
+                                  <tr className="is-selected border-t border-line">
                                     <td colSpan={7} className="px-4 py-4">
                                       <div className="overflow-hidden rounded-md border border-line bg-white">
-                                        <table className="min-w-full text-left text-sm">
-                                          <thead className="bg-slate-50 text-slate-500">
+                                        <table className="data-table">
+                                          <thead>
                                             <tr>
                                               <th className="px-4 py-3 font-medium">配件名称</th>
                                               <th className="px-4 py-3 font-medium">配件规格</th>
-                                              <th className="px-4 py-3 font-medium">单个 SKU 用量</th>
-                                              <th className="px-4 py-3 font-medium">仓库配件库存</th>
+                                              <th className="px-4 py-3 font-medium">SKU用量</th>
+                                              <th className="px-4 py-3 font-medium">配件库存</th>
                                               <th className="px-4 py-3 font-medium">编辑原因</th>
                                               <th className="px-4 py-3 font-medium">编辑记录</th>
                                             </tr>

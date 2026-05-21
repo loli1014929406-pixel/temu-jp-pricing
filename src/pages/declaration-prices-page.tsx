@@ -8,7 +8,7 @@ import {
   getProductRoutePath,
 } from "../lib/products";
 import { fetchSettings } from "../lib/settings";
-import type { Product } from "../types";
+import type { PricingResult, Product } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { calculatePricing, formatCurrency } from "../utils/pricing";
 import { PageHeader } from "../components/ui";
@@ -18,11 +18,28 @@ type DeclarationPricesPageProps = {
   user: User;
 };
 
+type PricingSummary = Pick<
+  PricingResult,
+  | "purchaseCostRmb"
+  | "logisticsCostRmb"
+  | "totalCostRmb"
+  | "temuDeclarationPriceRmb"
+  | "profitRmb"
+>;
+
+function formatPricingValue(
+  summary: PricingSummary | null | undefined,
+  field: keyof PricingSummary,
+) {
+  const value = summary?.[field];
+  return typeof value === "number" ? formatCurrency(value) : "--";
+}
+
 export function DeclarationPricesPage({ user }: DeclarationPricesPageProps) {
   const { canEdit } = usePermissions();
   const [products, setProducts] = useState<Product[]>([]);
-  const [temuDeclarationPrices, setTemuDeclarationPrices] = useState<
-    Record<string, number | null>
+  const [pricingSummaries, setPricingSummaries] = useState<
+    Record<string, PricingSummary | null>
   >({});
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
@@ -53,10 +70,10 @@ export function DeclarationPricesPage({ user }: DeclarationPricesPageProps) {
           },
           {},
         );
-        const nextTemuDeclarationPrices = Object.fromEntries(
+        const nextPricingSummaries = Object.fromEntries(
           nextProducts.map((product) => {
             const productSkus = skusByProductId[product.id] ?? [];
-            const productTemuDeclarationPrices = productSkus
+            const productPricingResults = productSkus
               .map((sku) =>
                 sku.component_links.flatMap((link) => {
                   const item = itemsById[link.item_id];
@@ -66,21 +83,29 @@ export function DeclarationPricesPage({ user }: DeclarationPricesPageProps) {
               .filter((skuItems) => skuItems.length > 0)
               .map(
                 (skuItems) =>
-                  calculatePricing(product.package_weight_g, skuItems, settings)
-                    .temuDeclarationPriceRmb,
+                  calculatePricing(product.package_weight_g, skuItems, settings),
               );
+
+            const lowestDeclarationPriceResult = productPricingResults.reduce<
+              PricingSummary | null
+            >(
+              (selected, result) =>
+                selected === null ||
+                result.temuDeclarationPriceRmb < selected.temuDeclarationPriceRmb
+                  ? result
+                  : selected,
+              null,
+            );
 
             return [
               product.id,
-              productTemuDeclarationPrices.length > 0
-                ? Math.min(...productTemuDeclarationPrices)
-                : null,
+              lowestDeclarationPriceResult,
             ];
           }),
-        );
+        ) as Record<string, PricingSummary | null>;
         if (active) {
           setProducts(nextProducts);
-          setTemuDeclarationPrices(nextTemuDeclarationPrices);
+          setPricingSummaries(nextPricingSummaries);
         }
       } catch (error) {
         if (active) {
@@ -115,27 +140,43 @@ export function DeclarationPricesPage({ user }: DeclarationPricesPageProps) {
         ) : products.length === 0 ? (
           <div className="empty-state">暂无商品</div>
         ) : (
-          products.map((product) => (
-            <article key={product.id} className="mobile-summary-card">
-              <p className="mobile-summary-title">{product.product_code}</p>
-              <p className="mobile-summary-subtitle">{product.product_name_cn}</p>
-              <p className="mt-3 text-sm font-medium text-ink">
-                核算定价：{typeof temuDeclarationPrices[product.id] === "number"
-                  ? formatCurrency(temuDeclarationPrices[product.id] as number)
-                  : "--"}
-              </p>
-              <div className="mobile-summary-actions">
-                <Link className="text-action" to={getProductRoutePath(product, "/pricing")}>
-                  查看核算定价
-                </Link>
-                {canEdit && (
-                  <Link className="text-sm font-medium text-slate-600 hover:underline" to={getProductRoutePath(product, "/edit")}>
-                    编辑
+          products.map((product) => {
+            const summary = pricingSummaries[product.id];
+
+            return (
+              <article key={product.id} className="mobile-summary-card">
+                <p className="mobile-summary-title">{product.product_code}</p>
+                <p className="mobile-summary-subtitle">{product.product_name_cn}</p>
+                <div className="mobile-summary-grid">
+                  <div className="mobile-summary-cell">
+                    采购成本：{formatPricingValue(summary, "purchaseCostRmb")}
+                  </div>
+                  <div className="mobile-summary-cell">
+                    物流成本：{formatPricingValue(summary, "logisticsCostRmb")}
+                  </div>
+                  <div className="mobile-summary-cell">
+                    总成本：{formatPricingValue(summary, "totalCostRmb")}
+                  </div>
+                  <div className="mobile-summary-cell">
+                    利润：{formatPricingValue(summary, "profitRmb")}
+                  </div>
+                </div>
+                <p className="mt-3 text-sm font-medium text-ink">
+                  核算定价：{formatPricingValue(summary, "temuDeclarationPriceRmb")}
+                </p>
+                <div className="mobile-summary-actions">
+                  <Link className="text-action" to={getProductRoutePath(product, "/pricing")}>
+                    查看核算定价
                   </Link>
-                )}
-              </div>
-            </article>
-          ))
+                  {canEdit && (
+                    <Link className="text-sm font-medium text-slate-600 hover:underline" to={getProductRoutePath(product, "/edit")}>
+                      编辑
+                    </Link>
+                  )}
+                </div>
+              </article>
+            );
+          })
         )}
       </div>
 
@@ -145,48 +186,66 @@ export function DeclarationPricesPage({ user }: DeclarationPricesPageProps) {
             <thead>
               <tr>
                 <th className="px-4 py-3 font-medium">商品编号</th>
-                <th className="px-4 py-3 font-medium">产品名称</th>
-                <th className="px-4 py-3 font-medium">核算定价 (RMB)</th>
+                <th className="product-name-col px-4 py-3 font-medium">产品名称</th>
+                <th className="px-4 py-3 font-medium">采购成本</th>
+                <th className="px-4 py-3 font-medium">物流成本</th>
+                <th className="px-4 py-3 font-medium">总成本</th>
+                <th className="px-4 py-3 font-medium">利润</th>
+                <th className="px-4 py-3 font-medium">核算定价</th>
                 <th className="px-4 py-3 font-medium">操作</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
                     加载中...
                   </td>
                 </tr>
               ) : products.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
                     暂无商品
                   </td>
                 </tr>
               ) : (
-                products.map((product) => (
-                  <tr key={product.id}>
-                    <td className="px-4 py-3">{product.product_code}</td>
-                    <td className="px-4 py-3">{product.product_name_cn}</td>
-                    <td className="money">
-                      {typeof temuDeclarationPrices[product.id] === "number"
-                        ? formatCurrency(temuDeclarationPrices[product.id] as number)
-                        : "--"}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-5">
-                        <Link className="text-action" to={getProductRoutePath(product, "/pricing")}>
-                          查看核算定价
-                        </Link>
-                        {canEdit && (
-                          <Link className="text-sm font-medium text-slate-600 hover:underline" to={getProductRoutePath(product, "/edit")}>
-                            编辑
+                products.map((product) => {
+                  const summary = pricingSummaries[product.id];
+
+                  return (
+                    <tr key={product.id}>
+                      <td className="px-4 py-3">{product.product_code}</td>
+                      <td className="product-name-col px-4 py-3">{product.product_name_cn}</td>
+                      <td className="money">
+                        {formatPricingValue(summary, "purchaseCostRmb")}
+                      </td>
+                      <td className="money">
+                        {formatPricingValue(summary, "logisticsCostRmb")}
+                      </td>
+                      <td className="money">
+                        {formatPricingValue(summary, "totalCostRmb")}
+                      </td>
+                      <td className="money">
+                        {formatPricingValue(summary, "profitRmb")}
+                      </td>
+                      <td className="money">
+                        {formatPricingValue(summary, "temuDeclarationPriceRmb")}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-5">
+                          <Link className="text-action" to={getProductRoutePath(product, "/pricing")}>
+                            查看核算定价
                           </Link>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                          {canEdit && (
+                            <Link className="text-sm font-medium text-slate-600 hover:underline" to={getProductRoutePath(product, "/edit")}>
+                              编辑
+                            </Link>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>

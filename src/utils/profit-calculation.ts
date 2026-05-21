@@ -8,7 +8,7 @@ import type {
 
 const round = (value: number, digits = 2) => Number(value.toFixed(digits));
 
-export const PROFIT_CALCULATION_VERSION = 4;
+export const PROFIT_CALCULATION_VERSION = 5;
 
 export function calculateFinalSalePriceRmb(input: ProfitCalculationInput) {
   const activityDiscountCoefficient = input.activityDiscountRate / 10;
@@ -52,6 +52,7 @@ export function calculateProfitProjection(
   input: ProfitCalculationInput,
 ): ProfitCalculationResult {
   const finalDiscountRate = input.activityDiscountRate / 10;
+  const adRoas = input.adRoas ?? 0;
   const priceBeforeActivityDiscount =
     input.temuPriceRmb - input.trafficDiscountRate - input.couponDiscountRate;
   const discountedSalePriceRmb = calculateFinalSalePriceRmb(input);
@@ -61,9 +62,11 @@ export function calculateProfitProjection(
     input.activityDiscountRate > 0 &&
     input.activityDiscountRate <= 10 &&
     input.couponDiscountRate >= 0 &&
+    adRoas >= 0 &&
     priceBeforeActivityDiscount > 0 &&
     discountedSalePriceRmb > 0 &&
     settings.exchange_rate_rmb_per_jpy > 0;
+  const adFeeRmb = isValid && adRoas > 0 ? discountedSalePriceRmb / adRoas : 0;
   const discountedUnitPriceJpy =
     isValid
       ? discountedSalePriceRmb / settings.exchange_rate_rmb_per_jpy
@@ -89,6 +92,8 @@ export function calculateProfitProjection(
     calculationVersion: PROFIT_CALCULATION_VERSION,
     isValid,
     finalDiscountRate: round(finalDiscountRate, 4),
+    adRoas: round(adRoas, 4),
+    adFeeRmb: round(adFeeRmb),
     discountedSalePriceRmb: round(discountedSalePriceRmb),
     discountedUnitPriceJpy:
       discountedUnitPriceJpy === null ? null : round(discountedUnitPriceJpy),
@@ -100,7 +105,8 @@ export function calculateProfitProjection(
       const realizedRevenueRmb = isValid
         ? discountedSalePriceRmb + effectiveSubsidyRmb
         : 0;
-      const profitRmb = realizedRevenueRmb - totalCostRmb;
+      const grossProfitRmb = realizedRevenueRmb - totalCostRmb;
+      const profitRmb = grossProfitRmb - adFeeRmb;
       const profitRate =
         realizedRevenueRmb > 0 ? profitRmb / realizedRevenueRmb : null;
       const maxAdSpendRmb = isValid
@@ -122,6 +128,8 @@ export function calculateProfitProjection(
         totalCostRmb: round(totalCostRmb),
         effectiveSubsidyRmb: round(effectiveSubsidyRmb),
         realizedRevenueRmb: round(realizedRevenueRmb),
+        grossProfitRmb: round(grossProfitRmb),
+        adFeeRmb: round(adFeeRmb),
         profitRmb: round(profitRmb),
         profitRate: profitRate === null ? null : round(profitRate, 4),
         maxAdSpendRmb: round(maxAdSpendRmb),

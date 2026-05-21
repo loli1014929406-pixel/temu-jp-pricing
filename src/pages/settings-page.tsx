@@ -33,6 +33,7 @@ const fieldGroups: Array<{
       { key: "sf_first_weight_kg", label: "顺丰首重 kg", step: "0.01" },
       { key: "sf_first_price_rmb", label: "顺丰首重价格 RMB", step: "0.01" },
       { key: "sf_extra_price_per_kg_rmb", label: "顺丰续重价格 RMB/kg", step: "0.01" },
+      { key: "test_sf_3cm_price_rmb", label: "顺丰 3cm 运费 RMB", step: "0.01" },
     ],
   },
   {

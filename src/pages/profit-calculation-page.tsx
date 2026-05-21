@@ -1,8 +1,9 @@
 import { Save } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { User } from "@supabase/supabase-js";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { Field, TextInput } from "../components/form-controls";
+import { BackToParentAction } from "../components/ui";
 import { usePermissions } from "../hooks/use-permissions";
 import { fetchProfitCalculationsBySkuIds, saveProfitCalculation } from "../lib/profit-calculations";
 import {
@@ -44,10 +45,19 @@ const defaultInput: ProfitCalculationInput = {
   trafficDiscountRate: 0,
   activityDiscountRate: 10,
   couponDiscountRate: 0,
+  adRoas: 0,
 };
 
-const formatRoas = (value: number | null, fallback: string) =>
-  value === null ? fallback : value.toFixed(2);
+const getSavedCalculationVersion = (calculation: { result_json?: { calculationVersion?: number } } | undefined) =>
+  calculation?.result_json?.calculationVersion ?? 0;
+
+function ReadOnlyValue({ value }: { value: string }) {
+  return (
+    <div className="flex h-11 items-center rounded-md border border-line bg-slate-50 px-3 text-sm tabular-nums text-slate-700">
+      {value}
+    </div>
+  );
+}
 
 export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
   const { canEdit } = usePermissions();
@@ -59,6 +69,7 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
     trafficDiscountRate: 0,
     activityDiscountRate: 10,
     couponDiscountRate: 0,
+    adRoas: 0,
   });
   const [loading, setLoading] = useState(true);
   const [savingSkuId, setSavingSkuId] = useState("");
@@ -103,16 +114,18 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
 
             const pricing = calculatePricing(nextProduct.package_weight_g, skuItems, settings);
             const saved = savedBySkuId[sku.id];
-            const usesCurrentFormula =
-              saved?.result_json?.calculationVersion === PROFIT_CALCULATION_VERSION;
+            const savedVersion = getSavedCalculationVersion(saved);
+            const usesDiscountFormula = savedVersion >= 4;
+            const usesAdFormula = savedVersion >= PROFIT_CALCULATION_VERSION;
             const input = saved
               ? {
                   temuPriceRmb: saved.temu_price_rmb,
-                  trafficDiscountRate: usesCurrentFormula ? saved.traffic_discount_rate : 0,
+                  trafficDiscountRate: usesDiscountFormula ? saved.traffic_discount_rate : 0,
                   activityDiscountRate: saved.activity_discount_rate,
-                  couponDiscountRate: usesCurrentFormula
+                  couponDiscountRate: usesDiscountFormula
                     ? saved.coupon_discount_rate ?? 0
                     : 0,
+                  adRoas: usesAdFormula ? saved.result_json?.adRoas ?? 0 : 0,
                 }
               : {
                   ...defaultInput,
@@ -148,6 +161,7 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
             trafficDiscountRate: firstCalculation?.input.trafficDiscountRate ?? 0,
             activityDiscountRate: firstCalculation?.input.activityDiscountRate ?? 10,
             couponDiscountRate: firstCalculation?.input.couponDiscountRate ?? 0,
+            adRoas: firstCalculation?.input.adRoas ?? 0,
           });
           setCalculations(nextCalculations);
         }
@@ -184,7 +198,7 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
   }
 
   function updateProductDiscount(
-    field: "trafficDiscountRate" | "activityDiscountRate" | "couponDiscountRate",
+    field: "trafficDiscountRate" | "activityDiscountRate" | "couponDiscountRate" | "adRoas",
     value: number,
   ) {
     if (!settings || value < 0 || (field === "activityDiscountRate" && value > 10)) return;
@@ -199,6 +213,7 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
             trafficDiscountRate: nextProductDiscounts.trafficDiscountRate,
             activityDiscountRate: nextProductDiscounts.activityDiscountRate,
             couponDiscountRate: nextProductDiscounts.couponDiscountRate,
+            adRoas: nextProductDiscounts.adRoas,
           };
 
           return [
@@ -254,9 +269,7 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
             {product.product_code} · {product.product_name_cn}
           </p>
         </div>
-        <Link to="/profit-calculation" className="text-sm text-accent">
-          返回利润数据分析
-        </Link>
+        <BackToParentAction fallbackTo="/profit-calculation" />
       </div>
 
       {errorMessage && (
@@ -266,7 +279,7 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
       )}
 
       <section className="grid gap-4 rounded-lg bg-white p-5 shadow-panel">
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-4">
           <Field label="流量加速">
             <TextInput
               min="0"
@@ -313,6 +326,18 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
               }
             />
           </Field>
+          <Field label="ROAS">
+            <TextInput
+              min="0"
+              disabled={!canEdit}
+              step="0.01"
+              type="number"
+              value={productDiscounts.adRoas}
+              onChange={(event) =>
+                updateProductDiscount("adRoas", Number(event.target.value || 0))
+              }
+            />
+          </Field>
         </div>
       </section>
 
@@ -344,8 +369,8 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
                         )}
                       </div>
 
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <Field label="核定供货价 (RMB)">
+                      <div className="grid gap-4 md:grid-cols-3">
+                        <Field label="核价">
                           <TextInput
                             min="0"
                             disabled={!canEdit}
@@ -357,14 +382,17 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
                             }
                           />
                         </Field>
-                        <Field label="最终售价(RMB)">
-                          <TextInput readOnly value={result.discountedSalePriceRmb.toFixed(2)} />
+                        <Field label="最终售价">
+                          <ReadOnlyValue value={result.discountedSalePriceRmb.toFixed(2)} />
+                        </Field>
+                        <Field label="广告费">
+                          <ReadOnlyValue value={result.adFeeRmb.toFixed(2)} />
                         </Field>
                       </div>
 
                       {!result.isValid && (
                         <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                          请填写大于 0 的 Temu 核价；流量加速和优惠券价不能小于 0，活动折扣必须大于 0 且不超过 10
+                          请填写大于 0 的核价；流量加速、优惠券价和 ROAS 不能小于 0，活动折扣必须大于 0 且不超过 10
                         </div>
                       )}
 
@@ -372,22 +400,20 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
                         <p className="text-sm text-emerald-700">已保存</p>
                       )}
 
-                      <div className="overflow-x-auto">
-                        <table className="min-w-full text-left text-sm">
-                          <thead className="bg-slate-50 text-slate-500">
+                      <div className="max-h-[72vh] overflow-auto">
+                        <table className="data-table">
+                          <thead>
                             <tr>
                               <th className="px-3 py-3 font-medium">物流方案</th>
-                              <th className="px-3 py-3 font-medium">有效运费补贴 RMB</th>
-                              <th className="px-3 py-3 font-medium">物流成本 RMB</th>
-                              <th className="px-3 py-3 font-medium">总成本 RMB</th>
-                              <th className="px-3 py-3 font-medium">实收收入 RMB</th>
-                              <th className="px-3 py-3 font-medium">利润 RMB</th>
+                              <th className="px-3 py-3 font-medium">运费补贴</th>
+                              <th className="px-3 py-3 font-medium">物流成本</th>
+                              <th className="px-3 py-3 font-medium">总成本</th>
+                              <th className="px-3 py-3 font-medium">实收收入</th>
+                              <th className="px-3 py-3 font-medium">广告费</th>
+                              <th className="px-3 py-3 font-medium">利润</th>
                               <th className="px-3 py-3 font-medium">利润率</th>
-                              <th className="px-3 py-3 font-medium">广告最高可承受金额 RMB</th>
-                              <th className="px-3 py-3 font-medium">建议最低 ROAS</th>
-                              <th className="px-3 py-3 font-medium">保本 ROAS</th>
-                              <th className="px-3 py-3 font-medium">单件是否失去补贴</th>
-                              <th className="px-3 py-3 font-medium">免邮起送件数 (3500円)</th>
+                              <th className="px-3 py-3 font-medium">失补状态</th>
+                              <th className="px-3 py-3 font-medium">免邮件数</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -401,25 +427,15 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
                                   {result.isValid ? formatCurrency(plan.realizedRevenueRmb) : "--"}
                                 </td>
                                 <td className="px-3 py-3">
+                                  {result.isValid ? formatCurrency(plan.adFeeRmb) : "--"}
+                                </td>
+                                <td className="px-3 py-3">
                                   {result.isValid ? formatCurrency(plan.profitRmb) : "--"}
                                 </td>
                                 <td className="px-3 py-3">
                                   {!result.isValid || plan.profitRate === null
                                     ? "--"
                                     : formatPercent(plan.profitRate)}
-                                </td>
-                                <td className="px-3 py-3">
-                                  {result.isValid ? formatCurrency(plan.maxAdSpendRmb) : "--"}
-                                </td>
-                                <td className="px-3 py-3">
-                                  {result.isValid
-                                    ? formatRoas(plan.recommendedMinRoas, "不建议投放")
-                                    : "--"}
-                                </td>
-                                <td className="px-3 py-3">
-                                  {result.isValid
-                                    ? formatRoas(plan.breakEvenRoas, "订单不保本")
-                                    : "--"}
                                 </td>
                                 <td className="px-3 py-3">
                                   {result.isValid

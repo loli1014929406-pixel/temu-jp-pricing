@@ -600,7 +600,7 @@ export function ProductForm({
                   className="grid gap-4 rounded-md border border-line bg-slate-50/40 p-4"
                 >
                   <div className="grid gap-4 lg:grid-cols-[220px_minmax(220px,1fr)_auto] lg:items-start">
-                    <Field label="SKU 编号">
+                    <Field label="SKU编号">
                       <TextInput
                         required
                         value={sku.sku_code}

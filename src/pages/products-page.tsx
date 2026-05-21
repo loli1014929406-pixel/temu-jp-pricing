@@ -384,7 +384,7 @@ export function ProductsPage({ user }: ProductsPageProps) {
                   />
                 </th>
                 <th className="px-4 py-3 font-medium">商品编号</th>
-                <th className="px-4 py-3 font-medium">产品名称</th>
+                <th className="product-name-col px-4 py-3 font-medium">产品名称</th>
                 <th className="px-4 py-3 font-medium">包装长</th>
                 <th className="px-4 py-3 font-medium">包装宽</th>
                 <th className="px-4 py-3 font-medium">包装高</th>
@@ -407,18 +407,21 @@ export function ProductsPage({ user }: ProductsPageProps) {
                   </td>
                 </tr>
               ) : (
-                products.map((product) => (
-                  <tr key={product.id}>
+                products.map((product) => {
+                  const isSelected = selectedProductIds.includes(product.id);
+
+                  return (
+                  <tr key={product.id} className={isSelected ? "is-selected" : undefined}>
                     <td className="px-4 py-3">
                       <input
                         type="checkbox"
-                        checked={selectedProductIds.includes(product.id)}
+                        checked={isSelected}
                         onChange={() => toggleProduct(product.id)}
                         aria-label={`选择商品 ${product.product_code}`}
                       />
                     </td>
                     <td className="px-4 py-3">{product.product_code}</td>
-                    <td className="px-4 py-3">{product.product_name_cn}</td>
+                    <td className="product-name-col px-4 py-3">{product.product_name_cn}</td>
                     <td className="number-cell">{product.package_length_cm} cm</td>
                     <td className="number-cell">{product.package_width_cm} cm</td>
                     <td className="number-cell">{product.package_height_cm} cm</td>
@@ -454,7 +457,8 @@ export function ProductsPage({ user }: ProductsPageProps) {
                       </div>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>

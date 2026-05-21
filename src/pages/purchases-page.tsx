@@ -573,7 +573,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                     </select>
                   </Field>
                   <Field label="采购数量"><TextInput type="number" min="1" step="1" value={draftItem.quantity} onChange={(event) => updateDraftItem(draftProduct.id, draftItem.id, "quantity", event.target.value)} /></Field>
-                  <Field label="采购单价 RMB"><TextInput type="number" min="0" step="0.01" value={draftItem.unitPriceRmb} onChange={(event) => updateDraftItem(draftProduct.id, draftItem.id, "unitPriceRmb", event.target.value)} /></Field>
+                  <Field label="采购单价"><TextInput type="number" min="0" step="0.01" value={draftItem.unitPriceRmb} onChange={(event) => updateDraftItem(draftProduct.id, draftItem.id, "unitPriceRmb", event.target.value)} /></Field>
                   <div className="flex items-end justify-end"><button type="button" disabled={draftProduct.items.length === 1} onClick={() => setDraftProducts((current) => current.map((item) => item.id === draftProduct.id ? { ...item, items: item.items.filter((entry) => entry.id !== draftItem.id) } : item))} className="icon-btn-danger h-11 w-11"><Trash2 size={16} /></button></div>
                 </div>
               ))}
@@ -596,13 +596,13 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                           </div>
 
                           <div className="overflow-hidden rounded-xl border border-line bg-white">
-                            <table className="min-w-full text-left text-sm">
-                              <thead className="bg-slate-50 text-slate-500">
+                            <table className="data-table">
+                              <thead>
                                 <tr>
-                                  <th className="px-3 py-2 font-medium">该链接下的配件</th>
+                                  <th className="px-3 py-2 font-medium">配件名称</th>
                                   <th className="px-3 py-2 font-medium">数量</th>
-                                  <th className="px-3 py-2 font-medium">单价 RMB</th>
-                                  <th className="px-3 py-2 font-medium">金额 RMB</th>
+                                  <th className="px-3 py-2 font-medium">单价</th>
+                                  <th className="px-3 py-2 font-medium">金额</th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -639,7 +639,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                                 }
                               />
                             </Field>
-                            <Field label="运费 RMB">
+                            <Field label="运费">
                               <TextInput
                                 type="number"
                                 min="0"
@@ -759,10 +759,12 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                           ))}
                         </div>
                         <div className="table-card hidden shadow-none md:block">
-                          <table className="data-table">
-                            <thead><tr><th>商品编号</th><th>产品名称</th><th>配件</th><th>规格</th><th className="number-cell">数量</th><th className="number-cell">单价</th></tr></thead>
-                            <tbody>{order.items.map((item) => <tr key={item.id}><td>{item.product_code}</td><td>{item.product_name_cn}</td><td>{item.item_name}</td><td>{item.item_spec || "--"}</td><td className="number-cell">{item.quantity}</td><td className="number-cell">¥{item.unit_price_rmb.toFixed(2)}</td></tr>)}</tbody>
-                          </table>
+                          <div className="overflow-x-auto">
+                            <table className="data-table">
+                              <thead><tr><th>商品编号</th><th className="product-name-col">产品名称</th><th>配件</th><th>规格</th><th className="number-cell">数量</th><th className="number-cell">单价</th></tr></thead>
+                              <tbody>{order.items.map((item) => <tr key={item.id}><td>{item.product_code}</td><td className="product-name-col">{item.product_name_cn}</td><td>{item.item_name}</td><td>{item.item_spec || "--"}</td><td className="number-cell">{item.quantity}</td><td className="number-cell">¥{item.unit_price_rmb.toFixed(2)}</td></tr>)}</tbody>
+                            </table>
+                          </div>
                         </div>
                       </>
                     )}
@@ -824,7 +826,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                           </div>
                           <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_150px_72px]">
                             <Field label="1688 订单号"><TextInput disabled={!canEdit} value={sourceDrafts[primarySource.id]?.alibabaOrderNo ?? primarySource.alibaba_order_no} onChange={(event) => setSourceDrafts((current) => ({ ...current, [primarySource.id]: { alibabaOrderNo: event.target.value, freightRmb: current[primarySource.id]?.freightRmb ?? String(primarySource.freight_rmb) } }))} /></Field>
-                            <Field label="运费 RMB"><TextInput disabled={!canEdit} type="number" min="0" step="0.01" value={sourceDrafts[primarySource.id]?.freightRmb ?? String(primarySource.freight_rmb)} onChange={(event) => setSourceDrafts((current) => ({ ...current, [primarySource.id]: { alibabaOrderNo: current[primarySource.id]?.alibabaOrderNo ?? primarySource.alibaba_order_no, freightRmb: event.target.value } }))} /></Field>
+                            <Field label="运费"><TextInput disabled={!canEdit} type="number" min="0" step="0.01" value={sourceDrafts[primarySource.id]?.freightRmb ?? String(primarySource.freight_rmb)} onChange={(event) => setSourceDrafts((current) => ({ ...current, [primarySource.id]: { alibabaOrderNo: current[primarySource.id]?.alibabaOrderNo ?? primarySource.alibaba_order_no, freightRmb: event.target.value } }))} /></Field>
                             <Field label="操作">
                               <button type="button" disabled={!canEdit} onClick={() => void handleSaveSource(order, primarySource.id)} className="btn-secondary w-full">保存</button>
                             </Field>

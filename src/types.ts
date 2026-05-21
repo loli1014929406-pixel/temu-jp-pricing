@@ -71,6 +71,7 @@ export type PricingSettings = {
   sf_first_weight_kg: number;
   sf_first_price_rmb: number;
   sf_extra_price_per_kg_rmb: number;
+  test_sf_3cm_price_rmb: number;
   huaian_air_price_per_kg_rmb: number;
   ocs_price_per_kg_rmb: number;
   ocs_tariff_rate?: number;
@@ -116,6 +117,7 @@ export type ProfitCalculationInput = {
   trafficDiscountRate: number;
   activityDiscountRate: number;
   couponDiscountRate: number;
+  adRoas?: number;
 };
 
 export type ProfitLogisticsPlanKey =
@@ -131,6 +133,8 @@ export type ProfitLogisticsPlanResult = {
   totalCostRmb: number;
   effectiveSubsidyRmb: number;
   realizedRevenueRmb: number;
+  grossProfitRmb: number;
+  adFeeRmb: number;
   profitRmb: number;
   profitRate: number | null;
   maxAdSpendRmb: number;
@@ -143,6 +147,8 @@ export type ProfitCalculationResult = {
   calculationVersion: number;
   isValid: boolean;
   finalDiscountRate: number;
+  adRoas: number;
+  adFeeRmb: number;
   discountedSalePriceRmb: number;
   discountedUnitPriceJpy: number | null;
   singleUnitLosesShippingSubsidy: boolean;
@@ -152,6 +158,7 @@ export type ProfitCalculationResult = {
 
 export type TestShippingResult = {
   sfCostRmb: number;
+  sf3cmCostRmb: number;
   ocsKunshan3cmCostRmb: number;
   ocsKunshanSmallParcelCostRmb: number;
   canUseOcsKunshan3cm: boolean;

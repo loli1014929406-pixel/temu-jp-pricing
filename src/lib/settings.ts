@@ -24,7 +24,10 @@ export async function fetchSettings(
   if (error) throw error;
 
   if (data) {
-    return data as PricingSettings;
+    return {
+      ...defaultSettings,
+      ...data,
+    } as PricingSettings;
   }
 
   const canCreate =
