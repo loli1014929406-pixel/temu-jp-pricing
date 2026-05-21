@@ -10,11 +10,21 @@ import { fetchSettings } from "../lib/settings";
 import type { Product } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { calculatePricing, formatCurrency } from "../utils/pricing";
+import {
+  calculateFinalSalePriceRmb,
+  PROFIT_CALCULATION_VERSION,
+} from "../utils/profit-calculation";
 import { calculateTestShipping } from "../utils/test-shipping";
 import { Badge, PageHeader } from "../components/ui";
 
 type TestShippingPageProps = {
   user: User;
+};
+
+const defaultDiscounts = {
+  trafficDiscountRate: 0,
+  activityDiscountRate: 10,
+  couponDiscountRate: 0,
 };
 
 export function TestShippingPage({ user }: TestShippingPageProps) {
@@ -23,7 +33,7 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
     Record<
       string,
       {
-        temuPriceRmb: number | null;
+        finalSalePriceRmb: number | null;
         sfCostRmb: number | null;
         canUseOcsKunshan3cm: boolean | null;
         logisticsMethod: "OCS 昆山 3cm" | "OCS 昆山小包" | null;
@@ -51,11 +61,8 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
         const savedCalculations = await fetchProfitCalculationsBySkuIds(
           skus.flatMap((sku) => (sku.id ? [sku.id] : [])),
         );
-        const savedPricesBySkuId = Object.fromEntries(
-          savedCalculations.map((calculation) => [
-            calculation.sku_id,
-            calculation.temu_price_rmb,
-          ]),
+        const savedCalculationBySkuId = Object.fromEntries(
+          savedCalculations.map((calculation) => [calculation.sku_id, calculation]),
         );
         const itemsById = Object.fromEntries(
           items.flatMap((item) => (item.id ? [[item.id, item]] : [])),
@@ -72,7 +79,30 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
         const nextSummaries = Object.fromEntries(
           nextProducts.map((product) => {
             const productTestShipping = calculateTestShipping(product, nextSettings);
-            const skuSummaries = (skusByProductId[product.id] ?? []).flatMap((sku) => {
+            const productSkus = skusByProductId[product.id] ?? [];
+            const savedForProduct = productSkus.flatMap((sku) =>
+              sku.id && savedCalculationBySkuId[sku.id]
+                ? [savedCalculationBySkuId[sku.id]]
+                : [],
+            );
+            const firstSaved = savedForProduct[0];
+            const usesCurrentFormula =
+              firstSaved?.result_json?.calculationVersion ===
+              PROFIT_CALCULATION_VERSION;
+            const discounts = {
+              trafficDiscountRate: usesCurrentFormula
+                ? firstSaved?.traffic_discount_rate ??
+                  defaultDiscounts.trafficDiscountRate
+                : defaultDiscounts.trafficDiscountRate,
+              activityDiscountRate:
+                firstSaved?.activity_discount_rate ??
+                defaultDiscounts.activityDiscountRate,
+              couponDiscountRate: usesCurrentFormula
+                ? firstSaved?.coupon_discount_rate ??
+                  defaultDiscounts.couponDiscountRate
+                : defaultDiscounts.couponDiscountRate,
+            };
+            const skuSummaries = productSkus.flatMap((sku) => {
               if (!sku.id) return [];
               const skuItems = sku.component_links.flatMap((link) => {
                 const item = itemsById[link.item_id];
@@ -85,8 +115,39 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                 skuItems,
                 nextSettings,
               );
+              const saved = savedCalculationBySkuId[sku.id];
               const temuPriceRmb =
-                savedPricesBySkuId[sku.id] ?? pricing.temuDeclarationPriceRmb;
+                saved?.temu_price_rmb ?? pricing.temuDeclarationPriceRmb;
+              const finalSalePriceRmb = calculateFinalSalePriceRmb({
+                temuPriceRmb,
+                ...discounts,
+              });
+              const priceBeforeActivityDiscount =
+                temuPriceRmb -
+                discounts.trafficDiscountRate -
+                discounts.couponDiscountRate;
+              const isValid =
+                temuPriceRmb > 0 &&
+                discounts.trafficDiscountRate >= 0 &&
+                discounts.activityDiscountRate > 0 &&
+                discounts.activityDiscountRate <= 10 &&
+                discounts.couponDiscountRate >= 0 &&
+                priceBeforeActivityDiscount > 0 &&
+                finalSalePriceRmb > 0 &&
+                nextSettings.exchange_rate_rmb_per_jpy > 0;
+              const discountedUnitPriceJpy =
+                isValid
+                  ? finalSalePriceRmb / nextSettings.exchange_rate_rmb_per_jpy
+                  : null;
+              const subsidyRmb =
+                nextSettings.temu_shipping_subsidy_jpy *
+                nextSettings.exchange_rate_rmb_per_jpy;
+              const effectiveSubsidyRmb =
+                isValid &&
+                discountedUnitPriceJpy !== null &&
+                discountedUnitPriceJpy <= 3500
+                  ? subsidyRmb
+                  : 0;
               const selectedLogisticsCostRmb =
                 productTestShipping.canUseOcsKunshan3cm
                   ? productTestShipping.ocsKunshan3cmCostRmb
@@ -97,34 +158,55 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                 pricing.packagingCostRmb +
                 pricing.sfCostRmb +
                 selectedLogisticsCostRmb;
-              const revenueRmb = temuPriceRmb + pricing.subsidyRmb;
+              const revenueRmb = isValid
+                ? finalSalePriceRmb + effectiveSubsidyRmb
+                : 0;
 
               return [
                 {
                   temuPriceRmb,
+                  finalSalePriceRmb,
                   sfCostRmb: pricing.sfCostRmb,
                   totalCostRmb,
-                  profitRmb: revenueRmb - totalCostRmb,
+                  profitRmb: isValid ? revenueRmb - totalCostRmb : null,
                 },
               ];
             });
-            const lowestTemuPrice =
-              skuSummaries.length > 0
-                ? Math.min(...skuSummaries.map((summary) => summary.temuPriceRmb))
-                : null;
-            const representativeSummary =
-              lowestTemuPrice === null
+            const savedTemuPrices = productSkus.flatMap((sku) =>
+              sku.id && savedCalculationBySkuId[sku.id]
+                ? [savedCalculationBySkuId[sku.id].temu_price_rmb]
+                : [],
+            );
+            const displayedTemuPrice =
+              savedTemuPrices.length > 0
+                ? Math.min(...savedTemuPrices)
+                : skuSummaries.length > 0
+                  ? Math.min(...skuSummaries.map((summary) => summary.temuPriceRmb))
+                  : null;
+            const displayedFinalSalePrice =
+              displayedTemuPrice === null
                 ? null
-                : skuSummaries
-                    .filter((summary) => summary.temuPriceRmb === lowestTemuPrice)
-                    .reduce((selected, summary) =>
-                      summary.totalCostRmb > selected.totalCostRmb ? summary : selected,
-                    );
+                : calculateFinalSalePriceRmb({
+                    temuPriceRmb: displayedTemuPrice,
+                    ...discounts,
+                  });
+            const representativeCandidates =
+              displayedTemuPrice === null
+                ? []
+                : skuSummaries.filter(
+                    (summary) => summary.temuPriceRmb === displayedTemuPrice,
+                  );
+            const representativeSummary =
+              representativeCandidates.length > 0
+                ? representativeCandidates.reduce((selected, summary) =>
+                    summary.totalCostRmb > selected.totalCostRmb ? summary : selected,
+                  )
+                : null;
 
             return [
               product.id,
               {
-                temuPriceRmb: lowestTemuPrice,
+                finalSalePriceRmb: displayedFinalSalePrice,
                 sfCostRmb: representativeSummary?.sfCostRmb ?? null,
                 canUseOcsKunshan3cm: productTestShipping.canUseOcsKunshan3cm,
                 logisticsMethod: (productTestShipping.canUseOcsKunshan3cm
@@ -133,7 +215,8 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                   | "OCS 昆山 3cm"
                   | "OCS 昆山小包",
                 profitRmb:
-                  representativeSummary === null
+                  representativeSummary === null ||
+                  representativeSummary.profitRmb === null
                     ? null
                     : Number(representativeSummary.profitRmb.toFixed(2)),
               },
@@ -184,7 +267,7 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                 <p className="mobile-summary-title">{product.product_code}</p>
                 <p className="mobile-summary-subtitle">{product.product_name_cn}</p>
                 <div className="mobile-summary-grid">
-                  <div className="mobile-summary-cell">核定供货价：{typeof summary?.temuPriceRmb === "number" ? formatCurrency(summary.temuPriceRmb) : "--"}</div>
+                  <div className="mobile-summary-cell">最终售价：{typeof summary?.finalSalePriceRmb === "number" ? formatCurrency(summary.finalSalePriceRmb) : "--"}</div>
                   <div className="mobile-summary-cell">顺丰：{typeof summary?.sfCostRmb === "number" ? formatCurrency(summary.sfCostRmb) : "--"}</div>
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -215,7 +298,7 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
               <tr>
                 <th className="px-4 py-3 font-medium">商品编号</th>
                 <th className="px-4 py-3 font-medium">产品名称</th>
-                <th className="px-4 py-3 font-medium">核定供货价 (RMB)</th>
+                <th className="px-4 py-3 font-medium">最终售价(RMB)</th>
                 <th className="px-4 py-3 font-medium">顺丰 RMB</th>
                 <th className="px-4 py-3 font-medium">3cm 是否可用</th>
                 <th className="px-4 py-3 font-medium">物流方式</th>
@@ -243,8 +326,8 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                       <td className="px-4 py-3">{product.product_code}</td>
                       <td className="px-4 py-3">{product.product_name_cn}</td>
                       <td className="px-4 py-3">
-                        {typeof summary?.temuPriceRmb === "number"
-                          ? formatCurrency(summary.temuPriceRmb)
+                        {typeof summary?.finalSalePriceRmb === "number"
+                          ? formatCurrency(summary.finalSalePriceRmb)
                           : "--"}
                       </td>
                       <td className="px-4 py-3">

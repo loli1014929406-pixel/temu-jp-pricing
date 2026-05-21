@@ -9,12 +9,9 @@ import {
   Truck,
 } from "lucide-react";
 import { NavLink, Outlet } from "react-router-dom";
-import { usePermissions } from "../hooks/use-permissions";
 import { getSupabaseClient } from "../lib/supabase";
 
 export function PageShell() {
-  const { label, loading } = usePermissions();
-
   return (
     <div className="min-h-screen bg-mist">
       <header className="border-b border-line bg-white">
@@ -99,11 +96,8 @@ export function PageShell() {
               }
             >
               <Settings size={18} />
-              系统设置
+              参数设置
             </NavLink>
-            <span className="inline-flex h-10 shrink-0 items-center whitespace-nowrap rounded-full bg-slate-100 px-3 text-xs font-medium text-slate-600">
-              {loading ? "权限加载中" : label}
-            </span>
             <button
               type="button"
               onClick={() => void getSupabaseClient().auth.signOut()}

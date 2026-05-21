@@ -910,7 +910,7 @@ create table if not exists public.account_permissions (
   updated_at timestamptz not null default now()
 );
 
-grant select, insert, update, delete
+grant select
 on table public.account_permissions
 to authenticated;
 
@@ -962,28 +962,18 @@ grant execute on function public.current_account_can_delete() to authenticated;
 alter table public.account_permissions enable row level security;
 
 drop policy if exists "account_permissions_select_self_or_admin" on public.account_permissions;
-create policy "account_permissions_select_self_or_admin"
+drop policy if exists "account_permissions_select_self" on public.account_permissions;
+create policy "account_permissions_select_self"
 on public.account_permissions for select
-using (
-  lower(email) = lower(coalesce(auth.jwt() ->> 'email', ''))
-  or public.current_account_can_delete()
-);
+using (lower(email) = lower(coalesce(auth.jwt() ->> 'email', '')));
 
 drop policy if exists "account_permissions_insert_admin" on public.account_permissions;
-create policy "account_permissions_insert_admin"
-on public.account_permissions for insert
-with check (public.current_account_can_delete());
-
 drop policy if exists "account_permissions_update_admin" on public.account_permissions;
-create policy "account_permissions_update_admin"
-on public.account_permissions for update
-using (public.current_account_can_delete())
-with check (public.current_account_can_delete());
-
 drop policy if exists "account_permissions_delete_admin" on public.account_permissions;
-create policy "account_permissions_delete_admin"
-on public.account_permissions for delete
-using (public.current_account_can_delete());
+
+revoke insert, update, delete
+on table public.account_permissions
+from authenticated;
 
 drop trigger if exists products_enforce_account_edit on public.products;
 drop trigger if exists product_items_enforce_account_edit on public.product_items;

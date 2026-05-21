@@ -38,3 +38,22 @@ npm run dev
 ## 数据隔离
 
 前端只使用 `anon key`。`products`、`product_items`、`pricing_settings` 全部启用 RLS，并按 `auth.uid() = owner_id` 隔离。
+
+## 账号权限
+
+账号权限在 Supabase 后台维护，应用只读取权限并由 RLS 强制限制；登录用户不能通过应用接口新增、修改或删除 `account_permissions`。执行 `supabase/schema.sql` 后，在 Supabase 的 Table Editor 打开 `account_permissions` 表，按登录邮箱新增或修改记录：
+
+- `admin`：所有权限，可以新增、编辑、删除。
+- `editor`：可以新增和编辑，不能删除。
+- `viewer`：只读查看。
+
+也可以在 SQL Editor 执行：
+
+```sql
+insert into public.account_permissions (email, permission_level)
+values ('user@example.com', 'admin')
+on conflict (email)
+do update set permission_level = excluded.permission_level;
+```
+
+`account_permissions` 为空时，当前登录账号会按 `admin` 处理，方便初始化第一位管理员；只要表里已有任意权限记录，未配置账号会按 `viewer` 处理。
