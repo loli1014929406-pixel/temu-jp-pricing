@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Navigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import type { User } from "@supabase/supabase-js";
 import { getSupabaseClient, supabaseConfigError } from "../lib/supabase";
 import { Field, TextInput } from "../components/form-controls";
@@ -20,7 +20,19 @@ export function AuthPage({ user }: AuthPageProps) {
   const autoLoginAttempted = useRef(false);
 
   if (user) {
-    return <Navigate to="/products" replace />;
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-mist px-4">
+        <div className="grid w-full max-w-md gap-4 rounded-lg bg-white p-6 shadow-panel">
+          <div>
+            <p className="text-2xl font-semibold text-ink">已登录</p>
+            <p className="mt-2 text-sm text-slate-500">请选择需要进入的功能页面。</p>
+          </div>
+          <Link className="text-sm font-medium text-accent" to="/products">
+            进入商品管理
+          </Link>
+        </div>
+      </div>
+    );
   }
 
   async function authenticate(nextEmail: string, nextPassword: string) {

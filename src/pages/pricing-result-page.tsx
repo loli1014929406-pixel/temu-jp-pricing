@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import type { User } from "@supabase/supabase-js";
 import {
   fetchProduct,
@@ -21,7 +21,6 @@ type PricingResultPageProps = {
 export function PricingResultPage({ user }: PricingResultPageProps) {
   const { canEdit } = usePermissions();
   const { productId: productKey = "" } = useParams();
-  const navigate = useNavigate();
   const [product, setProduct] = useState<Product | null>(null);
   const [skuResults, setSkuResults] = useState<
     Array<{ sku: ProductSku; result: PricingResult }>
@@ -43,11 +42,6 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
           fetchProduct(productKey),
           fetchSettings(user.id),
         ]);
-        const routeKey = nextProduct.product_code.trim() || nextProduct.id;
-        if (productKey !== routeKey) {
-          navigate(getProductRoutePath(nextProduct, "/pricing"), { replace: true });
-          return;
-        }
 
         const [nextItems, nextSkus] = await Promise.all([
           fetchProductItems(nextProduct.id),
@@ -109,7 +103,7 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
     return () => {
       active = false;
     };
-  }, [canEdit, navigate, productKey, user.id]);
+  }, [canEdit, productKey, user.id]);
 
   if (loading) {
     return <div className="text-sm text-slate-500">加载中...</div>;

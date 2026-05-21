@@ -1,7 +1,7 @@
 import { Save } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { User } from "@supabase/supabase-js";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { Field, TextInput } from "../components/form-controls";
 import { usePermissions } from "../hooks/use-permissions";
 import { fetchProfitCalculationsBySkuIds, saveProfitCalculation } from "../lib/profit-calculations";
@@ -9,7 +9,6 @@ import {
   fetchProduct,
   fetchProductItems,
   fetchProductSkus,
-  getProductRoutePath,
 } from "../lib/products";
 import { fetchSettings } from "../lib/settings";
 import type {
@@ -53,7 +52,6 @@ const formatRoas = (value: number | null, fallback: string) =>
 export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
   const { canEdit } = usePermissions();
   const { productId: productKey = "" } = useParams();
-  const navigate = useNavigate();
   const [product, setProduct] = useState<Product | null>(null);
   const [calculations, setCalculations] = useState<Record<string, SkuCalculationState>>({});
   const [settings, setSettings] = useState<PricingSettings | null>(null);
@@ -79,11 +77,6 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
           fetchProduct(productKey),
           fetchSettings(user.id),
         ]);
-        const routeKey = nextProduct.product_code.trim() || nextProduct.id;
-        if (productKey !== routeKey) {
-          navigate(getProductRoutePath(nextProduct, "/profit-calculation"), { replace: true });
-          return;
-        }
 
         const [items, skus] = await Promise.all([
           fetchProductItems(nextProduct.id),
@@ -173,7 +166,7 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
     return () => {
       active = false;
     };
-  }, [navigate, productKey, user.id]);
+  }, [productKey, user.id]);
 
   function updateSkuPrice(skuId: string, value: number) {
     const current = calculations[skuId];

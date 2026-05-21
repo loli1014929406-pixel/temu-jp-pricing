@@ -5,7 +5,6 @@ import {
   fetchProduct,
   fetchProductItems,
   fetchProductSkus,
-  getProductRoutePath,
   updateProduct,
 } from "../lib/products";
 import { createEmptyItem, createEmptySku, createEmptySpec } from "../lib/defaults";
@@ -35,11 +34,6 @@ export function ProductEditPage() {
 
       try {
         const nextProduct = await fetchProduct(productKey);
-        const routeKey = nextProduct.product_code.trim() || nextProduct.id;
-        if (productKey !== routeKey) {
-          navigate(getProductRoutePath(nextProduct, "/edit"), { replace: true });
-          return;
-        }
 
         const [nextItems, nextSkus] = await Promise.all([
           fetchProductItems(nextProduct.id),

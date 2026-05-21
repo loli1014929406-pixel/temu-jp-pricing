@@ -83,7 +83,13 @@ export async function fetchProduct(productKey: string) {
     );
 
     if (productByIdError) throw productByIdError;
-    if (productById) return productById as Product;
+    if (productById) {
+      const product = productById as Product;
+      if (product.product_code.trim()) {
+        throw new Error("请使用商品编号访问该商品");
+      }
+      return product;
+    }
   }
 
   const { data, error } = await withTimeout(

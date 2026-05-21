@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Link, Route, Routes } from "react-router-dom";
 import { PageShell } from "./components/page-shell";
 import { ProtectedRoute } from "./components/protected-route";
 import { useAuth } from "./hooks/use-auth";
@@ -17,6 +17,18 @@ import { PurchasesPage } from "./pages/purchases-page";
 import { SettingsPage } from "./pages/settings-page";
 import { TestShippingPage } from "./pages/test-shipping-page";
 
+function NotFoundPage() {
+  return (
+    <section className="grid gap-3 rounded-lg bg-white p-6 shadow-panel">
+      <h1 className="text-xl font-semibold text-ink">页面不存在</h1>
+      <p className="text-sm text-slate-500">请从上方菜单进入需要的功能页面。</p>
+      <Link className="text-sm font-medium text-accent" to="/products">
+        返回商品管理
+      </Link>
+    </section>
+  );
+}
+
 export default function App() {
   const { user, loading } = useAuth();
 
@@ -32,7 +44,7 @@ export default function App() {
           </ProtectedRoute>
         }
       >
-        <Route index element={<Navigate to="/products" replace />} />
+        <Route index element={<NotFoundPage />} />
         <Route path="/products" element={user ? <ProductsPage user={user} /> : null} />
         <Route
           path="/products/new"
@@ -69,7 +81,6 @@ export default function App() {
           element={user ? <PromotionRecommendationsPage user={user} /> : null}
         />
         <Route path="/test-shipping" element={user ? <TestShippingPage user={user} /> : null} />
-        <Route path="/purchases" element={<Navigate to="/purchases/records" replace />} />
         <Route
           path="/purchases/new"
           element={
@@ -86,9 +97,9 @@ export default function App() {
           path="/products/:productId/profit-calculation"
           element={user ? <ProfitCalculationPage user={user} /> : null}
         />
-        <Route path="/settings" element={user ? <SettingsPage user={user} /> : null} />
+        <Route path="/parameter-settings" element={user ? <SettingsPage user={user} /> : null} />
+        <Route path="*" element={<NotFoundPage />} />
       </Route>
-      <Route path="*" element={<Navigate to="/products" replace />} />
     </Routes>
   );
 }

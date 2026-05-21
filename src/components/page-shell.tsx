@@ -88,7 +88,7 @@ export function PageShell() {
               仓储库存
             </NavLink>
             <NavLink
-              to="/settings"
+              to="/parameter-settings"
               className={({ isActive }) =>
                 `inline-flex h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-3 text-sm transition ${
                   isActive ? "bg-accent text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"

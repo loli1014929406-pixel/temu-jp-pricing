@@ -29,11 +29,11 @@ npm run dev
 - `/auth` 登录与注册
 - `/products` 商品列表
 - `/products/new` 新增商品
-- `/products/:id/edit` 编辑商品
-- `/products/:id/pricing` 申报价结果
-- `/purchases` 采购记录
+- `/products/:productCode/edit` 编辑商品
+- `/products/:productCode/pricing` 申报价结果
+- `/purchases/records` 采购记录
 - `/inventory` 库存
-- `/settings` 参数设置
+- `/parameter-settings` 参数设置
 
 ## 数据隔离
 
