@@ -29,6 +29,7 @@ import type {
 } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { PageHeader } from "../components/ui";
+import { usePermissions } from "../hooks/use-permissions";
 
 type InventoryPageProps = {
   user: User;
@@ -45,6 +46,7 @@ function getInventoryErrorMessage(error: unknown, fallback: string) {
 }
 
 export function InventoryPage({ user }: InventoryPageProps) {
+  const { canEdit, canDelete } = usePermissions();
   const [products, setProducts] = useState<Product[]>([]);
   const [productItems, setProductItems] = useState<ProductItem[]>([]);
   const [skus, setSkus] = useState<ProductSku[]>([]);
@@ -179,6 +181,11 @@ export function InventoryPage({ user }: InventoryPageProps) {
   }, {});
 
   async function handleCreateWarehouse() {
+    if (!canEdit) {
+      setErrorMessage("当前账号没有编辑权限，不能新增仓库。");
+      return;
+    }
+
     const name = draftWarehouseName.trim();
     if (!name) return;
 
@@ -199,6 +206,8 @@ export function InventoryPage({ user }: InventoryPageProps) {
     warehouse: Warehouse,
     updates: Pick<Warehouse, "name">,
   ) {
+    if (!canEdit) return;
+
     setBusyKey(`warehouse-${warehouse.id}`);
     setErrorMessage("");
     try {
@@ -214,6 +223,11 @@ export function InventoryPage({ user }: InventoryPageProps) {
   }
 
   async function handleDeleteWarehouse(warehouse: Warehouse) {
+    if (!canDelete) {
+      setErrorMessage("当前账号没有删除权限。");
+      return;
+    }
+
     const confirmed = window.confirm(`确认删除仓库“${warehouse.name}”吗？`);
     if (!confirmed) return;
 
@@ -233,6 +247,11 @@ export function InventoryPage({ user }: InventoryPageProps) {
   }
 
   async function handleAddProduct(warehouseId: string) {
+    if (!canEdit) {
+      setErrorMessage("当前账号没有编辑权限，不能添加库存商品。");
+      return;
+    }
+
     const productId = selectedProductIds[warehouseId];
     if (!productId) return;
     const productSkuIds = (skusByProductId[productId] ?? []).flatMap((sku) =>
@@ -266,6 +285,11 @@ export function InventoryPage({ user }: InventoryPageProps) {
   }
 
   async function handleRemoveProduct(warehouseId: string, productId: string) {
+    if (!canDelete) {
+      setErrorMessage("当前账号没有删除权限。");
+      return;
+    }
+
     const product = productsById[productId];
     const confirmed = window.confirm(
       `确认从仓库中删除商品编号“${product?.product_code ?? ""}”吗？`,
@@ -296,6 +320,11 @@ export function InventoryPage({ user }: InventoryPageProps) {
   }
 
   async function handleSaveItemStock(item: WarehouseItemStock) {
+    if (!canEdit) {
+      setErrorMessage("当前账号没有编辑权限，不能更新库存。");
+      return;
+    }
+
     const nextStock = Math.max(0, Number(itemStockDrafts[item.id] || 0));
     const reason = itemStockReasonDrafts[item.id]?.trim() ?? "";
     if (!reason) return;
@@ -345,26 +374,28 @@ export function InventoryPage({ user }: InventoryPageProps) {
         </div>
       )}
 
-      <section className="surface-card grid gap-4 p-5">
-        <h2 className="text-base font-semibold text-ink">新增仓库</h2>
-        <div className="grid gap-3 md:grid-cols-[minmax(220px,1fr)_auto]">
-          <input
-            value={draftWarehouseName}
-            onChange={(event) => setDraftWarehouseName(event.target.value)}
-            placeholder="仓库名称"
-            className="h-11 rounded-xl border border-line bg-white px-3 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
-          />
-          <button
-            type="button"
-            onClick={() => void handleCreateWarehouse()}
-            disabled={!draftWarehouseName.trim() || busyKey === "create-warehouse"}
-            className="btn-primary"
-          >
-            <Plus size={18} />
-            增加仓库
-          </button>
-        </div>
-      </section>
+      {canEdit && (
+        <section className="surface-card grid gap-4 p-5">
+          <h2 className="text-base font-semibold text-ink">新增仓库</h2>
+          <div className="grid gap-3 md:grid-cols-[minmax(220px,1fr)_auto]">
+            <input
+              value={draftWarehouseName}
+              onChange={(event) => setDraftWarehouseName(event.target.value)}
+              placeholder="仓库名称"
+              className="h-11 rounded-xl border border-line bg-white px-3 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
+            />
+            <button
+              type="button"
+              onClick={() => void handleCreateWarehouse()}
+              disabled={!draftWarehouseName.trim() || busyKey === "create-warehouse"}
+              className="btn-primary"
+            >
+              <Plus size={18} />
+              增加仓库
+            </button>
+          </div>
+        </section>
+      )}
 
       {loading ? (
         <div className="text-sm text-slate-500">加载中...</div>
@@ -387,6 +418,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                   <div className="grid gap-3 md:grid-cols-[minmax(220px,1fr)]">
                     <input
                       value={warehouse.name}
+                      readOnly={!canEdit}
                       onChange={(event) =>
                         setWarehouses((current) =>
                           current.map((item) =>
@@ -396,56 +428,62 @@ export function InventoryPage({ user }: InventoryPageProps) {
                           ),
                         )
                       }
-                      onBlur={() =>
-                        void handleUpdateWarehouse(warehouse, {
-                          name: warehouse.name.trim() || warehouse.name,
-                        })
-                      }
+                      onBlur={() => {
+                        if (canEdit) {
+                          void handleUpdateWarehouse(warehouse, {
+                            name: warehouse.name.trim() || warehouse.name,
+                          });
+                        }
+                      }}
                       className="h-11 rounded-xl border border-line bg-white px-3 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
                     />
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => void handleDeleteWarehouse(warehouse)}
-                    disabled={busyKey === `warehouse-${warehouse.id}`}
-                    className="btn-danger"
-                  >
-                    <Trash2 size={18} />
-                    删除仓库
-                  </button>
+                  {canDelete && (
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteWarehouse(warehouse)}
+                      disabled={busyKey === `warehouse-${warehouse.id}`}
+                      className="btn-danger"
+                    >
+                      <Trash2 size={18} />
+                      删除仓库
+                    </button>
+                  )}
                 </div>
 
-                <div className="grid gap-3 md:grid-cols-[minmax(220px,1fr)_auto]">
-                  <select
-                    value={selectedProductIds[warehouse.id] ?? ""}
-                    onChange={(event) =>
-                      setSelectedProductIds((current) => ({
-                        ...current,
-                        [warehouse.id]: event.target.value,
-                      }))
-                    }
-                    className="h-11 rounded-xl border border-line bg-white px-3 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
-                  >
-                    <option value="">选择商品编号</option>
-                    {availableProducts.map((product) => (
-                      <option key={product.id} value={product.id}>
-                        {product.product_code} · {product.product_name_cn}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => void handleAddProduct(warehouse.id)}
-                    disabled={
-                      !selectedProductIds[warehouse.id] ||
-                      busyKey === `add-product-${warehouse.id}`
-                    }
-                    className="btn-secondary"
-                  >
-                    <Plus size={18} />
-                    增加商品编号
-                  </button>
-                </div>
+                {canEdit && (
+                  <div className="grid gap-3 md:grid-cols-[minmax(220px,1fr)_auto]">
+                    <select
+                      value={selectedProductIds[warehouse.id] ?? ""}
+                      onChange={(event) =>
+                        setSelectedProductIds((current) => ({
+                          ...current,
+                          [warehouse.id]: event.target.value,
+                        }))
+                      }
+                      className="h-11 rounded-xl border border-line bg-white px-3 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
+                    >
+                      <option value="">选择商品编号</option>
+                      {availableProducts.map((product) => (
+                        <option key={product.id} value={product.id}>
+                          {product.product_code} · {product.product_name_cn}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => void handleAddProduct(warehouse.id)}
+                      disabled={
+                        !selectedProductIds[warehouse.id] ||
+                        busyKey === `add-product-${warehouse.id}`
+                      }
+                      className="btn-secondary"
+                    >
+                      <Plus size={18} />
+                      增加商品编号
+                    </button>
+                  </div>
+                )}
 
                 <div className="table-card shadow-none">
                   <div className="overflow-x-auto">
@@ -514,20 +552,22 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                     </button>
                                   </td>
                                   <td className="px-4 py-3">
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        void handleRemoveProduct(warehouse.id, item.product_id)
-                                      }
-                                      disabled={
-                                        busyKey === `product-${warehouse.id}-${item.product_id}`
-                                      }
-                                      className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-line text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
-                                      aria-label={`删除商品编号 ${product?.product_code ?? ""}`}
-                                      title="删除商品编号"
-                                    >
-                                      <Trash2 size={16} />
-                                    </button>
+                                    {canDelete && (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          void handleRemoveProduct(warehouse.id, item.product_id)
+                                        }
+                                        disabled={
+                                          busyKey === `product-${warehouse.id}-${item.product_id}`
+                                        }
+                                        className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-line text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
+                                        aria-label={`删除商品编号 ${product?.product_code ?? ""}`}
+                                        title="删除商品编号"
+                                      >
+                                        <Trash2 size={16} />
+                                      </button>
+                                    )}
                                   </td>
                                 </tr>
                                 {expandedSkuIds[item.id] && (
@@ -569,6 +609,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                                             min="0"
                                                             step="1"
                                                             type="number"
+                                                            disabled={!canEdit}
                                                             value={
                                                               itemStockDrafts[itemStock.id] ??
                                                               String(itemStock.stock_quantity)
@@ -581,22 +622,24 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                                             }
                                                             className="h-10 w-28 rounded-md border border-line bg-white px-3 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
                                                           />
-                                                          <button
-                                                            type="button"
-                                                            onClick={() =>
-                                                              void handleSaveItemStock(itemStock)
-                                                            }
-                                                            disabled={
-                                                              busyKey ===
-                                                                `item-stock-${itemStock.id}` ||
-                                                              !itemStockReasonDrafts[
-                                                                itemStock.id
-                                                              ]?.trim()
-                                                            }
-                                                            className="h-10 rounded-md bg-ink px-3 text-sm text-white disabled:opacity-60"
-                                                          >
-                                                            保存
-                                                          </button>
+                                                          {canEdit && (
+                                                            <button
+                                                              type="button"
+                                                              onClick={() =>
+                                                                void handleSaveItemStock(itemStock)
+                                                              }
+                                                              disabled={
+                                                                busyKey ===
+                                                                  `item-stock-${itemStock.id}` ||
+                                                                !itemStockReasonDrafts[
+                                                                  itemStock.id
+                                                                ]?.trim()
+                                                              }
+                                                              className="h-10 rounded-md bg-ink px-3 text-sm text-white disabled:opacity-60"
+                                                            >
+                                                              保存
+                                                            </button>
+                                                          )}
                                                         </div>
                                                       ) : (
                                                         <span className="text-slate-500">0</span>
@@ -608,6 +651,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                                           value={
                                                             itemStockReasonDrafts[itemStock.id] ?? ""
                                                           }
+                                                          disabled={!canEdit}
                                                           onChange={(event) =>
                                                             setItemStockReasonDrafts((current) => ({
                                                               ...current,

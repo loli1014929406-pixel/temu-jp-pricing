@@ -24,6 +24,7 @@ import {
   PROFIT_CALCULATION_VERSION,
 } from "../utils/profit-calculation";
 import { Badge, PageHeader, StatCard } from "../components/ui";
+import { usePermissions } from "../hooks/use-permissions";
 
 type ProfitCalculationsPageProps = {
   user: User;
@@ -55,6 +56,7 @@ type DiscountInputProps = {
   value: number;
   min?: string;
   max?: string;
+  disabled?: boolean;
   onChange: (value: number) => void;
 };
 
@@ -145,12 +147,14 @@ function DiscountInput({
   value,
   min = "0",
   max,
+  disabled = false,
   onChange,
 }: DiscountInputProps) {
   return (
     <input
       aria-label={label}
       className="h-9 w-20 rounded-md border border-line bg-white px-2 text-right text-sm tabular-nums outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
+      disabled={disabled}
       min={min}
       max={max}
       step="0.01"
@@ -162,6 +166,7 @@ function DiscountInput({
 }
 
 export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
+  const { canEdit } = usePermissions();
   const [products, setProducts] = useState<Product[]>([]);
   const [temuPrices, setTemuPrices] = useState<Record<string, number | null>>({});
   const [discountSummaries, setDiscountSummaries] = useState<Record<string, DiscountSummary>>({});
@@ -352,6 +357,11 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
   }
 
   async function handleSaveProduct(product: Product) {
+    if (!canEdit) {
+      setErrorMessage("当前账号没有编辑权限，不能保存利润测算。");
+      return;
+    }
+
     if (!settings) return;
 
     const summary = discountSummaries[product.id];
@@ -488,6 +498,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                     <span>流量加速</span>
                     <DiscountInput
                       label={`${product.product_code} 流量加速`}
+                      disabled={!canEdit}
                       value={summary?.trafficDiscountRate ?? defaultDiscounts.trafficDiscountRate}
                       onChange={(value) =>
                         updateProductDiscount(product.id, "trafficDiscountRate", value)
@@ -500,6 +511,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                       label={`${product.product_code} 活动折扣`}
                       min="0.01"
                       max="10"
+                      disabled={!canEdit}
                       value={summary?.activityDiscountRate ?? defaultDiscounts.activityDiscountRate}
                       onChange={(value) =>
                         updateProductDiscount(product.id, "activityDiscountRate", value)
@@ -510,6 +522,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                     <span>优惠券价</span>
                     <DiscountInput
                       label={`${product.product_code} 优惠券价`}
+                      disabled={!canEdit}
                       value={summary?.couponDiscountRate ?? defaultDiscounts.couponDiscountRate}
                       onChange={(value) =>
                         updateProductDiscount(product.id, "couponDiscountRate", value)
@@ -528,19 +541,21 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                   </span>
                 </div>
                 <div className="mobile-summary-actions">
-                  <button
-                    className="inline-flex items-center gap-1 whitespace-nowrap text-sm font-medium text-accent disabled:opacity-50"
-                    type="button"
-                    disabled={savingProductId === product.id}
-                    onClick={() => void handleSaveProduct(product)}
-                  >
-                    <Save size={14} />
-                    {savingProductId === product.id
-                      ? "保存中"
-                      : savedProductId === product.id
-                        ? "已保存"
-                        : "保存"}
-                  </button>
+                  {canEdit && (
+                    <button
+                      className="inline-flex items-center gap-1 whitespace-nowrap text-sm font-medium text-accent disabled:opacity-50"
+                      type="button"
+                      disabled={savingProductId === product.id}
+                      onClick={() => void handleSaveProduct(product)}
+                    >
+                      <Save size={14} />
+                      {savingProductId === product.id
+                        ? "保存中"
+                        : savedProductId === product.id
+                          ? "已保存"
+                          : "保存"}
+                    </button>
+                  )}
                   <Link className="text-action whitespace-nowrap" to={getProductRoutePath(product, "/profit-calculation")}>
                     查看利润
                   </Link>
@@ -606,6 +621,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                     <td className="px-3 py-3 text-right">
                       <DiscountInput
                         label={`${product.product_code} 流量加速`}
+                        disabled={!canEdit}
                         value={summary?.trafficDiscountRate ?? defaultDiscounts.trafficDiscountRate}
                         onChange={(value) =>
                           updateProductDiscount(product.id, "trafficDiscountRate", value)
@@ -617,6 +633,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                         label={`${product.product_code} 活动折扣`}
                         min="0.01"
                         max="10"
+                        disabled={!canEdit}
                         value={summary?.activityDiscountRate ?? defaultDiscounts.activityDiscountRate}
                         onChange={(value) =>
                           updateProductDiscount(product.id, "activityDiscountRate", value)
@@ -626,6 +643,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                     <td className="px-3 py-3 text-right">
                       <DiscountInput
                         label={`${product.product_code} 优惠券价`}
+                        disabled={!canEdit}
                         value={summary?.couponDiscountRate ?? defaultDiscounts.couponDiscountRate}
                         onChange={(value) =>
                           updateProductDiscount(product.id, "couponDiscountRate", value)
@@ -696,19 +714,21 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                     </td>
                     <td className="min-w-24 px-4 py-3">
                       <div className="flex flex-col items-start gap-2">
-                        <button
-                          className="inline-flex items-center gap-1 whitespace-nowrap text-sm font-medium text-accent transition hover:underline disabled:opacity-50"
-                          type="button"
-                          disabled={savingProductId === product.id}
-                          onClick={() => void handleSaveProduct(product)}
-                        >
-                          <Save size={14} />
-                          {savingProductId === product.id
-                            ? "保存中"
-                            : savedProductId === product.id
-                              ? "已保存"
-                              : "保存"}
-                        </button>
+                        {canEdit && (
+                          <button
+                            className="inline-flex items-center gap-1 whitespace-nowrap text-sm font-medium text-accent transition hover:underline disabled:opacity-50"
+                            type="button"
+                            disabled={savingProductId === product.id}
+                            onClick={() => void handleSaveProduct(product)}
+                          >
+                            <Save size={14} />
+                            {savingProductId === product.id
+                              ? "保存中"
+                              : savedProductId === product.id
+                                ? "已保存"
+                                : "保存"}
+                          </button>
+                        )}
                         <Link
                           className="text-action whitespace-nowrap"
                           to={getProductRoutePath(product, "/profit-calculation")}

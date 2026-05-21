@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { Field, TextArea, TextInput } from "../components/form-controls";
 import { Badge, PageHeader } from "../components/ui";
+import { usePermissions } from "../hooks/use-permissions";
 import { fetchWarehouses } from "../lib/inventory";
 import {
   createPurchaseOrder,
@@ -45,6 +46,7 @@ function createDraftProduct(): DraftProduct {
 }
 
 export function PurchasesPage({ user, view }: PurchasesPageProps) {
+  const { canEdit, canDelete } = usePermissions();
   const navigate = useNavigate();
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -236,6 +238,11 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
   }
 
   async function handleCreateOrder() {
+    if (!canEdit) {
+      setErrorMessage("当前账号没有编辑权限，不能新增采购管理单。");
+      return;
+    }
+
     const warehouse = warehousesById[warehouseId];
     const preparedItems = draftProducts.flatMap((draftProduct) => {
       const product = productsById[draftProduct.productId];
@@ -291,6 +298,11 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
   }
 
   async function handleSaveSource(order: PurchaseOrder, sourceId: string) {
+    if (!canEdit) {
+      setErrorMessage("当前账号没有编辑权限，不能更新采购信息。");
+      return;
+    }
+
     setBusyKey(`source-${sourceId}`);
     try {
       const next = await updatePurchaseSource(sourceId, {
@@ -327,6 +339,11 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
     packageKey: string,
     sourceItems: PurchaseOrder["items"],
   ) {
+    if (!canEdit) {
+      setErrorMessage("当前账号没有编辑权限，不能保存快递包裹。");
+      return;
+    }
+
     const trackingNo = (packageTrackingDrafts[packageKey] ?? "").trim();
     const itemsPayload = sourceItems.map((item) => ({
       order_item_id: item.id,
@@ -350,6 +367,11 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
   }
 
   async function handleReceivePackage(order: PurchaseOrder, pkg: PurchasePackage) {
+    if (!canEdit) {
+      setErrorMessage("当前账号没有编辑权限，不能签收入库。");
+      return;
+    }
+
     const confirmed = window.confirm(`确认签收快递单号“${pkg.tracking_no}”并增加库存吗？`);
     if (!confirmed) return;
     setBusyKey(`receive-${pkg.id}`);
@@ -379,6 +401,11 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
   }
 
   async function handleRepairPackageInventory(order: PurchaseOrder, pkg: PurchasePackage) {
+    if (!canEdit) {
+      setErrorMessage("当前账号没有编辑权限，不能补入库存。");
+      return;
+    }
+
     const confirmed = window.confirm(`确认为已签收快递单号“${pkg.tracking_no}”补入库存吗？已存在的入库流水会自动跳过。`);
     if (!confirmed) return;
     setBusyKey(`repair-${pkg.id}`);
@@ -399,6 +426,11 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
   }
 
   async function handleSavePackageTracking(order: PurchaseOrder, pkg: PurchasePackage) {
+    if (!canEdit) {
+      setErrorMessage("当前账号没有编辑权限，不能更新快递单号。");
+      return;
+    }
+
     const trackingNo = existingPackageTrackingDrafts[pkg.id]?.trim();
     if (!trackingNo) return;
     setBusyKey(`update-package-${pkg.id}`);
@@ -424,6 +456,11 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
   }
 
   async function handleDeletePackage(order: PurchaseOrder, pkg: PurchasePackage) {
+    if (!canDelete) {
+      setErrorMessage("当前账号没有删除权限。");
+      return;
+    }
+
     const confirmed = window.confirm(`确认删除快递单号“${pkg.tracking_no}”吗？`);
     if (!confirmed) return;
     setBusyKey(`delete-package-${pkg.id}`);
@@ -454,6 +491,11 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
   }
 
   async function handleDeleteOrder(order: PurchaseOrder) {
+    if (!canDelete) {
+      setErrorMessage("当前账号没有删除权限。");
+      return;
+    }
+
     const confirmed = window.confirm("确认删除这张采购管理单吗？删除后无法恢复。");
     if (!confirmed) return;
     setBusyKey(`delete-order-${order.id}`);
@@ -477,12 +519,12 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
             <Link to="/purchases/records" className="btn-secondary">
               查看采购管理记录
             </Link>
-          ) : (
+          ) : canEdit ? (
             <Link to="/purchases/new" className="btn-primary">
               <Plus size={18} />
               新增采购管理单
             </Link>
-          )
+          ) : null
         }
       />
       {errorMessage && <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{errorMessage}</div>}
@@ -675,15 +717,17 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                     <button type="button" onClick={() => setExpandedOrderIds((current) => ({ ...current, [order.id]: !current[order.id] }))} className="btn-secondary h-10 flex-1 px-3 sm:flex-none">
                       {expandedOrderIds[order.id] ? "收起" : "查看"}
                     </button>
-                    <button
-                      type="button"
-                      disabled={busyKey === `delete-order-${order.id}`}
-                      onClick={() => void handleDeleteOrder(order)}
-                      className="icon-btn-danger h-10 w-10 shrink-0"
-                      aria-label="删除采购管理单"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                    {canDelete && (
+                      <button
+                        type="button"
+                        disabled={busyKey === `delete-order-${order.id}`}
+                        onClick={() => void handleDeleteOrder(order)}
+                        className="icon-btn-danger h-10 w-10 shrink-0"
+                        aria-label="删除采购管理单"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div className="mobile-summary-grid sm:grid-cols-3">
@@ -760,7 +804,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                         const sourcePackages = order.packages.filter((pkg) => sourceIdSet.has(pkg.source_id));
                         const pendingSourcePackages = sourcePackages.filter((pkg) => pkg.status === "pending");
                         const receivedSourcePackages = sourcePackages.filter((pkg) => pkg.status === "received");
-                        const canAddPackage = order.status !== "received" && receivedSourcePackages.length === 0;
+                        const canAddPackage = canEdit && order.status !== "received" && receivedSourcePackages.length === 0;
                         return (
                       <div key={group.key} className="grid gap-4 rounded-2xl border border-line bg-slate-50/60 p-4">
                         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_430px]">
@@ -779,10 +823,10 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                             </div>
                           </div>
                           <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_150px_72px]">
-                            <Field label="1688 订单号"><TextInput value={sourceDrafts[primarySource.id]?.alibabaOrderNo ?? primarySource.alibaba_order_no} onChange={(event) => setSourceDrafts((current) => ({ ...current, [primarySource.id]: { alibabaOrderNo: event.target.value, freightRmb: current[primarySource.id]?.freightRmb ?? String(primarySource.freight_rmb) } }))} /></Field>
-                            <Field label="运费 RMB"><TextInput type="number" min="0" step="0.01" value={sourceDrafts[primarySource.id]?.freightRmb ?? String(primarySource.freight_rmb)} onChange={(event) => setSourceDrafts((current) => ({ ...current, [primarySource.id]: { alibabaOrderNo: current[primarySource.id]?.alibabaOrderNo ?? primarySource.alibaba_order_no, freightRmb: event.target.value } }))} /></Field>
+                            <Field label="1688 订单号"><TextInput disabled={!canEdit} value={sourceDrafts[primarySource.id]?.alibabaOrderNo ?? primarySource.alibaba_order_no} onChange={(event) => setSourceDrafts((current) => ({ ...current, [primarySource.id]: { alibabaOrderNo: event.target.value, freightRmb: current[primarySource.id]?.freightRmb ?? String(primarySource.freight_rmb) } }))} /></Field>
+                            <Field label="运费 RMB"><TextInput disabled={!canEdit} type="number" min="0" step="0.01" value={sourceDrafts[primarySource.id]?.freightRmb ?? String(primarySource.freight_rmb)} onChange={(event) => setSourceDrafts((current) => ({ ...current, [primarySource.id]: { alibabaOrderNo: current[primarySource.id]?.alibabaOrderNo ?? primarySource.alibaba_order_no, freightRmb: event.target.value } }))} /></Field>
                             <Field label="操作">
-                              <button type="button" onClick={() => void handleSaveSource(order, primarySource.id)} className="btn-secondary w-full">保存</button>
+                              <button type="button" disabled={!canEdit} onClick={() => void handleSaveSource(order, primarySource.id)} className="btn-secondary w-full">保存</button>
                             </Field>
                           </div>
                         </div>
@@ -810,6 +854,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                                 {pendingSourcePackages.map((pkg) => (
                                   <div key={pkg.id} className="package-action-row grid gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_96px_96px_96px_96px]">
                                     <TextInput
+                                      disabled={!canEdit}
                                       value={existingPackageTrackingDrafts[pkg.id] ?? pkg.tracking_no}
                                       onChange={(event) =>
                                         setExistingPackageTrackingDrafts((current) => ({
@@ -825,9 +870,9 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                                     >
                                       快递查询
                                     </button>
-                                    <button type="button" onClick={() => void handleSavePackageTracking(order, pkg)} className="btn-primary h-10 w-24 px-3">保存</button>
-                                    <button type="button" onClick={() => void handleDeletePackage(order, pkg)} className="btn-primary h-10 w-24 px-3" aria-label="删除快递包裹"><Trash2 size={16} />删除</button>
-                                    <button type="button" onClick={() => void handleReceivePackage(order, pkg)} className="btn-primary h-10 w-24 px-3"><CheckCircle2 size={16} />签收</button>
+                                    {canEdit && <button type="button" onClick={() => void handleSavePackageTracking(order, pkg)} className="btn-primary h-10 w-24 px-3">保存</button>}
+                                    {canDelete && <button type="button" onClick={() => void handleDeletePackage(order, pkg)} className="btn-primary h-10 w-24 px-3" aria-label="删除快递包裹"><Trash2 size={16} />删除</button>}
+                                    {canEdit && <button type="button" onClick={() => void handleReceivePackage(order, pkg)} className="btn-primary h-10 w-24 px-3"><CheckCircle2 size={16} />签收</button>}
                                   </div>
                                 ))}
                               </div>
@@ -846,14 +891,16 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                                 <div key={pkg.id} className="flex flex-wrap items-center gap-2 text-sm">
                                   <Badge tone="success">已签收</Badge>
                                   <span className="font-medium text-ink">{pkg.tracking_no}</span>
-                                  <button
-                                    type="button"
-                                    onClick={() => void handleRepairPackageInventory(order, pkg)}
-                                    disabled={busyKey === `repair-${pkg.id}`}
-                                    className="btn-secondary h-9 px-3"
-                                  >
-                                    补入库存
-                                  </button>
+                                  {canEdit && (
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleRepairPackageInventory(order, pkg)}
+                                      disabled={busyKey === `repair-${pkg.id}`}
+                                      className="btn-secondary h-9 px-3"
+                                    >
+                                      补入库存
+                                    </button>
+                                  )}
                                 </div>
                               ))}
                             </div>

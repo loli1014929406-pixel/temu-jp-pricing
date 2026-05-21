@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { PageShell } from "./components/page-shell";
 import { ProtectedRoute } from "./components/protected-route";
 import { useAuth } from "./hooks/use-auth";
+import { PermissionGate, PermissionProvider } from "./hooks/use-permissions";
 import { AuthPage } from "./pages/auth-page";
 import { DeclarationPricesPage } from "./pages/declaration-prices-page";
 import { InventoryPage } from "./pages/inventory-page";
@@ -25,7 +26,9 @@ export default function App() {
       <Route
         element={
           <ProtectedRoute user={user} loading={loading}>
-            <PageShell />
+            <PermissionProvider user={user}>
+              <PageShell />
+            </PermissionProvider>
           </ProtectedRoute>
         }
       >
@@ -33,9 +36,22 @@ export default function App() {
         <Route path="/products" element={user ? <ProductsPage user={user} /> : null} />
         <Route
           path="/products/new"
-          element={user ? <ProductCreatePage user={user} /> : null}
+          element={
+            user ? (
+              <PermissionGate action="edit">
+                <ProductCreatePage user={user} />
+              </PermissionGate>
+            ) : null
+          }
         />
-        <Route path="/products/:productId/edit" element={<ProductEditPage />} />
+        <Route
+          path="/products/:productId/edit"
+          element={
+            <PermissionGate action="edit">
+              <ProductEditPage />
+            </PermissionGate>
+          }
+        />
         <Route
           path="/products/:productId/pricing"
           element={user ? <PricingResultPage user={user} /> : null}
@@ -54,7 +70,16 @@ export default function App() {
         />
         <Route path="/test-shipping" element={user ? <TestShippingPage user={user} /> : null} />
         <Route path="/purchases" element={<Navigate to="/purchases/records" replace />} />
-        <Route path="/purchases/new" element={user ? <PurchasesPage user={user} view="create" /> : null} />
+        <Route
+          path="/purchases/new"
+          element={
+            user ? (
+              <PermissionGate action="edit">
+                <PurchasesPage user={user} view="create" />
+              </PermissionGate>
+            ) : null
+          }
+        />
         <Route path="/purchases/records" element={user ? <PurchasesPage user={user} view="records" /> : null} />
         <Route path="/inventory" element={user ? <InventoryPage user={user} /> : null} />
         <Route

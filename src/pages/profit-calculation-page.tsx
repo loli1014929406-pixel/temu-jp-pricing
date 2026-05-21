@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Field, TextInput } from "../components/form-controls";
+import { usePermissions } from "../hooks/use-permissions";
 import { fetchProfitCalculationsBySkuIds, saveProfitCalculation } from "../lib/profit-calculations";
 import {
   fetchProduct,
@@ -50,6 +51,7 @@ const formatRoas = (value: number | null, fallback: string) =>
   value === null ? fallback : value.toFixed(2);
 
 export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
+  const { canEdit } = usePermissions();
   const { productId: productKey = "" } = useParams();
   const navigate = useNavigate();
   const [product, setProduct] = useState<Product | null>(null);
@@ -220,6 +222,11 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
   }
 
   async function handleSave(productId: string, skuId: string) {
+    if (!canEdit) {
+      setErrorMessage("当前账号没有编辑权限，不能保存利润测算。");
+      return;
+    }
+
     const current = calculations[skuId];
     if (!current) return;
 
@@ -270,6 +277,7 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
           <Field label="流量加速">
             <TextInput
               min="0"
+              disabled={!canEdit}
               step="0.01"
               type="number"
               value={productDiscounts.trafficDiscountRate}
@@ -285,6 +293,7 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
             <TextInput
               min="0.01"
               max="10"
+              disabled={!canEdit}
               step="0.01"
               type="number"
               value={productDiscounts.activityDiscountRate}
@@ -299,6 +308,7 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
           <Field label="优惠券价">
             <TextInput
               min="0"
+              disabled={!canEdit}
               step="0.01"
               type="number"
               value={productDiscounts.couponDiscountRate}
@@ -328,21 +338,24 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
                               .join(" / ") || "未填写规格"}
                           </p>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => void handleSave(product.id, skuId)}
-                          disabled={savingSkuId === skuId}
-                          className="inline-flex h-10 items-center gap-2 rounded-md bg-ink px-4 text-sm font-medium text-white disabled:opacity-60"
-                        >
-                          <Save size={16} />
-                          {savingSkuId === skuId ? "保存中..." : "保存"}
-                        </button>
+                        {canEdit && (
+                          <button
+                            type="button"
+                            onClick={() => void handleSave(product.id, skuId)}
+                            disabled={savingSkuId === skuId}
+                            className="inline-flex h-10 items-center gap-2 rounded-md bg-ink px-4 text-sm font-medium text-white disabled:opacity-60"
+                          >
+                            <Save size={16} />
+                            {savingSkuId === skuId ? "保存中..." : "保存"}
+                          </button>
+                        )}
                       </div>
 
                       <div className="grid gap-4 md:grid-cols-2">
                         <Field label="核定供货价 (RMB)">
                           <TextInput
                             min="0"
+                            disabled={!canEdit}
                             step="0.01"
                             type="number"
                             value={input.temuPriceRmb}

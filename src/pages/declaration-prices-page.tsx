@@ -12,12 +12,14 @@ import type { Product } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { calculatePricing, formatCurrency } from "../utils/pricing";
 import { PageHeader } from "../components/ui";
+import { usePermissions } from "../hooks/use-permissions";
 
 type DeclarationPricesPageProps = {
   user: User;
 };
 
 export function DeclarationPricesPage({ user }: DeclarationPricesPageProps) {
+  const { canEdit } = usePermissions();
   const [products, setProducts] = useState<Product[]>([]);
   const [temuDeclarationPrices, setTemuDeclarationPrices] = useState<
     Record<string, number | null>
@@ -126,9 +128,11 @@ export function DeclarationPricesPage({ user }: DeclarationPricesPageProps) {
                 <Link className="text-action" to={getProductRoutePath(product, "/pricing")}>
                   查看核算定价
                 </Link>
-                <Link className="text-sm font-medium text-slate-600 hover:underline" to={getProductRoutePath(product, "/edit")}>
-                  编辑
-                </Link>
+                {canEdit && (
+                  <Link className="text-sm font-medium text-slate-600 hover:underline" to={getProductRoutePath(product, "/edit")}>
+                    编辑
+                  </Link>
+                )}
               </div>
             </article>
           ))
@@ -174,9 +178,11 @@ export function DeclarationPricesPage({ user }: DeclarationPricesPageProps) {
                         <Link className="text-action" to={getProductRoutePath(product, "/pricing")}>
                           查看核算定价
                         </Link>
-                        <Link className="text-sm font-medium text-slate-600 hover:underline" to={getProductRoutePath(product, "/edit")}>
-                          编辑
-                        </Link>
+                        {canEdit && (
+                          <Link className="text-sm font-medium text-slate-600 hover:underline" to={getProductRoutePath(product, "/edit")}>
+                            编辑
+                          </Link>
+                        )}
                       </div>
                     </td>
                   </tr>

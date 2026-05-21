@@ -13,6 +13,7 @@ import {
   getTransferValidation,
   parseTransferFile,
 } from "../lib/product-transfer";
+import { usePermissions } from "../hooks/use-permissions";
 import { getErrorMessage } from "../utils/errors";
 import type { Product } from "../types";
 import type { User } from "@supabase/supabase-js";
@@ -23,6 +24,7 @@ type ProductsPageProps = {
 };
 
 export function ProductsPage({ user }: ProductsPageProps) {
+  const { canEdit, canDelete } = usePermissions();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
@@ -68,6 +70,11 @@ export function ProductsPage({ user }: ProductsPageProps) {
   }, [user.id]);
 
   async function handleDelete(product: Product) {
+    if (!canDelete) {
+      setErrorMessage("当前账号没有删除权限。");
+      return;
+    }
+
     const confirmed = window.confirm(`确认删除商品“${product.product_name_cn}”吗？`);
     if (!confirmed) return;
 
@@ -101,6 +108,11 @@ export function ProductsPage({ user }: ProductsPageProps) {
 
   async function handleBulkDelete() {
     if (selectedProductIds.length === 0) return;
+    if (!canDelete) {
+      setErrorMessage("当前账号没有删除权限。");
+      return;
+    }
+
     const confirmed = window.confirm(`确认删除已选中的 ${selectedProductIds.length} 个商品吗？`);
     if (!confirmed) return;
 
@@ -138,6 +150,11 @@ export function ProductsPage({ user }: ProductsPageProps) {
   async function handleImport(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
+    if (!canEdit) {
+      setErrorMessage("当前账号没有编辑权限，不能导入商品。");
+      event.target.value = "";
+      return;
+    }
 
     setTransferring(true);
     setErrorMessage("");
@@ -163,6 +180,10 @@ export function ProductsPage({ user }: ProductsPageProps) {
 
   async function confirmImport() {
     if (!pendingImport || pendingImport.errors.length > 0) return;
+    if (!canEdit) {
+      setErrorMessage("当前账号没有编辑权限，不能导入商品。");
+      return;
+    }
 
     setTransferring(true);
     setErrorMessage("");
@@ -192,38 +213,44 @@ export function ProductsPage({ user }: ProductsPageProps) {
             <Download size={18} />
             下载 Excel
           </button>
-          <button
-            type="button"
-            onClick={() => void handleBulkDelete()}
-            disabled={selectedProductIds.length === 0 || transferring}
-            className={selectedProductIds.length > 0 ? "btn-danger" : "btn-secondary"}
-          >
-            <Trash2 size={18} />
-            批量删除
-          </button>
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={transferring}
-            className="btn-secondary"
-          >
-            <Upload size={18} />
-            上传 Excel
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            onChange={(event) => void handleImport(event)}
-            className="hidden"
-          />
-          <Link
-            to="/products/new"
-            className="btn-primary"
-          >
-            <Plus size={18} />
-            新增商品
-          </Link>
+          {canDelete && (
+            <button
+              type="button"
+              onClick={() => void handleBulkDelete()}
+              disabled={selectedProductIds.length === 0 || transferring}
+              className={selectedProductIds.length > 0 ? "btn-danger" : "btn-secondary"}
+            >
+              <Trash2 size={18} />
+              批量删除
+            </button>
+          )}
+          {canEdit && (
+            <>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={transferring}
+                className="btn-secondary"
+              >
+                <Upload size={18} />
+                上传 Excel
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                onChange={(event) => void handleImport(event)}
+                className="hidden"
+              />
+              <Link
+                to="/products/new"
+                className="btn-primary"
+              >
+                <Plus size={18} />
+                新增商品
+              </Link>
+            </>
+          )}
           </>
         }
       />
@@ -320,19 +347,23 @@ export function ProductsPage({ user }: ProductsPageProps) {
                 })}
               </p>
               <div className="mobile-summary-actions">
-                <Link className="btn-secondary h-9 px-3" to={getProductRoutePath(product, "/edit")}>
-                  编辑
-                </Link>
-                <button
-                  type="button"
-                  onClick={() => void handleDelete(product)}
-                  disabled={deletingProductId === product.id}
-                  className="icon-btn-danger h-9 w-9"
-                  aria-label={`删除${product.product_name_cn}`}
-                  title="删除商品"
-                >
-                  <Trash2 size={16} />
-                </button>
+                {canEdit && (
+                  <Link className="btn-secondary h-9 px-3" to={getProductRoutePath(product, "/edit")}>
+                    编辑
+                  </Link>
+                )}
+                {canDelete && (
+                  <button
+                    type="button"
+                    onClick={() => void handleDelete(product)}
+                    disabled={deletingProductId === product.id}
+                    className="icon-btn-danger h-9 w-9"
+                    aria-label={`删除${product.product_name_cn}`}
+                    title="删除商品"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                )}
               </div>
             </article>
           ))
@@ -403,19 +434,23 @@ export function ProductsPage({ user }: ProductsPageProps) {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex min-w-28 items-center gap-3">
-                        <Link className="text-action text-slate-600 hover:no-underline" to={getProductRoutePath(product, "/edit")}>
-                          编辑
-                        </Link>
-                        <button
-                          type="button"
-                          onClick={() => void handleDelete(product)}
-                          disabled={deletingProductId === product.id}
-                          className="icon-btn-danger"
-                          aria-label={`删除${product.product_name_cn}`}
-                          title="删除商品"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                        {canEdit && (
+                          <Link className="text-action text-slate-600 hover:no-underline" to={getProductRoutePath(product, "/edit")}>
+                            编辑
+                          </Link>
+                        )}
+                        {canDelete && (
+                          <button
+                            type="button"
+                            onClick={() => void handleDelete(product)}
+                            disabled={deletingProductId === product.id}
+                            className="icon-btn-danger"
+                            aria-label={`删除${product.product_name_cn}`}
+                            title="删除商品"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

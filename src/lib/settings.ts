@@ -1,8 +1,19 @@
 import { getSupabaseClient } from "./supabase";
 import { defaultSettings } from "./defaults";
 import type { PricingSettings } from "../types";
+import {
+  fetchCurrentAccountPermission,
+  getPermissionCapabilities,
+} from "./permissions";
 
-export async function fetchSettings(userId: string) {
+type FetchSettingsOptions = {
+  createIfMissing?: boolean;
+};
+
+export async function fetchSettings(
+  userId: string,
+  options: FetchSettingsOptions = {},
+) {
   const supabase = getSupabaseClient();
   const { data, error } = await supabase
     .from("pricing_settings")
@@ -14,6 +25,17 @@ export async function fetchSettings(userId: string) {
 
   if (data) {
     return data as PricingSettings;
+  }
+
+  const canCreate =
+    options.createIfMissing ??
+    getPermissionCapabilities(await fetchCurrentAccountPermission()).canEdit;
+
+  if (!canCreate) {
+    return {
+      ...defaultSettings,
+      owner_id: userId,
+    } as PricingSettings;
   }
 
   const { data: created, error: insertError } = await supabase

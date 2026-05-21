@@ -9,6 +9,7 @@ import {
 } from "../lib/products";
 import { savePricingResult } from "../lib/pricing-results";
 import { fetchSettings } from "../lib/settings";
+import { usePermissions } from "../hooks/use-permissions";
 import { calculatePricing, formatCurrency, formatPercent } from "../utils/pricing";
 import type { PricingResult, Product, ProductSku } from "../types";
 import { getErrorMessage } from "../utils/errors";
@@ -18,6 +19,7 @@ type PricingResultPageProps = {
 };
 
 export function PricingResultPage({ user }: PricingResultPageProps) {
+  const { canEdit } = usePermissions();
   const { productId: productKey = "" } = useParams();
   const navigate = useNavigate();
   const [product, setProduct] = useState<Product | null>(null);
@@ -83,13 +85,15 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
           setSkuResults(nextSkuResults);
         }
 
-        await Promise.all(
-          nextSkuResults
-            .filter(({ sku }) => sku.id)
-            .map(({ sku, result }) =>
-              savePricingResult(nextProduct.id, sku.id as string, result),
-            ),
-        );
+        if (canEdit) {
+          await Promise.all(
+            nextSkuResults
+              .filter(({ sku }) => sku.id)
+              .map(({ sku, result }) =>
+                savePricingResult(nextProduct.id, sku.id as string, result),
+              ),
+          );
+        }
       } catch (error) {
         if (active) {
           setErrorMessage(getErrorMessage(error, "加载申报价结果失败"));
@@ -105,7 +109,7 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
     return () => {
       active = false;
     };
-  }, [navigate, productKey, user.id]);
+  }, [canEdit, navigate, productKey, user.id]);
 
   if (loading) {
     return <div className="text-sm text-slate-500">加载中...</div>;
@@ -146,9 +150,11 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
             在满足目标利润率的前提下，计算核算定价
           </p>
         </div>
-        <Link to={getProductRoutePath(product, "/edit")} className="text-sm text-accent">
-          编辑商品
-        </Link>
+        {canEdit && (
+          <Link to={getProductRoutePath(product, "/edit")} className="text-sm text-accent">
+            编辑商品
+          </Link>
+        )}
       </div>
 
       <div className="grid gap-5">
