@@ -34,7 +34,7 @@ export default function App() {
 
   return (
     <Routes>
-      <Route path="/auth" element={<AuthPage user={user} />} />
+      <Route path="/login" element={<AuthPage user={user} />} />
       <Route
         element={
           <ProtectedRoute user={user} loading={loading}>
