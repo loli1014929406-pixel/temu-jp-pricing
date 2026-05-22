@@ -3,6 +3,7 @@ import { Navigate } from "react-router-dom";
 import type { User } from "@supabase/supabase-js";
 import { getSupabaseClient, supabaseConfigError } from "../lib/supabase";
 import { Field, TextInput } from "../components/form-controls";
+import { clearAutoLoginSuppression, isAutoLoginSuppressed } from "../lib/auto-login";
 
 type AuthPageProps = {
   user: User | null;
@@ -19,7 +20,11 @@ export function AuthPage({ user }: AuthPageProps) {
   const [message, setMessage] = useState("");
   const autoLoginAttempted = useRef(false);
 
-  async function authenticate(nextEmail: string, nextPassword: string) {
+  async function authenticate(
+    nextEmail: string,
+    nextPassword: string,
+    options: { clearSuppression?: boolean } = {},
+  ) {
     if (supabaseConfigError) {
       setMessage(supabaseConfigError);
       return;
@@ -42,6 +47,9 @@ export function AuthPage({ user }: AuthPageProps) {
           : error.message,
       );
     } else {
+      if (options.clearSuppression) {
+        clearAutoLoginSuppression();
+      }
       setMessage(mode === "login" ? "登录成功" : "注册成功，请检查邮箱验证状态");
     }
     setBusy(false);
@@ -53,6 +61,7 @@ export function AuthPage({ user }: AuthPageProps) {
       mode !== "login" ||
       busy ||
       autoLoginAttempted.current ||
+      isAutoLoginSuppressed() ||
       !autoLoginEmail ||
       !autoLoginPassword
     ) {
@@ -69,7 +78,7 @@ export function AuthPage({ user }: AuthPageProps) {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await authenticate(email, password);
+    await authenticate(email, password, { clearSuppression: mode === "login" });
   }
 
   return (

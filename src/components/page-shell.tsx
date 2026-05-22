@@ -10,8 +10,14 @@ import {
 } from "lucide-react";
 import { NavLink, Outlet } from "react-router-dom";
 import { getSupabaseClient } from "../lib/supabase";
+import { suppressAutoLogin } from "../lib/auto-login";
 
 export function PageShell() {
+  async function handleSignOut() {
+    suppressAutoLogin();
+    await getSupabaseClient().auth.signOut();
+  }
+
   return (
     <div className="min-h-screen bg-mist">
       <header className="border-b border-line bg-white">
@@ -100,7 +106,7 @@ export function PageShell() {
             </NavLink>
             <button
               type="button"
-              onClick={() => void getSupabaseClient().auth.signOut()}
+              onClick={() => void handleSignOut()}
               className="inline-flex h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-3 text-sm text-slate-600 transition hover:bg-slate-100"
             >
               <LogOut size={18} />

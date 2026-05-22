@@ -45,7 +45,7 @@ async function requireSession() {
 }
 
 export async function fetchProducts() {
-  const { supabase, session } = await requireSession();
+  const { supabase } = await requireSession();
   const pageSize = 1000;
   const rows: Product[] = [];
   let from = 0;
@@ -55,7 +55,6 @@ export async function fetchProducts() {
       supabase
         .from("products")
         .select("*")
-        .eq("owner_id", session.user.id)
         .order("created_at", { ascending: false })
         .range(from, from + pageSize - 1),
       "加载商品",
@@ -85,7 +84,7 @@ export function getProductRoutePath(
 }
 
 export async function fetchProduct(productKey: string) {
-  const { supabase, session } = await requireSession();
+  const { supabase } = await requireSession();
   const trimmedProductKey = productKey.trim();
 
   if (uuidPattern.test(trimmedProductKey)) {
@@ -94,7 +93,6 @@ export async function fetchProduct(productKey: string) {
         .from("products")
         .select("*")
         .eq("id", trimmedProductKey)
-        .eq("owner_id", session.user.id)
         .maybeSingle(),
       "加载商品",
     );
@@ -114,7 +112,6 @@ export async function fetchProduct(productKey: string) {
       .from("products")
       .select("*")
       .eq("product_code", trimmedProductKey)
-      .eq("owner_id", session.user.id)
       .single(),
     "加载商品",
   );
@@ -129,12 +126,11 @@ async function assertProductCodeAvailable(productCode: string, excludedProductId
     throw new Error("商品编号不能为空");
   }
 
-  const { supabase, session } = await requireSession();
+  const { supabase } = await requireSession();
   let request = supabase
     .from("products")
     .select("id")
-    .eq("product_code", code)
-    .eq("owner_id", session.user.id);
+    .eq("product_code", code);
 
   if (excludedProductId) {
     request = request.neq("id", excludedProductId);
@@ -148,13 +144,12 @@ async function assertProductCodeAvailable(productCode: string, excludedProductId
 }
 
 export async function fetchProductItems(productId: string) {
-  const { supabase, session } = await requireSession();
+  const { supabase } = await requireSession();
   const { data, error } = await withTimeout(
     supabase
       .from("product_items")
       .select("*")
       .eq("product_id", productId)
-      .eq("owner_id", session.user.id)
       .order("created_at", { ascending: true }),
     "加载配件库",
   );
@@ -166,12 +161,11 @@ export async function fetchProductItems(productId: string) {
 export async function fetchProductItemsByProductIds(productIds: string[]) {
   if (productIds.length === 0) return [] as ProductItem[];
 
-  const { supabase, session } = await requireSession();
+  const { supabase } = await requireSession();
   const { data, error } = await supabase
     .from("product_items")
     .select("*")
     .in("product_id", productIds)
-    .eq("owner_id", session.user.id)
     .order("created_at", { ascending: true });
 
   if (error) throw error;
@@ -195,13 +189,12 @@ async function fetchSkuLinks(skuIds: string[]) {
 }
 
 export async function fetchProductSkus(productId: string) {
-  const { supabase, session } = await requireSession();
+  const { supabase } = await requireSession();
   const { data, error } = await withTimeout(
     supabase
       .from("product_skus")
       .select("*")
       .eq("product_id", productId)
-      .eq("owner_id", session.user.id)
       .order("created_at", { ascending: true }),
     "加载 SKU",
   );
@@ -231,12 +224,11 @@ export async function fetchProductSkus(productId: string) {
 export async function fetchProductSkusByProductIds(productIds: string[]) {
   if (productIds.length === 0) return [] as ProductSku[];
 
-  const { supabase, session } = await requireSession();
+  const { supabase } = await requireSession();
   const { data, error } = await supabase
     .from("product_skus")
     .select("*")
     .in("product_id", productIds)
-    .eq("owner_id", session.user.id)
     .order("created_at", { ascending: true });
 
   if (error) throw error;
@@ -458,13 +450,12 @@ export async function updateProduct(
 }
 
 export async function deleteProduct(productId: string) {
-  const { supabase, session } = await requireSession();
+  const { supabase } = await requireSession();
   const { error } = await withTimeout(
     supabase
       .from("products")
       .delete()
-      .eq("id", productId)
-      .eq("owner_id", session.user.id),
+      .eq("id", productId),
     "删除商品",
   );
   if (error) throw error;

@@ -9,13 +9,17 @@ const outputDir = path.join(projectDir, "local-data");
 const outputFile = path.join(outputDir, "codex-supabase-data.json");
 
 const tables = [
+  "account_permissions",
+  "profiles",
   "products",
   "product_skus",
   "product_items",
   "product_sku_items",
+  "product_strategy_states",
   "pricing_settings",
   "pricing_results",
   "profit_calculations",
+  "strategy_rule_settings",
   "warehouses",
   "warehouse_skus",
   "warehouse_item_stocks",
@@ -71,13 +75,29 @@ async function fetchTable(supabase, table) {
       .range(from, to);
 
     if (error) {
+      if (
+        error.code === "42P01" ||
+        error.code === "42501" ||
+        error.code === "PGRST205" ||
+        error.message.toLowerCase().includes("does not exist") ||
+        error.message.toLowerCase().includes("permission denied")
+      ) {
+        return {
+          rows,
+          skipped: {
+            table,
+            reason: error.message,
+          },
+        };
+      }
+
       throw new Error(`${table}: ${error.message}`);
     }
 
     rows.push(...data);
 
     if (data.length < pageSize) {
-      return rows;
+      return { rows, skipped: null };
     }
   }
 }
@@ -91,6 +111,7 @@ function buildSummary(data) {
 const env = await loadEnv();
 const supabaseUrl = env.VITE_SUPABASE_URL;
 const supabaseAnonKey = env.VITE_SUPABASE_ANON_KEY;
+const supabaseServiceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY;
 const email = env.VITE_AUTO_LOGIN_EMAIL;
 const password = env.VITE_AUTO_LOGIN_PASSWORD;
 
@@ -98,31 +119,54 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error("缺少 VITE_SUPABASE_URL 或 VITE_SUPABASE_ANON_KEY。");
 }
 
-if (!email || !password) {
+if (!supabaseServiceRoleKey && (!email || !password)) {
   throw new Error("缺少 VITE_AUTO_LOGIN_EMAIL 或 VITE_AUTO_LOGIN_PASSWORD。");
 }
 
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
-const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-  email,
-  password,
-});
+const authMode = supabaseServiceRoleKey ? "service_role" : "authenticated_user";
+const supabase = createClient(
+  supabaseUrl,
+  supabaseServiceRoleKey || supabaseAnonKey,
+  {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  },
+);
 
-if (authError) {
-  throw new Error(`登录失败：${authError.message}`);
+let signedInUser = null;
+
+if (!supabaseServiceRoleKey) {
+  const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  });
+
+  if (authError) {
+    throw new Error(`登录失败：${authError.message}`);
+  }
+
+  signedInUser = {
+    id: authData.user.id,
+    email: authData.user.email,
+  };
 }
 
 const snapshot = {
   exported_at: new Date().toISOString(),
-  user: {
-    id: authData.user.id,
-    email: authData.user.email,
-  },
+  auth_mode: authMode,
+  user: signedInUser,
   tables: {},
+  skipped_tables: [],
 };
 
 for (const table of tables) {
-  snapshot.tables[table] = await fetchTable(supabase, table);
+  const { rows, skipped } = await fetchTable(supabase, table);
+  snapshot.tables[table] = rows;
+  if (skipped) {
+    snapshot.skipped_tables.push(skipped);
+  }
 }
 
 snapshot.summary = buildSummary(snapshot);
@@ -131,4 +175,9 @@ await mkdir(outputDir, { recursive: true });
 await writeFile(outputFile, `${JSON.stringify(snapshot, null, 2)}\n`, "utf8");
 
 console.log(`已同步到 ${outputFile}`);
+console.log(`同步模式：${authMode}`);
 console.table(snapshot.summary);
+if (snapshot.skipped_tables.length > 0) {
+  console.warn("以下表不存在或当前项目未启用，已跳过：");
+  console.table(snapshot.skipped_tables);
+}
