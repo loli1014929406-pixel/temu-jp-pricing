@@ -1,6 +1,6 @@
 import type { User } from "@supabase/supabase-js";
-import { Download, Megaphone, Save } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Download, Megaphone, Save } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   fetchProductItemsByProductIds,
@@ -63,6 +63,21 @@ type DiscountInputProps = {
   onChange: (value: number) => void;
 };
 
+type SortKey = "productCode" | "activityDiscountRate" | "profitRmb" | "profitRate";
+type SortDirection = "asc" | "desc";
+
+type SortState = {
+  key: SortKey;
+  direction: SortDirection;
+};
+
+type SortableHeaderProps = {
+  label: string;
+  sortKey: SortKey;
+  sortState: SortState;
+  onSort: (key: SortKey) => void;
+};
+
 const defaultDiscounts: DiscountFields = {
   trafficDiscountRate: 0,
   activityDiscountRate: 10,
@@ -72,6 +87,36 @@ const defaultDiscounts: DiscountFields = {
 
 const getSavedCalculationVersion = (calculation: { result_json?: { calculationVersion?: number } } | undefined) =>
   calculation?.result_json?.calculationVersion ?? 0;
+
+function compareNullableNumbers(
+  first: number | null | undefined,
+  second: number | null | undefined,
+) {
+  const firstIsNumber = typeof first === "number";
+  const secondIsNumber = typeof second === "number";
+
+  if (!firstIsNumber && !secondIsNumber) return 0;
+  if (!firstIsNumber) return 1;
+  if (!secondIsNumber) return -1;
+  return first - second;
+}
+
+function SortableHeader({ label, sortKey, sortState, onSort }: SortableHeaderProps) {
+  const active = sortState.key === sortKey;
+  const Icon = active ? (sortState.direction === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown;
+
+  return (
+    <button
+      type="button"
+      className="inline-flex items-center gap-1 font-medium text-inherit transition hover:text-accent"
+      aria-sort={active ? (sortState.direction === "asc" ? "ascending" : "descending") : "none"}
+      onClick={() => onSort(sortKey)}
+    >
+      <span>{label}</span>
+      <Icon size={14} className={active ? "text-accent" : "text-slate-400"} />
+    </button>
+  );
+}
 
 function calculateProductDiscountSummary(
   discounts: DiscountFields,
@@ -210,6 +255,10 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
   const [exporting, setExporting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [savedProductId, setSavedProductId] = useState("");
+  const [sortState, setSortState] = useState<SortState>({
+    key: "productCode",
+    direction: "asc",
+  });
 
   useEffect(() => {
     let active = true;
@@ -453,13 +502,49 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
     }
   }
 
+  function handleSort(key: SortKey) {
+    setSortState((current) => ({
+      key,
+      direction: current.key === key && current.direction === "asc" ? "desc" : "asc",
+    }));
+  }
+
+  const sortedProducts = useMemo(() => {
+    return [...products].sort((first, second) => {
+      let result = 0;
+
+      if (sortState.key === "productCode") {
+        result = first.product_code.localeCompare(second.product_code, "zh-Hans-CN", {
+          numeric: true,
+          sensitivity: "base",
+        });
+      } else {
+        const firstSummary = discountSummaries[first.id];
+        const secondSummary = discountSummaries[second.id];
+        result = compareNullableNumbers(
+          firstSummary?.[sortState.key],
+          secondSummary?.[sortState.key],
+        );
+      }
+
+      if (result === 0) {
+        result = first.product_code.localeCompare(second.product_code, "zh-Hans-CN", {
+          numeric: true,
+          sensitivity: "base",
+        });
+      }
+
+      return sortState.direction === "asc" ? result : -result;
+    });
+  }, [discountSummaries, products, sortState]);
+
   async function handleExcelExport() {
     setExporting(true);
     setErrorMessage("");
 
     try {
       const XLSX = await import("xlsx");
-      const rows = products.map((product) => {
+      const rows = sortedProducts.map((product) => {
         const summary = discountSummaries[product.id];
         const temuPrice = temuPrices[product.id];
 
@@ -564,7 +649,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
         ) : products.length === 0 ? (
           <div className="empty-state">暂无商品</div>
         ) : (
-          products.map((product) => {
+          sortedProducts.map((product) => {
             const summary = discountSummaries[product.id];
             const profitRmb = summary?.profitRmb;
             const profitRate = summary?.profitRate;
@@ -689,20 +774,48 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
           <table className="data-table">
             <thead>
               <tr>
-                <th className="px-4 py-3 font-medium">商品编号</th>
+                <th className="px-4 py-3 font-medium">
+                  <SortableHeader
+                    label="商品编号"
+                    sortKey="productCode"
+                    sortState={sortState}
+                    onSort={handleSort}
+                  />
+                </th>
                 <th className="product-name-col px-4 py-3 font-medium">产品名称</th>
                 <th className="px-4 py-3 font-medium">核价</th>
                 <th className="px-4 py-3 font-medium">总成本</th>
                 <th className="px-4 py-3 font-medium">流量加速</th>
-                <th className="px-4 py-3 font-medium">活动折扣</th>
+                <th className="px-4 py-3 font-medium">
+                  <SortableHeader
+                    label="活动折扣"
+                    sortKey="activityDiscountRate"
+                    sortState={sortState}
+                    onSort={handleSort}
+                  />
+                </th>
                 <th className="px-4 py-3 font-medium">优惠券价</th>
                 <th className="px-4 py-3 font-medium">ROAS</th>
                 <th className="px-4 py-3 font-medium">广告费</th>
                 <th className="px-4 py-3 font-medium">最终售价</th>
                 <th className="px-4 py-3 font-medium">PR</th>
                 <th className="px-4 py-3 font-medium">临界值</th>
-                <th className="px-4 py-3 font-medium">利润</th>
-                <th className="px-4 py-3 font-medium">利润率</th>
+                <th className="px-4 py-3 font-medium">
+                  <SortableHeader
+                    label="利润"
+                    sortKey="profitRmb"
+                    sortState={sortState}
+                    onSort={handleSort}
+                  />
+                </th>
+                <th className="px-4 py-3 font-medium">
+                  <SortableHeader
+                    label="利润率"
+                    sortKey="profitRate"
+                    sortState={sortState}
+                    onSort={handleSort}
+                  />
+                </th>
                 <th className="px-4 py-3 font-medium">免邮件数</th>
                 <th className="min-w-20 px-4 py-3 font-medium">操作</th>
               </tr>
@@ -721,7 +834,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                   </td>
                 </tr>
               ) : (
-                products.map((product) => {
+                sortedProducts.map((product) => {
                   const summary = discountSummaries[product.id];
 
                   return (
