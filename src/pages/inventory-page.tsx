@@ -64,6 +64,10 @@ export function InventoryPage({ user }: InventoryPageProps) {
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const productCodeCollator = useMemo(
+    () => new Intl.Collator("zh-CN", { numeric: true, sensitivity: "base" }),
+    [],
+  );
 
   useEffect(() => {
     let active = true;
@@ -408,9 +412,31 @@ export function InventoryPage({ user }: InventoryPageProps) {
           {warehouses.map((warehouse) => {
             const items = warehouseSkusByWarehouseId[warehouse.id] ?? [];
             const assignedProductIds = new Set(items.map((item) => item.product_id));
-            const availableProducts = products.filter(
-              (product) => !assignedProductIds.has(product.id),
-            );
+            const sortedProducts = [...products]
+              .sort((left, right) => {
+                const byProductCode = productCodeCollator.compare(
+                  right.product_code,
+                  left.product_code,
+                );
+                if (byProductCode !== 0) return byProductCode;
+                return right.created_at.localeCompare(left.created_at);
+              });
+            const sortedItems = [...items].sort((left, right) => {
+              const leftProductCode = productsById[left.product_id]?.product_code ?? "";
+              const rightProductCode = productsById[right.product_id]?.product_code ?? "";
+              const byProductCode = productCodeCollator.compare(
+                rightProductCode,
+                leftProductCode,
+              );
+              if (byProductCode !== 0) return byProductCode;
+
+              const leftSkuCode = skusById[left.sku_id]?.sku_code ?? "";
+              const rightSkuCode = skusById[right.sku_id]?.sku_code ?? "";
+              const bySkuCode = productCodeCollator.compare(rightSkuCode, leftSkuCode);
+              if (bySkuCode !== 0) return bySkuCode;
+
+              return right.created_at.localeCompare(left.created_at);
+            });
 
             return (
               <section key={warehouse.id} className="surface-card grid gap-4 p-5">
@@ -464,11 +490,15 @@ export function InventoryPage({ user }: InventoryPageProps) {
                       className="h-11 rounded-xl border border-line bg-white px-3 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
                     >
                       <option value="">选择商品编号</option>
-                      {availableProducts.map((product) => (
-                        <option key={product.id} value={product.id}>
+                      {sortedProducts.map((product) => {
+                        const isAssigned = assignedProductIds.has(product.id);
+                        return (
+                        <option key={product.id} value={product.id} disabled={isAssigned}>
                           {product.product_code} · {product.product_name_cn}
+                          {isAssigned ? "（已在仓库）" : ""}
                         </option>
-                      ))}
+                        );
+                      })}
                     </select>
                     <button
                       type="button"
@@ -500,14 +530,14 @@ export function InventoryPage({ user }: InventoryPageProps) {
                         </tr>
                       </thead>
                       <tbody>
-                        {items.length === 0 ? (
+                        {sortedItems.length === 0 ? (
                           <tr>
                             <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
                               暂无商品
                             </td>
                           </tr>
                         ) : (
-                          items.map((item) => {
+                          sortedItems.map((item) => {
                             const product = productsById[item.product_id];
                             const sku = skusById[item.sku_id];
                             return (

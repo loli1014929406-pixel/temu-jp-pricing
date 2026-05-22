@@ -46,14 +46,31 @@ async function requireSession() {
 
 export async function fetchProducts() {
   const { supabase, session } = await requireSession();
-  const { data, error } = await supabase
-    .from("products")
-    .select("*")
-    .eq("owner_id", session.user.id)
-    .order("created_at", { ascending: false });
+  const pageSize = 1000;
+  const rows: Product[] = [];
+  let from = 0;
 
-  if (error) throw error;
-  return data as Product[];
+  while (true) {
+    const { data, error } = await withTimeout(
+      supabase
+        .from("products")
+        .select("*")
+        .eq("owner_id", session.user.id)
+        .order("created_at", { ascending: false })
+        .range(from, from + pageSize - 1),
+      "加载商品",
+    );
+
+    if (error) throw error;
+
+    const chunk = (data ?? []) as Product[];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
 }
 
 export function getProductRouteKey(product: Pick<Product, "id" | "product_code">) {
