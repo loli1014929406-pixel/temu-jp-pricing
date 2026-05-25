@@ -486,6 +486,108 @@ export async function receivePurchasePackage(order: PurchaseOrder, pkg: Purchase
   return { order: orderData as Omit<PurchaseOrder, "sources" | "items" | "packages">, package: { ...(packageData as Omit<PurchasePackage, "items">), items: packageItemsByPackage[packageData.id] ?? packageToReceive.items }, inventory };
 }
 
+function getRemainingPackageItems(order: PurchaseOrder) {
+  const receivedQuantityByItemId = order.packages
+    .filter((pkg) => pkg.status === "received")
+    .flatMap((pkg) => pkg.items)
+    .reduce<Record<string, number>>((quantities, item) => {
+      quantities[item.order_item_id] =
+        (quantities[item.order_item_id] ?? 0) + item.quantity;
+      return quantities;
+    }, {});
+
+  return order.items.flatMap((item) => {
+    const remainingQuantity = item.quantity - (receivedQuantityByItemId[item.id] ?? 0);
+    return remainingQuantity > 0
+      ? [{ ...item, quantity: remainingQuantity }]
+      : [];
+  });
+}
+
+export async function receiveRemainingPurchaseOrder(order: PurchaseOrder) {
+  if (order.status === "received") throw new Error("该采购管理单已经签收");
+
+  const { supabase, session } = await requireSession();
+  const remainingItems = getRemainingPackageItems(order);
+  const receivedAt = new Date().toISOString();
+  if (remainingItems.length === 0) {
+    const { data: orderData, error: orderError } = await supabase
+      .from("purchase_orders")
+      .update({ status: "received", received_at: receivedAt })
+      .eq("id", order.id)
+      .eq("owner_id", session.user.id)
+      .select()
+      .single();
+    if (orderError) throw orderError;
+    return {
+      order: orderData as Omit<PurchaseOrder, "sources" | "items" | "packages">,
+      packages: [] as PurchasePackage[],
+      inventory: [] as Array<{ stock: WarehouseItemStock; adjustment: WarehouseItemStockAdjustment }>,
+    };
+  }
+
+  const itemsBySourceId = remainingItems.reduce<Record<string, PurchaseOrderItem[]>>(
+    (groups, item) => {
+      if (!item.source_id) return groups;
+      groups[item.source_id] ??= [];
+      groups[item.source_id].push(item);
+      return groups;
+    },
+    {},
+  );
+  const sourceEntries = Object.entries(itemsBySourceId);
+  if (sourceEntries.length === 0) {
+    throw new Error("剩余采购明细缺少采购来源，不能自动补签收");
+  }
+
+  const inventory: Array<{ stock: WarehouseItemStock; adjustment: WarehouseItemStockAdjustment }> = [];
+  const receivedPackages: PurchasePackage[] = [];
+  for (const [index, [sourceId, items]] of sourceEntries.entries()) {
+    const pkg = await createPurchasePackage(
+      order.id,
+      sourceId,
+      `补签收-${order.order_code}-${index + 1}`,
+      items.map((item) => ({
+        order_item_id: item.id,
+        quantity: item.quantity,
+      })),
+    );
+    const packageInventory = await applyPurchasePackageInventory(order, pkg, [pkg.id]);
+    inventory.push(...packageInventory);
+
+    const { data: packageData, error: packageError } = await supabase
+      .from("purchase_packages")
+      .update({ status: "received", received_at: receivedAt })
+      .eq("id", pkg.id)
+      .eq("owner_id", session.user.id)
+      .eq("status", "pending")
+      .select()
+      .single();
+    if (packageError) throw packageError;
+    receivedPackages.push({
+      ...(packageData as Omit<PurchasePackage, "items">),
+      items: pkg.items,
+    });
+  }
+
+  const nextPackages = [...order.packages, ...receivedPackages];
+  const status = getReceiptStatus(order.items, nextPackages);
+  const { data: orderData, error: orderError } = await supabase
+    .from("purchase_orders")
+    .update({ status, received_at: status === "received" ? receivedAt : null })
+    .eq("id", order.id)
+    .eq("owner_id", session.user.id)
+    .select()
+    .single();
+  if (orderError) throw orderError;
+
+  return {
+    order: orderData as Omit<PurchaseOrder, "sources" | "items" | "packages">,
+    packages: receivedPackages,
+    inventory,
+  };
+}
+
 export async function repairPurchasePackageInventory(order: PurchaseOrder, pkg: PurchasePackage) {
   if (pkg.status !== "received") throw new Error("只有已签收包裹才能补入库存");
   const inventory = await applyPurchasePackageInventory(order, pkg, [pkg.id]);

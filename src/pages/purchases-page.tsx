@@ -13,6 +13,7 @@ import {
   deletePurchaseOrder,
   fetchPurchaseOrders,
   receivePurchasePackage,
+  receiveRemainingPurchaseOrder,
   repairPurchasePackageInventory,
   updatePurchasePackageTrackingNo,
   updatePurchaseSource,
@@ -30,6 +31,29 @@ import { getErrorMessage } from "../utils/errors";
 type PurchasesPageProps = { user: User; view: "create" | "records" };
 type DraftItem = { id: string; itemId: string; quantity: string; unitPriceRmb: string };
 type DraftProduct = { id: string; productId: string; items: DraftItem[] };
+
+function getReceivedQuantityByOrderItem(order: PurchaseOrder) {
+  return order.packages
+    .filter((pkg) => pkg.status === "received")
+    .flatMap((pkg) => pkg.items)
+    .reduce<Record<string, number>>((quantities, item) => {
+      quantities[item.order_item_id] =
+        (quantities[item.order_item_id] ?? 0) + item.quantity;
+      return quantities;
+    }, {});
+}
+
+function getRemainingSourceItems(
+  sourceItems: PurchaseOrder["items"],
+  receivedQuantityByOrderItem: Record<string, number>,
+) {
+  return sourceItems.flatMap((item) => {
+    const remainingQuantity = item.quantity - (receivedQuantityByOrderItem[item.id] ?? 0);
+    return remainingQuantity > 0
+      ? [{ ...item, quantity: remainingQuantity }]
+      : [];
+  });
+}
 
 function localDate() {
   const now = new Date();
@@ -400,6 +424,46 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
     }
   }
 
+  async function handleReceiveRemainingOrder(order: PurchaseOrder) {
+    if (!canEdit) {
+      setErrorMessage("当前账号没有编辑权限，不能签收入库。");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `确认将采购管理单“${order.order_code}”剩余未签收明细全部签收，并增加库存吗？`,
+    );
+    if (!confirmed) return;
+
+    setBusyKey(`receive-order-${order.id}`);
+    setErrorMessage("");
+    setNoticeMessage("");
+    try {
+      const result = await receiveRemainingPurchaseOrder(order);
+      const count = result.inventory.reduce(
+        (sum, entry) => sum + entry.adjustment.change_quantity,
+        0,
+      );
+      setOrders((current) =>
+        current.map((item) =>
+          item.id === order.id
+            ? {
+                ...item,
+                ...result.order,
+                items: item.items,
+                packages: [...item.packages, ...result.packages],
+              }
+            : item,
+        ),
+      );
+      setNoticeMessage(count > 0 ? `已签收剩余明细并补入库存 ${count} 件` : "已将采购管理单标记为已签收");
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, "签收剩余明细失败"));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
   async function handleRepairPackageInventory(order: PurchaseOrder, pkg: PurchasePackage) {
     if (!canEdit) {
       setErrorMessage("当前账号没有编辑权限，不能补入库存。");
@@ -714,6 +778,17 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                     <p className="page-description mt-1">{order.warehouse_name} · {order.purchased_at}</p>
                   </div>
                   <div className="flex w-full items-center gap-2 sm:w-auto">
+                    {canEdit && order.status === "partially_received" && (
+                      <button
+                        type="button"
+                        disabled={busyKey === `receive-order-${order.id}`}
+                        onClick={() => void handleReceiveRemainingOrder(order)}
+                        className="btn-primary h-10 flex-1 px-3 sm:flex-none"
+                      >
+                        <CheckCircle2 size={16} />
+                        签收剩余
+                      </button>
+                    )}
                     <button type="button" onClick={() => setExpandedOrderIds((current) => ({ ...current, [order.id]: !current[order.id] }))} className="btn-secondary h-10 flex-1 px-3 sm:flex-none">
                       {expandedOrderIds[order.id] ? "收起" : "查看"}
                     </button>
@@ -803,10 +878,15 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                           sourceIdSet.has(item.source_id) ||
                           (!item.source_id && sourceUrlSet.has(item.purchase_url)),
                         );
+                        const receivedQuantityByOrderItem = getReceivedQuantityByOrderItem(order);
+                        const remainingSourceItems = getRemainingSourceItems(
+                          sourceItems,
+                          receivedQuantityByOrderItem,
+                        );
                         const sourcePackages = order.packages.filter((pkg) => sourceIdSet.has(pkg.source_id));
                         const pendingSourcePackages = sourcePackages.filter((pkg) => pkg.status === "pending");
                         const receivedSourcePackages = sourcePackages.filter((pkg) => pkg.status === "received");
-                        const canAddPackage = canEdit && order.status !== "received" && receivedSourcePackages.length === 0;
+                        const canAddPackage = canEdit && order.status !== "received" && remainingSourceItems.length > 0;
                         return (
                       <div key={group.key} className="grid gap-4 rounded-2xl border border-line bg-slate-50/60 p-4">
                         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_430px]">
@@ -854,32 +934,39 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                               </div>
                               <div className="grid gap-2">
                                 {pendingSourcePackages.map((pkg) => (
-                                  <div key={pkg.id} className="package-action-row grid gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_96px_96px_96px_96px]">
-                                    <TextInput
-                                      disabled={!canEdit}
-                                      value={existingPackageTrackingDrafts[pkg.id] ?? pkg.tracking_no}
-                                      onChange={(event) =>
-                                        setExistingPackageTrackingDrafts((current) => ({
-                                          ...current,
-                                          [pkg.id]: event.target.value,
-                                        }))
-                                      }
-                                    />
-                                    <button
-                                      type="button"
-                                      onClick={() => openTrackingLookup(existingPackageTrackingDrafts[pkg.id] ?? pkg.tracking_no)}
-                                      className="btn-primary h-10 w-24 px-3"
-                                    >
-                                      快递查询
-                                    </button>
-                                    {canEdit && <button type="button" onClick={() => void handleSavePackageTracking(order, pkg)} className="btn-primary h-10 w-24 px-3">保存</button>}
-                                    {canDelete && <button type="button" onClick={() => void handleDeletePackage(order, pkg)} className="btn-primary h-10 w-24 px-3" aria-label="删除快递包裹"><Trash2 size={16} />删除</button>}
-                                    {canEdit && <button type="button" onClick={() => void handleReceivePackage(order, pkg)} className="btn-primary h-10 w-24 px-3"><CheckCircle2 size={16} />签收</button>}
+                                  <div key={pkg.id} className="grid gap-2">
+                                    <div className="package-action-row grid gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_96px_96px_96px_96px]">
+                                      <TextInput
+                                        disabled={!canEdit}
+                                        value={existingPackageTrackingDrafts[pkg.id] ?? pkg.tracking_no}
+                                        onChange={(event) =>
+                                          setExistingPackageTrackingDrafts((current) => ({
+                                            ...current,
+                                            [pkg.id]: event.target.value,
+                                          }))
+                                        }
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => openTrackingLookup(existingPackageTrackingDrafts[pkg.id] ?? pkg.tracking_no)}
+                                        className="btn-primary h-10 w-24 px-3"
+                                      >
+                                        快递查询
+                                      </button>
+                                      {canEdit && <button type="button" onClick={() => void handleSavePackageTracking(order, pkg)} className="btn-primary h-10 w-24 px-3">保存</button>}
+                                      {canDelete && <button type="button" onClick={() => void handleDeletePackage(order, pkg)} className="btn-primary h-10 w-24 px-3" aria-label="删除快递包裹"><Trash2 size={16} />删除</button>}
+                                      {canEdit && <button type="button" onClick={() => void handleReceivePackage(order, pkg)} className="btn-primary h-10 w-24 px-3"><CheckCircle2 size={16} />签收</button>}
+                                    </div>
+                                    <div className="text-sm text-slate-600">
+                                      {pkg.items.map((packageItem) => {
+                                        const item = order.items.find((entry) => entry.id === packageItem.order_item_id);
+                                        return item
+                                          ? `${item.product_code} · ${item.item_name} x ${packageItem.quantity}`
+                                          : `未知明细 x ${packageItem.quantity}`;
+                                      }).join("，")}
+                                    </div>
                                   </div>
                                 ))}
-                              </div>
-                              <div className="text-sm text-slate-600">
-                                {sourceItems.map((item) => `${item.product_code} · ${item.item_name} x ${item.quantity}`).join("，")}
                               </div>
                             </div>
                           </div>
@@ -913,7 +1000,10 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                           <div className="grid gap-3 rounded-xl border border-dashed border-line bg-white p-4">
                             <div>
                               <div className="text-sm font-medium text-ink">为这个订单添加快递包裹</div>
-                              <div className="mt-1 text-xs text-slate-500">下面选择的配件都来自上方这个 1688 订单。</div>
+                              <div className="mt-1 text-xs text-slate-500">
+                                将按当前剩余未签收数量入包：
+                                {remainingSourceItems.map((item) => `${item.product_code} · ${item.item_name} x ${item.quantity}`).join("，")}
+                              </div>
                             </div>
                             <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
                               <Field label="新增快递单号">
@@ -928,7 +1018,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                                   placeholder="填写一个快递单号"
                                 />
                               </Field>
-                              <button type="button" onClick={() => void handleAddPackage(order, primarySource.id, packageKey, sourceItems)} className="btn-primary h-10 px-3"><Plus size={16} />保存包裹</button>
+                              <button type="button" onClick={() => void handleAddPackage(order, primarySource.id, packageKey, remainingSourceItems)} className="btn-primary h-10 px-3"><Plus size={16} />保存包裹</button>
                             </div>
                           </div>
                         ) : sourcePackages.length === 0 ? (
