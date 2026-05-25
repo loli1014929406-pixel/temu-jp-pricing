@@ -4,7 +4,7 @@
 
 :root {
   color: #0f172a;
-  background: #f8fafc;
+  background: #f1f5f9;
   font-family:
     Inter, "PingFang SC", "Microsoft YaHei", system-ui, -apple-system,
     BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -20,7 +20,7 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background: #f8fafc;
+  background: #f1f5f9;
 }
 
 a {
@@ -29,26 +29,76 @@ a {
 }
 
 @layer components {
+  .erp-shell {
+    background:
+      linear-gradient(180deg, rgba(241, 245, 249, 0.98), #f8fafc 42%, #f1f5f9 100%),
+      radial-gradient(circle at 16% 0%, rgba(14, 165, 233, 0.08), transparent 32%),
+      radial-gradient(circle at 88% 8%, rgba(16, 185, 129, 0.08), transparent 28%);
+  }
+
+  .erp-topbar {
+    @apply sticky top-0 z-40 h-auto border-b border-slate-200 bg-white/95 shadow-soft backdrop-blur lg:h-16;
+  }
+
+  .erp-command-bar {
+    @apply flex h-9 min-w-0 max-w-xl items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-600 shadow-inner;
+  }
+
+  .erp-icon-action {
+    @apply inline-flex h-9 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 shadow-soft transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .erp-module-nav {
+    @apply sticky top-[64px] z-30 border-b border-slate-200 bg-slate-900 shadow-sm lg:top-16;
+  }
+
+  .erp-nav-item {
+    @apply inline-flex h-10 shrink-0 items-center gap-2 rounded-md px-3 text-sm font-semibold text-slate-300 transition hover:bg-white/10 hover:text-white;
+  }
+
+  .erp-nav-item-active {
+    @apply bg-white text-slate-950 shadow-sm hover:bg-white hover:text-slate-950;
+  }
+
+  .erp-page-context {
+    @apply border-b border-slate-200 bg-white;
+  }
+
+  .erp-context-metric {
+    @apply rounded-md border border-slate-200 bg-slate-50 px-3 py-2;
+  }
+
+  .erp-context-metric span {
+    @apply block text-[11px] font-semibold uppercase tracking-wide text-slate-500;
+  }
+
+  .erp-context-metric strong {
+    @apply mt-1 block truncate text-xs font-semibold text-slate-900;
+  }
+
   .surface-card {
-    @apply rounded-lg border border-line bg-white;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    @apply rounded-lg border border-slate-200 bg-white shadow-soft;
+  }
+
+  .erp-panel {
+    @apply rounded-lg border border-slate-200 bg-white shadow-soft;
   }
 
   .page-title {
-    @apply text-2xl font-semibold tracking-normal text-ink;
+    @apply text-xl font-semibold tracking-normal text-slate-950 sm:text-2xl;
+    line-height: 1.16;
   }
 
   .page-description {
-    @apply mt-1 text-sm text-slate-500;
+    @apply mt-1.5 max-w-3xl text-sm font-medium leading-6 text-slate-500;
   }
 
   .table-card {
-    @apply overflow-hidden rounded-lg border border-line bg-white;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    @apply overflow-hidden rounded-lg border border-slate-200 bg-white shadow-soft;
   }
 
   .table-card > .overflow-x-auto {
-    max-height: min(72vh, 760px);
+    max-height: min(74vh, 780px);
     overflow: auto;
   }
 
@@ -59,21 +109,21 @@ a {
   }
 
   .data-table thead {
-    background: #f8fafc;
-    color: #64748b;
     position: sticky;
     top: 0;
     z-index: 20;
-    box-shadow: 0 1px 0 #e2e8f0;
+    background: #f8fafc;
+    color: #475569;
+    box-shadow: 0 1px 0 #e2e8f0, 0 2px 6px rgba(15, 23, 42, 0.04);
   }
 
   .data-table th {
-    @apply py-3 font-semibold;
-    padding-left: 0.5rem !important;
-    padding-right: 0.5rem !important;
-    width: calc(4em + 1rem);
-    min-width: calc(4em + 1rem);
-    max-width: calc(4em + 1rem);
+    @apply py-2.5 text-xs font-bold uppercase tracking-wide;
+    padding-left: 0.55rem !important;
+    padding-right: 0.55rem !important;
+    width: calc(4.25em + 1rem);
+    min-width: calc(4.25em + 1rem);
+    max-width: calc(4.25em + 1rem);
     line-height: 1.35;
     white-space: normal;
     word-break: normal;
@@ -84,21 +134,63 @@ a {
   }
 
   .data-table td {
-    @apply py-3.5 align-middle text-slate-700;
-    padding-left: 0.5rem !important;
-    padding-right: 0.5rem !important;
+    @apply py-2.5 align-middle text-slate-700;
+    padding-left: 0.55rem !important;
+    padding-right: 0.55rem !important;
     text-align: left;
   }
 
   .data-table th.product-name-col,
   .data-table td.product-name-col {
-    width: calc(10em + 1rem);
-    min-width: calc(10em + 1rem);
-    max-width: calc(10em + 1rem);
+    width: calc(11em + 1rem);
+    min-width: calc(11em + 1rem);
+    max-width: calc(11em + 1rem);
     white-space: normal;
     word-break: normal;
     overflow-wrap: normal;
     line-break: strict;
+  }
+
+  .data-table.orders-table th.order-no-col,
+  .data-table.orders-table td.order-no-col {
+    width: calc(14em + 1rem);
+    min-width: calc(14em + 1rem);
+    max-width: calc(14em + 1rem);
+    overflow-wrap: anywhere;
+  }
+
+  .data-table.orders-table th.order-attr-col,
+  .data-table.orders-table td.order-attr-col {
+    width: calc(12em + 1rem);
+    min-width: calc(12em + 1rem);
+    max-width: calc(12em + 1rem);
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .data-table.orders-table th.order-phone-col,
+  .data-table.orders-table td.order-phone-col {
+    width: calc(10em + 1rem);
+    min-width: calc(10em + 1rem);
+    max-width: calc(10em + 1rem);
+    overflow-wrap: anywhere;
+  }
+
+  .data-table.orders-table th.order-address-col,
+  .data-table.orders-table td.order-address-col {
+    width: calc(24em + 1rem);
+    min-width: calc(24em + 1rem);
+    max-width: calc(24em + 1rem);
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .data-table.orders-table th.order-time-col,
+  .data-table.orders-table td.order-time-col {
+    width: calc(10em + 1rem);
+    min-width: calc(10em + 1rem);
+    max-width: calc(10em + 1rem);
+    overflow-wrap: anywhere;
   }
 
   .data-table input {
@@ -110,23 +202,27 @@ a {
   }
 
   .data-table tbody tr {
-    border-top: 1px solid #f1f5f9;
-    transition: background-color 150ms ease;
+    border-top: 1px solid #eef2f7;
+    transition: background-color 120ms ease;
+  }
+
+  .data-table tbody tr:nth-child(even) {
+    background: #fcfdff;
   }
 
   .data-table tbody tr:hover {
-    background: #eef5fa;
+    background: #eff6ff;
   }
 
   .data-table tbody tr.is-selected,
   .data-table tbody tr[data-selected="true"] {
-    background-color: #e6eef5;
-    box-shadow: inset 4px 0 0 #6f879a;
+    background-color: #e0f2fe;
+    box-shadow: inset 4px 0 0 #0ea5e9;
   }
 
   .data-table tbody tr.is-selected:hover,
   .data-table tbody tr[data-selected="true"]:hover {
-    background-color: #e6eef5;
+    background-color: #e0f2fe;
   }
 
   .data-table tbody tr.is-selected > td,
@@ -135,7 +231,7 @@ a {
   }
 
   .money {
-    @apply font-medium tabular-nums;
+    @apply font-semibold tabular-nums text-slate-900;
   }
 
   .number-cell {
@@ -143,31 +239,27 @@ a {
   }
 
   .btn-primary {
-    @apply inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-accent px-4 text-sm font-medium text-white transition active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50;
-  }
-
-  .btn-primary:hover {
-    background: #115e59;
+    @apply inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-md bg-sky-700 px-4 text-sm font-semibold text-white shadow-soft transition hover:bg-sky-800 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .btn-secondary {
-    @apply inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-line bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-md border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 shadow-soft transition hover:border-slate-400 hover:bg-slate-50 hover:text-slate-950 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .btn-danger {
-    @apply inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-rose-200 bg-white px-4 text-sm font-medium text-rose-600 transition hover:bg-rose-50 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-md border border-rose-200 bg-white px-4 text-sm font-semibold text-rose-700 shadow-soft transition hover:bg-rose-50 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .icon-btn-danger {
-    @apply inline-flex h-9 w-9 items-center justify-center rounded-xl border border-rose-200 text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300;
+    @apply inline-flex h-9 w-9 items-center justify-center rounded-md border border-rose-200 bg-white text-rose-700 shadow-soft transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300;
   }
 
   .text-action {
-    @apply text-sm font-medium text-accent transition hover:underline;
+    @apply text-sm font-semibold text-sky-700 transition hover:text-sky-900 hover:underline;
   }
 
   .empty-state {
-    @apply rounded-2xl border border-dashed border-line bg-white px-4 py-10 text-center text-sm text-slate-500;
+    @apply rounded-lg border border-dashed border-slate-300 bg-white px-4 py-10 text-center text-sm font-medium text-slate-500;
   }
 
   .mobile-summary-card {
@@ -175,7 +267,7 @@ a {
   }
 
   .mobile-summary-title {
-    @apply text-sm font-semibold text-ink;
+    @apply text-sm font-semibold text-slate-950;
   }
 
   .mobile-summary-subtitle {
@@ -187,20 +279,83 @@ a {
   }
 
   .mobile-summary-cell {
-    @apply rounded-lg bg-slate-50 px-2 py-1.5 text-slate-700;
+    @apply rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-slate-700;
   }
 
   .mobile-summary-actions {
     @apply mt-3 flex flex-wrap items-center gap-2;
   }
 
+  .erp-kpi-card {
+    @apply relative overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-soft;
+  }
+
+  .erp-kpi-card::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 4px;
+    background: #0ea5e9;
+  }
+
+  .erp-kpi-success::before {
+    background: #10b981;
+  }
+
+  .erp-kpi-danger::before {
+    background: #e11d48;
+  }
+
+  .erp-kpi-warning::before {
+    background: #d97706;
+  }
+
+  .erp-dashboard-panel {
+    @apply rounded-lg border border-slate-200 bg-white p-4 shadow-soft;
+  }
+
+  .erp-toolbar {
+    @apply rounded-lg border border-slate-200 bg-white p-3 shadow-soft;
+  }
+
+  .erp-status-success {
+    @apply text-emerald-700;
+  }
+
+  .erp-status-danger {
+    @apply text-rose-700;
+  }
+
+  .erp-status-warning {
+    @apply text-amber-700;
+  }
+
+  .erp-status-info {
+    @apply text-sky-700;
+  }
+
+  @media (max-width: 1023px) {
+    .erp-module-nav {
+      top: 64px;
+    }
+  }
+
   @media (max-width: 768px) {
+    .erp-topbar {
+      @apply py-3;
+    }
+
+    .erp-module-nav {
+      position: sticky;
+      top: 74px;
+    }
+
     .page-title {
-      @apply text-xl;
+      @apply text-lg;
     }
 
     .data-table th {
-      @apply py-2.5 text-xs;
+      @apply py-2 text-xs;
       padding-left: 0.4rem !important;
       padding-right: 0.4rem !important;
       width: calc(4em + 0.8rem);
@@ -216,7 +371,7 @@ a {
     }
 
     .data-table td {
-      @apply py-3 text-xs;
+      @apply py-2.5 text-xs;
       padding-left: 0.4rem !important;
       padding-right: 0.4rem !important;
     }
@@ -244,7 +399,7 @@ a {
     }
 
     .icon-btn-danger {
-      @apply h-8 w-8 rounded-lg;
+      @apply h-8 w-8 rounded-md;
     }
 
     .package-action-row {

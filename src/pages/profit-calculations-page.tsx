@@ -594,9 +594,22 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
   const validAdFees = summaries.flatMap((summary) =>
     typeof summary.adFeeRmb === "number" ? [summary.adFeeRmb] : [],
   );
+  const validFinalPrices = summaries.flatMap((summary) =>
+    typeof summary.discountedSalePriceRmb === "number" ? [summary.discountedSalePriceRmb] : [],
+  );
   const negativeProfitCount = summaries.filter(
     (summary) => typeof summary.profitRmb === "number" && summary.profitRmb < 0,
   ).length;
+  const warningProfitCount = summaries.filter(
+    (summary) =>
+      typeof summary.profitRate === "number" &&
+      summary.profitRate >= 0 &&
+      summary.profitRate < 0.15,
+  ).length;
+  const healthyProfitCount = summaries.filter(
+    (summary) => typeof summary.profitRate === "number" && summary.profitRate >= 0.3,
+  ).length;
+  const reviewedProductCount = validProfitRates.length;
   const averageProfitRate =
     validProfitRates.length > 0
       ? `${((validProfitRates.reduce((sum, value) => sum + value, 0) / validProfitRates.length) * 100).toFixed(2)}%`
@@ -605,6 +618,16 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
     validAdFees.length > 0
       ? formatCurrency(validAdFees.reduce((sum, value) => sum + value, 0) / validAdFees.length)
       : "--";
+  const averageFinalPrice =
+    validFinalPrices.length > 0
+      ? formatCurrency(validFinalPrices.reduce((sum, value) => sum + value, 0) / validFinalPrices.length)
+      : "--";
+  const riskRows = [
+    { label: "健康利润率 ≥ 30%", value: healthyProfitCount, className: "bg-emerald-500" },
+    { label: "观察区间 0% - 15%", value: warningProfitCount, className: "bg-amber-500" },
+    { label: "广告后亏损", value: negativeProfitCount, className: "bg-rose-500" },
+  ];
+  const maxRiskValue = Math.max(1, ...riskRows.map((row) => row.value));
 
   return (
     <section className="grid gap-5">
@@ -636,12 +659,99 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
         </div>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="在售商品数" value={String(products.length)} />
-        <StatCard label="平均广告后利润率" value={averageProfitRate} tone="success" />
-        <StatCard label="广告后亏损商品数" value={String(negativeProfitCount)} tone={negativeProfitCount > 0 ? "danger" : "default"} />
-        <StatCard label="平均广告费" value={averageAdFee} />
-      </div>
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <StatCard label="在售商品数" value={String(products.length)} />
+          <StatCard label="平均广告后利润率" value={averageProfitRate} tone="success" />
+          <StatCard label="广告后亏损商品数" value={String(negativeProfitCount)} tone={negativeProfitCount > 0 ? "danger" : "default"} />
+          <StatCard label="平均广告费" value={averageAdFee} />
+        </div>
+
+        <div className="erp-dashboard-panel grid gap-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-slate-950">利润健康度</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                已测算商品 {reviewedProductCount} / {products.length}
+              </p>
+            </div>
+            <Badge tone={negativeProfitCount > 0 ? "danger" : "success"}>
+              {negativeProfitCount > 0 ? "需复核" : "稳定"}
+            </Badge>
+          </div>
+          <div className="grid gap-3">
+            {riskRows.map((row) => (
+              <div key={row.label} className="grid gap-1">
+                <div className="flex items-center justify-between text-xs font-semibold text-slate-600">
+                  <span>{row.label}</span>
+                  <span>{row.value}</span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                  <div
+                    className={`h-full rounded-full ${row.className}`}
+                    style={{ width: `${Math.max(4, (row.value / maxRiskValue) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="erp-dashboard-panel">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-slate-950">经营指标总览</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                基于当前商品、折扣、ROAS 与保存的利润测算实时汇总
+              </p>
+            </div>
+            <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-right">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">平均最终售价</p>
+              <p className="mt-1 text-lg font-semibold text-slate-950">{averageFinalPrice}</p>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs font-semibold text-slate-500">测算覆盖率</p>
+              <p className="mt-2 text-xl font-semibold text-slate-950">
+                {products.length > 0 ? `${((reviewedProductCount / products.length) * 100).toFixed(1)}%` : "--"}
+              </p>
+            </div>
+            <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs font-semibold text-slate-500">低利润观察</p>
+              <p className="mt-2 text-xl font-semibold text-amber-700">{warningProfitCount}</p>
+            </div>
+            <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs font-semibold text-slate-500">健康商品</p>
+              <p className="mt-2 text-xl font-semibold text-emerald-700">{healthyProfitCount}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="erp-dashboard-panel">
+          <h2 className="text-base font-semibold text-slate-950">操作中心</h2>
+          <div className="mt-3 grid gap-2">
+            <button
+              type="button"
+              className="btn-secondary w-full justify-start"
+              disabled={loading || exporting || products.length === 0}
+              onClick={() => void handleExcelExport()}
+            >
+              <Download size={18} />
+              {exporting ? "下载中" : "下载表格"}
+            </button>
+            <Link to="/profit-calculation/recommendations" className="btn-secondary w-full justify-start">
+              <Megaphone size={18} />
+              促销投放推荐
+            </Link>
+          </div>
+          <p className="mt-3 text-xs leading-5 text-slate-500">
+            表格中的折扣、ROAS 与保存操作保持原功能。下载表格仍导出当前排序后的商品利润数据。
+          </p>
+        </div>
+      </section>
 
       <div className="grid gap-3 md:hidden">
         {loading ? (
@@ -767,6 +877,21 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
             );
           })
         )}
+      </div>
+
+      <div className="erp-toolbar hidden items-center justify-between gap-3 md:flex">
+        <div>
+          <h2 className="text-base font-semibold text-slate-950">商品利润明细</h2>
+          <p className="mt-1 text-sm text-slate-500">高密度 ERP 数据表，可排序并直接编辑折扣参数</p>
+        </div>
+        <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
+          <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+          成功
+          <span className="inline-flex h-2 w-2 rounded-full bg-amber-500" />
+          观察
+          <span className="inline-flex h-2 w-2 rounded-full bg-rose-500" />
+          风险
+        </div>
       </div>
 
       <div className="table-card hidden md:block">

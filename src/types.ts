@@ -309,3 +309,28 @@ export type PurchasePackageItem = {
   quantity: number;
   created_at: string;
 };
+
+export type TemuOrderRecord = {
+  id: string;
+  owner_id: string;
+  order_no: string;
+  sub_order_no: string;
+  order_status: string;
+  fulfillment_quantity: number;
+  product_attributes: string;
+  recipient_name: string;
+  recipient_phone: string;
+  email: string;
+  province: string;
+  city: string;
+  district: string;
+  address_line1: string;
+  address_line2: string;
+  postal_code: string;
+  latest_ship_time: string;
+  actual_ship_time: string;
+  estimated_delivery_time: string;
+  actual_signed_time: string;
+  created_at: string;
+  updated_at: string;
+};

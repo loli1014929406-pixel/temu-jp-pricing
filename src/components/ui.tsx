@@ -10,7 +10,7 @@ type PageHeaderProps = {
 
 export function PageHeader({ title, description, actions }: PageHeaderProps) {
   return (
-    <div className="flex flex-wrap items-start justify-between gap-4">
+    <div className="erp-toolbar flex flex-wrap items-start justify-between gap-4">
       <div>
         <h1 className="page-title">{title}</h1>
         {description && <p className="page-description">{description}</p>}
@@ -64,7 +64,7 @@ export function Badge({ tone = "neutral", children }: BadgeProps) {
   };
 
   return (
-    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${tones[tone]}`}>
+    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${tones[tone]}`}>
       {children}
     </span>
   );
@@ -82,12 +82,18 @@ export function StatCard({ label, value, tone = "default" }: StatCardProps) {
       ? "text-emerald-700"
       : tone === "danger"
         ? "text-rose-700"
-        : "text-ink";
+        : "text-slate-950";
+  const toneClass =
+    tone === "success"
+      ? "erp-kpi-success"
+      : tone === "danger"
+        ? "erp-kpi-danger"
+        : "";
 
   return (
-    <div className="surface-card p-4">
-      <p className="text-sm text-slate-500">{label}</p>
-      <p className={`mt-2 text-2xl font-semibold tabular-nums ${valueTone}`}>{value}</p>
+    <div className={`erp-kpi-card ${toneClass}`}>
+      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className={`mt-3 text-3xl font-semibold tabular-nums ${valueTone}`}>{value}</p>
     </div>
   );
 }

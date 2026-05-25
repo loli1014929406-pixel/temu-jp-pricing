@@ -1,4 +1,4 @@
-import { Link, Route, Routes } from "react-router-dom";
+import { Link, Navigate, Route, Routes } from "react-router-dom";
 import { PageShell } from "./components/page-shell";
 import { ProtectedRoute } from "./components/protected-route";
 import { useAuth } from "./hooks/use-auth";
@@ -6,6 +6,7 @@ import { PermissionGate, PermissionProvider } from "./hooks/use-permissions";
 import { AuthPage } from "./pages/auth-page";
 import { DeclarationPricesPage } from "./pages/declaration-prices-page";
 import { InventoryPage } from "./pages/inventory-page";
+import { OrdersPage } from "./pages/orders-page";
 import { ProfitCalculationPage } from "./pages/profit-calculation-page";
 import { ProfitCalculationsPage } from "./pages/profit-calculations-page";
 import { PromotionRecommendationsPage } from "./pages/promotion-recommendations-page";
@@ -31,6 +32,8 @@ function NotFoundPage() {
 
 export default function App() {
   const { user, loading } = useAuth();
+  const isOrdersSubdomain =
+    typeof window !== "undefined" && window.location.hostname.split(".")[0] === "orders";
 
   return (
     <Routes>
@@ -44,8 +47,9 @@ export default function App() {
           </ProtectedRoute>
         }
       >
-        <Route index element={<NotFoundPage />} />
+        <Route index element={isOrdersSubdomain ? <Navigate to="/orders" replace /> : <NotFoundPage />} />
         <Route path="/products" element={user ? <ProductsPage user={user} /> : null} />
+        <Route path="/orders" element={user ? <OrdersPage user={user} /> : null} />
         <Route
           path="/products/new"
           element={

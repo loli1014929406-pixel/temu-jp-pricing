@@ -10,7 +10,10 @@ import { fetchSettings } from "../lib/settings";
 import type { Product } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { calculatePricing, formatCurrency } from "../utils/pricing";
-import { calculateFinalSalePriceRmb } from "../utils/profit-calculation";
+import {
+  calculateFinalSalePriceRmb,
+  PROFIT_CALCULATION_VERSION,
+} from "../utils/profit-calculation";
 import { calculateTestShipping } from "../utils/test-shipping";
 import { Badge, PageHeader } from "../components/ui";
 
@@ -22,6 +25,7 @@ const defaultDiscounts = {
   trafficDiscountRate: 0,
   activityDiscountRate: 10,
   couponDiscountRate: 0,
+  adRoas: 0,
 };
 
 export function TestShippingPage({ user }: TestShippingPageProps) {
@@ -35,6 +39,7 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
         sf3cmCostRmb: number | null;
         canUseOcsKunshan3cm: boolean | null;
         logisticsMethod: "OCS 昆山 3cm" | "OCS 昆山小包" | null;
+        adFeeRmb: number | null;
         profitRmb: number | null;
       }
     >
@@ -86,6 +91,9 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
             const firstSaved = savedForProduct[0];
             const usesDiscountFormula =
               (firstSaved?.result_json?.calculationVersion ?? 0) >= 4;
+            const usesAdFormula =
+              (firstSaved?.result_json?.calculationVersion ?? 0) >=
+              PROFIT_CALCULATION_VERSION;
             const discounts = {
               trafficDiscountRate: usesDiscountFormula
                 ? firstSaved?.traffic_discount_rate ??
@@ -98,6 +106,9 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                 ? firstSaved?.coupon_discount_rate ??
                   defaultDiscounts.couponDiscountRate
                 : defaultDiscounts.couponDiscountRate,
+              adRoas: usesAdFormula
+                ? firstSaved?.result_json?.adRoas ?? defaultDiscounts.adRoas
+                : defaultDiscounts.adRoas,
             };
             const skuSummaries = productSkus.flatMap((sku) => {
               if (!sku.id) return [];
@@ -149,12 +160,17 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                 productTestShipping.canUseOcsKunshan3cm
                   ? productTestShipping.ocsKunshan3cmCostRmb
                   : productTestShipping.ocsKunshanSmallParcelCostRmb;
+              const adFeeRmb =
+                isValid && discounts.adRoas > 0
+                  ? finalSalePriceRmb / discounts.adRoas
+                  : 0;
               const totalCostRmb =
                 pricing.purchaseCostRmb +
                 pricing.purchaseShippingRmb +
                 pricing.packagingCostRmb +
                 pricing.sfCostRmb +
-                selectedLogisticsCostRmb;
+                selectedLogisticsCostRmb +
+                adFeeRmb;
               const revenueRmb = isValid
                 ? finalSalePriceRmb + effectiveSubsidyRmb
                 : 0;
@@ -164,6 +180,7 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                   temuPriceRmb,
                   finalSalePriceRmb,
                   sfCostRmb: pricing.sfCostRmb,
+                  adFeeRmb,
                   totalCostRmb,
                   profitRmb: isValid ? revenueRmb - totalCostRmb : null,
                 },
@@ -214,6 +231,10 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                   : "OCS 昆山小包") as
                   | "OCS 昆山 3cm"
                   | "OCS 昆山小包",
+                adFeeRmb:
+                  representativeSummary === null
+                    ? null
+                    : Number(representativeSummary.adFeeRmb.toFixed(2)),
                 profitRmb:
                   representativeSummary === null ||
                   representativeSummary.profitRmb === null
@@ -270,6 +291,7 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                   <div className="mobile-summary-cell">最终售价：{typeof summary?.finalSalePriceRmb === "number" ? formatCurrency(summary.finalSalePriceRmb) : "--"}</div>
                   <div className="mobile-summary-cell">顺丰：{typeof summary?.sfCostRmb === "number" ? formatCurrency(summary.sfCostRmb) : "--"}</div>
                   <div className="mobile-summary-cell">顺丰3cm：{typeof summary?.sf3cmCostRmb === "number" ? formatCurrency(summary.sf3cmCostRmb) : "--"}</div>
+                  <div className="mobile-summary-cell">广告消耗：{typeof summary?.adFeeRmb === "number" ? formatCurrency(summary.adFeeRmb) : "--"}</div>
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   {summary?.canUseOcsKunshan3cm === null ||
@@ -302,21 +324,22 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                 <th className="px-4 py-3 font-medium">最终售价</th>
                 <th className="px-4 py-3 font-medium">顺丰</th>
                 <th className="px-4 py-3 font-medium">顺丰3cm</th>
+                <th className="px-4 py-3 font-medium">广告消耗</th>
                 <th className="px-4 py-3 font-medium">3cm可用</th>
                 <th className="px-4 py-3 font-medium">物流方式</th>
-                <th className="px-4 py-3 font-medium">利润</th>
+                <th className="px-4 py-3 font-medium">利润（含广告）</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
                     加载中...
                   </td>
                 </tr>
               ) : products.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
                     暂无商品
                   </td>
                 </tr>
@@ -340,6 +363,11 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                       <td className="px-4 py-3">
                         {typeof summary?.sf3cmCostRmb === "number"
                           ? formatCurrency(summary.sf3cmCostRmb)
+                          : "--"}
+                      </td>
+                      <td className="px-4 py-3">
+                        {typeof summary?.adFeeRmb === "number"
+                          ? formatCurrency(summary.adFeeRmb)
                           : "--"}
                       </td>
                       <td className="px-4 py-3">
