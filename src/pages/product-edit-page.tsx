@@ -16,6 +16,7 @@ import type {
   ProductSpec,
 } from "../types";
 import { getErrorMessage } from "../utils/errors";
+import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../utils/sku-code";
 
 export function ProductEditPage() {
   const { productId: productKey = "" } = useParams();
@@ -56,8 +57,11 @@ export function ProductEditPage() {
         setItems(nextItems.length > 0 ? nextItems : [createEmptyItem()]);
         setSkus(
           nextSkus.length > 0
-            ? nextSkus.map((sku) => ({
+            ? nextSkus.map((sku, skuIndex) => ({
                 ...sku,
+                sku_code: isLegacyDefaultSkuCode(sku.sku_code)
+                  ? buildDefaultSkuCode(nextProduct.product_code, skuIndex)
+                  : sku.sku_code,
                 component_links: sku.component_links.map((link) => ({
                   ...link,
                   item_key: link.item_id,

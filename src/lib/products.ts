@@ -10,6 +10,7 @@ import type {
   ProductTransferRecord,
   SavedProfitCalculation,
 } from "../types";
+import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../utils/sku-code";
 
 const requestTimeoutMs = 15000;
 const uuidPattern =
@@ -398,6 +399,15 @@ export async function updateProduct(
     const calculation = existingCalculationRows[index]?.data as SavedProfitCalculation | null;
     if (calculation) {
       existingCalculationsByIdentity.set(getSkuIdentity(sku), calculation);
+      if (isLegacyDefaultSkuCode(sku.sku_code)) {
+        existingCalculationsByIdentity.set(
+          getSkuIdentity({
+            ...sku,
+            sku_code: buildDefaultSkuCode(normalizedProduct.product_code, index),
+          }),
+          calculation,
+        );
+      }
     }
   });
 

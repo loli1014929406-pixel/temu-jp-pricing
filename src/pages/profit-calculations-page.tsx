@@ -19,6 +19,7 @@ import type {
 import { getErrorMessage } from "../utils/errors";
 import { calculatePricing, formatCurrency } from "../utils/pricing";
 import {
+  calculateAdFeeRmb,
   calculateFinalSalePriceRmb,
   calculateProfitProjection,
   PROFIT_CALCULATION_VERSION,
@@ -132,8 +133,11 @@ function calculateProductDiscountSummary(
         })
       : null;
   const displayedAdFeeRmb =
-    displayedFinalSalePriceRmb !== null && (discounts.adRoas ?? 0) > 0
-      ? displayedFinalSalePriceRmb / (discounts.adRoas ?? 0)
+    typeof displayedTemuPriceRmb === "number"
+      ? calculateAdFeeRmb({
+          temuPriceRmb: displayedTemuPriceRmb,
+          ...discounts,
+        })
       : 0;
   const baseSummary: DiscountSummary = {
     ...discounts,

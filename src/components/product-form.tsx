@@ -7,6 +7,7 @@ import type {
   ProductSkuDraft,
   ProductSpec,
 } from "../types";
+import { buildDefaultSkuCode } from "../utils/sku-code";
 import { Field, TextArea, TextInput } from "./form-controls";
 
 type ProductFormProps = {
@@ -234,7 +235,7 @@ export function ProductForm({
     const matrix = buildSkuMatrix(specs);
     onSkusChange(
       matrix.map((attributes, index) => ({
-        sku_code: `SKU${index + 1}`,
+        sku_code: buildDefaultSkuCode(product.product_code, index),
         attributes,
         notes: "",
         component_links: items.map((item, index) => ({

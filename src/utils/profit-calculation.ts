@@ -19,6 +19,13 @@ export function calculateFinalSalePriceRmb(input: ProfitCalculationInput) {
   );
 }
 
+export function calculateAdFeeRmb(input: ProfitCalculationInput) {
+  const adRoas = input.adRoas ?? 0;
+  if (adRoas <= 0) return 0;
+
+  return Math.max(0, input.temuPriceRmb - input.trafficDiscountRate) / adRoas;
+}
+
 const logisticsPlans: Array<{
   key: ProfitLogisticsPlanKey;
   name: string;
@@ -66,7 +73,8 @@ export function calculateProfitProjection(
     priceBeforeActivityDiscount > 0 &&
     discountedSalePriceRmb > 0 &&
     settings.exchange_rate_rmb_per_jpy > 0;
-  const adFeeRmb = isValid && adRoas > 0 ? discountedSalePriceRmb / adRoas : 0;
+  const adSpendBaseRmb = Math.max(0, input.temuPriceRmb - input.trafficDiscountRate);
+  const adFeeRmb = isValid ? calculateAdFeeRmb(input) : 0;
   const discountedUnitPriceJpy =
     isValid
       ? discountedSalePriceRmb / settings.exchange_rate_rmb_per_jpy
@@ -115,10 +123,10 @@ export function calculateProfitProjection(
         : 0;
       const breakEvenAdSpendRmb = isValid ? realizedRevenueRmb - totalCostRmb : 0;
       const recommendedMinRoas =
-        maxAdSpendRmb > 0 ? discountedSalePriceRmb / maxAdSpendRmb : null;
+        maxAdSpendRmb > 0 ? adSpendBaseRmb / maxAdSpendRmb : null;
       const breakEvenRoas =
         breakEvenAdSpendRmb > 0
-          ? discountedSalePriceRmb / breakEvenAdSpendRmb
+          ? adSpendBaseRmb / breakEvenAdSpendRmb
           : null;
 
       return {

@@ -11,6 +11,7 @@ import type { Product } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { calculatePricing, formatCurrency } from "../utils/pricing";
 import {
+  calculateAdFeeRmb,
   calculateFinalSalePriceRmb,
   PROFIT_CALCULATION_VERSION,
 } from "../utils/profit-calculation";
@@ -161,8 +162,11 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                   ? productTestShipping.ocsKunshan3cmCostRmb
                   : productTestShipping.ocsKunshanSmallParcelCostRmb;
               const adFeeRmb =
-                isValid && discounts.adRoas > 0
-                  ? finalSalePriceRmb / discounts.adRoas
+                isValid
+                  ? calculateAdFeeRmb({
+                      temuPriceRmb,
+                      ...discounts,
+                    })
                   : 0;
               const totalCostRmb =
                 pricing.purchaseCostRmb +

@@ -19,7 +19,10 @@ import type {
 } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { calculatePricing, formatCurrency, formatPercent } from "../utils/pricing";
-import { calculateProfitProjection } from "../utils/profit-calculation";
+import {
+  calculateAdFeeRmb,
+  calculateProfitProjection,
+} from "../utils/profit-calculation";
 
 type PromotionRecommendationsPageProps = {
   user: User;
@@ -519,7 +522,7 @@ function buildRecommendation({
   const mainAdviceItems = enabledActions.length > 0 ? enabledActions : [fallbackAdvice];
   const measuredAdSpendRmb =
     ad.enabled && ad.value !== null
-      ? roundMoney(finalResult.discountedSalePriceRmb / ad.value)
+      ? roundMoney(calculateAdFeeRmb({ ...finalInput, adRoas: ad.value }))
       : 0;
   const measuredProfitRmb = roundMoney(finalPlan.profitRmb - measuredAdSpendRmb);
   const measuredProfitRate =
