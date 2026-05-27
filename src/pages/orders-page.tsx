@@ -4,6 +4,7 @@ import {
   Download,
   Eye,
   FileSpreadsheet,
+  PackageMinus,
   RefreshCw,
   Save,
   Search,
@@ -17,6 +18,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge, PageHeader } from "../components/ui";
 import { usePermissions } from "../hooks/use-permissions";
 import {
+  deductWarehouseItemStocks,
   fetchWarehouseItemStocks,
   fetchWarehouses,
   fetchWarehouseSkus,
@@ -87,6 +89,14 @@ type TrackingImportRecord = {
   recipientName: string;
   address: string;
   allText: string;
+};
+
+type OrderStockDeduction = {
+  stock: WarehouseItemStock;
+  quantity: number;
+  itemName: string;
+  warehouseName: string;
+  orderNo: string;
 };
 
 const importColumns = [
@@ -557,6 +567,12 @@ function getOrdersErrorMessage(error: unknown, fallback: string) {
     message.includes("logistics_status")
   ) {
     return "订单管理数据库还没有初始化最新流程字段，请先执行最新的订单表迁移";
+  }
+  if (
+    message.includes("warehouse_item_stocks") ||
+    message.includes("warehouse_item_stock_adjustments")
+  ) {
+    return "库存数据库还没有初始化最新配件库存字段，请先执行最新的库存表迁移";
   }
   return message;
 }
@@ -1609,6 +1625,115 @@ export function OrdersPage({ user }: OrdersPageProps) {
     return "";
   }
 
+  function getOrderFulfillmentQuantity(order: TemuOrderRecord) {
+    return Math.max(1, Math.trunc(order.fulfillment_quantity || 0));
+  }
+
+  function buildOrderStockDeductions(targetOrders: TemuOrderRecord[]) {
+    const deductions: OrderStockDeduction[] = [];
+
+    for (const order of targetOrders) {
+      const warehouseId = order.warehouse_id;
+      if (!warehouseId) {
+        return {
+          errorMessage: `订单 ${order.order_no} 还没有分配仓库。`,
+          deductions: [] as OrderStockDeduction[],
+        };
+      }
+
+      const sku = getOrderSku(order);
+      if (!sku?.id) {
+        return {
+          errorMessage: `订单 ${order.order_no} 没有匹配到商品 SKU，不能扣减库存。`,
+          deductions: [] as OrderStockDeduction[],
+        };
+      }
+      if (sku.component_links.length === 0) {
+        return {
+          errorMessage: `订单 ${order.order_no} 对应 SKU 没有维护配件组成，不能扣减库存。`,
+          deductions: [] as OrderStockDeduction[],
+        };
+      }
+
+      const orderQuantity = getOrderFulfillmentQuantity(order);
+      const warehouseName =
+        order.warehouse_name ||
+        warehouses.find((warehouse) => warehouse.id === warehouseId)?.name ||
+        "未命名仓库";
+
+      for (const link of sku.component_links) {
+        const requiredQuantity = Math.max(0, link.quantity) * orderQuantity;
+        if (requiredQuantity <= 0) continue;
+
+        const component = productItemsById.get(link.item_id);
+        const itemName = component?.item_name || component?.item_spec || link.item_id;
+        const stock = warehouseItemStocksByKey.get(`${warehouseId}:${link.item_id}`);
+        if (!stock) {
+          return {
+            errorMessage: `订单 ${order.order_no} 的配件“${itemName}”没有加入 ${warehouseName} 的仓库库存。`,
+            deductions: [] as OrderStockDeduction[],
+          };
+        }
+
+        deductions.push({
+          stock,
+          quantity: requiredQuantity,
+          itemName,
+          warehouseName,
+          orderNo: order.order_no,
+        });
+      }
+    }
+
+    if (deductions.length === 0) {
+      return {
+        errorMessage: "没有找到需要扣减的配件库存，请检查商品 SKU 配件组成。",
+        deductions: [] as OrderStockDeduction[],
+      };
+    }
+
+    return { errorMessage: "", deductions };
+  }
+
+  function validateStockAvailability(deductions: OrderStockDeduction[]) {
+    const deductionsByStockId = new Map<
+      string,
+      OrderStockDeduction & { orderNos: string[] }
+    >();
+
+    deductions.forEach((deduction) => {
+      const existing = deductionsByStockId.get(deduction.stock.id);
+      if (existing) {
+        existing.quantity += deduction.quantity;
+        existing.orderNos.push(deduction.orderNo);
+      } else {
+        deductionsByStockId.set(deduction.stock.id, {
+          ...deduction,
+          orderNos: [deduction.orderNo],
+        });
+      }
+    });
+
+    const insufficientStock = Array.from(deductionsByStockId.values()).find(
+      (deduction) => deduction.stock.stock_quantity < deduction.quantity,
+    );
+    if (insufficientStock) {
+      return `${insufficientStock.warehouseName} 的配件“${insufficientStock.itemName}”库存不足：当前 ${insufficientStock.stock.stock_quantity}，需要 ${insufficientStock.quantity}。`;
+    }
+
+    return "";
+  }
+
+  function applyWarehouseItemStockUpdates(nextStocks: WarehouseItemStock[]) {
+    if (nextStocks.length === 0) return;
+
+    setWarehouseItemStocks((current) =>
+      current.map(
+        (item) => nextStocks.find((nextItem) => nextItem.id === item.id) ?? item,
+      ),
+    );
+  }
+
   function buildOcsSheet1Rows(targetOrders: TemuOrderRecord[]) {
     return targetOrders.map((order) => {
       const merged = mergeOrderDraft(order);
@@ -1703,6 +1828,18 @@ export function OrdersPage({ user }: OrdersPageProps) {
       setErrorMessage(validationMessage);
       return;
     }
+    const stockDeductionResult = buildOrderStockDeductions(mergedOrders);
+    if (stockDeductionResult.errorMessage) {
+      setErrorMessage(stockDeductionResult.errorMessage);
+      return;
+    }
+    const stockValidationMessage = validateStockAvailability(
+      stockDeductionResult.deductions,
+    );
+    if (stockValidationMessage) {
+      setErrorMessage(stockValidationMessage);
+      return;
+    }
 
     setBusyKey(busyName);
     setErrorMessage("");
@@ -1710,6 +1847,14 @@ export function OrdersPage({ user }: OrdersPageProps) {
 
     try {
       const printedAt = formatLocalDateTime();
+      const inventoryChanges = await deductWarehouseItemStocks(
+        stockDeductionResult.deductions.map((deduction) => ({
+          stockId: deduction.stock.id,
+          quantity: deduction.quantity,
+          reason: `订单出库：${deduction.orderNo}`,
+          dedupeKey: deduction.orderNo,
+        })),
+      );
       const nextOrders = await Promise.all(
         mergedOrders.map((order) =>
           updateTemuOrder(order.id, {
@@ -1724,11 +1869,58 @@ export function OrdersPage({ user }: OrdersPageProps) {
         ),
       );
 
+      applyWarehouseItemStockUpdates(inventoryChanges.map((change) => change.item));
       updateOrdersState(nextOrders);
       setActiveStage("pending_shipping");
-      setNoticeMessage(`已转入待发货 ${targetOrders.length} 条订单，请下载发货表格。`);
+      setNoticeMessage(
+        `已转入待发货 ${targetOrders.length} 条订单，并扣减 ${inventoryChanges.length} 项配件库存，请下载发货表格。`,
+      );
     } catch (error) {
       setErrorMessage(getOrdersErrorMessage(error, "转入待发货失败"));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
+  async function handleDeductInventoryForOrders(targetOrders: TemuOrderRecord[]) {
+    if (!canEdit) {
+      setErrorMessage("当前账号没有编辑权限，不能补扣库存。");
+      return;
+    }
+    if (targetOrders.length === 0) {
+      setNoticeMessage("当前没有可补扣库存的订单。");
+      return;
+    }
+
+    const mergedOrders = targetOrders.map((order) => mergeOrderDraft(order));
+    const stockDeductionResult = buildOrderStockDeductions(mergedOrders);
+    if (stockDeductionResult.errorMessage) {
+      setErrorMessage(stockDeductionResult.errorMessage);
+      return;
+    }
+
+    setBusyKey("deduct-inventory");
+    setErrorMessage("");
+    setNoticeMessage("");
+
+    try {
+      const inventoryChanges = await deductWarehouseItemStocks(
+        stockDeductionResult.deductions.map((deduction) => ({
+          stockId: deduction.stock.id,
+          quantity: deduction.quantity,
+          reason: `订单出库：${deduction.orderNo}`,
+          dedupeKey: deduction.orderNo,
+        })),
+      );
+
+      applyWarehouseItemStockUpdates(inventoryChanges.map((change) => change.item));
+      setNoticeMessage(
+        inventoryChanges.length > 0
+          ? `已为 ${targetOrders.length} 条订单补扣 ${inventoryChanges.length} 项配件库存。`
+          : `选中的 ${targetOrders.length} 条订单已存在出库记录，没有重复扣库存。`,
+      );
+    } catch (error) {
+      setErrorMessage(getOrdersErrorMessage(error, "补扣库存失败"));
     } finally {
       setBusyKey("");
     }
@@ -1988,6 +2180,23 @@ export function OrdersPage({ user }: OrdersPageProps) {
                 selectedPendingShippingOrdersInView.length > 0 && (
                   <button
                     type="button"
+                    disabled={busyKey === "deduct-inventory"}
+                    onClick={() =>
+                      void handleDeductInventoryForOrders(
+                        selectedPendingShippingOrdersInView,
+                      )
+                    }
+                    className="btn-secondary h-9 px-3"
+                  >
+                    <PackageMinus size={16} />
+                    补扣库存（{selectedPendingShippingOrdersInView.length}）
+                  </button>
+                )}
+              {canEdit &&
+                activeStage === "pending_shipping" &&
+                selectedPendingShippingOrdersInView.length > 0 && (
+                  <button
+                    type="button"
                     disabled={busyKey === "download-shipping-table"}
                     onClick={() =>
                       void handleDownloadShippingTable(
@@ -2001,6 +2210,19 @@ export function OrdersPage({ user }: OrdersPageProps) {
                     下载发货表格（{selectedPendingShippingOrdersInView.length}）
                   </button>
                 )}
+              {canEdit && activeStage === "shipped" && selectedShippedOrdersInView.length > 0 && (
+                <button
+                  type="button"
+                  disabled={busyKey === "deduct-inventory"}
+                  onClick={() =>
+                    void handleDeductInventoryForOrders(selectedShippedOrdersInView)
+                  }
+                  className="btn-secondary h-9 px-3"
+                >
+                  <PackageMinus size={16} />
+                  补扣库存（{selectedShippedOrdersInView.length}）
+                </button>
+              )}
               {canEdit && activeStage === "shipped" && selectedShippedOrdersInView.length > 0 && (
                 <button
                   type="button"

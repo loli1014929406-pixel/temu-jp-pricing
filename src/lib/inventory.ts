@@ -282,3 +282,118 @@ export async function updateWarehouseItemStock(
     adjustment: adjustment as WarehouseItemStockAdjustment,
   };
 }
+
+export type WarehouseItemStockDeductionInput = {
+  stockId: string;
+  quantity: number;
+  reason: string;
+  dedupeKey?: string;
+};
+
+export async function deductWarehouseItemStocks(
+  deductions: WarehouseItemStockDeductionInput[],
+) {
+  const normalizedDeductions = deductions
+    .map((deduction) => ({
+      ...deduction,
+      quantity: Math.trunc(deduction.quantity),
+    }))
+    .filter((deduction) => deduction.quantity > 0);
+
+  if (normalizedDeductions.length === 0) {
+    return [] as Array<{
+      item: WarehouseItemStock;
+      adjustment: WarehouseItemStockAdjustment;
+    }>;
+  }
+
+  const { supabase, session } = await requireSession();
+  const inventory: Array<{
+    item: WarehouseItemStock;
+    adjustment: WarehouseItemStockAdjustment;
+  }> = [];
+
+  for (const deduction of normalizedDeductions) {
+    const { data: currentData, error: currentError } = await withTimeout(
+      supabase
+        .from("warehouse_item_stocks")
+        .select("*")
+        .eq("id", deduction.stockId)
+        .eq("owner_id", session.user.id)
+        .maybeSingle(),
+      "读取配件库存",
+    );
+
+    if (currentError) throw currentError;
+    if (!currentData) throw new Error("仓库配件库存不存在，请刷新后重试");
+
+    const current = currentData as WarehouseItemStock;
+    if (deduction.dedupeKey) {
+      const { data: existingAdjustment, error: existingAdjustmentError } =
+        await withTimeout(
+          supabase
+            .from("warehouse_item_stock_adjustments")
+            .select("id")
+            .eq("warehouse_id", current.warehouse_id)
+            .eq("item_id", current.item_id)
+            .eq("owner_id", session.user.id)
+            .ilike("reason", `%${deduction.dedupeKey}%`)
+            .limit(1)
+            .maybeSingle(),
+          "检查库存出库记录",
+        );
+
+      if (existingAdjustmentError) throw existingAdjustmentError;
+      if (existingAdjustment) continue;
+    }
+
+    if (current.stock_quantity < deduction.quantity) {
+      throw new Error(
+        `仓库配件库存不足：当前 ${current.stock_quantity}，需要 ${deduction.quantity}`,
+      );
+    }
+
+    const nextQuantity = current.stock_quantity - deduction.quantity;
+    const { data: nextData, error: nextError } = await withTimeout(
+      supabase
+        .from("warehouse_item_stocks")
+        .update({ stock_quantity: nextQuantity })
+        .eq("id", current.id)
+        .eq("owner_id", session.user.id)
+        .eq("stock_quantity", current.stock_quantity)
+        .select()
+        .maybeSingle(),
+      "扣减配件库存",
+    );
+
+    if (nextError) throw nextError;
+    if (!nextData) throw new Error("库存已被其他操作更新，请刷新后重试");
+
+    const nextItem = nextData as WarehouseItemStock;
+    const { data: adjustmentData, error: adjustmentError } = await withTimeout(
+      supabase
+        .from("warehouse_item_stock_adjustments")
+        .insert({
+          warehouse_id: current.warehouse_id,
+          item_id: current.item_id,
+          previous_quantity: current.stock_quantity,
+          next_quantity: nextItem.stock_quantity,
+          change_quantity: -deduction.quantity,
+          reason: deduction.reason,
+          purchase_order_id: null,
+          purchase_package_id: null,
+        })
+        .select()
+        .single(),
+      "保存库存出库记录",
+    );
+
+    if (adjustmentError) throw adjustmentError;
+    inventory.push({
+      item: nextItem,
+      adjustment: adjustmentData as WarehouseItemStockAdjustment,
+    });
+  }
+
+  return inventory;
+}
