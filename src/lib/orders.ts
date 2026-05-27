@@ -29,6 +29,7 @@ export type TemuOrderImportRow = Pick<
   | "order_no"
   | "sub_order_no"
   | "order_status"
+  | "sku_code"
   | "fulfillment_quantity"
   | "product_attributes"
   | "recipient_name"
@@ -45,6 +46,56 @@ export type TemuOrderImportRow = Pick<
   | "estimated_delivery_time"
 >;
 
+const textOrderFields = [
+  "id",
+  "owner_id",
+  "order_no",
+  "sub_order_no",
+  "order_status",
+  "sku_code",
+  "warehouse_name",
+  "logistics_method",
+  "label_printed_at",
+  "logistics_tracking_no",
+  "logistics_status",
+  "product_attributes",
+  "recipient_name",
+  "recipient_phone",
+  "email",
+  "province",
+  "city",
+  "district",
+  "address_line1",
+  "address_line2",
+  "postal_code",
+  "latest_ship_time",
+  "actual_ship_time",
+  "estimated_delivery_time",
+  "actual_signed_time",
+  "created_at",
+  "updated_at",
+] as const;
+
+function normalizeLogisticsMethod(value: string) {
+  const text = value.trim();
+  if (text === "OCS 昆山3cm" || text === "OCS 昆山 3cm") return "OCS 3cm";
+  if (text === "OCS 昆山小包") return "OCS 小包";
+  return text;
+}
+
+function normalizeTemuOrder(row: Partial<TemuOrderRecord>): TemuOrderRecord {
+  const normalized = Object.fromEntries(
+    textOrderFields.map((field) => [field, String(row[field] ?? "")]),
+  ) as Omit<TemuOrderRecord, "fulfillment_quantity" | "warehouse_id">;
+
+  return {
+    ...normalized,
+    logistics_method: normalizeLogisticsMethod(normalized.logistics_method),
+    warehouse_id: row.warehouse_id ?? null,
+    fulfillment_quantity: Number(row.fulfillment_quantity ?? 0),
+  };
+}
+
 export async function fetchTemuOrders() {
   const { supabase, session } = await requireSession();
   const { data, error } = await withTimeout(
@@ -57,7 +108,7 @@ export async function fetchTemuOrders() {
     "加载订单",
   );
   if (error) throw error;
-  return (data ?? []) as TemuOrderRecord[];
+  return ((data ?? []) as Partial<TemuOrderRecord>[]).map(normalizeTemuOrder);
 }
 
 export async function importTemuOrders(rows: TemuOrderImportRow[]) {
@@ -78,19 +129,59 @@ export async function importTemuOrders(rows: TemuOrderImportRow[]) {
       .select(),
     "导入订单",
   );
-  if (error) throw error;
-  return (data ?? []) as TemuOrderRecord[];
+  if (error) {
+    const message = String(error.message ?? "");
+    if (message.includes("sku_code")) {
+      const legacyPayload = payload.map(({ sku_code, ...row }) => {
+        void sku_code;
+        return row;
+      });
+      const { data: legacyData, error: legacyError } = await withTimeout(
+        supabase
+          .from("temu_orders")
+          .upsert(legacyPayload, {
+            onConflict: "owner_id,order_no,sub_order_no",
+          })
+          .select(),
+        "导入订单",
+      );
+      if (legacyError) throw legacyError;
+      return ((legacyData ?? []) as Partial<TemuOrderRecord>[]).map(normalizeTemuOrder);
+    }
+    throw error;
+  }
+  return ((data ?? []) as Partial<TemuOrderRecord>[]).map(normalizeTemuOrder);
 }
 
 export async function updateTemuOrder(
   orderId: string,
-  updates: Pick<TemuOrderRecord, "order_status" | "actual_ship_time">,
+  updates: Partial<
+    Pick<
+      TemuOrderRecord,
+      | "order_status"
+      | "warehouse_id"
+      | "warehouse_name"
+      | "logistics_method"
+      | "label_printed_at"
+      | "logistics_tracking_no"
+      | "logistics_status"
+      | "actual_ship_time"
+      | "actual_signed_time"
+    >
+  >,
 ) {
   const { supabase, session } = await requireSession();
+  const normalizedUpdates = {
+    ...updates,
+    logistics_method:
+      updates.logistics_method === undefined
+        ? undefined
+        : normalizeLogisticsMethod(updates.logistics_method),
+  };
   const { data, error } = await withTimeout(
     supabase
       .from("temu_orders")
-      .update(updates)
+      .update(normalizedUpdates)
       .eq("id", orderId)
       .eq("owner_id", session.user.id)
       .select()
@@ -98,7 +189,7 @@ export async function updateTemuOrder(
     "更新订单",
   );
   if (error) throw error;
-  return data as TemuOrderRecord;
+  return normalizeTemuOrder(data as Partial<TemuOrderRecord>);
 }
 
 export async function deleteTemuOrder(orderId: string) {

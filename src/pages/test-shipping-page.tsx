@@ -36,10 +36,12 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
       string,
       {
         finalSalePriceRmb: number | null;
+        purchaseTotalCostRmb: number | null;
+        temuShippingSubsidyRmb: number | null;
         sfCostRmb: number | null;
-        sf3cmCostRmb: number | null;
         canUseOcsKunshan3cm: boolean | null;
-        logisticsMethod: "OCS 昆山 3cm" | "OCS 昆山小包" | null;
+        logisticsMethod: "OCS 3cm" | "OCS 小包" | null;
+        logisticsCostRmb: number | null;
         adFeeRmb: number | null;
         profitRmb: number | null;
       }
@@ -83,6 +85,13 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
         const nextSummaries = Object.fromEntries(
           nextProducts.map((product) => {
             const productTestShipping = calculateTestShipping(product, nextSettings);
+            const selectedLogisticsCostRmb =
+              productTestShipping.canUseOcsKunshan3cm
+                ? productTestShipping.ocsKunshan3cmCostRmb
+                : productTestShipping.ocsKunshanSmallParcelCostRmb;
+            const selectedLogisticsMethod = productTestShipping.canUseOcsKunshan3cm
+              ? "OCS 3cm"
+              : "OCS 小包";
             const productSkus = skusByProductId[product.id] ?? [];
             const savedForProduct = productSkus.flatMap((sku) =>
               sku.id && savedCalculationBySkuId[sku.id]
@@ -157,10 +166,6 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                 discountedUnitPriceJpy <= 3500
                   ? subsidyRmb
                   : 0;
-              const selectedLogisticsCostRmb =
-                productTestShipping.canUseOcsKunshan3cm
-                  ? productTestShipping.ocsKunshan3cmCostRmb
-                  : productTestShipping.ocsKunshanSmallParcelCostRmb;
               const adFeeRmb =
                 isValid
                   ? calculateAdFeeRmb({
@@ -183,7 +188,11 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                 {
                   temuPriceRmb,
                   finalSalePriceRmb,
+                  purchaseTotalCostRmb:
+                    pricing.purchaseCostRmb + pricing.purchaseShippingRmb,
+                  temuShippingSubsidyRmb: effectiveSubsidyRmb,
                   sfCostRmb: pricing.sfCostRmb,
+                  logisticsCostRmb: selectedLogisticsCostRmb,
                   adFeeRmb,
                   totalCostRmb,
                   profitRmb: isValid ? revenueRmb - totalCostRmb : null,
@@ -225,16 +234,18 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
               product.id,
               {
                 finalSalePriceRmb: displayedFinalSalePrice,
+                purchaseTotalCostRmb:
+                  representativeSummary === null
+                    ? null
+                    : Number(representativeSummary.purchaseTotalCostRmb.toFixed(2)),
+                temuShippingSubsidyRmb:
+                  representativeSummary === null
+                    ? null
+                    : Number(representativeSummary.temuShippingSubsidyRmb.toFixed(2)),
                 sfCostRmb: representativeSummary?.sfCostRmb ?? null,
-                sf3cmCostRmb: productTestShipping.canUseOcsKunshan3cm
-                  ? productTestShipping.sf3cmCostRmb
-                  : null,
                 canUseOcsKunshan3cm: productTestShipping.canUseOcsKunshan3cm,
-                logisticsMethod: (productTestShipping.canUseOcsKunshan3cm
-                  ? "OCS 昆山 3cm"
-                  : "OCS 昆山小包") as
-                  | "OCS 昆山 3cm"
-                  | "OCS 昆山小包",
+                logisticsMethod: selectedLogisticsMethod as "OCS 3cm" | "OCS 小包",
+                logisticsCostRmb: Number(selectedLogisticsCostRmb.toFixed(2)),
                 adFeeRmb:
                   representativeSummary === null
                     ? null
@@ -254,7 +265,7 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
         }
       } catch (error) {
         if (active) {
-          setErrorMessage(getErrorMessage(error, "加载测试阶段发货失败"));
+          setErrorMessage(getErrorMessage(error, "加载直发物流测算失败"));
         }
       } finally {
         if (active) {
@@ -271,7 +282,7 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
 
   return (
     <section className="grid gap-5">
-      <PageHeader title="测试发货" description="查看测试发货物流方案与利润表现" />
+      <PageHeader title="直发测算" description="查看直发物流方案与利润表现" />
 
       {errorMessage && (
         <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
@@ -293,8 +304,10 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                 <p className="mobile-summary-subtitle">{product.product_name_cn}</p>
                 <div className="mobile-summary-grid">
                   <div className="mobile-summary-cell">最终售价：{typeof summary?.finalSalePriceRmb === "number" ? formatCurrency(summary.finalSalePriceRmb) : "--"}</div>
+                  <div className="mobile-summary-cell">采购总成本：{typeof summary?.purchaseTotalCostRmb === "number" ? formatCurrency(summary.purchaseTotalCostRmb) : "--"}</div>
+                  <div className="mobile-summary-cell">Temu补贴：{typeof summary?.temuShippingSubsidyRmb === "number" ? formatCurrency(summary.temuShippingSubsidyRmb) : "--"}</div>
                   <div className="mobile-summary-cell">顺丰：{typeof summary?.sfCostRmb === "number" ? formatCurrency(summary.sfCostRmb) : "--"}</div>
-                  <div className="mobile-summary-cell">顺丰3cm：{typeof summary?.sf3cmCostRmb === "number" ? formatCurrency(summary.sf3cmCostRmb) : "--"}</div>
+                  <div className="mobile-summary-cell">物流运费：{typeof summary?.logisticsCostRmb === "number" ? formatCurrency(summary.logisticsCostRmb) : "--"}</div>
                   <div className="mobile-summary-cell">广告消耗：{typeof summary?.adFeeRmb === "number" ? formatCurrency(summary.adFeeRmb) : "--"}</div>
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -326,24 +339,26 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                 <th className="px-4 py-3 font-medium">商品编号</th>
                 <th className="product-name-col px-4 py-3 font-medium">产品名称</th>
                 <th className="px-4 py-3 font-medium">最终售价</th>
+                <th className="px-4 py-3 font-medium">采购总成本</th>
+                <th className="px-4 py-3 font-medium">Temu补贴</th>
                 <th className="px-4 py-3 font-medium">顺丰</th>
-                <th className="px-4 py-3 font-medium">顺丰3cm</th>
                 <th className="px-4 py-3 font-medium">广告消耗</th>
                 <th className="px-4 py-3 font-medium">3cm可用</th>
                 <th className="px-4 py-3 font-medium">物流方式</th>
+                <th className="px-4 py-3 font-medium">物流运费</th>
                 <th className="px-4 py-3 font-medium">利润（含广告）</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={11} className="px-4 py-8 text-center text-slate-500">
                     加载中...
                   </td>
                 </tr>
               ) : products.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={11} className="px-4 py-8 text-center text-slate-500">
                     暂无商品
                   </td>
                 </tr>
@@ -360,13 +375,18 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                           : "--"}
                       </td>
                       <td className="px-4 py-3">
-                        {typeof summary?.sfCostRmb === "number"
-                          ? formatCurrency(summary.sfCostRmb)
+                        {typeof summary?.purchaseTotalCostRmb === "number"
+                          ? formatCurrency(summary.purchaseTotalCostRmb)
                           : "--"}
                       </td>
                       <td className="px-4 py-3">
-                        {typeof summary?.sf3cmCostRmb === "number"
-                          ? formatCurrency(summary.sf3cmCostRmb)
+                        {typeof summary?.temuShippingSubsidyRmb === "number"
+                          ? formatCurrency(summary.temuShippingSubsidyRmb)
+                          : "--"}
+                      </td>
+                      <td className="px-4 py-3">
+                        {typeof summary?.sfCostRmb === "number"
+                          ? formatCurrency(summary.sfCostRmb)
                           : "--"}
                       </td>
                       <td className="px-4 py-3">
@@ -384,6 +404,11 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                       </td>
                       <td className="px-4 py-3">
                         {summary?.logisticsMethod ? <Badge tone="info">{summary.logisticsMethod}</Badge> : "--"}
+                      </td>
+                      <td className="px-4 py-3">
+                        {typeof summary?.logisticsCostRmb === "number"
+                          ? formatCurrency(summary.logisticsCostRmb)
+                          : "--"}
                       </td>
                       <td className="px-4 py-3">
                         {typeof summary?.profitRmb === "number"

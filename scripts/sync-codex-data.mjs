@@ -24,6 +24,7 @@ const tables = [
   "warehouse_skus",
   "warehouse_item_stocks",
   "warehouse_item_stock_adjustments",
+  "temu_orders",
   "purchase_orders",
   "purchase_order_sources",
   "purchase_order_items",

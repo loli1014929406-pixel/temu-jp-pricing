@@ -5,6 +5,9 @@ create table if not exists public.products (
   owner_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
   product_code text not null,
   product_name_cn text not null,
+  product_name_en text not null default '',
+  material_en text not null default '',
+  material_cn text not null default '',
   combo_name text not null,
   combo_description text not null,
   title_jp text not null,
@@ -69,7 +72,6 @@ create table if not exists public.pricing_settings (
   sf_first_weight_kg numeric not null default 1,
   sf_first_price_rmb numeric not null default 8,
   sf_extra_price_per_kg_rmb numeric not null default 2,
-  test_sf_3cm_price_rmb numeric not null default 0.4,
   huaian_air_price_per_kg_rmb numeric not null default 25,
   ocs_price_per_kg_rmb numeric not null default 20,
   ocs_tariff_rate numeric not null default 0,
@@ -304,9 +306,6 @@ add column if not exists test_ocs_3cm_first_price_rmb numeric not null default 1
 
 alter table public.pricing_settings
 add column if not exists test_ocs_3cm_extra_price_per_100g_rmb numeric not null default 1.5;
-
-alter table public.pricing_settings
-add column if not exists test_sf_3cm_price_rmb numeric not null default 0.4;
 
 alter table public.pricing_settings
 add column if not exists test_ocs_small_parcel_first_price_rmb numeric not null default 36.5;
@@ -623,9 +622,10 @@ on public.profit_calculations for delete
 using (auth.uid() = owner_id);
 
 drop policy if exists "warehouses_select_own" on public.warehouses;
-create policy "warehouses_select_own"
-on public.warehouses for select
-using (auth.uid() = owner_id);
+drop policy if exists "warehouses_select_authenticated" on public.warehouses;
+create policy "warehouses_select_authenticated"
+on public.warehouses for select to authenticated
+using (true);
 
 drop policy if exists "warehouses_insert_own" on public.warehouses;
 create policy "warehouses_insert_own"
@@ -644,9 +644,10 @@ on public.warehouses for delete
 using (auth.uid() = owner_id);
 
 drop policy if exists "warehouse_skus_select_own" on public.warehouse_skus;
-create policy "warehouse_skus_select_own"
-on public.warehouse_skus for select
-using (auth.uid() = owner_id);
+drop policy if exists "warehouse_skus_select_authenticated" on public.warehouse_skus;
+create policy "warehouse_skus_select_authenticated"
+on public.warehouse_skus for select to authenticated
+using (true);
 
 drop policy if exists "warehouse_skus_insert_own" on public.warehouse_skus;
 create policy "warehouse_skus_insert_own"
@@ -707,9 +708,10 @@ on public.warehouse_skus for delete
 using (auth.uid() = owner_id);
 
 drop policy if exists "warehouse_item_stocks_select_own" on public.warehouse_item_stocks;
-create policy "warehouse_item_stocks_select_own"
-on public.warehouse_item_stocks for select
-using (auth.uid() = owner_id);
+drop policy if exists "warehouse_item_stocks_select_authenticated" on public.warehouse_item_stocks;
+create policy "warehouse_item_stocks_select_authenticated"
+on public.warehouse_item_stocks for select to authenticated
+using (true);
 
 drop policy if exists "warehouse_item_stocks_insert_own" on public.warehouse_item_stocks;
 create policy "warehouse_item_stocks_insert_own"
@@ -756,9 +758,10 @@ on public.warehouse_item_stocks for delete
 using (auth.uid() = owner_id);
 
 drop policy if exists "warehouse_item_stock_adjustments_select_own" on public.warehouse_item_stock_adjustments;
-create policy "warehouse_item_stock_adjustments_select_own"
-on public.warehouse_item_stock_adjustments for select
-using (auth.uid() = owner_id);
+drop policy if exists "warehouse_item_stock_adjustments_select_authenticated" on public.warehouse_item_stock_adjustments;
+create policy "warehouse_item_stock_adjustments_select_authenticated"
+on public.warehouse_item_stock_adjustments for select to authenticated
+using (true);
 
 drop policy if exists "warehouse_item_stock_adjustments_insert_own" on public.warehouse_item_stock_adjustments;
 create policy "warehouse_item_stock_adjustments_insert_own"
@@ -1197,6 +1200,13 @@ create table if not exists public.temu_orders (
   order_no text not null,
   sub_order_no text not null default '',
   order_status text not null default '',
+  sku_code text not null default '',
+  warehouse_id uuid references public.warehouses(id) on delete set null,
+  warehouse_name text not null default '',
+  logistics_method text not null default '',
+  label_printed_at text not null default '',
+  logistics_tracking_no text not null default '',
+  logistics_status text not null default '',
   fulfillment_quantity integer not null default 0 check (fulfillment_quantity >= 0),
   product_attributes text not null default '',
   recipient_name text not null default '',

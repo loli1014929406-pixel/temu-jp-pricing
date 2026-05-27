@@ -14,9 +14,6 @@ export function validateTransferRecords(data: unknown): data is ProductTransferR
     return (
       typeof candidate.product_code === "string" &&
       typeof candidate.product_name_cn === "string" &&
-      typeof candidate.combo_name === "string" &&
-      typeof candidate.combo_description === "string" &&
-      typeof candidate.title_jp === "string" &&
       Array.isArray(candidate.items) &&
       Array.isArray(candidate.skus)
     );
@@ -80,6 +77,9 @@ export async function buildWorkbook(records: ProductTransferRecord[]) {
     product_index,
     product_code: record.product_code,
     product_name_cn: record.product_name_cn,
+    product_name_en: record.product_name_en,
+    material_en: record.material_en,
+    material_cn: record.material_cn,
     combo_name: record.combo_name,
     combo_description: record.combo_description,
     title_jp: record.title_jp,
@@ -126,6 +126,9 @@ export async function buildWorkbook(records: ProductTransferRecord[]) {
       product_index,
       product_code: record.product_code,
       product_name_cn: record.product_name_cn,
+      product_name_en: record.product_name_en,
+      material_en: record.material_en,
+      material_cn: record.material_cn,
       sku_index,
       sku_code: sku.sku_code,
       attributes: Object.entries(sku.attributes)
@@ -254,6 +257,17 @@ export async function parseTransferFile(file: File) {
     void product_index;
     return {
       ...productFields,
+      combo_name: String(productFields.combo_name ?? productFields.product_name_cn ?? ""),
+      combo_description: String(
+        productFields.combo_description ??
+          productFields.combo_name ??
+          productFields.product_name_cn ??
+          "",
+      ),
+      title_jp: String(productFields.title_jp ?? productFields.product_name_cn ?? ""),
+      product_name_en: String(productFields.product_name_en ?? ""),
+      material_en: String(productFields.material_en ?? ""),
+      material_cn: String(productFields.material_cn ?? ""),
       items: items
         .filter((item) => Number(item.product_index) === productIndex)
         .map(({ product_index: itemProductIndex, item_index, ...item }) => {

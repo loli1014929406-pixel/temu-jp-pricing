@@ -118,7 +118,7 @@ async function buildCalculationRules(snapshot) {
       {
         id: "test_shipping",
         source_file: "src/utils/test-shipping.ts",
-        description: "测试发货 3cm、小包和顺丰 3cm 物流方案判断。",
+        description: "直发 OCS 3cm 和 OCS 小包物流方案判断。",
       },
       {
         id: "promotion_recommendations",

@@ -283,30 +283,30 @@ export function ProductForm({
               }
             />
           </Field>
-          <Field label="产品名称">
+          <Field label="英文品名">
             <TextInput
               required
-              value={product.combo_name}
-              onChange={(event) => updateProduct("combo_name", event.target.value)}
+              value={product.product_name_en}
+              onChange={(event) =>
+                updateProduct("product_name_en", event.target.value)
+              }
             />
           </Field>
-          <Field label="商品日语标题">
+          <Field label="英文材质">
             <TextInput
               required
-              value={product.title_jp}
-              onChange={(event) => updateProduct("title_jp", event.target.value)}
+              value={product.material_en}
+              onChange={(event) => updateProduct("material_en", event.target.value)}
+            />
+          </Field>
+          <Field label="中文材质">
+            <TextInput
+              required
+              value={product.material_cn}
+              onChange={(event) => updateProduct("material_cn", event.target.value)}
             />
           </Field>
         </div>
-        <Field label="组合内容描述">
-          <TextArea
-            required
-            value={product.combo_description}
-            onChange={(event) =>
-              updateProduct("combo_description", event.target.value)
-            }
-          />
-        </Field>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Field label="包装长 cm">
             <TextInput

@@ -201,7 +201,7 @@ export function ProductsPage({ user }: ProductsPageProps) {
     <section className="grid gap-5">
       <PageHeader
         title="商品管理"
-        description="管理商品尺寸、重量与基础资料"
+        description="管理商品尺寸、重量与申报材质"
         actions={
           <>
           <button
@@ -331,6 +331,8 @@ export function ProductsPage({ user }: ProductsPageProps) {
                 />
               </div>
               <div className="mobile-summary-grid">
+                <div className="mobile-summary-cell">英文材质：{product.material_en || "--"}</div>
+                <div className="mobile-summary-cell">中文材质：{product.material_cn || "--"}</div>
                 <div className="mobile-summary-cell">长：{product.package_length_cm} cm</div>
                 <div className="mobile-summary-cell">宽：{product.package_width_cm} cm</div>
                 <div className="mobile-summary-cell">高：{product.package_height_cm} cm</div>
@@ -384,7 +386,9 @@ export function ProductsPage({ user }: ProductsPageProps) {
                   />
                 </th>
                 <th className="px-4 py-3 font-medium">商品编号</th>
-                <th className="product-name-col px-4 py-3 font-medium">产品名称</th>
+                <th className="product-name-col px-4 py-3 font-medium">中文名称</th>
+                <th className="px-4 py-3 font-medium">英文材质</th>
+                <th className="px-4 py-3 font-medium">中文材质</th>
                 <th className="px-4 py-3 font-medium">包装长</th>
                 <th className="px-4 py-3 font-medium">包装宽</th>
                 <th className="px-4 py-3 font-medium">包装高</th>
@@ -396,13 +400,13 @@ export function ProductsPage({ user }: ProductsPageProps) {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-10 text-center text-slate-500">
+                  <td colSpan={11} className="px-4 py-10 text-center text-slate-500">
                     加载中...
                   </td>
                 </tr>
               ) : products.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-10 text-center text-slate-500">
+                  <td colSpan={11} className="px-4 py-10 text-center text-slate-500">
                     暂无商品
                   </td>
                 </tr>
@@ -422,6 +426,8 @@ export function ProductsPage({ user }: ProductsPageProps) {
                     </td>
                     <td className="px-4 py-3">{product.product_code}</td>
                     <td className="product-name-col px-4 py-3">{product.product_name_cn}</td>
+                    <td className="px-4 py-3">{product.material_en || "--"}</td>
+                    <td className="px-4 py-3">{product.material_cn || "--"}</td>
                     <td className="number-cell">{product.package_length_cm} cm</td>
                     <td className="number-cell">{product.package_width_cm} cm</td>
                     <td className="number-cell">{product.package_height_cm} cm</td>

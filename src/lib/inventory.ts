@@ -38,12 +38,11 @@ async function requireSession() {
 }
 
 export async function fetchWarehouses() {
-  const { supabase, session } = await requireSession();
+  const { supabase } = await requireSession();
   const { data, error } = await withTimeout(
     supabase
       .from("warehouses")
       .select("*")
-      .eq("owner_id", session.user.id)
       .order("created_at", { ascending: true }),
     "加载仓库",
   );
@@ -106,13 +105,12 @@ export async function deleteWarehouse(warehouseId: string) {
 export async function fetchWarehouseSkus(warehouseIds: string[]) {
   if (warehouseIds.length === 0) return [] as WarehouseSku[];
 
-  const { supabase, session } = await requireSession();
+  const { supabase } = await requireSession();
   const { data, error } = await withTimeout(
     supabase
       .from("warehouse_skus")
       .select("*")
       .in("warehouse_id", warehouseIds)
-      .eq("owner_id", session.user.id)
       .order("created_at", { ascending: true }),
     "加载库存 SKU",
   );
@@ -124,13 +122,12 @@ export async function fetchWarehouseSkus(warehouseIds: string[]) {
 export async function fetchWarehouseItemStocks(warehouseIds: string[]) {
   if (warehouseIds.length === 0) return [] as WarehouseItemStock[];
 
-  const { supabase, session } = await requireSession();
+  const { supabase } = await requireSession();
   const { data, error } = await withTimeout(
     supabase
       .from("warehouse_item_stocks")
       .select("*")
       .in("warehouse_id", warehouseIds)
-      .eq("owner_id", session.user.id)
       .order("created_at", { ascending: true }),
     "加载仓库配件库存",
   );
@@ -142,13 +139,12 @@ export async function fetchWarehouseItemStocks(warehouseIds: string[]) {
 export async function fetchWarehouseItemStockAdjustments(warehouseIds: string[]) {
   if (warehouseIds.length === 0) return [] as WarehouseItemStockAdjustment[];
 
-  const { supabase, session } = await requireSession();
+  const { supabase } = await requireSession();
   const { data, error } = await withTimeout(
     supabase
       .from("warehouse_item_stock_adjustments")
       .select("*")
       .in("warehouse_id", warehouseIds)
-      .eq("owner_id", session.user.id)
       .order("created_at", { ascending: false }),
     "加载库存调整记录",
   );

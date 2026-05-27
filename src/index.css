@@ -30,58 +30,79 @@ a {
 
 @layer components {
   .erp-shell {
-    background:
-      linear-gradient(180deg, rgba(241, 245, 249, 0.98), #f8fafc 42%, #f1f5f9 100%),
-      radial-gradient(circle at 16% 0%, rgba(14, 165, 233, 0.08), transparent 32%),
-      radial-gradient(circle at 88% 8%, rgba(16, 185, 129, 0.08), transparent 28%);
+    @apply flex bg-white;
   }
 
-  .erp-topbar {
-    @apply sticky top-0 z-40 h-auto border-b border-slate-200 bg-white/95 shadow-soft backdrop-blur lg:h-16;
+  .erp-sidebar {
+    @apply fixed inset-y-0 left-0 z-40 flex w-[176px] flex-col border-r border-slate-200 bg-slate-50/95;
   }
 
-  .erp-command-bar {
-    @apply flex h-9 min-w-0 max-w-xl items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-600 shadow-inner;
+  .erp-sidebar-brand {
+    @apply flex h-16 items-center gap-3 px-5 text-base font-bold text-slate-950;
   }
 
-  .erp-icon-action {
-    @apply inline-flex h-9 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 shadow-soft transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-50;
+  .erp-brand-mark {
+    @apply inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-950 text-xs font-black tracking-tight text-white shadow-soft;
   }
 
-  .erp-module-nav {
-    @apply sticky top-[64px] z-30 border-b border-slate-200 bg-slate-900 shadow-sm lg:top-16;
+  .erp-side-nav {
+    @apply flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 pb-5 pt-2;
   }
 
-  .erp-nav-item {
-    @apply inline-flex h-10 shrink-0 items-center gap-2 rounded-md px-3 text-sm font-semibold text-slate-300 transition hover:bg-white/10 hover:text-white;
+  .erp-side-section {
+    @apply grid gap-1;
   }
 
-  .erp-nav-item-active {
-    @apply bg-white text-slate-950 shadow-sm hover:bg-white hover:text-slate-950;
+  .erp-side-section-title {
+    @apply px-3 py-2 text-xs font-semibold text-slate-400;
   }
 
-  .erp-page-context {
-    @apply border-b border-slate-200 bg-white;
+  .erp-side-nav-item {
+    @apply relative inline-flex h-10 items-center gap-3 rounded-lg px-3 text-sm font-semibold text-slate-600 transition hover:bg-white hover:text-slate-950;
   }
 
-  .erp-context-metric {
-    @apply rounded-md border border-slate-200 bg-slate-50 px-3 py-2;
+  .erp-side-nav-item svg {
+    @apply text-slate-400;
   }
 
-  .erp-context-metric span {
-    @apply block text-[11px] font-semibold uppercase tracking-wide text-slate-500;
+  .erp-side-nav-item-active {
+    @apply bg-violet-100 text-slate-950 shadow-soft;
   }
 
-  .erp-context-metric strong {
-    @apply mt-1 block truncate text-xs font-semibold text-slate-900;
+  .erp-side-nav-item-active svg {
+    @apply text-violet-600;
+  }
+
+  .erp-side-nav-item-active::after {
+    content: "";
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: #6d5dfc;
+    transform: translateY(-50%);
+  }
+
+  .erp-workspace {
+    @apply ml-[176px] flex min-h-screen min-w-0 flex-1 flex-col bg-white;
+  }
+
+  .erp-workspace-topbar {
+    @apply sticky top-0 z-30 flex h-[60px] items-center border-b border-slate-100 bg-white px-6;
+  }
+
+  .erp-main {
+    @apply min-w-0 flex-1 px-5 py-5;
   }
 
   .surface-card {
-    @apply rounded-lg border border-slate-200 bg-white shadow-soft;
+    @apply rounded-xl border border-slate-200 bg-white shadow-none;
   }
 
   .erp-panel {
-    @apply rounded-lg border border-slate-200 bg-white shadow-soft;
+    @apply rounded-xl border border-slate-200 bg-white shadow-none;
   }
 
   .page-title {
@@ -90,11 +111,11 @@ a {
   }
 
   .page-description {
-    @apply mt-1.5 max-w-3xl text-sm font-medium leading-6 text-slate-500;
+    @apply mt-1 max-w-3xl text-sm font-medium leading-5 text-slate-500;
   }
 
   .table-card {
-    @apply overflow-hidden rounded-lg border border-slate-200 bg-white shadow-soft;
+    @apply overflow-hidden rounded-xl border border-slate-200 bg-white shadow-none;
   }
 
   .table-card > .overflow-x-auto {
@@ -112,13 +133,13 @@ a {
     position: sticky;
     top: 0;
     z-index: 20;
-    background: #f8fafc;
+    background: #fbfbfc;
     color: #475569;
-    box-shadow: 0 1px 0 #e2e8f0, 0 2px 6px rgba(15, 23, 42, 0.04);
+    box-shadow: 0 1px 0 #eef2f7;
   }
 
   .data-table th {
-    @apply py-2.5 text-xs font-bold uppercase tracking-wide;
+    @apply py-3 text-xs font-bold tracking-normal text-slate-600;
     padding-left: 0.55rem !important;
     padding-right: 0.55rem !important;
     width: calc(4.25em + 1rem);
@@ -129,12 +150,12 @@ a {
     word-break: normal;
     overflow-wrap: normal;
     line-break: strict;
-    background: #f8fafc;
+    background: #fbfbfc;
     text-align: left;
   }
 
   .data-table td {
-    @apply py-2.5 align-middle text-slate-700;
+    @apply py-3 align-middle text-slate-700;
     padding-left: 0.55rem !important;
     padding-right: 0.55rem !important;
     text-align: left;
@@ -207,11 +228,11 @@ a {
   }
 
   .data-table tbody tr:nth-child(even) {
-    background: #fcfdff;
+    background: #fff;
   }
 
   .data-table tbody tr:hover {
-    background: #eff6ff;
+    background: #fafafa;
   }
 
   .data-table tbody tr.is-selected,
@@ -239,11 +260,11 @@ a {
   }
 
   .btn-primary {
-    @apply inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-md bg-sky-700 px-4 text-sm font-semibold text-white shadow-soft transition hover:bg-sky-800 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white shadow-soft transition hover:bg-slate-800 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .btn-secondary {
-    @apply inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-md border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 shadow-soft transition hover:border-slate-400 hover:bg-slate-50 hover:text-slate-950 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-soft transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .btn-danger {
@@ -315,7 +336,7 @@ a {
   }
 
   .erp-toolbar {
-    @apply rounded-lg border border-slate-200 bg-white p-3 shadow-soft;
+    @apply bg-white p-0 shadow-none;
   }
 
   .erp-status-success {
@@ -335,21 +356,48 @@ a {
   }
 
   @media (max-width: 1023px) {
-    .erp-module-nav {
-      top: 64px;
+    .erp-sidebar {
+      @apply fixed inset-x-0 bottom-auto top-0 h-auto w-full border-b border-r-0;
+    }
+
+    .erp-sidebar-brand {
+      @apply h-14 px-4;
+    }
+
+    .erp-side-nav {
+      @apply flex-row gap-2 overflow-x-auto px-3 pb-3 pt-0;
+    }
+
+    .erp-side-section {
+      @apply flex shrink-0 items-center gap-2;
+    }
+
+    .erp-side-section-title {
+      @apply hidden;
+    }
+
+    .erp-side-nav-item {
+      @apply h-9 shrink-0;
+    }
+
+    .erp-side-nav-item-active::after {
+      display: none;
+    }
+
+    .erp-workspace {
+      @apply ml-0 pt-[104px];
+    }
+
+    .erp-workspace-topbar {
+      @apply top-[104px] h-12 px-4;
+    }
+
+    .erp-main {
+      @apply px-4 py-4;
     }
   }
 
   @media (max-width: 768px) {
-    .erp-topbar {
-      @apply py-3;
-    }
-
-    .erp-module-nav {
-      position: sticky;
-      top: 74px;
-    }
-
     .page-title {
       @apply text-lg;
     }

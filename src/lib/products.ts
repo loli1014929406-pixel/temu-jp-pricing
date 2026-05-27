@@ -45,6 +45,47 @@ async function requireSession() {
   return { supabase, session };
 }
 
+function normalizeProductDraft(product: ProductDraft): ProductDraft {
+  const productNameCn = product.product_name_cn.trim();
+  const comboName = product.combo_name.trim() || productNameCn;
+  const comboDescription = product.combo_description.trim() || comboName || productNameCn;
+  const titleJp = product.title_jp.trim() || productNameCn;
+
+  return {
+    ...product,
+    product_code: product.product_code.trim(),
+    product_name_cn: productNameCn,
+    product_name_en: product.product_name_en.trim(),
+    material_en: product.material_en.trim(),
+    material_cn: product.material_cn.trim(),
+    combo_name: comboName,
+    combo_description: comboDescription,
+    title_jp: titleJp,
+  };
+}
+
+function normalizeProductRow(row: Partial<Product>): Product {
+  return {
+    id: String(row.id ?? ""),
+    owner_id: String(row.owner_id ?? ""),
+    product_code: String(row.product_code ?? ""),
+    product_name_cn: String(row.product_name_cn ?? ""),
+    product_name_en: String(row.product_name_en ?? ""),
+    material_en: String(row.material_en ?? ""),
+    material_cn: String(row.material_cn ?? ""),
+    combo_name: String(row.combo_name ?? ""),
+    combo_description: String(row.combo_description ?? ""),
+    title_jp: String(row.title_jp ?? ""),
+    package_length_cm: Number(row.package_length_cm ?? 0),
+    package_width_cm: Number(row.package_width_cm ?? 0),
+    package_height_cm: Number(row.package_height_cm ?? 0),
+    package_weight_g: Number(row.package_weight_g ?? 0),
+    notes: row.notes ?? "",
+    created_at: String(row.created_at ?? ""),
+    updated_at: String(row.updated_at ?? ""),
+  };
+}
+
 export async function fetchProducts() {
   const { supabase } = await requireSession();
   const pageSize = 1000;
@@ -63,7 +104,7 @@ export async function fetchProducts() {
 
     if (error) throw error;
 
-    const chunk = (data ?? []) as Product[];
+    const chunk = ((data ?? []) as Partial<Product>[]).map(normalizeProductRow);
     rows.push(...chunk);
 
     if (chunk.length < pageSize) break;
@@ -100,7 +141,7 @@ export async function fetchProduct(productKey: string) {
 
     if (productByIdError) throw productByIdError;
     if (productById) {
-      const product = productById as Product;
+      const product = normalizeProductRow(productById as Partial<Product>);
       if (product.product_code.trim()) {
         throw new Error("请使用商品编号访问该商品");
       }
@@ -118,7 +159,7 @@ export async function fetchProduct(productKey: string) {
   );
 
   if (error) throw error;
-  return data as Product;
+  return normalizeProductRow(data as Partial<Product>);
 }
 
 async function assertProductCodeAvailable(productCode: string, excludedProductId?: string) {
@@ -348,10 +389,7 @@ export async function createProduct(
   items: ProductItem[],
   skus: ProductSkuDraft[],
 ) {
-  const normalizedProduct = {
-    ...product,
-    product_code: product.product_code.trim(),
-  };
+  const normalizedProduct = normalizeProductDraft(product);
   await assertProductCodeAvailable(normalizedProduct.product_code);
 
   const { supabase } = await requireSession();
@@ -372,10 +410,7 @@ export async function updateProduct(
   items: ProductItem[],
   skus: ProductSkuDraft[],
 ) {
-  const normalizedProduct = {
-    ...product,
-    product_code: product.product_code.trim(),
-  };
+  const normalizedProduct = normalizeProductDraft(product);
   await assertProductCodeAvailable(normalizedProduct.product_code, productId);
 
   const { supabase } = await requireSession();

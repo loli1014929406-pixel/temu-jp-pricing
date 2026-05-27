@@ -28,6 +28,7 @@ import type {
   WarehouseSku,
 } from "../types";
 import { getErrorMessage } from "../utils/errors";
+import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../utils/sku-code";
 import { PageHeader } from "../components/ui";
 import { usePermissions } from "../hooks/use-permissions";
 
@@ -151,6 +152,28 @@ export function InventoryPage({ user }: InventoryPageProps) {
     groups[sku.product_id].push(sku);
     return groups;
   }, {});
+
+  const skuDisplayCodesById = useMemo(() => {
+    const codesById: Record<string, string> = {};
+
+    Object.entries(skusByProductId).forEach(([productId, productSkus]) => {
+      const product = productsById[productId];
+      productSkus.forEach((sku, index) => {
+        if (!sku.id) return;
+        codesById[sku.id] =
+          product && isLegacyDefaultSkuCode(sku.sku_code)
+            ? buildDefaultSkuCode(product.product_code, index)
+            : sku.sku_code;
+      });
+    });
+
+    return codesById;
+  }, [productsById, skusByProductId]);
+
+  function getSkuDisplayCode(sku?: ProductSku) {
+    if (!sku?.id) return "--";
+    return skuDisplayCodesById[sku.id] || sku.sku_code || "--";
+  }
 
   const warehouseSkusByWarehouseId = warehouseSkus.reduce<
     Record<string, WarehouseSku[]>
@@ -430,8 +453,8 @@ export function InventoryPage({ user }: InventoryPageProps) {
               );
               if (byProductCode !== 0) return byProductCode;
 
-              const leftSkuCode = skusById[left.sku_id]?.sku_code ?? "";
-              const rightSkuCode = skusById[right.sku_id]?.sku_code ?? "";
+              const leftSkuCode = getSkuDisplayCode(skusById[left.sku_id]);
+              const rightSkuCode = getSkuDisplayCode(skusById[right.sku_id]);
               const bySkuCode = productCodeCollator.compare(rightSkuCode, leftSkuCode);
               if (bySkuCode !== 0) return bySkuCode;
 
@@ -545,7 +568,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                 <tr>
                                   <td className="px-4 py-3">{product?.product_code ?? "--"}</td>
                                   <td className="product-name-col px-4 py-3">{product?.product_name_cn ?? "--"}</td>
-                                  <td className="px-4 py-3">{sku?.sku_code ?? "--"}</td>
+                                  <td className="px-4 py-3">{getSkuDisplayCode(sku)}</td>
                                   <td className="px-4 py-3">
                                     {sku && Object.keys(sku.attributes).length > 0 ? (
                                       <div className="grid gap-1">

@@ -33,11 +33,10 @@ const fieldGroups: Array<{
       { key: "sf_first_weight_kg", label: "顺丰首重 kg", step: "0.01" },
       { key: "sf_first_price_rmb", label: "顺丰首重价格 RMB", step: "0.01" },
       { key: "sf_extra_price_per_kg_rmb", label: "顺丰续重价格 RMB/kg", step: "0.01" },
-      { key: "test_sf_3cm_price_rmb", label: "顺丰 3cm 运费 RMB", step: "0.01" },
     ],
   },
   {
-    title: "正常阶段物流设置",
+    title: "日本发货物流设置",
     fields: [
       { key: "huaian_air_price_per_kg_rmb", label: "淮安空运 RMB/kg", step: "0.01" },
       { key: "ocs_price_per_kg_rmb", label: "OCS RMB/kg", step: "0.01" },
@@ -46,22 +45,22 @@ const fieldGroups: Array<{
     ],
   },
   {
-    title: "测试阶段物流设置",
+    title: "直发物流设置",
     fields: [
-      { key: "test_ocs_3cm_first_price_rmb", label: "OCS 昆山 3cm 首重价格 RMB", step: "0.01" },
+      { key: "test_ocs_3cm_first_price_rmb", label: "OCS 3cm 首重价格 RMB", step: "0.01" },
       {
         key: "test_ocs_3cm_extra_price_per_100g_rmb",
-        label: "OCS 昆山 3cm 续重价格 RMB/100g",
+        label: "OCS 3cm 续重价格 RMB/100g",
         step: "0.01",
       },
       {
         key: "test_ocs_small_parcel_first_price_rmb",
-        label: "OCS 昆山小包首重价格 RMB",
+        label: "OCS 小包首重价格 RMB",
         step: "0.01",
       },
       {
         key: "test_ocs_small_parcel_extra_price_per_500g_rmb",
-        label: "OCS 昆山小包续重价格 RMB/500g",
+        label: "OCS 小包续重价格 RMB/500g",
         step: "0.01",
       },
     ],

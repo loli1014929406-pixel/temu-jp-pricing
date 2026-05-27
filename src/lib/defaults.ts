@@ -13,7 +13,6 @@ export const defaultSettings: PricingSettings = {
   sf_first_weight_kg: 1,
   sf_first_price_rmb: 8,
   sf_extra_price_per_kg_rmb: 2,
-  test_sf_3cm_price_rmb: 0.4,
   huaian_air_price_per_kg_rmb: 25,
   ocs_price_per_kg_rmb: 20,
   osaka_lastmile_jpy: 260,
@@ -29,6 +28,9 @@ export const defaultSettings: PricingSettings = {
 export const emptyProductDraft: ProductDraft = {
   product_code: "",
   product_name_cn: "",
+  product_name_en: "",
+  material_en: "",
+  material_cn: "",
   combo_name: "",
   combo_description: "",
   title_jp: "",

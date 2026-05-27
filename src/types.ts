@@ -3,6 +3,9 @@ export type Product = {
   owner_id: string;
   product_code: string;
   product_name_cn: string;
+  product_name_en: string;
+  material_en: string;
+  material_cn: string;
   combo_name: string;
   combo_description: string;
   title_jp: string;
@@ -71,7 +74,6 @@ export type PricingSettings = {
   sf_first_weight_kg: number;
   sf_first_price_rmb: number;
   sf_extra_price_per_kg_rmb: number;
-  test_sf_3cm_price_rmb: number;
   huaian_air_price_per_kg_rmb: number;
   ocs_price_per_kg_rmb: number;
   ocs_tariff_rate?: number;
@@ -158,7 +160,6 @@ export type ProfitCalculationResult = {
 
 export type TestShippingResult = {
   sfCostRmb: number;
-  sf3cmCostRmb: number;
   ocsKunshan3cmCostRmb: number;
   ocsKunshanSmallParcelCostRmb: number;
   canUseOcsKunshan3cm: boolean;
@@ -316,6 +317,13 @@ export type TemuOrderRecord = {
   order_no: string;
   sub_order_no: string;
   order_status: string;
+  sku_code: string;
+  warehouse_id: string | null;
+  warehouse_name: string;
+  logistics_method: string;
+  label_printed_at: string;
+  logistics_tracking_no: string;
+  logistics_status: string;
   fulfillment_quantity: number;
   product_attributes: string;
   recipient_name: string;
