@@ -236,6 +236,7 @@ export function ProductForm({
     onSkusChange(
       matrix.map((attributes, index) => ({
         sku_code: buildDefaultSkuCode(product.product_code, index),
+        temu_image_url: "",
         attributes,
         notes: "",
         component_links: items.map((item, index) => ({
@@ -600,7 +601,7 @@ export function ProductForm({
                   key={sku.id ?? `sku-${skuIndex}`}
                   className="grid gap-4 rounded-md border border-line bg-slate-50/40 p-4"
                 >
-                  <div className="grid gap-4 lg:grid-cols-[220px_minmax(220px,1fr)_auto] lg:items-start">
+                  <div className="grid gap-4 lg:grid-cols-[220px_minmax(260px,1fr)_minmax(260px,1fr)_auto] lg:items-start">
                     <Field label="SKU编号">
                       <TextInput
                         required
@@ -608,6 +609,17 @@ export function ProductForm({
                         onChange={(event) =>
                           updateSku(skuIndex, "sku_code", event.target.value)
                         }
+                      />
+                    </Field>
+
+                    <Field label="Temu图片链接">
+                      <TextInput
+                        type="url"
+                        value={sku.temu_image_url}
+                        onChange={(event) =>
+                          updateSku(skuIndex, "temu_image_url", event.target.value)
+                        }
+                        placeholder="https://img.kwcdn.com/..."
                       />
                     </Field>
 

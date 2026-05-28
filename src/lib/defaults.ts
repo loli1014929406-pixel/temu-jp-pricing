@@ -43,6 +43,7 @@ export const emptyProductDraft: ProductDraft = {
 
 export const createEmptySku = (): ProductSkuDraft => ({
   sku_code: "",
+  temu_image_url: "",
   attributes: {},
   notes: "",
   component_links: [],

@@ -86,6 +86,29 @@ function normalizeProductRow(row: Partial<Product>): Product {
   };
 }
 
+function isMissingTemuImageColumnError(error: unknown) {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "object" && error !== null && "message" in error
+        ? String((error as { message?: unknown }).message ?? "")
+        : String(error ?? "");
+  return message.includes("temu_image_url");
+}
+
+function normalizeSkuRow<T extends Partial<ProductSku>>(sku: T): T & { temu_image_url: string } {
+  return {
+    ...sku,
+    temu_image_url: String(sku.temu_image_url ?? ""),
+  };
+}
+
+function withoutSkuTemuImageUrl<T extends Partial<ProductSku>>(sku: T) {
+  const { temu_image_url, ...legacySku } = sku;
+  void temu_image_url;
+  return legacySku;
+}
+
 export async function fetchProducts() {
   const { supabase } = await requireSession();
   const pageSize = 1000;
@@ -243,7 +266,7 @@ export async function fetchProductSkus(productId: string) {
 
   if (error) throw error;
 
-  const baseSkus = data as Omit<ProductSku, "component_links">[];
+  const baseSkus = (data as Omit<ProductSku, "component_links">[]).map(normalizeSkuRow);
   const links = await fetchSkuLinks(
     baseSkus.flatMap((sku) => (sku.id ? [sku.id] : [])),
   );
@@ -274,7 +297,7 @@ export async function fetchProductSkusByProductIds(productIds: string[]) {
     .order("created_at", { ascending: true });
 
   if (error) throw error;
-  const baseSkus = data as Omit<ProductSku, "component_links">[];
+  const baseSkus = (data as Omit<ProductSku, "component_links">[]).map(normalizeSkuRow);
   const links = await fetchSkuLinks(
     baseSkus.flatMap((sku) => (sku.id ? [sku.id] : [])),
   );
@@ -337,7 +360,7 @@ async function insertSkus(
     void product_id;
     void owner_id;
 
-    const { data: createdSku, error: skuError } = await withTimeout(
+    let { data: createdSku, error: skuError } = await withTimeout(
       supabase
         .from("product_skus")
         .insert({
@@ -348,7 +371,26 @@ async function insertSkus(
         .single(),
       "保存 SKU",
     );
+    if (skuError && isMissingTemuImageColumnError(skuError) && !skuPayload.temu_image_url) {
+      const legacySkuResult = await withTimeout(
+        supabase
+          .from("product_skus")
+          .insert({
+            ...withoutSkuTemuImageUrl(skuPayload),
+            product_id: productId,
+          })
+          .select()
+          .single(),
+        "保存 SKU",
+      );
+      createdSku = legacySkuResult.data;
+      skuError = legacySkuResult.error;
+    }
+    if (skuError && isMissingTemuImageColumnError(skuError)) {
+      throw new Error("商品 SKU 数据库还没有新增 Temu 图片链接字段，请先执行最新商品迁移。");
+    }
     if (skuError) throw skuError;
+    if (!createdSku) throw new Error("保存 SKU 失败，未返回保存结果。");
 
     const linkRows = component_links
       .map((link) => ({
@@ -367,7 +409,7 @@ async function insertSkus(
     }
 
     createdSkus.push({
-      ...(createdSku as Omit<ProductSku, "component_links">),
+      ...normalizeSkuRow(createdSku as Omit<ProductSku, "component_links">),
       component_links: [],
     });
   }

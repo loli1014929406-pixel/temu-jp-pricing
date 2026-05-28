@@ -23,6 +23,7 @@ export type ProductSku = {
   product_id?: string;
   owner_id?: string;
   sku_code: string;
+  temu_image_url: string;
   attributes: Record<string, string>;
   notes: string;
   component_links: ProductSkuItemLink[];
@@ -186,6 +187,7 @@ export type ProductTransferItem = Omit<
 
 export type ProductTransferSku = {
   sku_code: string;
+  temu_image_url: string;
   attributes: Record<string, string>;
   notes: string;
   component_links: Array<{

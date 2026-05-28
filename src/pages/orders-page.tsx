@@ -4,7 +4,6 @@ import {
   Download,
   Eye,
   FileSpreadsheet,
-  PackageMinus,
   RefreshCw,
   Save,
   Search,
@@ -57,6 +56,7 @@ type OrderStage =
   | "new_order"
   | "pending_shipping"
   | "shipped"
+  | "uploaded_temu"
   | "completed";
 
 type OrderSortKey = "ship_deadline" | "delivery_deadline" | "product";
@@ -128,6 +128,7 @@ const stageDefinitions = [
   { key: "new_order", label: "新订单", tone: "info" },
   { key: "pending_shipping", label: "待发货", tone: "warning" },
   { key: "shipped", label: "已发货", tone: "success" },
+  { key: "uploaded_temu", label: "上传Temu", tone: "info" },
   { key: "completed", label: "已完成", tone: "neutral" },
 ] satisfies Array<{
   key: OrderStage;
@@ -144,6 +145,9 @@ const restrictedLogisticsMethods = new Set<string>(defaultLogisticsMethods);
 const rmbPerUsdForDeclaration = 7;
 const defaultOrderSort: OrderSort = { key: "ship_deadline", direction: "asc" };
 const ocsTrackingBaseUrl = "https://webcsw.ocs.co.jp/csw/ECSWG0201R00003P.do";
+const uploadedTemuOrderStatus = "上传Temu";
+const legacyUploadedTemuOrderStatus = "已上传Temu";
+const urgentUnuploadedDeadlineMs = 12 * 60 * 60 * 1000;
 
 const visibleColumns = [
   { key: "order_no", label: "订单号", className: "order-no-col" },
@@ -376,9 +380,95 @@ function buildSkuOrderLookup(products: Product[], skus: ProductSku[]) {
   return { salesSpecByCode, skuByCode, skuBySalesSpec };
 }
 
+function SkuImageThumb({ product, sku }: { product: Product; sku: ProductSku }) {
+  const imageUrl = sku.temu_image_url.trim();
+  if (!imageUrl) return null;
+
+  return (
+    <img
+      src={imageUrl}
+      alt={`${product.product_name_cn} ${formatSkuSalesSpec(sku)}`.trim()}
+      loading="lazy"
+      referrerPolicy="no-referrer"
+      onError={(event) => {
+        event.currentTarget.style.display = "none";
+      }}
+      className="h-12 w-12 shrink-0 rounded-md border border-slate-200 object-cover"
+    />
+  );
+}
+
 function parseFulfillmentQuantity(value: string) {
   const quantity = Number(value);
   return Number.isFinite(quantity) && quantity > 0 ? Math.trunc(quantity) : 0;
+}
+
+function getOrderNoKey(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function isUploadedTemuStatus(value: string) {
+  const status = value.trim().toLowerCase();
+  return (
+    status === uploadedTemuOrderStatus.toLowerCase() ||
+    status === legacyUploadedTemuOrderStatus.toLowerCase()
+  );
+}
+
+function isShippingTrackingStage(stage: OrderStage) {
+  return stage === "shipped" || stage === "uploaded_temu";
+}
+
+function getOrderDedupStageRank(order: TemuOrderRecord) {
+  if (order.actual_signed_time.trim()) return 6;
+  if (isUploadedTemuStatus(order.order_status)) return 5;
+  if (order.actual_ship_time.trim() || order.logistics_tracking_no.trim()) return 4;
+  if (order.label_printed_at.trim()) return 3;
+  if (order.warehouse_id || order.warehouse_name.trim()) return 2;
+  if (order.order_status.trim()) return 1;
+  return 0;
+}
+
+function shouldReplaceDuplicateOrder(
+  current: TemuOrderRecord,
+  candidate: TemuOrderRecord,
+) {
+  const currentStageRank = getOrderDedupStageRank(current);
+  const candidateStageRank = getOrderDedupStageRank(candidate);
+  if (candidateStageRank !== currentStageRank) {
+    return candidateStageRank > currentStageRank;
+  }
+
+  return candidate.updated_at.localeCompare(current.updated_at) > 0;
+}
+
+function dedupeOrdersByOrderNo(orders: TemuOrderRecord[]) {
+  const uniqueOrders = new Map<string, TemuOrderRecord>();
+
+  orders.forEach((order) => {
+    const key = getOrderNoKey(order.order_no);
+    if (!key) return;
+
+    const current = uniqueOrders.get(key);
+    if (!current || shouldReplaceDuplicateOrder(current, order)) {
+      uniqueOrders.set(key, order);
+    }
+  });
+
+  return Array.from(uniqueOrders.values());
+}
+
+function dedupeImportRowsByOrderNo(rows: TemuOrderImportRow[]) {
+  const uniqueRows = new Map<string, TemuOrderImportRow>();
+
+  rows.forEach((row) => {
+    const key = getOrderNoKey(row.order_no);
+    if (key && !uniqueRows.has(key)) {
+      uniqueRows.set(key, row);
+    }
+  });
+
+  return Array.from(uniqueRows.values());
 }
 
 function parseTrackingImportRecord(row: Record<string, unknown>, index: number): TrackingImportRecord | null {
@@ -446,7 +536,8 @@ function formatRecipientName(name: string) {
 
 function getOrderStage(order: TemuOrderRecord): Exclude<OrderStage, "all"> {
   if (order.actual_signed_time.trim()) return "completed";
-  if (order.actual_ship_time.trim()) return "shipped";
+  if (isUploadedTemuStatus(order.order_status)) return "uploaded_temu";
+  if (order.actual_ship_time.trim() || order.logistics_tracking_no.trim()) return "shipped";
   if (order.label_printed_at.trim()) return "pending_shipping";
   if (order.warehouse_id || order.warehouse_name.trim()) return "new_order";
   return "pending_assignment";
@@ -542,6 +633,32 @@ function getCountdownBadge(value: string, now: Date) {
     : { label: `超时 ${formatDuration(Math.abs(diff))}`, tone: "danger" as const };
 }
 
+function getShipDeadlineBadge(order: TemuOrderRecord, now: Date) {
+  const actualShipTime = order.actual_ship_time.trim();
+  if (!actualShipTime) return getCountdownBadge(order.latest_ship_time, now);
+
+  const deadlineDate = parseOrderDateTime(order.latest_ship_time);
+  const actualShipDate = parseOrderDateTime(actualShipTime);
+  if (!deadlineDate || !actualShipDate) {
+    return { label: actualShipTime, tone: "neutral" as const };
+  }
+
+  return actualShipDate.getTime() <= deadlineDate.getTime()
+    ? { label: "期限内发货", tone: "success" as const }
+    : { label: "期限外发货", tone: "danger" as const };
+}
+
+function isUrgentUnuploadedOrder(order: TemuOrderRecord, now: Date) {
+  const stage = getOrderStage(order);
+  if (stage === "uploaded_temu" || stage === "completed") return false;
+
+  const deadlineDate = parseOrderDateTime(order.latest_ship_time);
+  if (!deadlineDate) return false;
+
+  const diff = deadlineDate.getTime() - now.getTime();
+  return diff >= 0 && diff <= urgentUnuploadedDeadlineMs;
+}
+
 function getOrderDeadlineTimestamp(value: string) {
   return parseOrderDateTime(value)?.getTime() ?? null;
 }
@@ -601,6 +718,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
   const [detailOrder, setDetailOrder] = useState<TemuOrderRecord | null>(null);
   const [currentTime, setCurrentTime] = useState(() => new Date());
   const [orderSort, setOrderSort] = useState<OrderSort>(defaultOrderSort);
+  const [showUrgentUnuploadedOnly, setShowUrgentUnuploadedOnly] = useState(false);
   const autoQueriedTrackingNosRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -622,14 +740,15 @@ export function OrdersPage({ user }: OrdersPageProps) {
           fetchWarehouseItemStocks(nextWarehouses.map((warehouse) => warehouse.id)),
         ]);
         if (!active) return;
-        setOrders(nextOrders);
+        const uniqueOrders = dedupeOrdersByOrderNo(nextOrders);
+        setOrders(uniqueOrders);
         setWarehouses(nextWarehouses);
         setProducts(nextProducts);
         setProductItems(nextProductItems);
         setProductSkus(nextProductSkus);
         setWarehouseSkus(nextWarehouseSkus);
         setWarehouseItemStocks(nextWarehouseItemStocks);
-        setDrafts(Object.fromEntries(nextOrders.map((order) => [order.id, toDraft(order)])));
+        setDrafts(Object.fromEntries(uniqueOrders.map((order) => [order.id, toDraft(order)])));
       } catch (error) {
         if (active) setErrorMessage(getOrdersErrorMessage(error, "加载订单失败"));
       } finally {
@@ -712,9 +831,23 @@ export function OrdersPage({ user }: OrdersPageProps) {
     [logisticsMethodOptions, selectedBulkWarehouse],
   );
 
+  const urgentUnuploadedOrders = useMemo(
+    () => orders.filter((order) => isUrgentUnuploadedOrder(order, currentTime)),
+    [currentTime, orders],
+  );
+
+  useEffect(() => {
+    if (showUrgentUnuploadedOnly && urgentUnuploadedOrders.length === 0) {
+      setShowUrgentUnuploadedOnly(false);
+    }
+  }, [showUrgentUnuploadedOnly, urgentUnuploadedOrders.length]);
+
   const filteredOrders = useMemo(() => {
     const term = search.trim().toLowerCase();
     const nextOrders = orders.filter((order) => {
+      if (showUrgentUnuploadedOnly && !isUrgentUnuploadedOrder(order, currentTime)) {
+        return false;
+      }
       if (activeStage !== "all" && getOrderStage(order) !== activeStage) return false;
       if (!term) return true;
 
@@ -765,14 +898,23 @@ export function OrdersPage({ user }: OrdersPageProps) {
         orderSort.direction === "asc" ? comparison : -comparison;
       return directedComparison || left.order_no.localeCompare(right.order_no);
     });
-  }, [activeStage, orders, orderSort, search, productsById, skuOrderLookup]);
+  }, [
+    activeStage,
+    currentTime,
+    orders,
+    orderSort,
+    productsById,
+    search,
+    showUrgentUnuploadedOnly,
+    skuOrderLookup,
+  ]);
 
   const tableColumns = useMemo(
     () =>
       visibleColumns.filter(
         (column) =>
           (activeStage === "all" || column.key !== "stage") &&
-          (!column.shippedOnly || activeStage === "shipped"),
+          (!column.shippedOnly || isShippingTrackingStage(activeStage)),
       ),
     [activeStage],
   );
@@ -810,6 +952,24 @@ export function OrdersPage({ user }: OrdersPageProps) {
     [filteredOrders, selectedOrderIdSet],
   );
 
+  const selectedUploadedTemuOrdersInView = useMemo(
+    () =>
+      filteredOrders.filter(
+        (order) =>
+          selectedOrderIdSet.has(order.id) && getOrderStage(order) === "uploaded_temu",
+      ),
+    [filteredOrders, selectedOrderIdSet],
+  );
+
+  const selectedCompletableOrdersInView = useMemo(
+    () =>
+      filteredOrders.filter(
+        (order) =>
+          selectedOrderIdSet.has(order.id) && getOrderStage(order) === "uploaded_temu",
+      ),
+    [filteredOrders, selectedOrderIdSet],
+  );
+
   const selectedOrdersInView = useMemo(
     () => filteredOrders.filter((order) => selectedOrderIdSet.has(order.id)),
     [filteredOrders, selectedOrderIdSet],
@@ -821,7 +981,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
   const shippedOrdersWithTrackingInView = useMemo(
     () =>
       filteredOrders.filter(
-        (order) => getOrderStage(order) === "shipped" && order.logistics_tracking_no.trim(),
+        (order) =>
+          isShippingTrackingStage(getOrderStage(order)) && order.logistics_tracking_no.trim(),
       ),
     [filteredOrders],
   );
@@ -830,7 +991,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
     filteredOrders.every((order) => selectedOrderIdSet.has(order.id));
 
   useEffect(() => {
-    if (!canEdit || loading || activeStage !== "shipped" || busyKey) return;
+    if (!canEdit || loading || !isShippingTrackingStage(activeStage) || busyKey) return;
 
     const targetOrders = shippedOrdersWithTrackingInView.filter((order) => {
       const trackingNo = order.logistics_tracking_no.trim();
@@ -1188,11 +1349,40 @@ export function OrdersPage({ user }: OrdersPageProps) {
       });
       if (importRows.length === 0) throw new Error("没有读取到可导入的订单行");
 
-      await importTemuOrders(importRows);
-      const nextOrders = await fetchTemuOrders();
+      const uniqueImportRows = dedupeImportRowsByOrderNo(importRows);
+      const skippedDuplicateCount = importRows.length - uniqueImportRows.length;
+      const existingOrders = await fetchTemuOrders();
+      const existingOrderNoSet = new Set(
+        existingOrders
+          .map((order) => getOrderNoKey(order.order_no))
+          .filter(Boolean),
+      );
+      const newImportRows = uniqueImportRows.filter(
+        (row) => !existingOrderNoSet.has(getOrderNoKey(row.order_no)),
+      );
+      const skippedExistingCount = uniqueImportRows.length - newImportRows.length;
+
+      if (newImportRows.length > 0) {
+        await importTemuOrders(newImportRows);
+      }
+
+      const nextOrders = dedupeOrdersByOrderNo(
+        newImportRows.length > 0 ? await fetchTemuOrders() : existingOrders,
+      );
       setOrders(nextOrders);
       setDrafts(Object.fromEntries(nextOrders.map((order) => [order.id, toDraft(order)])));
-      setNoticeMessage(`已导入 ${importRows.length} 条订单数据`);
+      const skipMessages = [
+        skippedDuplicateCount > 0 ? `跳过上传表内重复订单号 ${skippedDuplicateCount} 行` : "",
+        skippedExistingCount > 0 ? `跳过已有订单 ${skippedExistingCount} 条` : "",
+      ].filter(Boolean);
+      setNoticeMessage(
+        [
+          newImportRows.length > 0
+            ? `已导入 ${newImportRows.length} 条新订单`
+            : "没有新增订单",
+          ...skipMessages,
+        ].join("，"),
+      );
     } catch (error) {
       setErrorMessage(getOrdersErrorMessage(error, "导入订单失败"));
     } finally {
@@ -1255,14 +1445,13 @@ export function OrdersPage({ user }: OrdersPageProps) {
         return;
       }
 
-      const shippedAt = formatLocalDateTime();
       const nextOrders = await Promise.all(
         matchedPairs.map(({ order, trackingRow }) => {
           const draft = drafts[order.id] ?? toDraft(order);
           return updateTemuOrder(order.id, {
             ...draft,
             order_status: "已发货",
-            actual_ship_time: draft.actual_ship_time.trim() || shippedAt,
+            actual_ship_time: "",
             logistics_tracking_no: trackingRow.trackingNo,
             logistics_status: "待查询",
           });
@@ -1368,6 +1557,29 @@ export function OrdersPage({ user }: OrdersPageProps) {
       setNoticeMessage(`已保存 ${nextOrders.length} 条订单`);
     } catch (error) {
       setErrorMessage(getOrdersErrorMessage(error, "保存订单失败"));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
+  async function handleSaveActualShipTime(order: TemuOrderRecord) {
+    if (!canEdit) return;
+    if (getOrderStage(order) !== "uploaded_temu") return;
+
+    const nextActualShipTime = (drafts[order.id] ?? toDraft(order)).actual_ship_time.trim();
+    if (nextActualShipTime === order.actual_ship_time.trim()) return;
+
+    setBusyKey(`actual-ship-time-${order.id}`);
+    setErrorMessage("");
+
+    try {
+      const nextOrder = await updateTemuOrder(order.id, {
+        actual_ship_time: nextActualShipTime,
+      });
+      updateOrdersState([nextOrder]);
+      setNoticeMessage(`已保存订单 ${order.order_no} 的实际发货时间`);
+    } catch (error) {
+      setErrorMessage(getOrdersErrorMessage(error, "保存实际发货时间失败"));
     } finally {
       setBusyKey("");
     }
@@ -1882,50 +2094,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
     }
   }
 
-  async function handleDeductInventoryForOrders(targetOrders: TemuOrderRecord[]) {
-    if (!canEdit) {
-      setErrorMessage("当前账号没有编辑权限，不能补扣库存。");
-      return;
-    }
-    if (targetOrders.length === 0) {
-      setNoticeMessage("当前没有可补扣库存的订单。");
-      return;
-    }
-
-    const mergedOrders = targetOrders.map((order) => mergeOrderDraft(order));
-    const stockDeductionResult = buildOrderStockDeductions(mergedOrders);
-    if (stockDeductionResult.errorMessage) {
-      setErrorMessage(stockDeductionResult.errorMessage);
-      return;
-    }
-
-    setBusyKey("deduct-inventory");
-    setErrorMessage("");
-    setNoticeMessage("");
-
-    try {
-      const inventoryChanges = await deductWarehouseItemStocks(
-        stockDeductionResult.deductions.map((deduction) => ({
-          stockId: deduction.stock.id,
-          quantity: deduction.quantity,
-          reason: `订单出库：${deduction.orderNo}`,
-          dedupeKey: deduction.orderNo,
-        })),
-      );
-
-      applyWarehouseItemStockUpdates(inventoryChanges.map((change) => change.item));
-      setNoticeMessage(
-        inventoryChanges.length > 0
-          ? `已为 ${targetOrders.length} 条订单补扣 ${inventoryChanges.length} 项配件库存。`
-          : `选中的 ${targetOrders.length} 条订单已存在出库记录，没有重复扣库存。`,
-      );
-    } catch (error) {
-      setErrorMessage(getOrdersErrorMessage(error, "补扣库存失败"));
-    } finally {
-      setBusyKey("");
-    }
-  }
-
   async function handleDownloadShippingTable(targetOrders: TemuOrderRecord[], busyName: string) {
     if (!canEdit) {
       setErrorMessage("当前账号没有编辑权限，不能下载发货表格。");
@@ -1956,13 +2124,55 @@ export function OrdersPage({ user }: OrdersPageProps) {
     }
   }
 
-  async function handleMarkSelectedCompleted() {
+  async function handleMarkSelectedUploadedTemu() {
     if (!canEdit) {
       setErrorMessage("当前账号没有编辑权限，不能更新订单。");
       return;
     }
     if (selectedShippedOrdersInView.length === 0) {
-      setNoticeMessage("请先勾选要标记签收的已发货订单。");
+      setNoticeMessage("请先勾选要标记已上传 Temu 的已发货订单。");
+      return;
+    }
+
+    setBusyKey("uploaded-temu-selected");
+    setErrorMessage("");
+    setNoticeMessage("");
+
+    try {
+      const nextOrders = await Promise.all(
+        selectedShippedOrdersInView.map((order) => {
+          const draft = drafts[order.id] ?? toDraft(order);
+          const shippedAt = formatLocalDateTime();
+          const printedAt = draft.label_printed_at.trim() || formatLocalDateTime();
+
+          return updateTemuOrder(order.id, {
+            ...draft,
+            order_status: uploadedTemuOrderStatus,
+            label_printed_at: printedAt,
+            actual_ship_time: shippedAt,
+          });
+        }),
+      );
+      updateOrdersState(nextOrders);
+      setSelectedOrderIds((current) =>
+        current.filter((id) => !nextOrders.some((order) => order.id === id)),
+      );
+      setActiveStage("uploaded_temu");
+      setNoticeMessage(`已标记 ${nextOrders.length} 条订单为上传Temu`);
+    } catch (error) {
+      setErrorMessage(getOrdersErrorMessage(error, "标记上传Temu失败"));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
+  async function handleMarkSelectedCompleted() {
+    if (!canEdit) {
+      setErrorMessage("当前账号没有编辑权限，不能更新订单。");
+      return;
+    }
+    if (selectedCompletableOrdersInView.length === 0) {
+      setNoticeMessage("请先在上传Temu页面勾选要标记签收的订单。");
       return;
     }
 
@@ -1972,17 +2182,16 @@ export function OrdersPage({ user }: OrdersPageProps) {
 
     try {
       const nextOrders = await Promise.all(
-        selectedShippedOrdersInView.map((order) => {
+        selectedCompletableOrdersInView.map((order) => {
           const draft = drafts[order.id] ?? toDraft(order);
           const finishedAt = draft.actual_signed_time.trim() || formatLocalDateTime();
-          const shippedAt = draft.actual_ship_time.trim() || formatLocalDateTime();
           const printedAt = draft.label_printed_at.trim() || formatLocalDateTime();
 
           return updateTemuOrder(order.id, {
             ...draft,
             order_status: "已完成",
             label_printed_at: printedAt,
-            actual_ship_time: shippedAt,
+            actual_ship_time: draft.actual_ship_time.trim(),
             actual_signed_time: finishedAt,
           });
         }),
@@ -2052,6 +2261,33 @@ export function OrdersPage({ user }: OrdersPageProps) {
         </div>
       )}
 
+      {urgentUnuploadedOrders.length > 0 && (
+        <section className="surface-card p-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="min-w-20 text-sm font-medium text-slate-700">待办任务</span>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveStage("all");
+                setOrderSort(defaultOrderSort);
+                setSelectedOrderIds([]);
+                setShowUrgentUnuploadedOnly(true);
+              }}
+              className={`inline-flex h-10 min-w-60 items-center justify-center gap-2 rounded-md border px-4 text-sm font-semibold transition ${
+                showUrgentUnuploadedOnly
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : "border-line bg-white text-slate-900 hover:border-slate-300 hover:bg-slate-50"
+              }`}
+            >
+              <span>即将逾期未发货</span>
+              <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-600 px-1.5 text-xs font-bold leading-none text-white">
+                {urgentUnuploadedOrders.length}
+              </span>
+            </button>
+          </div>
+        </section>
+      )}
+
       <section className="surface-card p-3">
         <div className="flex flex-wrap gap-2">
           {stageDefinitions.map((stage) => {
@@ -2063,6 +2299,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
                 onClick={() => {
                   setActiveStage(stage.key);
                   setOrderSort(defaultOrderSort);
+                  setSelectedOrderIds([]);
+                  setShowUrgentUnuploadedOnly(false);
                 }}
                 className={`inline-flex h-10 items-center gap-2 rounded-lg px-3 text-sm font-semibold transition ${
                   active
@@ -2090,11 +2328,14 @@ export function OrdersPage({ user }: OrdersPageProps) {
             <FileSpreadsheet size={18} />
             Temu 订单数据
             <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-500">
-              {getStageDefinition(activeStage).label} {filteredOrders.length}
+              {showUrgentUnuploadedOnly
+                ? "即将逾期未发货"
+                : getStageDefinition(activeStage).label}{" "}
+              {filteredOrders.length}
             </span>
           </div>
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-            {canEdit && activeStage === "shipped" && shippedOrdersWithTrackingInView.length > 0 && (
+            {canEdit && isShippingTrackingStage(activeStage) && shippedOrdersWithTrackingInView.length > 0 && (
               <button
                 type="button"
                 disabled={busyKey === "tracking-status-refresh" || busyKey === "tracking-status-auto"}
@@ -2180,23 +2421,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
                 selectedPendingShippingOrdersInView.length > 0 && (
                   <button
                     type="button"
-                    disabled={busyKey === "deduct-inventory"}
-                    onClick={() =>
-                      void handleDeductInventoryForOrders(
-                        selectedPendingShippingOrdersInView,
-                      )
-                    }
-                    className="btn-secondary h-9 px-3"
-                  >
-                    <PackageMinus size={16} />
-                    补扣库存（{selectedPendingShippingOrdersInView.length}）
-                  </button>
-                )}
-              {canEdit &&
-                activeStage === "pending_shipping" &&
-                selectedPendingShippingOrdersInView.length > 0 && (
-                  <button
-                    type="button"
                     disabled={busyKey === "download-shipping-table"}
                     onClick={() =>
                       void handleDownloadShippingTable(
@@ -2213,17 +2437,17 @@ export function OrdersPage({ user }: OrdersPageProps) {
               {canEdit && activeStage === "shipped" && selectedShippedOrdersInView.length > 0 && (
                 <button
                   type="button"
-                  disabled={busyKey === "deduct-inventory"}
-                  onClick={() =>
-                    void handleDeductInventoryForOrders(selectedShippedOrdersInView)
-                  }
+                  disabled={busyKey === "uploaded-temu-selected"}
+                  onClick={() => void handleMarkSelectedUploadedTemu()}
                   className="btn-secondary h-9 px-3"
                 >
-                  <PackageMinus size={16} />
-                  补扣库存（{selectedShippedOrdersInView.length}）
+                  <Upload size={16} />
+                  转到上传Temu（{selectedShippedOrdersInView.length}）
                 </button>
               )}
-              {canEdit && activeStage === "shipped" && selectedShippedOrdersInView.length > 0 && (
+              {canEdit &&
+                activeStage === "uploaded_temu" &&
+                selectedCompletableOrdersInView.length > 0 && (
                 <button
                   type="button"
                   disabled={busyKey === "complete-selected"}
@@ -2231,7 +2455,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
                   className="btn-secondary h-9 px-3"
                 >
                   <CheckCircle2 size={16} />
-                  签收（{selectedShippedOrdersInView.length}）
+                  签收（{selectedUploadedTemuOrdersInView.length}）
                 </button>
               )}
               {canDelete && (
@@ -2377,7 +2601,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
                     const mergedOrder = mergeOrderDraft(order);
                     const persistedStage = getOrderStage(order);
                     const stage = getStageDefinition(persistedStage);
-                    const shipCountdown = getCountdownBadge(order.latest_ship_time, currentTime);
+                    const shipCountdown = getShipDeadlineBadge(mergedOrder, currentTime);
                     const deliveryCountdown = getCountdownBadge(order.estimated_delivery_time, currentTime);
                     const canAssignOrder = canEdit && persistedStage === "pending_assignment";
                     const draftWarehouse = draft.warehouse_id
@@ -2478,20 +2702,26 @@ export function OrdersPage({ user }: OrdersPageProps) {
                         <td className="number-cell">{order.fulfillment_quantity}</td>
                         <td className="order-product-col">
                           {declaration ? (
-                            <div className="grid gap-1">
-                              <span className="font-medium text-slate-900">
-                                {declaration.product.product_name_cn || "--"}
-                              </span>
-                              <span className="text-xs font-medium text-slate-500">
-                                {declaration.product.product_code || "--"}
-                              </span>
+                            <div className="flex min-w-48 items-center gap-3">
+                              <SkuImageThumb
+                                product={declaration.product}
+                                sku={declaration.sku}
+                              />
+                              <div className="grid min-w-0 gap-1">
+                                <span className="font-medium text-slate-900">
+                                  {declaration.product.product_name_cn || "--"}
+                                </span>
+                                <span className="text-xs font-medium text-slate-500">
+                                  {declaration.product.product_code || "--"}
+                                </span>
+                              </div>
                             </div>
                           ) : (
                             "--"
                           )}
                         </td>
                         <td className="order-attr-col">{order.product_attributes || "--"}</td>
-                        {activeStage === "shipped" && (
+                        {isShippingTrackingStage(activeStage) && (
                           <>
                             <td className="order-tracking-col">
                               {mergedOrder.logistics_tracking_no ? (
@@ -2536,15 +2766,27 @@ export function OrdersPage({ user }: OrdersPageProps) {
                         <td className="order-address-col">{getFullAddress(order) || "--"}</td>
                         <td>{order.postal_code || "--"}</td>
                         <td>
-                          <input
-                            value={draft.actual_ship_time}
-                            readOnly={!canEdit}
-                            onChange={(event) =>
-                              updateDraft(order.id, "actual_ship_time", event.target.value)
-                            }
-                            placeholder="填写时间"
-                            className="h-9 w-40 rounded-md border border-line bg-white px-2 text-sm outline-none focus:border-accent"
-                          />
+                          {activeStage === "uploaded_temu" ? (
+                            <input
+                              value={draft.actual_ship_time}
+                              readOnly={!canEdit}
+                              onChange={(event) =>
+                                updateDraft(order.id, "actual_ship_time", event.target.value)
+                              }
+                              onBlur={() => void handleSaveActualShipTime(order)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") {
+                                  event.currentTarget.blur();
+                                }
+                              }}
+                              placeholder="填写时间"
+                              className="h-9 w-40 rounded-md border border-line bg-white px-2 text-sm outline-none focus:border-accent"
+                            />
+                          ) : (
+                            <span className="text-sm font-medium text-slate-700">
+                              {draft.actual_ship_time || "--"}
+                            </span>
+                          )}
                         </td>
                       </tr>
                     );

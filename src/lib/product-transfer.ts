@@ -101,6 +101,7 @@ export async function buildWorkbook(records: ProductTransferRecord[]) {
       product_index,
       sku_index,
       sku_code: sku.sku_code,
+      temu_image_url: sku.temu_image_url,
       attributes_text: Object.entries(sku.attributes)
         .map(([name, value]) => `${name}:${value}`)
         .join(", "),
@@ -131,6 +132,7 @@ export async function buildWorkbook(records: ProductTransferRecord[]) {
       material_cn: record.material_cn,
       sku_index,
       sku_code: sku.sku_code,
+      temu_image_url: sku.temu_image_url,
       attributes: Object.entries(sku.attributes)
         .map(([name, value]) => `${name}:${value}`)
         .join(", "),
@@ -281,6 +283,9 @@ export async function parseTransferFile(file: File) {
           const skuIndex = Number(sku.sku_index);
           return {
             sku_code: String(sku.sku_code ?? ""),
+            temu_image_url: String(
+              sku.temu_image_url ?? productFields.temu_image_url ?? "",
+            ),
             attributes: JSON.parse(String(sku.attributes_json ?? "{}")) as Record<
               string,
               string

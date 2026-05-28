@@ -25,6 +25,7 @@ create table if not exists public.product_skus (
   product_id uuid not null references public.products(id) on delete cascade,
   owner_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
   sku_code text not null,
+  temu_image_url text not null default '',
   attributes jsonb not null default '{}'::jsonb,
   notes text not null default '',
   created_at timestamptz not null default now()
