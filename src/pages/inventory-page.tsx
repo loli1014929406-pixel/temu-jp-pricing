@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import {
   addWarehouseProductInventory,
@@ -30,11 +30,37 @@ import type {
 import { getErrorMessage } from "../utils/errors";
 import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../utils/sku-code";
 import { PageHeader } from "../components/ui";
+import { readDraft, useDraftPersistence } from "../hooks/use-draft-persistence";
 import { usePermissions } from "../hooks/use-permissions";
 
 type InventoryPageProps = {
   user: User;
 };
+
+type InventoryDraft = {
+  draftWarehouseName: string;
+  selectedProductIds: Record<string, string>;
+  itemStockDrafts: Record<string, string>;
+  itemStockReasonDrafts: Record<string, string>;
+  warehouseNameDrafts: Record<string, string>;
+};
+
+function hasInventoryDraft(
+  draft: InventoryDraft | null | undefined,
+  stockValuesById: Record<string, string> = {},
+) {
+  if (!draft) return false;
+
+  return Boolean(
+    draft.draftWarehouseName.trim() ||
+      Object.values(draft.selectedProductIds).some(Boolean) ||
+      Object.values(draft.itemStockReasonDrafts).some((value) => value.trim()) ||
+      Object.values(draft.warehouseNameDrafts).some((value) => value.trim()) ||
+      Object.entries(draft.itemStockDrafts).some(
+        ([itemId, value]) => stockValuesById[itemId] !== undefined && value !== stockValuesById[itemId],
+      ),
+  );
+}
 
 function getInventoryErrorMessage(error: unknown, fallback: string) {
   const message = getErrorMessage(error, fallback);
@@ -48,6 +74,9 @@ function getInventoryErrorMessage(error: unknown, fallback: string) {
 
 export function InventoryPage({ user }: InventoryPageProps) {
   const { canEdit, canDelete } = usePermissions();
+  const draftKey = `inventory-draft:v1:${user.id}`;
+  const restoredDraftRef = useRef(readDraft<InventoryDraft>(draftKey));
+  const restoredDraft = restoredDraftRef.current;
   const [products, setProducts] = useState<Product[]>([]);
   const [productItems, setProductItems] = useState<ProductItem[]>([]);
   const [skus, setSkus] = useState<ProductSku[]>([]);
@@ -57,14 +86,26 @@ export function InventoryPage({ user }: InventoryPageProps) {
   const [warehouseItemStockAdjustments, setWarehouseItemStockAdjustments] = useState<
     WarehouseItemStockAdjustment[]
   >([]);
-  const [draftWarehouseName, setDraftWarehouseName] = useState("");
-  const [selectedProductIds, setSelectedProductIds] = useState<Record<string, string>>({});
-  const [itemStockDrafts, setItemStockDrafts] = useState<Record<string, string>>({});
-  const [itemStockReasonDrafts, setItemStockReasonDrafts] = useState<Record<string, string>>({});
+  const [draftWarehouseName, setDraftWarehouseName] = useState(restoredDraft?.draftWarehouseName ?? "");
+  const [selectedProductIds, setSelectedProductIds] = useState<Record<string, string>>(
+    restoredDraft?.selectedProductIds ?? {},
+  );
+  const [itemStockDrafts, setItemStockDrafts] = useState<Record<string, string>>(
+    restoredDraft?.itemStockDrafts ?? {},
+  );
+  const [itemStockReasonDrafts, setItemStockReasonDrafts] = useState<Record<string, string>>(
+    restoredDraft?.itemStockReasonDrafts ?? {},
+  );
+  const [warehouseNameDrafts, setWarehouseNameDrafts] = useState<Record<string, string>>(
+    restoredDraft?.warehouseNameDrafts ?? {},
+  );
   const [expandedSkuIds, setExpandedSkuIds] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const [draftNotice, setDraftNotice] = useState(
+    hasInventoryDraft(restoredDraft) ? "已恢复上次未保存的库存编辑草稿。" : "",
+  );
   const productCodeCollator = useMemo(
     () => new Intl.Collator("zh-CN", { numeric: true, sensitivity: "base" }),
     [],
@@ -105,11 +146,21 @@ export function InventoryPage({ user }: InventoryPageProps) {
           setWarehouseSkus(nextWarehouseSkus);
           setWarehouseItemStocks(nextWarehouseItemStocks);
           setWarehouseItemStockAdjustments(nextWarehouseItemStockAdjustments);
-          setItemStockDrafts(
-            Object.fromEntries(
-              nextWarehouseItemStocks.map((item) => [item.id, String(item.stock_quantity)]),
-            ),
+          const latestDraft = readDraft<InventoryDraft>(draftKey);
+          const serverStockValues = Object.fromEntries(
+            nextWarehouseItemStocks.map((item) => [item.id, String(item.stock_quantity)]),
           );
+          setItemStockDrafts({
+            ...serverStockValues,
+            ...(latestDraft?.itemStockDrafts ?? {}),
+          });
+          setItemStockReasonDrafts(latestDraft?.itemStockReasonDrafts ?? {});
+          setSelectedProductIds(latestDraft?.selectedProductIds ?? {});
+          setWarehouseNameDrafts(latestDraft?.warehouseNameDrafts ?? {});
+          setDraftWarehouseName(latestDraft?.draftWarehouseName ?? "");
+          if (hasInventoryDraft(latestDraft, serverStockValues)) {
+            setDraftNotice("已恢复上次未保存的库存编辑草稿。");
+          }
         }
       } catch (error) {
         if (active) {
@@ -126,7 +177,41 @@ export function InventoryPage({ user }: InventoryPageProps) {
     return () => {
       active = false;
     };
-  }, [user.id]);
+  }, [draftKey, user.id]);
+
+  const inventoryDraftValue = useMemo<InventoryDraft>(
+    () => ({
+      draftWarehouseName,
+      selectedProductIds,
+      itemStockDrafts,
+      itemStockReasonDrafts,
+      warehouseNameDrafts,
+    }),
+    [
+      draftWarehouseName,
+      itemStockDrafts,
+      itemStockReasonDrafts,
+      selectedProductIds,
+      warehouseNameDrafts,
+    ],
+  );
+
+  const stockValuesById = useMemo(
+    () =>
+      Object.fromEntries(
+        warehouseItemStocks.map((item) => [item.id, String(item.stock_quantity)]),
+      ),
+    [warehouseItemStocks],
+  );
+
+  useDraftPersistence(
+    draftKey,
+    inventoryDraftValue,
+    {
+      enabled: !loading,
+      shouldPersist: (draft) => hasInventoryDraft(draft, stockValuesById),
+    },
+  );
 
   const productsById = useMemo(
     () => Object.fromEntries(products.map((product) => [product.id, product])),
@@ -242,6 +327,11 @@ export function InventoryPage({ user }: InventoryPageProps) {
       setWarehouses((current) =>
         current.map((item) => (item.id === warehouse.id ? nextWarehouse : item)),
       );
+      setWarehouseNameDrafts((current) => {
+        const { [warehouse.id]: _savedName, ...rest } = current;
+        void _savedName;
+        return rest;
+      });
     } catch (error) {
       setErrorMessage(getInventoryErrorMessage(error, "更新仓库失败"));
     } finally {
@@ -266,6 +356,16 @@ export function InventoryPage({ user }: InventoryPageProps) {
       setWarehouseSkus((current) =>
         current.filter((item) => item.warehouse_id !== warehouse.id),
       );
+      setSelectedProductIds((current) => {
+        const { [warehouse.id]: _selectedProductId, ...rest } = current;
+        void _selectedProductId;
+        return rest;
+      });
+      setWarehouseNameDrafts((current) => {
+        const { [warehouse.id]: _warehouseName, ...rest } = current;
+        void _warehouseName;
+        return rest;
+      });
     } catch (error) {
       setErrorMessage(getInventoryErrorMessage(error, "删除仓库失败"));
     } finally {
@@ -400,6 +500,11 @@ export function InventoryPage({ user }: InventoryPageProps) {
           {errorMessage}
         </div>
       )}
+      {draftNotice && (
+        <div className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-700">
+          {draftNotice}
+        </div>
+      )}
 
       {canEdit && (
         <section className="surface-card grid gap-4 p-5">
@@ -466,21 +571,21 @@ export function InventoryPage({ user }: InventoryPageProps) {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="grid gap-3 md:grid-cols-[minmax(220px,1fr)]">
                     <input
-                      value={warehouse.name}
+                      value={warehouseNameDrafts[warehouse.id] ?? warehouse.name}
                       readOnly={!canEdit}
                       onChange={(event) =>
-                        setWarehouses((current) =>
-                          current.map((item) =>
-                            item.id === warehouse.id
-                              ? { ...item, name: event.target.value }
-                              : item,
-                          ),
-                        )
+                        setWarehouseNameDrafts((current) => ({
+                          ...current,
+                          [warehouse.id]: event.target.value,
+                        }))
                       }
                       onBlur={() => {
                         if (canEdit) {
+                          const nextName =
+                            (warehouseNameDrafts[warehouse.id] ?? warehouse.name).trim() ||
+                            warehouse.name;
                           void handleUpdateWarehouse(warehouse, {
-                            name: warehouse.name.trim() || warehouse.name,
+                            name: nextName,
                           });
                         }
                       }}

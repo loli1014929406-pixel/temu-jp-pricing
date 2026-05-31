@@ -214,6 +214,15 @@ a {
     overflow-wrap: anywhere;
   }
 
+  .data-table.orders-table th.order-tracking-status-col,
+  .data-table.orders-table td.order-tracking-status-col {
+    width: calc(9em + 1rem);
+    min-width: calc(9em + 1rem);
+    max-width: calc(9em + 1rem);
+    word-break: keep-all;
+    overflow-wrap: normal;
+  }
+
   .data-table input {
     text-align: left !important;
   }

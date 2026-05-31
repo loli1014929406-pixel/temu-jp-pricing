@@ -5,11 +5,11 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      "/ocs-tracking": {
-        target: "https://webcsw.ocs.co.jp",
+      "/yamato-tracking": {
+        target: "https://toi.kuronekoyamato.co.jp",
         changeOrigin: true,
         secure: true,
-        rewrite: (path) => path.replace(/^\/ocs-tracking/, ""),
+        rewrite: (path) => path.replace(/^\/yamato-tracking/, ""),
       },
     },
   },

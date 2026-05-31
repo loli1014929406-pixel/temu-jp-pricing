@@ -1,9 +1,10 @@
 import { Save } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { useParams } from "react-router-dom";
 import { Field, TextInput } from "../components/form-controls";
 import { BackToParentAction } from "../components/ui";
+import { isSameDraft, readDraft, useDraftPersistence } from "../hooks/use-draft-persistence";
 import { usePermissions } from "../hooks/use-permissions";
 import { fetchProfitCalculationsBySkuIds, saveProfitCalculation } from "../lib/profit-calculations";
 import {
@@ -40,6 +41,32 @@ type SkuCalculationState = {
   result: ProfitCalculationResult;
 };
 
+type ProductDiscountDraft = Required<
+  Pick<
+    ProfitCalculationInput,
+    "trafficDiscountRate" | "activityDiscountRate" | "couponDiscountRate" | "adRoas"
+  >
+>;
+
+type ProfitCalculationDraft = {
+  productDiscounts: ProductDiscountDraft;
+  skuInputs: Record<string, ProfitCalculationInput>;
+};
+
+function hasProfitCalculationDraft(
+  draft: ProfitCalculationDraft | null | undefined,
+  baseProductDiscounts: ProductDiscountDraft,
+  baseCalculations: Record<string, SkuCalculationState>,
+) {
+  if (!draft) return false;
+  if (!isSameDraft(draft.productDiscounts, baseProductDiscounts)) return true;
+
+  return Object.entries(draft.skuInputs).some(([skuId, input]) => {
+    const baseCalculation = baseCalculations[skuId];
+    return baseCalculation ? !isSameDraft(input, baseCalculation.input) : false;
+  });
+}
+
 const defaultInput: ProfitCalculationInput = {
   temuPriceRmb: 0,
   trafficDiscountRate: 0,
@@ -62,6 +89,7 @@ function ReadOnlyValue({ value }: { value: string }) {
 export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
   const { canEdit } = usePermissions();
   const { productId: productKey = "" } = useParams();
+  const draftKey = `profit-calculation-draft:v1:${user.id}:${productKey}`;
   const [product, setProduct] = useState<Product | null>(null);
   const [calculations, setCalculations] = useState<Record<string, SkuCalculationState>>({});
   const [settings, setSettings] = useState<PricingSettings | null>(null);
@@ -75,6 +103,22 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
   const [savingSkuId, setSavingSkuId] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [savedSkuId, setSavedSkuId] = useState("");
+  const [draftNotice, setDraftNotice] = useState("");
+
+  const draftValue = useMemo<ProfitCalculationDraft>(
+    () => ({
+      productDiscounts,
+      skuInputs: Object.fromEntries(
+        Object.entries(calculations).map(([skuId, calculation]) => [
+          skuId,
+          calculation.input,
+        ]),
+      ),
+    }),
+    [calculations, productDiscounts],
+  );
+
+  useDraftPersistence(draftKey, draftValue, { enabled: Boolean(product && !loading) });
 
   useEffect(() => {
     let active = true;
@@ -155,15 +199,46 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
 
         if (active) {
           const firstCalculation = Object.values(nextCalculations)[0];
-          setProduct(nextProduct);
-          setSettings(settings);
-          setProductDiscounts({
+          const latestDraft = readDraft<ProfitCalculationDraft>(draftKey);
+          const baseProductDiscounts = {
             trafficDiscountRate: firstCalculation?.input.trafficDiscountRate ?? 0,
             activityDiscountRate: firstCalculation?.input.activityDiscountRate ?? 10,
             couponDiscountRate: firstCalculation?.input.couponDiscountRate ?? 0,
             adRoas: firstCalculation?.input.adRoas ?? 0,
-          });
-          setCalculations(nextCalculations);
+          };
+          const shouldRestoreDraft = hasProfitCalculationDraft(
+            latestDraft,
+            baseProductDiscounts,
+            nextCalculations,
+          );
+          const nextProductDiscounts = shouldRestoreDraft && latestDraft
+            ? latestDraft.productDiscounts
+            : baseProductDiscounts;
+          const mergedCalculations = shouldRestoreDraft && latestDraft
+            ? Object.fromEntries(
+                Object.entries(nextCalculations).map(([skuId, calculation]) => {
+                  const input = {
+                    ...calculation.input,
+                    ...nextProductDiscounts,
+                    ...(latestDraft.skuInputs[skuId] ?? {}),
+                  };
+
+                  return [
+                    skuId,
+                    {
+                      ...calculation,
+                      input,
+                      result: calculateProfitProjection(calculation.pricing, settings, input),
+                    },
+                  ];
+                }),
+              )
+            : nextCalculations;
+          setProduct(nextProduct);
+          setSettings(settings);
+          setProductDiscounts(nextProductDiscounts);
+          setCalculations(mergedCalculations);
+          setDraftNotice(shouldRestoreDraft ? "已恢复上次未保存的利润测算草稿。" : "");
         }
       } catch (error) {
         if (active) {
@@ -180,7 +255,7 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
     return () => {
       active = false;
     };
-  }, [productKey, user.id]);
+  }, [draftKey, productKey, user.id]);
 
   function updateSkuPrice(skuId: string, value: number) {
     const current = calculations[skuId];
@@ -275,6 +350,11 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
       {errorMessage && (
         <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
           {errorMessage}
+        </div>
+      )}
+      {draftNotice && (
+        <div className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-700">
+          {draftNotice}
         </div>
       )}
 

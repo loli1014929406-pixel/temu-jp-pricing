@@ -25,6 +25,7 @@ import {
   PROFIT_CALCULATION_VERSION,
 } from "../utils/profit-calculation";
 import { Badge, PageHeader, StatCard } from "../components/ui";
+import { isSameDraft, readDraft, useDraftPersistence } from "../hooks/use-draft-persistence";
 import { usePermissions } from "../hooks/use-permissions";
 
 type ProfitCalculationsPageProps = {
@@ -54,6 +55,31 @@ type DiscountSummary = DiscountFields & {
   criticalValue: number | null;
   freeShippingThresholdQty: number | null;
 };
+
+type ProfitCalculationsDraft = {
+  discountsByProductId: Record<string, DiscountFields>;
+};
+
+function getDiscountFields(summary: DiscountSummary): DiscountFields {
+  return {
+    trafficDiscountRate: summary.trafficDiscountRate,
+    activityDiscountRate: summary.activityDiscountRate,
+    couponDiscountRate: summary.couponDiscountRate,
+    adRoas: summary.adRoas ?? defaultDiscounts.adRoas,
+  };
+}
+
+function hasProfitCalculationsDraft(
+  draft: ProfitCalculationsDraft | null | undefined,
+  baseSummaries: Record<string, DiscountSummary>,
+) {
+  if (!draft) return false;
+
+  return Object.entries(draft.discountsByProductId).some(([productId, discounts]) => {
+    const baseSummary = baseSummaries[productId];
+    return baseSummary ? !isSameDraft(discounts, getDiscountFields(baseSummary)) : false;
+  });
+}
 
 type DiscountInputProps = {
   label: string;
@@ -247,6 +273,7 @@ function DiscountInput({
 
 export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
   const { canEdit } = usePermissions();
+  const draftKey = `profit-calculations-draft:v1:${user.id}`;
   const [products, setProducts] = useState<Product[]>([]);
   const [temuPrices, setTemuPrices] = useState<Record<string, number | null>>({});
   const [discountSummaries, setDiscountSummaries] = useState<Record<string, DiscountSummary>>({});
@@ -263,6 +290,26 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
     key: "productCode",
     direction: "asc",
   });
+  const [draftNotice, setDraftNotice] = useState("");
+
+  const draftValue = useMemo<ProfitCalculationsDraft>(
+    () => ({
+      discountsByProductId: Object.fromEntries(
+        Object.entries(discountSummaries).map(([productId, summary]) => [
+          productId,
+          {
+            trafficDiscountRate: summary.trafficDiscountRate,
+            activityDiscountRate: summary.activityDiscountRate,
+            couponDiscountRate: summary.couponDiscountRate,
+            adRoas: summary.adRoas ?? defaultDiscounts.adRoas,
+          },
+        ]),
+      ),
+    }),
+    [discountSummaries],
+  );
+
+  useDraftPersistence(draftKey, draftValue, { enabled: !loading && products.length > 0 });
 
   useEffect(() => {
     let active = true;
@@ -390,11 +437,35 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
         );
 
         if (active) {
+          const latestDraft = readDraft<ProfitCalculationsDraft>(draftKey);
+          const shouldRestoreDraft = hasProfitCalculationsDraft(
+            latestDraft,
+            nextDiscountSummaries,
+          );
+          const restoredDiscountSummaries = shouldRestoreDraft && latestDraft
+            ? Object.fromEntries(
+                Object.entries(nextDiscountSummaries).map(([productId, summary]) => {
+                  const discounts = latestDraft.discountsByProductId[productId];
+                  return [
+                    productId,
+                    discounts
+                      ? calculateProductDiscountSummary(
+                          discounts,
+                          nextTemuPrices[productId],
+                          nextRuntimeCalculations[productId] ?? [],
+                          settings,
+                        )
+                      : summary,
+                  ];
+                }),
+              )
+            : nextDiscountSummaries;
           setProducts(nextProducts);
           setTemuPrices(nextTemuPrices);
-          setDiscountSummaries(nextDiscountSummaries);
+          setDiscountSummaries(restoredDiscountSummaries);
           setRuntimeCalculations(nextRuntimeCalculations);
           setSettings(settings);
+          setDraftNotice(shouldRestoreDraft ? "已恢复上次未保存的利润数据分析草稿。" : "");
         }
       } catch (error) {
         if (active) {
@@ -411,7 +482,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
     return () => {
       active = false;
     };
-  }, [user.id]);
+  }, [draftKey, user.id]);
 
   function updateProductDiscount(
     productId: string,
@@ -660,6 +731,11 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
       {errorMessage && (
         <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
           {errorMessage}
+        </div>
+      )}
+      {draftNotice && (
+        <div className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-700">
+          {draftNotice}
         </div>
       )}
 

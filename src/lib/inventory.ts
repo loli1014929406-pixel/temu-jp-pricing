@@ -312,22 +312,28 @@ export async function deductWarehouseItemStocks(
     item: WarehouseItemStock;
     adjustment: WarehouseItemStockAdjustment;
   }> = [];
+  const stockIds = Array.from(new Set(normalizedDeductions.map((item) => item.stockId)));
+  const { data: stockData, error: stockLoadError } = await withTimeout(
+    supabase
+      .from("warehouse_item_stocks")
+      .select("*")
+      .in("id", stockIds)
+      .eq("owner_id", session.user.id),
+    "读取配件库存",
+  );
+
+  if (stockLoadError) throw stockLoadError;
+
+  const stocksById = new Map(
+    ((stockData ?? []) as WarehouseItemStock[]).map((item) => [item.id, item]),
+  );
+  const activeDeductions: Array<WarehouseItemStockDeductionInput & {
+    quantity: number;
+  }> = [];
 
   for (const deduction of normalizedDeductions) {
-    const { data: currentData, error: currentError } = await withTimeout(
-      supabase
-        .from("warehouse_item_stocks")
-        .select("*")
-        .eq("id", deduction.stockId)
-        .eq("owner_id", session.user.id)
-        .maybeSingle(),
-      "读取配件库存",
-    );
-
-    if (currentError) throw currentError;
-    if (!currentData) throw new Error("仓库配件库存不存在，请刷新后重试");
-
-    const current = currentData as WarehouseItemStock;
+    const current = stocksById.get(deduction.stockId);
+    if (!current) throw new Error("仓库配件库存不存在，请刷新后重试");
     if (deduction.dedupeKey) {
       const { data: existingAdjustment, error: existingAdjustmentError } =
         await withTimeout(
@@ -347,12 +353,41 @@ export async function deductWarehouseItemStocks(
       if (existingAdjustment) continue;
     }
 
-    if (current.stock_quantity < deduction.quantity) {
+    activeDeductions.push(deduction);
+  }
+
+  const quantityByStockId = activeDeductions.reduce<Record<string, number>>(
+    (totals, deduction) => {
+      totals[deduction.stockId] = (totals[deduction.stockId] ?? 0) + deduction.quantity;
+      return totals;
+    },
+    {},
+  );
+  for (const [stockId, quantity] of Object.entries(quantityByStockId)) {
+    const current = stocksById.get(stockId);
+    if (!current) throw new Error("仓库配件库存不存在，请刷新后重试");
+    if (current.stock_quantity < quantity) {
       throw new Error(
-        `仓库配件库存不足：当前 ${current.stock_quantity}，需要 ${deduction.quantity}`,
+        `仓库配件库存不足：当前 ${current.stock_quantity}，需要 ${quantity}`,
       );
     }
+  }
 
+  for (const deduction of activeDeductions) {
+    const { data: currentData, error: currentError } = await withTimeout(
+      supabase
+        .from("warehouse_item_stocks")
+        .select("*")
+        .eq("id", deduction.stockId)
+        .eq("owner_id", session.user.id)
+        .maybeSingle(),
+      "读取配件库存",
+    );
+
+    if (currentError) throw currentError;
+    if (!currentData) throw new Error("仓库配件库存不存在，请刷新后重试");
+
+    const current = currentData as WarehouseItemStock;
     const nextQuantity = current.stock_quantity - deduction.quantity;
     const { data: nextData, error: nextError } = await withTimeout(
       supabase

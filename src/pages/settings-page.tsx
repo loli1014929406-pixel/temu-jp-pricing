@@ -1,6 +1,12 @@
 import { useEffect, useState, type FormEvent } from "react";
 import type { User } from "@supabase/supabase-js";
 import { Field, TextInput } from "../components/form-controls";
+import {
+  clearDraft,
+  isSameDraft,
+  readDraft,
+  useDraftPersistence,
+} from "../hooks/use-draft-persistence";
 import { usePermissions } from "../hooks/use-permissions";
 import { fetchSettings, saveSettings } from "../lib/settings";
 import type { PricingSettings } from "../types";
@@ -76,11 +82,15 @@ const fieldGroups: Array<{
 
 export function SettingsPage({ user }: SettingsPageProps) {
   const { canEdit } = usePermissions();
+  const draftKey = `settings-draft:v1:${user.id}`;
   const [settings, setSettings] = useState<PricingSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [draftNotice, setDraftNotice] = useState("");
+
+  useDraftPersistence(draftKey, settings, { enabled: Boolean(canEdit && settings) });
 
   useEffect(() => {
     let active = true;
@@ -91,8 +101,15 @@ export function SettingsPage({ user }: SettingsPageProps) {
 
       try {
         const nextSettings = await fetchSettings(user.id);
+        const cachedSettings = readDraft<PricingSettings>(draftKey);
+        const restoredSettings = cachedSettings ?? nextSettings;
         if (active) {
-          setSettings(nextSettings);
+          setSettings(restoredSettings);
+          setDraftNotice(
+            cachedSettings && !isSameDraft(cachedSettings, nextSettings)
+              ? "已恢复上次未保存的参数草稿。"
+              : "",
+          );
         }
       } catch (error) {
         if (active) {
@@ -109,7 +126,7 @@ export function SettingsPage({ user }: SettingsPageProps) {
     return () => {
       active = false;
     };
-  }, [user.id]);
+  }, [draftKey, user.id]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -124,6 +141,8 @@ export function SettingsPage({ user }: SettingsPageProps) {
 
     try {
       await saveSettings(user.id, settings);
+      clearDraft(draftKey);
+      setDraftNotice("");
       setSaved(true);
     } catch (error) {
       setErrorMessage(getErrorMessage(error, "保存参数失败"));
@@ -157,6 +176,11 @@ export function SettingsPage({ user }: SettingsPageProps) {
           {errorMessage}
         </div>
       )}
+      {draftNotice && (
+        <div className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-700">
+          {draftNotice}
+        </div>
+      )}
       <form onSubmit={handleSubmit} className="surface-card grid gap-5 p-5">
         <div className="grid gap-5">
           {fieldGroups.map((group) => (
@@ -178,14 +202,17 @@ export function SettingsPage({ user }: SettingsPageProps) {
                           : settings[field.key] ?? ""
                       }
                       onChange={(event) =>
-                        setSettings({
-                          ...settings,
-                          [field.key]:
-                            field.key === "target_profit_rate" ||
-                            field.key === "target_post_ad_profit_rate"
-                              ? Number(event.target.value || 0) / 100
-                              : Number(event.target.value || 0),
-                        })
+                        {
+                          setSaved(false);
+                          setSettings({
+                            ...settings,
+                            [field.key]:
+                              field.key === "target_profit_rate" ||
+                              field.key === "target_post_ad_profit_rate"
+                                ? Number(event.target.value || 0) / 100
+                                : Number(event.target.value || 0),
+                          });
+                        }
                       }
                     />
                   </Field>

@@ -587,9 +587,3 @@ export async function receiveRemainingPurchaseOrder(order: PurchaseOrder) {
     inventory,
   };
 }
-
-export async function repairPurchasePackageInventory(order: PurchaseOrder, pkg: PurchasePackage) {
-  if (pkg.status !== "received") throw new Error("只有已签收包裹才能补入库存");
-  const inventory = await applyPurchasePackageInventory(order, pkg, [pkg.id]);
-  return { inventory };
-}

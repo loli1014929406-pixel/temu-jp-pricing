@@ -1,9 +1,14 @@
 import { CheckCircle2, Plus, Search, Trash2 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { Field, TextArea, TextInput } from "../components/form-controls";
 import { Badge, PageHeader } from "../components/ui";
+import {
+  clearDraft,
+  readDraft,
+  useDraftPersistence,
+} from "../hooks/use-draft-persistence";
 import { usePermissions } from "../hooks/use-permissions";
 import { fetchWarehouses } from "../lib/inventory";
 import {
@@ -14,7 +19,6 @@ import {
   fetchPurchaseOrders,
   receivePurchasePackage,
   receiveRemainingPurchaseOrder,
-  repairPurchasePackageInventory,
   updatePurchasePackageTrackingNo,
   updatePurchaseSource,
 } from "../lib/purchases";
@@ -31,6 +35,51 @@ import { getErrorMessage } from "../utils/errors";
 type PurchasesPageProps = { user: User; view: "create" | "records" };
 type DraftItem = { id: string; itemId: string; quantity: string; unitPriceRmb: string };
 type DraftProduct = { id: string; productId: string; items: DraftItem[] };
+type PurchaseCreateDraft = {
+  warehouseId: string;
+  purchasedAt: string;
+  notes: string;
+  draftProducts: DraftProduct[];
+  linkMetaDrafts: Record<string, { alibabaOrderNo: string; freightRmb: string }>;
+};
+type PurchaseRecordsDraft = {
+  packageTrackingDrafts: Record<string, string>;
+  existingPackageTrackingDrafts: Record<string, string>;
+  sourceDrafts: Record<string, { alibabaOrderNo: string; freightRmb: string }>;
+};
+
+function hasPurchaseCreateDraft(draft: PurchaseCreateDraft | null | undefined) {
+  if (!draft) return false;
+
+  return Boolean(
+    draft.warehouseId ||
+      draft.purchasedAt !== localDate() ||
+      draft.notes.trim() ||
+      Object.values(draft.linkMetaDrafts).some(
+        (value) => value.alibabaOrderNo.trim() || value.freightRmb.trim(),
+      ) ||
+      draft.draftProducts.some(
+        (product) =>
+          product.productId ||
+          product.items.some(
+            (item) =>
+              item.itemId ||
+              item.unitPriceRmb.trim() ||
+              (item.quantity.trim() && item.quantity !== "1"),
+          ),
+      ),
+  );
+}
+
+function hasPurchaseRecordsDraft(draft: PurchaseRecordsDraft | null | undefined) {
+  if (!draft) return false;
+
+  return Boolean(
+    Object.values(draft.packageTrackingDrafts).some((value) => value.trim()) ||
+      Object.keys(draft.existingPackageTrackingDrafts).length > 0 ||
+      Object.keys(draft.sourceDrafts).length > 0,
+  );
+}
 
 function getReceivedQuantityByOrderItem(order: PurchaseOrder) {
   return order.packages
@@ -72,25 +121,42 @@ function createDraftProduct(): DraftProduct {
 export function PurchasesPage({ user, view }: PurchasesPageProps) {
   const { canEdit, canDelete } = usePermissions();
   const navigate = useNavigate();
+  const createDraftKey = `purchase-create-draft:v1:${user.id}`;
+  const recordsDraftKey = `purchase-records-draft:v1:${user.id}`;
+  const restoredCreateDraftRef = useRef(readDraft<PurchaseCreateDraft>(createDraftKey));
+  const restoredRecordsDraftRef = useRef(readDraft<PurchaseRecordsDraft>(recordsDraftKey));
+  const restoredCreateDraft = restoredCreateDraftRef.current;
+  const restoredRecordsDraft = restoredRecordsDraftRef.current;
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [items, setItems] = useState<ProductItem[]>([]);
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
-  const [warehouseId, setWarehouseId] = useState("");
-  const [purchasedAt, setPurchasedAt] = useState(localDate());
-  const [notes, setNotes] = useState("");
-  const [draftProducts, setDraftProducts] = useState<DraftProduct[]>([createDraftProduct()]);
+  const [warehouseId, setWarehouseId] = useState(restoredCreateDraft?.warehouseId ?? "");
+  const [purchasedAt, setPurchasedAt] = useState(restoredCreateDraft?.purchasedAt ?? localDate());
+  const [notes, setNotes] = useState(restoredCreateDraft?.notes ?? "");
+  const [draftProducts, setDraftProducts] = useState<DraftProduct[]>(
+    restoredCreateDraft?.draftProducts ?? [createDraftProduct()],
+  );
   const [search, setSearch] = useState("");
-  const [packageTrackingDrafts, setPackageTrackingDrafts] = useState<Record<string, string>>({});
-  const [existingPackageTrackingDrafts, setExistingPackageTrackingDrafts] = useState<Record<string, string>>({});
+  const [packageTrackingDrafts, setPackageTrackingDrafts] = useState<Record<string, string>>(
+    restoredRecordsDraft?.packageTrackingDrafts ?? {},
+  );
+  const [existingPackageTrackingDrafts, setExistingPackageTrackingDrafts] = useState<Record<string, string>>(
+    restoredRecordsDraft?.existingPackageTrackingDrafts ?? {},
+  );
   const [sourceDrafts, setSourceDrafts] = useState<
     Record<string, { alibabaOrderNo: string; freightRmb: string }>
-  >({});
+  >(restoredRecordsDraft?.sourceDrafts ?? {});
   const [expandedOrderIds, setExpandedOrderIds] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [noticeMessage, setNoticeMessage] = useState("");
+  const [draftNotice, setDraftNotice] = useState(
+    view === "create" && hasPurchaseCreateDraft(restoredCreateDraft)
+      ? "已恢复上次未保存的采购管理单草稿。"
+      : "",
+  );
 
   useEffect(() => {
     let active = true;
@@ -108,15 +174,12 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
         setProducts(nextProducts);
         setItems(nextItems);
         setOrders(nextOrders);
-        setExistingPackageTrackingDrafts(
-          Object.fromEntries(
+        const serverPackageTrackingDrafts = Object.fromEntries(
             nextOrders.flatMap((order) =>
               order.packages.map((pkg) => [pkg.id, pkg.tracking_no]),
             ),
-          ),
         );
-        setSourceDrafts(
-          Object.fromEntries(
+        const serverSourceDrafts = Object.fromEntries(
             nextOrders.flatMap((order) =>
               order.sources.map((source) => [
                 source.id,
@@ -126,8 +189,20 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                 },
               ]),
             ),
-          ),
         );
+        const latestRecordsDraft = readDraft<PurchaseRecordsDraft>(recordsDraftKey);
+        setExistingPackageTrackingDrafts({
+          ...serverPackageTrackingDrafts,
+          ...(latestRecordsDraft?.existingPackageTrackingDrafts ?? {}),
+        });
+        setSourceDrafts({
+          ...serverSourceDrafts,
+          ...(latestRecordsDraft?.sourceDrafts ?? {}),
+        });
+        setPackageTrackingDrafts(latestRecordsDraft?.packageTrackingDrafts ?? {});
+        if (view === "records" && hasPurchaseRecordsDraft(latestRecordsDraft)) {
+          setDraftNotice("已恢复上次未保存的采购记录编辑草稿。");
+        }
       } catch (error) {
         if (active) setErrorMessage(getErrorMessage(error, "加载采购信息失败"));
       } finally {
@@ -138,7 +213,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
     return () => {
       active = false;
     };
-  }, [user.id]);
+  }, [recordsDraftKey, user.id, view]);
 
   const warehousesById = useMemo(
     () => Object.fromEntries(warehouses.map((item) => [item.id, item])),
@@ -188,7 +263,63 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
   );
   const [linkMetaDrafts, setLinkMetaDrafts] = useState<
     Record<string, { alibabaOrderNo: string; freightRmb: string }>
-  >({});
+  >(restoredCreateDraft?.linkMetaDrafts ?? {});
+
+  const purchaseCreateDraftValue = useMemo<PurchaseCreateDraft>(
+    () => ({
+      warehouseId,
+      purchasedAt,
+      notes,
+      draftProducts,
+      linkMetaDrafts,
+    }),
+    [draftProducts, linkMetaDrafts, notes, purchasedAt, warehouseId],
+  );
+
+  useDraftPersistence(
+    createDraftKey,
+    purchaseCreateDraftValue,
+    { enabled: view === "create", shouldPersist: hasPurchaseCreateDraft },
+  );
+
+  const purchaseRecordsDraftValue = useMemo<PurchaseRecordsDraft>(
+    () => {
+      const sourcesById = new Map(
+        orders.flatMap((order) => order.sources.map((source) => [source.id, source])),
+      );
+      const packagesById = new Map(
+        orders.flatMap((order) => order.packages.map((pkg) => [pkg.id, pkg])),
+      );
+
+      return {
+        packageTrackingDrafts: Object.fromEntries(
+          Object.entries(packageTrackingDrafts).filter(([, value]) => value.trim()),
+        ),
+        existingPackageTrackingDrafts: Object.fromEntries(
+          Object.entries(existingPackageTrackingDrafts).filter(([packageId, value]) => {
+            const pkg = packagesById.get(packageId);
+            return pkg ? value !== pkg.tracking_no : false;
+          }),
+        ),
+        sourceDrafts: Object.fromEntries(
+          Object.entries(sourceDrafts).filter(([sourceId, value]) => {
+            const source = sourcesById.get(sourceId);
+            return source
+              ? value.alibabaOrderNo !== source.alibaba_order_no ||
+                  Number(value.freightRmb || 0) !== source.freight_rmb
+              : false;
+          }),
+        ),
+      };
+    },
+    [existingPackageTrackingDrafts, orders, packageTrackingDrafts, sourceDrafts],
+  );
+
+  useDraftPersistence(
+    recordsDraftKey,
+    purchaseRecordsDraftValue,
+    { enabled: view === "records" && !loading, shouldPersist: hasPurchaseRecordsDraft },
+  );
   const draftFreightTotal = activePurchaseUrls.reduce(
     (sum, url) => sum + Number(linkMetaDrafts[url]?.freightRmb || 0),
     0,
@@ -313,6 +444,8 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
       setLinkMetaDrafts({});
       setNotes("");
       setDraftProducts([createDraftProduct()]);
+      clearDraft(createDraftKey);
+      setDraftNotice("");
       navigate("/purchases/records");
     } catch (error) {
       setErrorMessage(getErrorMessage(error, "保存采购管理单失败"));
@@ -456,34 +589,9 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
             : item,
         ),
       );
-      setNoticeMessage(count > 0 ? `已签收剩余明细并补入库存 ${count} 件` : "已将采购管理单标记为已签收");
+      setNoticeMessage(count > 0 ? `已签收剩余明细并入库 ${count} 件` : "已将采购管理单标记为已签收");
     } catch (error) {
       setErrorMessage(getErrorMessage(error, "签收剩余明细失败"));
-    } finally {
-      setBusyKey("");
-    }
-  }
-
-  async function handleRepairPackageInventory(order: PurchaseOrder, pkg: PurchasePackage) {
-    if (!canEdit) {
-      setErrorMessage("当前账号没有编辑权限，不能补入库存。");
-      return;
-    }
-
-    const confirmed = window.confirm(`确认为已签收快递单号“${pkg.tracking_no}”补入库存吗？已存在的入库流水会自动跳过。`);
-    if (!confirmed) return;
-    setBusyKey(`repair-${pkg.id}`);
-    setErrorMessage("");
-    setNoticeMessage("");
-    try {
-      const result = await repairPurchasePackageInventory(order, pkg);
-      const count = result.inventory.reduce(
-        (sum, entry) => sum + entry.adjustment.change_quantity,
-        0,
-      );
-      setNoticeMessage(count > 0 ? `已补入库存 ${count} 件` : "该包裹库存流水已存在，无需重复补入");
-    } catch (error) {
-      setErrorMessage(getErrorMessage(error, "补入库存失败"));
     } finally {
       setBusyKey("");
     }
@@ -593,6 +701,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
       />
       {errorMessage && <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{errorMessage}</div>}
       {noticeMessage && <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{noticeMessage}</div>}
+      {draftNotice && <div className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-700">{draftNotice}</div>}
 
       {view === "create" && <section className="surface-card grid gap-4 p-5">
         <div>
@@ -980,16 +1089,6 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                                 <div key={pkg.id} className="flex flex-wrap items-center gap-2 text-sm">
                                   <Badge tone="success">已签收</Badge>
                                   <span className="font-medium text-ink">{pkg.tracking_no}</span>
-                                  {canEdit && (
-                                    <button
-                                      type="button"
-                                      onClick={() => void handleRepairPackageInventory(order, pkg)}
-                                      disabled={busyKey === `repair-${pkg.id}`}
-                                      className="btn-secondary h-9 px-3"
-                                    >
-                                      补入库存
-                                    </button>
-                                  )}
                                 </div>
                               ))}
                             </div>
