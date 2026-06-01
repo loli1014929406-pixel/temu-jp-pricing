@@ -15,6 +15,7 @@ create table if not exists public.products (
   package_width_cm numeric not null default 0,
   package_height_cm numeric not null default 0,
   package_weight_g numeric not null default 0,
+  max_units_per_parcel integer not null default 1 check (max_units_per_parcel >= 1),
   notes text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

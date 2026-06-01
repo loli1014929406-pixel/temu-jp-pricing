@@ -13,6 +13,7 @@ export type Product = {
   package_width_cm: number;
   package_height_cm: number;
   package_weight_g: number;
+  max_units_per_parcel: number;
   notes: string | null;
   created_at: string;
   updated_at: string;

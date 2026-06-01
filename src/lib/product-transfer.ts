@@ -87,6 +87,7 @@ export async function buildWorkbook(records: ProductTransferRecord[]) {
     package_width_cm: record.package_width_cm,
     package_height_cm: record.package_height_cm,
     package_weight_g: record.package_weight_g,
+    max_units_per_parcel: record.max_units_per_parcel,
     notes: record.notes,
   }));
   const itemRows = records.flatMap((record, product_index) =>
@@ -270,6 +271,7 @@ export async function parseTransferFile(file: File) {
       product_name_en: String(productFields.product_name_en ?? ""),
       material_en: String(productFields.material_en ?? ""),
       material_cn: String(productFields.material_cn ?? ""),
+      max_units_per_parcel: Number(productFields.max_units_per_parcel ?? 1),
       items: items
         .filter((item) => Number(item.product_index) === productIndex)
         .map(({ product_index: itemProductIndex, item_index, ...item }) => {

@@ -357,6 +357,18 @@ export function ProductForm({
               }
             />
           </Field>
+          <Field label="3cm快递可发几个">
+            <TextInput
+              required
+              min="1"
+              step="1"
+              type="number"
+              value={product.max_units_per_parcel}
+              onChange={(event) =>
+                updateProduct("max_units_per_parcel", toNumber(event.target.value))
+              }
+            />
+          </Field>
         </div>
         <Field label="备注">
           <TextArea

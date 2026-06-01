@@ -1,4 +1,5 @@
 import { getSupabaseClient } from "./supabase";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   PurchaseOrder,
   PurchaseOrderItem,
@@ -49,6 +50,13 @@ function getReceiptStatus(
 type ResolvedPackageItem = {
   packageItem: PurchasePackageItem;
   orderItem: PurchaseOrderItem & { item_id: string; product_id: string };
+};
+
+type PurchaseInventoryReversal = {
+  packageId: string;
+  itemId: string;
+  itemName: string;
+  quantity: number;
 };
 
 function getItemIdentity(item: Pick<PurchaseOrderItem, "item_name" | "item_spec">) {
@@ -215,8 +223,179 @@ export async function updatePurchaseSource(sourceId: string, updates: Pick<Purch
   return source;
 }
 
+async function loadPurchaseOrderForDeletion(
+  supabase: SupabaseClient,
+  ownerId: string,
+  orderId: string,
+) {
+  const { data: orderData, error: orderError } = await withTimeout(
+    supabase
+      .from("purchase_orders")
+      .select("*")
+      .eq("id", orderId)
+      .eq("owner_id", ownerId)
+      .maybeSingle(),
+    "读取采购单",
+  );
+  if (orderError) throw orderError;
+  if (!orderData) return null;
+
+  const order = orderData as Omit<PurchaseOrder, "sources" | "items" | "packages">;
+  const [{ data: itemData, error: itemError }, { data: packageData, error: packageError }] =
+    await Promise.all([
+      supabase
+        .from("purchase_order_items")
+        .select("*")
+        .eq("order_id", order.id)
+        .eq("owner_id", ownerId),
+      supabase
+        .from("purchase_packages")
+        .select("*")
+        .eq("order_id", order.id)
+        .eq("owner_id", ownerId),
+    ]);
+  if (itemError) throw itemError;
+  if (packageError) throw packageError;
+
+  const packages = packageData as Omit<PurchasePackage, "items">[];
+  const { data: packageItemData, error: packageItemError } = packages.length === 0
+    ? { data: [] as PurchasePackageItem[], error: null }
+    : await supabase
+        .from("purchase_package_items")
+        .select("*")
+        .in("package_id", packages.map((item) => item.id))
+        .eq("owner_id", ownerId);
+  if (packageItemError) throw packageItemError;
+
+  const packageItemsByPackage = (packageItemData as PurchasePackageItem[]).reduce<
+    Record<string, PurchasePackageItem[]>
+  >((groups, item) => {
+    groups[item.package_id] ??= [];
+    groups[item.package_id].push(item);
+    return groups;
+  }, {});
+
+  return {
+    ...order,
+    sources: [] as PurchaseOrderSource[],
+    items: itemData as PurchaseOrderItem[],
+    packages: packages.map((item) => ({
+      ...item,
+      items: packageItemsByPackage[item.id] ?? [],
+    })),
+  } as PurchaseOrder;
+}
+
+async function reverseReceivedPurchaseInventory(order: PurchaseOrder) {
+  const receivedPackages = order.packages.filter((pkg) => pkg.status === "received");
+  if (receivedPackages.length === 0) return;
+
+  const reversals = new Map<string, PurchaseInventoryReversal>();
+  for (const pkg of receivedPackages) {
+    const resolvedItems = await resolvePackageItems(order, pkg);
+    if (pkg.items.length > 0 && resolvedItems.length !== pkg.items.length) {
+      throw new Error("采购单内有配件无法匹配到商品配件库，不能自动冲回库存");
+    }
+
+    resolvedItems.forEach(({ packageItem, orderItem }) => {
+      const key = `${pkg.id}:${orderItem.item_id}`;
+      const current = reversals.get(key);
+      const quantity = Math.max(0, Math.trunc(Number(packageItem.quantity) || 0));
+      if (current) {
+        current.quantity += quantity;
+        return;
+      }
+
+      reversals.set(key, {
+        packageId: pkg.id,
+        itemId: orderItem.item_id,
+        itemName: orderItem.item_name || orderItem.item_spec || orderItem.item_id,
+        quantity,
+      });
+    });
+  }
+  if (reversals.size === 0) return;
+
+  const { supabase, session } = await requireSession();
+  const reason = `删除采购单冲回：${order.order_code}`;
+  for (const reversal of reversals.values()) {
+    if (reversal.quantity <= 0) continue;
+
+    const { data: existingReversal, error: existingReversalError } = await withTimeout(
+      supabase
+        .from("warehouse_item_stock_adjustments")
+        .select("id")
+        .eq("purchase_package_id", reversal.packageId)
+        .eq("item_id", reversal.itemId)
+        .eq("owner_id", session.user.id)
+        .eq("reason", reason)
+        .limit(1)
+        .maybeSingle(),
+      "检查采购删除冲回记录",
+    );
+    if (existingReversalError) throw existingReversalError;
+    if (existingReversal) continue;
+
+    const { data: currentData, error: currentError } = await withTimeout(
+      supabase
+        .from("warehouse_item_stocks")
+        .select("*")
+        .eq("warehouse_id", order.warehouse_id)
+        .eq("item_id", reversal.itemId)
+        .eq("owner_id", session.user.id)
+        .maybeSingle(),
+      "读取配件库存",
+    );
+    if (currentError) throw currentError;
+    if (!currentData) throw new Error(`仓库配件库存不存在：${reversal.itemName}`);
+
+    const current = currentData as WarehouseItemStock;
+    if (current.stock_quantity < reversal.quantity) {
+      throw new Error(
+        `库存不足，不能删除已入库采购单：${reversal.itemName} 当前 ${current.stock_quantity}，需要冲回 ${reversal.quantity}`,
+      );
+    }
+
+    const nextQuantity = current.stock_quantity - reversal.quantity;
+    const { data: nextData, error: nextError } = await withTimeout(
+      supabase
+        .from("warehouse_item_stocks")
+        .update({ stock_quantity: nextQuantity })
+        .eq("id", current.id)
+        .eq("owner_id", session.user.id)
+        .eq("stock_quantity", current.stock_quantity)
+        .select()
+        .maybeSingle(),
+      "冲回配件库存",
+    );
+    if (nextError) throw nextError;
+    if (!nextData) throw new Error("库存已被其他操作更新，请刷新后重试");
+
+    const { error: adjustmentError } = await withTimeout(
+      supabase
+        .from("warehouse_item_stock_adjustments")
+        .insert({
+          warehouse_id: order.warehouse_id,
+          item_id: reversal.itemId,
+          previous_quantity: current.stock_quantity,
+          next_quantity: nextQuantity,
+          change_quantity: -reversal.quantity,
+          reason,
+          purchase_order_id: order.id,
+          purchase_package_id: reversal.packageId,
+        }),
+      "保存采购删除冲回记录",
+    );
+    if (adjustmentError) throw adjustmentError;
+  }
+}
+
 export async function deletePurchaseOrder(orderId: string) {
   const { supabase, session } = await requireSession();
+  const order = await loadPurchaseOrderForDeletion(supabase, session.user.id, orderId);
+  if (!order) return;
+  await reverseReceivedPurchaseInventory(order);
+
   const { error } = await withTimeout(
     supabase.from("purchase_orders").delete().eq("id", orderId).eq("owner_id", session.user.id),
     "删除采购单",

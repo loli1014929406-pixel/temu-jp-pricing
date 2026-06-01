@@ -50,6 +50,10 @@ function normalizeProductDraft(product: ProductDraft): ProductDraft {
   const comboName = product.combo_name.trim() || productNameCn;
   const comboDescription = product.combo_description.trim() || comboName || productNameCn;
   const titleJp = product.title_jp.trim() || productNameCn;
+  const maxUnitsPerParcel = Math.max(
+    1,
+    Math.trunc(Number(product.max_units_per_parcel) || 1),
+  );
 
   return {
     ...product,
@@ -61,6 +65,7 @@ function normalizeProductDraft(product: ProductDraft): ProductDraft {
     combo_name: comboName,
     combo_description: comboDescription,
     title_jp: titleJp,
+    max_units_per_parcel: maxUnitsPerParcel,
   };
 }
 
@@ -80,6 +85,10 @@ function normalizeProductRow(row: Partial<Product>): Product {
     package_width_cm: Number(row.package_width_cm ?? 0),
     package_height_cm: Number(row.package_height_cm ?? 0),
     package_weight_g: Number(row.package_weight_g ?? 0),
+    max_units_per_parcel: Math.max(
+      1,
+      Math.trunc(Number(row.max_units_per_parcel) || 1),
+    ),
     notes: row.notes ?? "",
     created_at: String(row.created_at ?? ""),
     updated_at: String(row.updated_at ?? ""),
@@ -107,6 +116,26 @@ function withoutSkuTemuImageUrl<T extends Partial<ProductSku>>(sku: T) {
   const { temu_image_url, ...legacySku } = sku;
   void temu_image_url;
   return legacySku;
+}
+
+function isMissingProductParcelCapacityColumnError(error: unknown) {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "object" && error !== null && "message" in error
+        ? String((error as { message?: unknown }).message ?? "")
+        : String(error ?? "");
+  return message.includes("max_units_per_parcel");
+}
+
+function withoutProductParcelCapacity<T extends Partial<ProductDraft>>(product: T) {
+  const { max_units_per_parcel, ...legacyProduct } = product;
+  void max_units_per_parcel;
+  return legacyProduct;
+}
+
+function getMissingProductParcelCapacityColumnMessage() {
+  return "商品数据库还没有新增“3cm快递可发几个”字段，请先执行最新商品迁移。";
 }
 
 export async function fetchProducts() {
@@ -435,10 +464,29 @@ export async function createProduct(
   await assertProductCodeAvailable(normalizedProduct.product_code);
 
   const { supabase } = await requireSession();
-  const { data, error } = await withTimeout(
+  let { data, error } = await withTimeout(
     supabase.from("products").insert(normalizedProduct).select().single(),
     "保存商品",
   );
+  if (
+    error &&
+    isMissingProductParcelCapacityColumnError(error) &&
+    normalizedProduct.max_units_per_parcel === 1
+  ) {
+    const legacyResult = await withTimeout(
+      supabase
+        .from("products")
+        .insert(withoutProductParcelCapacity(normalizedProduct))
+        .select()
+        .single(),
+      "保存商品",
+    );
+    data = legacyResult.data;
+    error = legacyResult.error;
+  }
+  if (error && isMissingProductParcelCapacityColumnError(error)) {
+    throw new Error(getMissingProductParcelCapacityColumnMessage());
+  }
   if (error) throw error;
 
   const itemIdsByKey = await insertItems(data.id, items);
@@ -488,10 +536,27 @@ export async function updateProduct(
     }
   });
 
-  const { error } = await withTimeout(
+  let { error } = await withTimeout(
     supabase.from("products").update(normalizedProduct).eq("id", productId),
     "更新商品",
   );
+  if (
+    error &&
+    isMissingProductParcelCapacityColumnError(error) &&
+    normalizedProduct.max_units_per_parcel === 1
+  ) {
+    const legacyResult = await withTimeout(
+      supabase
+        .from("products")
+        .update(withoutProductParcelCapacity(normalizedProduct))
+        .eq("id", productId),
+      "更新商品",
+    );
+    error = legacyResult.error;
+  }
+  if (error && isMissingProductParcelCapacityColumnError(error)) {
+    throw new Error(getMissingProductParcelCapacityColumnMessage());
+  }
   if (error) throw error;
 
   const { error: deleteSkuError } = await withTimeout(

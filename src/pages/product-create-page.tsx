@@ -39,7 +39,8 @@ function createInitialProductDraft(): ProductCreateDraft {
 }
 
 function isProductCreateDraftEmpty(draft: ProductCreateDraft) {
-  const productIsEmpty = Object.values(draft.product).every((value) => {
+  const productIsEmpty = Object.entries(draft.product).every(([key, value]) => {
+    if (key === "max_units_per_parcel") return Number(value) === 1;
     if (typeof value === "number") return value === 0;
     return !String(value ?? "").trim();
   });
@@ -85,7 +86,9 @@ export function ProductCreatePage({ user }: ProductCreatePageProps) {
   );
   const restoredDraft = restoredDraftRef.current;
   const [product, setProduct] = useState<ProductDraft>(
-    restoredDraft?.product ?? emptyProductDraft,
+    restoredDraft?.product
+      ? { ...emptyProductDraft, ...restoredDraft.product }
+      : emptyProductDraft,
   );
   const [items, setItems] = useState<ProductItem[]>(
     restoredDraft?.items ?? [createEmptyItem()],

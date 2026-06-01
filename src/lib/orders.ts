@@ -125,7 +125,7 @@ export async function importTemuOrders(rows: TemuOrderImportRow[]) {
       .from("temu_orders")
       .upsert(payload, {
         onConflict: "owner_id,order_no,sub_order_no",
-        ignoreDuplicates: true,
+        ignoreDuplicates: false,
       })
       .select(),
     "导入订单",
@@ -142,7 +142,7 @@ export async function importTemuOrders(rows: TemuOrderImportRow[]) {
           .from("temu_orders")
           .upsert(legacyPayload, {
             onConflict: "owner_id,order_no,sub_order_no",
-            ignoreDuplicates: true,
+            ignoreDuplicates: false,
           })
           .select(),
         "导入订单",

@@ -8,7 +8,12 @@ import {
   fetchProductSkus,
   updateProduct,
 } from "../lib/products";
-import { createEmptyItem, createEmptySku, createEmptySpec } from "../lib/defaults";
+import {
+  createEmptyItem,
+  createEmptySku,
+  createEmptySpec,
+  emptyProductDraft,
+} from "../lib/defaults";
 import type {
   ProductDraft,
   ProductItem,
@@ -299,6 +304,7 @@ export function ProductEditPage() {
         if (isCompleteProductEditDraft(cachedDraft)) {
           const fallbackDraft = {
             ...cachedDraft,
+            product: { ...emptyProductDraft, ...cachedDraft.product },
             skus: normalizeDraftSkus(cachedDraft.skus),
           };
           draftRef.current = fallbackDraft;

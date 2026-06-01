@@ -668,7 +668,11 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
       return;
     }
 
-    const confirmed = window.confirm("确认删除这张采购管理单吗？删除后无法恢复。");
+    const confirmed = window.confirm(
+      order.packages.some((pkg) => pkg.status === "received")
+        ? "确认删除这张采购管理单吗？已签收入库的数量会同步从库存扣回，删除后无法恢复。"
+        : "确认删除这张采购管理单吗？删除后无法恢复。",
+    );
     if (!confirmed) return;
     setBusyKey(`delete-order-${order.id}`);
     try {

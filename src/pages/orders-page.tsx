@@ -116,6 +116,14 @@ type OrderStockDeduction = {
   itemName: string;
   warehouseName: string;
   orderNo: string;
+  orderLineLabel: string;
+};
+
+type OrderDisplayRow = {
+  id: string;
+  primaryOrder: TemuOrderRecord;
+  orders: TemuOrderRecord[];
+  quantity: number;
 };
 
 const importColumns = [
@@ -360,6 +368,17 @@ function normalizeLogisticsMethod(value: string) {
   return text;
 }
 
+function isThreeCmLogisticsMethod(value: string) {
+  const method = normalizeLogisticsMethod(value).replace(/\s+/g, "").toLowerCase();
+  return (
+    method === "ocs3cm" ||
+    method === "日本邮便3cm" ||
+    method === "日本郵便3cm" ||
+    method === "japanpost3cm" ||
+    method === "jp3cm"
+  );
+}
+
 function formatSkuSalesSpec(sku: ProductSku) {
   const entries = Object.entries(sku.attributes)
     .map(([name, value]) => [name.trim(), String(value).trim()] as const)
@@ -430,11 +449,35 @@ function SkuImageThumb({ product, sku }: { product: Product; sku: ProductSku }) 
 
 function parseFulfillmentQuantity(value: string) {
   const quantity = Number(value);
-  return Number.isFinite(quantity) && quantity > 0 ? Math.trunc(quantity) : 0;
+  return Number.isFinite(quantity) && quantity > 0 ? Math.trunc(quantity) : 1;
 }
 
 function getOrderNoKey(value: string) {
   return value.trim().toLowerCase();
+}
+
+function getOrderLineKey(
+  order: Pick<
+    TemuOrderRecord,
+    "order_no" | "sub_order_no" | "sku_code" | "product_attributes"
+  >,
+) {
+  const orderNo = getOrderNoKey(order.order_no);
+  if (!orderNo) return "";
+
+  const subOrderNo = order.sub_order_no.trim().toLowerCase();
+  if (subOrderNo) return `${orderNo}\u0000${subOrderNo}`;
+
+  return [
+    orderNo,
+    normalizeSkuCode(order.sku_code),
+    normalizeSalesSpec(order.product_attributes),
+  ].join("\u0000");
+}
+
+function getOrderLineLabel(order: Pick<TemuOrderRecord, "order_no" | "sub_order_no" | "id">) {
+  const subOrderNo = order.sub_order_no.trim();
+  return subOrderNo ? `${order.order_no} / ${subOrderNo}` : `${order.order_no} / ${order.id}`;
 }
 
 function isUploadedTemuStatus(value: string) {
@@ -472,11 +515,11 @@ function shouldReplaceDuplicateOrder(
   return candidate.updated_at.localeCompare(current.updated_at) > 0;
 }
 
-function dedupeOrdersByOrderNo(orders: TemuOrderRecord[]) {
+function dedupeOrdersByOrderLine(orders: TemuOrderRecord[]) {
   const uniqueOrders = new Map<string, TemuOrderRecord>();
 
   orders.forEach((order) => {
-    const key = getOrderNoKey(order.order_no);
+    const key = getOrderLineKey(order);
     if (!key) return;
 
     const current = uniqueOrders.get(key);
@@ -488,11 +531,11 @@ function dedupeOrdersByOrderNo(orders: TemuOrderRecord[]) {
   return Array.from(uniqueOrders.values());
 }
 
-function dedupeImportRowsByOrderNo(rows: TemuOrderImportRow[]) {
+function dedupeImportRowsByOrderLine(rows: TemuOrderImportRow[]) {
   const uniqueRows = new Map<string, TemuOrderImportRow>();
 
   rows.forEach((row) => {
-    const key = getOrderNoKey(row.order_no);
+    const key = getOrderLineKey(row);
     if (key && !uniqueRows.has(key)) {
       uniqueRows.set(key, row);
     }
@@ -805,7 +848,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
           fetchWarehouseItemStocks(nextWarehouses.map((warehouse) => warehouse.id)),
         ]);
         if (!active) return;
-        const uniqueOrders = dedupeOrdersByOrderNo(nextOrders);
+        const uniqueOrders = dedupeOrdersByOrderLine(nextOrders);
         setOrders(uniqueOrders);
         setWarehouses(nextWarehouses);
         setProducts(nextProducts);
@@ -873,18 +916,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
         Boolean(draft.bulkWarehouseId || draft.bulkLogisticsMethod),
     },
   );
-
-  const stageCounts = useMemo(() => {
-    const counts = Object.fromEntries(
-      stageDefinitions.map((definition) => [definition.key, 0]),
-    ) as Record<OrderStage, number>;
-
-    counts.all = orders.length;
-    orders.forEach((order) => {
-      counts[getOrderStage(order)] += 1;
-    });
-    return counts;
-  }, [orders]);
 
   const logisticsMethodOptions = useMemo(
     () =>
@@ -1016,6 +1047,24 @@ export function OrdersPage({ user }: OrdersPageProps) {
     skuOrderLookup,
   ]);
 
+  const filteredOrderRows = useMemo(
+    () => buildOrderDisplayRows(filteredOrders),
+    [drafts, filteredOrders, productsById, skuOrderLookup],
+  );
+
+  const stageCounts = useMemo(() => {
+    const counts = Object.fromEntries(
+      stageDefinitions.map((definition) => [definition.key, 0]),
+    ) as Record<OrderStage, number>;
+    const rows = buildOrderDisplayRows(orders);
+
+    counts.all = rows.length;
+    rows.forEach((row) => {
+      counts[getOrderStage(row.primaryOrder)] += 1;
+    });
+    return counts;
+  }, [drafts, orders, productsById, skuOrderLookup]);
+
   const tableColumns = useMemo(
     () =>
       visibleColumns.filter(
@@ -1082,6 +1131,26 @@ export function OrdersPage({ user }: OrdersPageProps) {
     [filteredOrders, selectedOrderIdSet],
   );
 
+  const selectedOrderRowsInView = useMemo(
+    () =>
+      filteredOrderRows.filter((row) =>
+        row.orders.every((order) => selectedOrderIdSet.has(order.id)),
+      ),
+    [filteredOrderRows, selectedOrderIdSet],
+  );
+  const selectedNewOrderRowCount = selectedOrderRowsInView.filter(
+    (row) => getOrderStage(row.primaryOrder) === "new_order",
+  ).length;
+  const selectedPendingShippingRowCount = selectedOrderRowsInView.filter(
+    (row) => getOrderStage(row.primaryOrder) === "pending_shipping",
+  ).length;
+  const selectedShippedRowCount = selectedOrderRowsInView.filter(
+    (row) => getOrderStage(row.primaryOrder) === "shipped",
+  ).length;
+  const selectedUploadedTemuRowCount = selectedOrderRowsInView.filter(
+    (row) => getOrderStage(row.primaryOrder) === "uploaded_temu",
+  ).length;
+
   const selectedStockDeductibleOrdersInView = useMemo(
     () =>
       selectedOrdersInView.filter((order) =>
@@ -1092,9 +1161,10 @@ export function OrdersPage({ user }: OrdersPageProps) {
     [selectedOrdersInView],
   );
 
-  const selectedInViewCount = selectedOrdersInView.length;
+  const selectedOrderLineInViewCount = selectedOrdersInView.length;
+  const selectedInViewCount = selectedOrderRowsInView.length;
   const selectedSingleOrderInView =
-    selectedInViewCount === 1 ? selectedOrdersInView[0] : null;
+    selectedOrderLineInViewCount === 1 ? selectedOrdersInView[0] : null;
   const canManageSelectedShippedOrders =
     selectedShippedOrdersInView.length > 0 &&
     (activeStage === "shipped" || showUrgentUnuploadedOnly);
@@ -1107,8 +1177,10 @@ export function OrdersPage({ user }: OrdersPageProps) {
     [filteredOrders],
   );
   const allFilteredSelected =
-    filteredOrders.length > 0 &&
-    filteredOrders.every((order) => selectedOrderIdSet.has(order.id));
+    filteredOrderRows.length > 0 &&
+    filteredOrderRows.every((row) =>
+      row.orders.every((order) => selectedOrderIdSet.has(order.id)),
+    );
 
   useEffect(() => {
     if (!canEdit || loading || !isShippingTrackingStage(activeStage) || busyKey) return;
@@ -1169,28 +1241,50 @@ export function OrdersPage({ user }: OrdersPageProps) {
     field: K,
     value: OrderDraft[K],
   ) {
-    setDrafts((current) => ({
-      ...current,
-      [orderId]: {
-        ...(current[orderId] ?? createEmptyDraft()),
-        [field]: value,
-      },
-    }));
+    updateDraftForOrders([orderId], field, value);
+  }
+
+  function updateDraftForOrders<K extends keyof OrderDraft>(
+    orderIds: string[],
+    field: K,
+    value: OrderDraft[K],
+  ) {
+    setDrafts((current) => {
+      const next = { ...current };
+      orderIds.forEach((orderId) => {
+        next[orderId] = {
+          ...(next[orderId] ?? createEmptyDraft()),
+          [field]: value,
+        };
+      });
+      return next;
+    });
   }
 
   function updateDraftFields(orderId: string, values: Partial<OrderDraft>) {
-    setDrafts((current) => ({
-      ...current,
-      [orderId]: {
-        ...(current[orderId] ?? createEmptyDraft()),
-        ...values,
-      },
-    }));
+    updateDraftFieldsForOrders([orderId], values);
+  }
+
+  function updateDraftFieldsForOrders(orderIds: string[], values: Partial<OrderDraft>) {
+    setDrafts((current) => {
+      const next = { ...current };
+      orderIds.forEach((orderId) => {
+        next[orderId] = {
+          ...(next[orderId] ?? createEmptyDraft()),
+          ...values,
+        };
+      });
+      return next;
+    });
   }
 
   function handleWarehouseChange(orderId: string, warehouseId: string) {
+    handleWarehouseChangeForOrders([orderId], warehouseId);
+  }
+
+  function handleWarehouseChangeForOrders(orderIds: string[], warehouseId: string) {
     if (!warehouseId) {
-      updateDraftFields(orderId, {
+      updateDraftFieldsForOrders(orderIds, {
         warehouse_id: null,
         warehouse_name: "",
         logistics_method: "",
@@ -1199,7 +1293,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
     }
 
     const warehouse = warehouses.find((item) => item.id === warehouseId);
-    const currentDraft = drafts[orderId] ?? createEmptyDraft();
+    const currentDraft = drafts[orderIds[0]] ?? createEmptyDraft();
     const nextWarehouseName = warehouse?.name ?? "";
     const nextLogisticsMethod = isLogisticsMethodAllowedForWarehouse(
       nextWarehouseName,
@@ -1208,7 +1302,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
     )
       ? currentDraft.logistics_method
       : "";
-    updateDraftFields(orderId, {
+    updateDraftFieldsForOrders(orderIds, {
       warehouse_id: warehouse?.id ?? warehouseId,
       warehouse_name: nextWarehouseName,
       logistics_method: nextLogisticsMethod,
@@ -1502,8 +1596,19 @@ export function OrdersPage({ user }: OrdersPageProps) {
     );
   }
 
+  function toggleOrderRowSelection(row: OrderDisplayRow, checked: boolean) {
+    const rowIds = row.orders.map((order) => order.id);
+    setSelectedOrderIds((current) =>
+      checked
+        ? Array.from(new Set([...current, ...rowIds]))
+        : current.filter((id) => !rowIds.includes(id)),
+    );
+  }
+
   function toggleFilteredSelection(checked: boolean) {
-    const filteredIds = filteredOrders.map((order) => order.id);
+    const filteredIds = filteredOrderRows.flatMap((row) =>
+      row.orders.map((order) => order.id),
+    );
     setSelectedOrderIds((current) =>
       checked
         ? Array.from(new Set([...current, ...filteredIds]))
@@ -1544,7 +1649,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
       });
       const missingColumns = importColumns.filter(
         (column) =>
-          !["子订单号", "SKU货号", "商品属性"].includes(column) &&
+          !["子订单号", "SKU货号", "应履约件数", "商品属性"].includes(column) &&
           !Object.prototype.hasOwnProperty.call(rows[0] ?? {}, column),
       );
       if (missingColumns.length > 0) {
@@ -1568,7 +1673,9 @@ export function OrdersPage({ user }: OrdersPageProps) {
             sub_order_no: readCell(row, "子订单号") || String(index + 2),
             order_status: readCell(row, "订单状态"),
             sku_code: skuCode,
-            fulfillment_quantity: parseFulfillmentQuantity(readCell(row, "应履约件数")),
+            fulfillment_quantity: parseFulfillmentQuantity(
+              readAnyCell(row, ["应履约件数", "商品数量", "数量", "购买数量", "件数", "商品件数"]),
+            ),
             product_attributes: matchedSalesSpec ?? readCell(row, "商品属性"),
             recipient_name: readCell(row, "收货人姓名"),
             recipient_phone: readCell(row, "收货人联系方式"),
@@ -1587,36 +1694,45 @@ export function OrdersPage({ user }: OrdersPageProps) {
       });
       if (importRows.length === 0) throw new Error("没有读取到可导入的订单行");
 
-      const uniqueImportRows = dedupeImportRowsByOrderNo(importRows);
+      const uniqueImportRows = dedupeImportRowsByOrderLine(importRows);
       const skippedDuplicateCount = importRows.length - uniqueImportRows.length;
       const existingOrders = await fetchTemuOrders();
-      const existingOrderNoSet = new Set(
-        existingOrders
-          .map((order) => getOrderNoKey(order.order_no))
-          .filter(Boolean),
+      const existingOrdersByLineKey = new Map(
+        existingOrders.flatMap((order) => {
+          const key = getOrderLineKey(order);
+          return key ? [[key, order] as const] : [];
+        }),
       );
-      const newImportRows = uniqueImportRows.filter(
-        (row) => !existingOrderNoSet.has(getOrderNoKey(row.order_no)),
-      );
-      const skippedExistingCount = uniqueImportRows.length - newImportRows.length;
-
-      if (newImportRows.length > 0) {
-        await importTemuOrders(newImportRows);
-      }
-
-      const nextOrders = dedupeOrdersByOrderNo(
-        newImportRows.length > 0 ? await fetchTemuOrders() : existingOrders,
+      const existingLineCount = uniqueImportRows.filter((row) =>
+        existingOrdersByLineKey.has(getOrderLineKey(row)),
+      ).length;
+      const importRowsForSave = uniqueImportRows.map((row) => {
+        const existingOrder = existingOrdersByLineKey.get(getOrderLineKey(row));
+        return existingOrder
+          ? {
+              ...row,
+              order_status: existingOrder.order_status || row.order_status,
+              actual_ship_time: existingOrder.actual_ship_time || row.actual_ship_time,
+            }
+          : row;
+      });
+      const savedOrders =
+        importRowsForSave.length > 0
+          ? await importTemuOrders(importRowsForSave)
+          : [] as TemuOrderRecord[];
+      const nextOrders = dedupeOrdersByOrderLine(
+        importRowsForSave.length > 0 ? await fetchTemuOrders() : existingOrders,
       );
       setOrders(nextOrders);
       setDrafts(Object.fromEntries(nextOrders.map((order) => [order.id, toDraft(order)])));
       const skipMessages = [
-        skippedDuplicateCount > 0 ? `跳过上传表内重复订单号 ${skippedDuplicateCount} 行` : "",
-        skippedExistingCount > 0 ? `跳过已有订单 ${skippedExistingCount} 条` : "",
+        skippedDuplicateCount > 0 ? `跳过上传表内重复订单明细 ${skippedDuplicateCount} 行` : "",
+        existingLineCount > 0 ? `更新已有订单明细 ${existingLineCount} 条` : "",
       ].filter(Boolean);
       setNoticeMessage(
         [
-          newImportRows.length > 0
-            ? `已导入 ${newImportRows.length} 条新订单`
+          savedOrders.length > 0
+            ? `已导入/更新 ${savedOrders.length} 条订单明细`
             : "没有新增订单",
           ...skipMessages,
         ].join("，"),
@@ -1670,12 +1786,13 @@ export function OrdersPage({ user }: OrdersPageProps) {
         return;
       }
 
+      const pendingOrderRows = buildOrderDisplayRows(pendingOrders);
       const usedRowIndexes = new Set<number>();
-      const matchedPairs = pendingOrders.flatMap((order) => {
-        const match = findTrackingMatch(order, trackingRows, usedRowIndexes);
+      const matchedPairs = pendingOrderRows.flatMap((orderRow) => {
+        const match = findTrackingMatch(orderRow.primaryOrder, trackingRows, usedRowIndexes);
         if (!match) return [];
         usedRowIndexes.add(match.rowIndex);
-        return [{ order, trackingRow: match }];
+        return orderRow.orders.map((order) => ({ order, trackingRow: match }));
       });
 
       if (matchedPairs.length === 0) {
@@ -1859,21 +1976,32 @@ export function OrdersPage({ user }: OrdersPageProps) {
   }
 
   async function handleSaveActualShipTime(order: TemuOrderRecord) {
+    await handleSaveActualShipTimeForOrders([order]);
+  }
+
+  async function handleSaveActualShipTimeForOrders(targetOrders: TemuOrderRecord[]) {
     if (!canEdit) return;
-    if (getOrderStage(order) !== "uploaded_temu") return;
 
-    const nextActualShipTime = (drafts[order.id] ?? toDraft(order)).actual_ship_time.trim();
-    if (nextActualShipTime === order.actual_ship_time.trim()) return;
+    const changedOrders = targetOrders.filter((order) => {
+      if (getOrderStage(order) !== "uploaded_temu") return false;
+      const nextActualShipTime = (drafts[order.id] ?? toDraft(order)).actual_ship_time.trim();
+      return nextActualShipTime !== order.actual_ship_time.trim();
+    });
+    if (changedOrders.length === 0) return;
 
-    setBusyKey(`actual-ship-time-${order.id}`);
+    setBusyKey(`actual-ship-time-${changedOrders.map((order) => order.id).join("|")}`);
     setErrorMessage("");
 
     try {
-      const nextOrder = await updateTemuOrder(order.id, {
-        actual_ship_time: nextActualShipTime,
-      });
-      updateOrdersState([nextOrder]);
-      setNoticeMessage(`已保存订单 ${order.order_no} 的实际发货时间`);
+      const nextOrders = await Promise.all(
+        changedOrders.map((order) =>
+          updateTemuOrder(order.id, {
+            actual_ship_time: (drafts[order.id] ?? toDraft(order)).actual_ship_time.trim(),
+          }),
+        ),
+      );
+      updateOrdersState(nextOrders);
+      setNoticeMessage(`已保存 ${nextOrders.length} 条订单明细的实际发货时间`);
     } catch (error) {
       setErrorMessage(getOrdersErrorMessage(error, "保存实际发货时间失败"));
     } finally {
@@ -2038,9 +2166,9 @@ export function OrdersPage({ user }: OrdersPageProps) {
       return;
     }
 
-    const targetOrders = (selectedInViewCount > 0 ? selectedOrdersInView : filteredOrders).filter(
-      (order) => getOrderStage(order) === "pending_assignment",
-    );
+    const targetOrders = (
+      selectedOrderLineInViewCount > 0 ? selectedOrdersInView : filteredOrders
+    ).filter((order) => getOrderStage(order) === "pending_assignment");
     if (targetOrders.length === 0) {
       setNoticeMessage("当前没有需要匹配的待分配订单。");
       return;
@@ -2151,6 +2279,128 @@ export function OrdersPage({ user }: OrdersPageProps) {
     return Math.max(1, Math.trunc(order.fulfillment_quantity || 0));
   }
 
+  function getOrderShipmentGroupKey(order: TemuOrderRecord) {
+    const merged = mergeOrderDraft(order);
+    const declaration = getOrderDeclaration(merged);
+    const productKey =
+      declaration?.product.id ||
+      normalizeSkuCode(merged.sku_code) ||
+      normalizeSalesSpec(merged.product_attributes);
+
+    return [
+      getOrderNoKey(merged.order_no),
+      productKey,
+      getOrderStage(merged),
+      merged.warehouse_id ?? "",
+      merged.warehouse_name.trim().toLowerCase(),
+      normalizeLogisticsMethod(merged.logistics_method).toLowerCase(),
+      merged.logistics_tracking_no.trim(),
+      normalizeJapanesePhone(formatRecipientPhone(merged.recipient_phone)),
+      normalizePostalCode(merged.postal_code),
+      normalizeLooseText(formatRecipientName(merged.recipient_name)),
+      normalizeLooseText(getFullAddress(merged)),
+    ].join("\u0000");
+  }
+
+  function getOrderExactSkuGroupKey(order: TemuOrderRecord) {
+    return [
+      normalizeSkuCode(order.sku_code),
+      normalizeSalesSpec(order.product_attributes),
+    ].join("\u0000");
+  }
+
+  function getOrderParcelCapacity(order: TemuOrderRecord) {
+    if (!isThreeCmLogisticsMethod(order.logistics_method)) return 1;
+
+    const declaration = getOrderDeclaration(order);
+    const capacity = Number(declaration?.product.max_units_per_parcel ?? 1);
+    return Math.max(1, Math.trunc(Number.isFinite(capacity) ? capacity : 1));
+  }
+
+  function createOrderDisplayRow(rowOrders: TemuOrderRecord[]): OrderDisplayRow | null {
+    const mergedOrders = rowOrders.map((order) => mergeOrderDraft(order));
+    const primaryOrder = mergedOrders[0];
+    if (!primaryOrder) return null;
+
+    return {
+      id: mergedOrders.map((order) => order.id).sort().join("|"),
+      primaryOrder,
+      orders: mergedOrders,
+      quantity: mergedOrders.reduce(
+        (total, order) => total + getOrderFulfillmentQuantity(order),
+        0,
+      ),
+    };
+  }
+
+  function buildOrderDisplayRows(targetOrders: TemuOrderRecord[]) {
+    const groups = new Map<string, TemuOrderRecord[]>();
+    targetOrders.forEach((order) => {
+      const key = getOrderShipmentGroupKey(order);
+      groups.set(key, [...(groups.get(key) ?? []), order]);
+    });
+
+    const rows: OrderDisplayRow[] = [];
+    groups.forEach((groupOrders) => {
+      const mergedGroupOrders = groupOrders.map((order) => mergeOrderDraft(order));
+      const capacity = getOrderParcelCapacity(mergedGroupOrders[0]);
+      const sortedGroupOrders = [...mergedGroupOrders].sort((left, right) => {
+        const bySku = getOrderExactSkuGroupKey(left).localeCompare(
+          getOrderExactSkuGroupKey(right),
+        );
+        return bySku || left.sub_order_no.localeCompare(right.sub_order_no);
+      });
+
+      if (capacity <= 1) {
+        sortedGroupOrders.forEach((order) => {
+          const row = createOrderDisplayRow([order]);
+          if (row) rows.push(row);
+        });
+        return;
+      }
+
+      let currentRowOrders: TemuOrderRecord[] = [];
+      let currentQuantity = 0;
+      sortedGroupOrders.forEach((order) => {
+        const orderQuantity = getOrderFulfillmentQuantity(order);
+        if (
+          currentRowOrders.length > 0 &&
+          currentQuantity + orderQuantity > capacity
+        ) {
+          const row = createOrderDisplayRow(currentRowOrders);
+          if (row) rows.push(row);
+          currentRowOrders = [];
+          currentQuantity = 0;
+        }
+
+        currentRowOrders.push(order);
+        currentQuantity += orderQuantity;
+      });
+
+      const row = createOrderDisplayRow(currentRowOrders);
+      if (row) rows.push(row);
+    });
+
+    return rows;
+  }
+
+  function getOrderDisplayRowSalesSpec(row: OrderDisplayRow) {
+    const specGroups = new Map<string, { label: string; quantity: number }>();
+    row.orders.forEach((order) => {
+      const label = order.product_attributes.trim() || "--";
+      const key = getOrderExactSkuGroupKey(order) || label;
+      const current = specGroups.get(key);
+      specGroups.set(key, {
+        label: current?.label ?? label,
+        quantity: (current?.quantity ?? 0) + getOrderFulfillmentQuantity(order),
+      });
+    });
+
+    return Array.from(specGroups.values())
+      .map((item) => (item.quantity > 1 ? `${item.label} ×${item.quantity}` : item.label))
+      .join(" / ");
+  }
+
   function buildOrderStockDeductions(targetOrders: TemuOrderRecord[]) {
     const deductions: OrderStockDeduction[] = [];
 
@@ -2203,6 +2453,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
           itemName,
           warehouseName,
           orderNo: order.order_no,
+          orderLineLabel: getOrderLineLabel(order),
         });
       }
     }
@@ -2239,8 +2490,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
       stockDeductionResult.deductions.map((deduction) => ({
         stockId: deduction.stock.id,
         quantity: deduction.quantity,
-        reason: `订单出库：${deduction.orderNo}`,
-        dedupeKey: deduction.orderNo,
+        reason: `订单出库：${deduction.orderLineLabel}`,
+        dedupeKey: deduction.orderLineLabel,
       })),
     );
     applyWarehouseItemStockUpdates(inventoryChanges.map((change) => change.item));
@@ -2248,8 +2499,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
   }
 
   function buildOcsSheet1Rows(targetOrders: TemuOrderRecord[]) {
-    return targetOrders.map((order) => {
-      const merged = mergeOrderDraft(order);
+    return buildOrderDisplayRows(targetOrders).map((row) => {
+      const merged = row.primaryOrder;
       return {
         收件人: formatRecipientName(merged.recipient_name),
         收件人地址: getFullAddress(merged),
@@ -2276,33 +2527,51 @@ export function OrdersPage({ user }: OrdersPageProps) {
   }
 
   function buildOcsSheet2Rows(targetOrders: TemuOrderRecord[]) {
-    return targetOrders.flatMap((order) => {
-      const merged = mergeOrderDraft(order);
-      const declaration = getOrderDeclaration(merged);
-      if (!declaration) return [];
-
-      return [
+    return buildOrderDisplayRows(targetOrders).flatMap((row) => {
+      const declarationGroups = new Map<
+        string,
         {
-          订单号: merged.order_no,
-          商品代码: 1,
-          品名: declaration.product.product_name_en,
-          描述: declaration.product.material_en,
-          商品数量: Math.max(1, merged.fulfillment_quantity),
-          单价: getDeclarationUnitPriceUsd(declaration.sku),
-          币值: "USD",
-          编制方式: "",
-          HS_CODE: "",
-          原产国: "CN",
-          货架号: "",
-          采购编号: "",
-          样式颜色: formatStyleColorForDeclaration(merged.product_attributes),
-          客户备注: `${declaration.product.product_name_en} ${declaration.product.product_code}`.trim(),
-          URL: "",
-          PRIMARYKEY: "",
-          国内申报价值: "",
-          国内申报币值: "",
-        },
-      ];
+          order: TemuOrderRecord;
+          declaration: { sku: ProductSku; product: Product };
+          quantity: number;
+        }
+      >();
+
+      row.orders.forEach((order) => {
+        const declaration = getOrderDeclaration(order);
+        if (!declaration) return;
+        const key = [
+          declaration.sku.id ?? declaration.sku.sku_code,
+          normalizeSalesSpec(order.product_attributes),
+        ].join("\u0000");
+        const current = declarationGroups.get(key);
+        declarationGroups.set(key, {
+          order: current?.order ?? order,
+          declaration: current?.declaration ?? declaration,
+          quantity: (current?.quantity ?? 0) + getOrderFulfillmentQuantity(order),
+        });
+      });
+
+      return Array.from(declarationGroups.values()).map((group, index) => ({
+        订单号: row.primaryOrder.order_no,
+        商品代码: index + 1,
+        品名: group.declaration.product.product_name_en,
+        描述: group.declaration.product.material_en,
+        商品数量: group.quantity,
+        单价: getDeclarationUnitPriceUsd(group.declaration.sku),
+        币值: "USD",
+        编制方式: "",
+        HS_CODE: "",
+        原产国: "CN",
+        货架号: "",
+        采购编号: "",
+        样式颜色: formatStyleColorForDeclaration(group.order.product_attributes),
+        客户备注: `${group.declaration.product.product_name_en} ${group.declaration.product.product_code}`.trim(),
+        URL: "",
+        PRIMARYKEY: "",
+        国内申报价值: "",
+        国内申报币值: "",
+      }));
     });
   }
 
@@ -2417,7 +2686,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
       updateOrdersState(nextOrders);
       setActiveStage("pending_shipping");
       setNoticeMessage(
-        `已转入待发货 ${targetOrders.length} 条订单，并扣减 ${inventoryChanges.length} 项配件库存，请下载发货表格。`,
+        `已转入待发货 ${buildOrderDisplayRows(targetOrders).length} 行订单，并扣减 ${inventoryChanges.length} 项配件库存，请下载发货表格。`,
       );
     } catch (error) {
       setErrorMessage(getOrdersErrorMessage(error, "转入待发货失败"));
@@ -2448,7 +2717,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
 
     try {
       await downloadOcsShippingWorkbook(targetOrders);
-      setNoticeMessage(`已下载 ${targetOrders.length} 条订单的 OCS 3cm 发货表格`);
+      setNoticeMessage(`已下载 ${buildOrderDisplayRows(targetOrders).length} 行 OCS 3cm 发货表格`);
     } catch (error) {
       setErrorMessage(getOrdersErrorMessage(error, "下载发货表格失败"));
     } finally {
@@ -2701,7 +2970,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
               {showUrgentUnuploadedOnly
                 ? "即将逾期未发货"
                 : getStageDefinition(activeStage).label}{" "}
-              {filteredOrders.length}
+              {filteredOrderRows.length}
             </span>
           </div>
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
@@ -2733,10 +3002,14 @@ export function OrdersPage({ user }: OrdersPageProps) {
           </div>
         </div>
 
-        {selectedInViewCount > 0 && (
+        {selectedOrderLineInViewCount > 0 && (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3">
             <span className="text-sm font-semibold text-slate-900">
-              已选 {selectedInViewCount} 条
+              已选 {selectedInViewCount || selectedOrderLineInViewCount}
+              {selectedInViewCount > 0 ? " 行" : " 条明细"}
+              {selectedInViewCount > 0 && selectedOrderLineInViewCount !== selectedInViewCount
+                ? `（${selectedOrderLineInViewCount} 条明细）`
+                : ""}
             </span>
             <div className="flex flex-wrap items-center gap-3">
               <button
@@ -2760,7 +3033,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
                   className="btn-secondary h-9 px-3"
                 >
                   <Truck size={16} />
-                  转到待发货（{selectedNewOrdersInView.length}）
+                  转到待发货（{selectedNewOrderRowCount}）
                 </button>
               )}
               <button
@@ -2812,9 +3085,9 @@ export function OrdersPage({ user }: OrdersPageProps) {
                     className="btn-secondary h-9 px-3"
                   >
                     <Download size={16} />
-                    下载发货表格（{selectedPendingShippingOrdersInView.length}）
+                    下载发货表格（{selectedPendingShippingRowCount}）
                   </button>
-              )}
+                )}
               {canEdit && canManageSelectedShippedOrders && (
                 <>
                   <button
@@ -2829,7 +3102,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
                     className="btn-secondary h-9 px-3"
                   >
                     <Download size={16} />
-                    下载上传Temu表格（{selectedShippedOrdersInView.length}）
+                    下载上传Temu表格（{selectedShippedRowCount}）
                   </button>
                   <button
                     type="button"
@@ -2838,7 +3111,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
                     className="btn-secondary h-9 px-3"
                   >
                     <ArrowRight size={16} />
-                    转到上传Temu（{selectedShippedOrdersInView.length}）
+                    转到上传Temu（{selectedShippedRowCount}）
                   </button>
                 </>
               )}
@@ -2852,7 +3125,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
                   className="btn-secondary h-9 px-3"
                 >
                   <CheckCircle2 size={16} />
-                  签收（{selectedUploadedTemuOrdersInView.length}）
+                  签收（{selectedUploadedTemuRowCount}）
                 </button>
               )}
               {canDelete && (
@@ -2928,7 +3201,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
             <button
               type="button"
               disabled={
-                selectedInViewCount === 0 ||
+                selectedOrderLineInViewCount === 0 ||
                 busyKey === "bulk-assign" ||
                 (!bulkWarehouseId && !bulkLogisticsMethod.trim())
               }
@@ -2951,7 +3224,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
 
         {loading ? (
           <div className="text-sm text-slate-500">加载中...</div>
-        ) : filteredOrders.length === 0 ? (
+        ) : filteredOrderRows.length === 0 ? (
           <div className="empty-state">暂无订单数据</div>
         ) : (
           <div className="table-card shadow-none">
@@ -2963,7 +3236,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
                       <input
                         type="checkbox"
                         checked={allFilteredSelected}
-                        disabled={filteredOrders.length === 0}
+                        disabled={filteredOrderRows.length === 0}
                         onChange={(event) => toggleFilteredSelection(event.target.checked)}
                         aria-label="选择当前列表全部订单"
                         className="h-4 w-4 rounded border-slate-300 text-sky-700 focus:ring-sky-500"
@@ -2993,9 +3266,11 @@ export function OrdersPage({ user }: OrdersPageProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredOrders.map((order) => {
+                  {filteredOrderRows.map((orderRow) => {
+                    const order = orderRow.primaryOrder;
+                    const rowOrderIds = orderRow.orders.map((item) => item.id);
                     const draft = drafts[order.id] ?? toDraft(order);
-                    const mergedOrder = mergeOrderDraft(order);
+                    const mergedOrder = order;
                     const persistedStage = getOrderStage(order);
                     const stage = getStageDefinition(persistedStage);
                     const shipCountdown = getShipDeadlineBadge(mergedOrder, currentTime);
@@ -3017,15 +3292,18 @@ export function OrdersPage({ user }: OrdersPageProps) {
                     const declaration = getOrderDeclaration(mergedOrder);
                     const trackingStatusLabel =
                       getTrackingStatusLabel(mergedOrder.logistics_status) || "待查询";
+                    const rowSelected = orderRow.orders.every((item) =>
+                      selectedOrderIdSet.has(item.id),
+                    );
 
                     return (
-                      <tr key={order.id}>
+                      <tr key={orderRow.id}>
                         <td className="text-center">
                           <input
                             type="checkbox"
-                            checked={selectedOrderIdSet.has(order.id)}
+                            checked={rowSelected}
                             onChange={(event) =>
-                              toggleOrderSelection(order.id, event.target.checked)
+                              toggleOrderRowSelection(orderRow, event.target.checked)
                             }
                             aria-label={`选择订单 ${order.order_no}`}
                             className="h-4 w-4 rounded border-slate-300 text-sky-700 focus:ring-sky-500"
@@ -3047,7 +3325,9 @@ export function OrdersPage({ user }: OrdersPageProps) {
                           {canAssignOrder ? (
                             <select
                               value={draft.warehouse_id ?? ""}
-                              onChange={(event) => handleWarehouseChange(order.id, event.target.value)}
+                              onChange={(event) =>
+                                handleWarehouseChangeForOrders(rowOrderIds, event.target.value)
+                              }
                               className="h-9 w-36 rounded-md border border-line bg-white px-2 text-sm outline-none focus:border-accent"
                             >
                               <option value="">未分配</option>
@@ -3072,8 +3352,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
                               value={normalizeLogisticsMethod(draft.logistics_method)}
                               disabled={!draft.warehouse_id}
                               onChange={(event) =>
-                                updateDraft(
-                                  order.id,
+                                updateDraftForOrders(
+                                  rowOrderIds,
                                   "logistics_method",
                                   event.target.value,
                                 )
@@ -3101,7 +3381,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
                             </span>
                           )}
                         </td>
-                        <td className="number-cell">{order.fulfillment_quantity}</td>
+                        <td className="number-cell">{orderRow.quantity}</td>
                         <td className="order-product-col">
                           {declaration ? (
                             <div className="flex min-w-48 items-center gap-3">
@@ -3122,7 +3402,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
                             "--"
                           )}
                         </td>
-                        <td className="order-attr-col">{order.product_attributes || "--"}</td>
+                        <td className="order-attr-col">{getOrderDisplayRowSalesSpec(orderRow) || "--"}</td>
                         {isShippingTrackingStage(activeStage) && (
                           <>
                             <td className="order-tracking-col">
@@ -3185,9 +3465,13 @@ export function OrdersPage({ user }: OrdersPageProps) {
                               value={draft.actual_ship_time}
                               readOnly={!canEdit}
                               onChange={(event) =>
-                                updateDraft(order.id, "actual_ship_time", event.target.value)
+                                updateDraftForOrders(
+                                  rowOrderIds,
+                                  "actual_ship_time",
+                                  event.target.value,
+                                )
                               }
-                              onBlur={() => void handleSaveActualShipTime(order)}
+                              onBlur={() => void handleSaveActualShipTimeForOrders(orderRow.orders)}
                               onKeyDown={(event) => {
                                 if (event.key === "Enter") {
                                   event.currentTarget.blur();
