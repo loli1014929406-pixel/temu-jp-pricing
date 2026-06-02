@@ -27,6 +27,7 @@ import {
 import { Badge, PageHeader, StatCard } from "../components/ui";
 import { isSameDraft, readDraft, useDraftPersistence } from "../hooks/use-draft-persistence";
 import { usePermissions } from "../hooks/use-permissions";
+import { addObjectSheet, createWorkbook, downloadWorkbook } from "../lib/excel";
 
 type ProfitCalculationsPageProps = {
   user: User;
@@ -618,7 +619,6 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
     setErrorMessage("");
 
     try {
-      const XLSX = await import("xlsx");
       const rows = sortedProducts.map((product) => {
         const summary = discountSummaries[product.id];
         const temuPrice = temuPrices[product.id];
@@ -651,10 +651,12 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
           免邮件数: summary?.freeShippingThresholdQty ?? "",
         };
       });
-      const worksheet = XLSX.utils.json_to_sheet(rows);
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "利润数据分析");
-      XLSX.writeFile(workbook, `profit-calculation-${new Date().toISOString().slice(0, 10)}.xlsx`);
+      const workbook = await createWorkbook();
+      addObjectSheet(workbook, "利润数据分析", rows);
+      await downloadWorkbook(
+        workbook,
+        `profit-calculation-${new Date().toISOString().slice(0, 10)}.xlsx`,
+      );
     } catch (error) {
       setErrorMessage(getErrorMessage(error, "下载表格失败"));
     } finally {

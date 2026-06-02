@@ -10,7 +10,6 @@ import {
   ListOrdered,
 } from "lucide-react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { suppressAutoLogin } from "../lib/auto-login";
 import { getSupabaseClient } from "../lib/supabase";
 
 const navItems = [
@@ -36,7 +35,6 @@ export function PageShell() {
   const activeModule = getActiveModule(location.pathname);
 
   async function handleSignOut() {
-    suppressAutoLogin();
     await getSupabaseClient().auth.signOut();
   }
 

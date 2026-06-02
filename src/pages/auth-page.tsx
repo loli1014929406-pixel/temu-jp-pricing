@@ -1,29 +1,25 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { Navigate } from "react-router-dom";
 import type { User } from "@supabase/supabase-js";
 import { getSupabaseClient, supabaseConfigError } from "../lib/supabase";
 import { Field, TextInput } from "../components/form-controls";
-import { clearAutoLoginSuppression, isAutoLoginSuppressed } from "../lib/auto-login";
 
 type AuthPageProps = {
   user: User | null;
 };
 
-const autoLoginEmail = import.meta.env.VITE_AUTO_LOGIN_EMAIL ?? "";
-const autoLoginPassword = import.meta.env.VITE_AUTO_LOGIN_PASSWORD ?? "";
+const signUpEnabled = import.meta.env.VITE_ENABLE_SIGNUP === "true";
 
 export function AuthPage({ user }: AuthPageProps) {
   const [mode, setMode] = useState<"login" | "register">("login");
-  const [email, setEmail] = useState(autoLoginEmail);
-  const [password, setPassword] = useState(autoLoginPassword);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
-  const autoLoginAttempted = useRef(false);
 
   async function authenticate(
     nextEmail: string,
     nextPassword: string,
-    options: { clearSuppression?: boolean } = {},
   ) {
     if (supabaseConfigError) {
       setMessage(supabaseConfigError);
@@ -34,10 +30,10 @@ export function AuthPage({ user }: AuthPageProps) {
     setMessage("");
 
     const supabase = getSupabaseClient();
-    const action =
-      mode === "login"
-        ? supabase.auth.signInWithPassword({ email: nextEmail, password: nextPassword })
-        : supabase.auth.signUp({ email: nextEmail, password: nextPassword });
+    const isRegister = mode === "register" && signUpEnabled;
+    const action = isRegister
+      ? supabase.auth.signUp({ email: nextEmail, password: nextPassword })
+      : supabase.auth.signInWithPassword({ email: nextEmail, password: nextPassword });
     const { error } = await action;
 
     if (error) {
@@ -47,30 +43,10 @@ export function AuthPage({ user }: AuthPageProps) {
           : error.message,
       );
     } else {
-      if (options.clearSuppression) {
-        clearAutoLoginSuppression();
-      }
-      setMessage(mode === "login" ? "登录成功" : "注册成功，请检查邮箱验证状态");
+      setMessage(isRegister ? "注册成功，请检查邮箱验证状态" : "登录成功");
     }
     setBusy(false);
   }
-
-  useEffect(() => {
-    if (
-      user ||
-      mode !== "login" ||
-      busy ||
-      autoLoginAttempted.current ||
-      isAutoLoginSuppressed() ||
-      !autoLoginEmail ||
-      !autoLoginPassword
-    ) {
-      return;
-    }
-
-    autoLoginAttempted.current = true;
-    void authenticate(autoLoginEmail, autoLoginPassword);
-  }, [busy, mode, user]);
 
   if (user) {
     return <Navigate to="/products" replace />;
@@ -78,7 +54,7 @@ export function AuthPage({ user }: AuthPageProps) {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await authenticate(email, password, { clearSuppression: mode === "login" });
+    await authenticate(email, password);
   }
 
   return (
@@ -119,17 +95,19 @@ export function AuthPage({ user }: AuthPageProps) {
           <button
             type="button"
             onClick={() => setMode("login")}
-            className={`h-10 rounded-md transition ${mode === "login" ? "bg-white text-sky-700 shadow-soft" : "text-slate-500"}`}
+            className={`h-10 rounded-md transition ${mode === "login" ? "bg-white text-sky-700 shadow-soft" : "text-slate-500"} ${signUpEnabled ? "" : "col-span-2"}`}
           >
             登录
           </button>
-          <button
-            type="button"
-            onClick={() => setMode("register")}
-            className={`h-10 rounded-md transition ${mode === "register" ? "bg-white text-sky-700 shadow-soft" : "text-slate-500"}`}
-          >
-            注册
-          </button>
+          {signUpEnabled && (
+            <button
+              type="button"
+              onClick={() => setMode("register")}
+              className={`h-10 rounded-md transition ${mode === "register" ? "bg-white text-sky-700 shadow-soft" : "text-slate-500"}`}
+            >
+              注册
+            </button>
+          )}
         </div>
         {supabaseConfigError && (
           <div className="mb-5 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">

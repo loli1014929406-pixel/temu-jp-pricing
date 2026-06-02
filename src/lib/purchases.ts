@@ -71,7 +71,7 @@ async function resolvePackageItems(
   order: PurchaseOrder,
   pkg: PurchasePackage,
 ): Promise<ResolvedPackageItem[]> {
-  const { supabase, session } = await requireSession();
+  const { supabase } = await requireSession();
   const itemsById = Object.fromEntries(order.items.map((item) => [item.id, item]));
   const missingProductIds = Array.from(
     new Set(
@@ -86,8 +86,7 @@ async function resolvePackageItems(
     : await supabase
         .from("product_items")
         .select("id, product_id, item_name, item_spec")
-        .in("product_id", missingProductIds)
-        .eq("owner_id", session.user.id);
+        .in("product_id", missingProductIds);
   if (productItemsError) throw productItemsError;
 
   const productItemsByKey = (productItems ?? []).reduce<Record<string, string>>((items, item) => {
@@ -327,7 +326,6 @@ async function reverseReceivedPurchaseInventory(order: PurchaseOrder) {
         .select("id")
         .eq("purchase_package_id", reversal.packageId)
         .eq("item_id", reversal.itemId)
-        .eq("owner_id", session.user.id)
         .eq("reason", reason)
         .limit(1)
         .maybeSingle(),
@@ -342,7 +340,6 @@ async function reverseReceivedPurchaseInventory(order: PurchaseOrder) {
         .select("*")
         .eq("warehouse_id", order.warehouse_id)
         .eq("item_id", reversal.itemId)
-        .eq("owner_id", session.user.id)
         .maybeSingle(),
       "读取配件库存",
     );
@@ -362,7 +359,6 @@ async function reverseReceivedPurchaseInventory(order: PurchaseOrder) {
         .from("warehouse_item_stocks")
         .update({ stock_quantity: nextQuantity })
         .eq("id", current.id)
-        .eq("owner_id", session.user.id)
         .eq("stock_quantity", current.stock_quantity)
         .select()
         .maybeSingle(),
@@ -491,13 +487,11 @@ async function ensureWarehouseProductInventory(
     supabase
       .from("product_skus")
       .select("id, product_id")
-      .in("product_id", uniqueProductIds)
-      .eq("owner_id", session.user.id),
+      .in("product_id", uniqueProductIds),
     supabase
       .from("product_items")
       .select("id")
-      .in("product_id", uniqueProductIds)
-      .eq("owner_id", session.user.id),
+      .in("product_id", uniqueProductIds),
   ]);
   if (skuLoadError) throw skuLoadError;
   if (itemLoadError) throw itemLoadError;
@@ -570,7 +564,6 @@ async function applyPurchasePackageInventory(
       .select("id")
       .in("purchase_package_id", adjustmentPackageIds)
       .eq("item_id", item.item_id)
-      .eq("owner_id", session.user.id)
       .limit(1)
       .maybeSingle();
     if (existingAdjustmentError) throw existingAdjustmentError;
@@ -581,7 +574,6 @@ async function applyPurchasePackageInventory(
       .select("*")
       .eq("warehouse_id", order.warehouse_id)
       .eq("item_id", item.item_id)
-      .eq("owner_id", session.user.id)
       .limit(1)
       .maybeSingle();
     if (currentError) throw currentError;
@@ -594,10 +586,11 @@ async function applyPurchasePackageInventory(
       .from("warehouse_item_stocks")
       .update({ stock_quantity: nextQuantity })
       .eq("id", current.id)
-      .eq("owner_id", session.user.id)
+      .eq("stock_quantity", current.stock_quantity)
       .select()
-      .single();
+      .maybeSingle();
     if (nextError) throw nextError;
+    if (!nextData) throw new Error("库存已被其他操作更新，请刷新后重试");
     const next = nextData as WarehouseItemStock;
     const { data: adjustmentData, error: adjustmentError } = await supabase.from("warehouse_item_stock_adjustments").insert({
       warehouse_id: order.warehouse_id, item_id: item.item_id, previous_quantity: current.stock_quantity,

@@ -13,6 +13,7 @@ import {
   getTransferValidation,
   parseTransferFile,
 } from "../lib/product-transfer";
+import { downloadWorkbook } from "../lib/excel";
 import { usePermissions } from "../hooks/use-permissions";
 import { getErrorMessage } from "../utils/errors";
 import type { Product } from "../types";
@@ -138,8 +139,7 @@ export function ProductsPage({ user }: ProductsPageProps) {
     try {
       const data = await exportProductsData(selectedProductIds);
       const workbook = await buildWorkbook(data);
-      const XLSX = await import("xlsx");
-      XLSX.writeFile(workbook, `products-${new Date().toISOString().slice(0, 10)}.xlsx`);
+      await downloadWorkbook(workbook, `products-${new Date().toISOString().slice(0, 10)}.xlsx`);
     } catch (error) {
       setErrorMessage(getErrorMessage(error, "导出 Excel 失败"));
     } finally {

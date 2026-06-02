@@ -124,7 +124,9 @@ function getOrderLineKey(order) {
 
 function getOrderLineLabel(order) {
   const subOrderNo = String(order.sub_order_no ?? "").trim();
-  return subOrderNo ? `${order.order_no} / ${subOrderNo}` : String(order.order_no ?? "").trim();
+  return subOrderNo
+    ? `${order.order_no} / ${subOrderNo}`
+    : `${String(order.order_no ?? "").trim()} / ${order.id}`;
 }
 
 function getOrderStage(order) {
@@ -142,7 +144,7 @@ function getOrderStage(order) {
   return "pending_assignment";
 }
 
-function isStockDeductibleOrder(order) {
+function isAssignedOrder(order) {
   return [
     "new_order",
     "pending_shipping",
@@ -164,9 +166,7 @@ function parseOutboundOrderIdentity(reason) {
   const orderNo = orderNoText || label;
   return {
     orderNo,
-    orderLineKey: subOrderNoText
-      ? `${getOrderNoKey(orderNo)}\u0000${subOrderNoText.toLowerCase()}`
-      : "",
+    orderLineKey: subOrderNoText ? `${orderNo} / ${subOrderNoText}` : "",
   };
 }
 
@@ -247,14 +247,14 @@ const env = await loadEnv();
 const supabaseUrl = env.VITE_SUPABASE_URL;
 const supabaseAnonKey = env.VITE_SUPABASE_ANON_KEY;
 const supabaseServiceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY;
-const email = env.VITE_AUTO_LOGIN_EMAIL;
-const password = env.VITE_AUTO_LOGIN_PASSWORD;
+const email = env.SUPABASE_SYNC_EMAIL;
+const password = env.SUPABASE_SYNC_PASSWORD;
 
 if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error("缺少 VITE_SUPABASE_URL 或 VITE_SUPABASE_ANON_KEY。");
 }
 if (!supabaseServiceRoleKey && (!email || !password)) {
-  throw new Error("缺少 VITE_AUTO_LOGIN_EMAIL 或 VITE_AUTO_LOGIN_PASSWORD。");
+  throw new Error("缺少 SUPABASE_SYNC_EMAIL 或 SUPABASE_SYNC_PASSWORD。");
 }
 
 const supabase = createClient(
@@ -277,7 +277,6 @@ let data = await loadTables(supabase);
 const warehouseById = mapById(data.warehouses);
 const productById = mapById(data.products);
 const itemById = mapById(data.product_items);
-const skuById = mapById(data.product_skus);
 const orderItemById = mapById(data.purchase_order_items);
 const purchaseOrderById = mapById(data.purchase_orders);
 const packageById = mapById(data.purchase_packages);
@@ -295,7 +294,6 @@ const linksBySkuId = data.product_sku_items.reduce((groups, link) => {
   groups.get(link.sku_id).push(link);
   return groups;
 }, new Map());
-
 const requiredProductIdsByWarehouse = new Map();
 const requiredItemIdsByWarehouse = new Map();
 const inboundEvents = createEventMap();
@@ -343,8 +341,9 @@ for (const packageItem of data.purchase_package_items) {
   );
 }
 
+// 页面只在“待分配 -> 新订单”实时扣库存；这里仅用于补齐这些已分配订单缺失的历史出库流水。
 for (const order of data.temu_orders) {
-  if (!isStockDeductibleOrder(order) || !order.warehouse_id) continue;
+  if (!isAssignedOrder(order) || !order.warehouse_id) continue;
 
   const sku = skuByCode.get(normalizeSkuCode(order.sku_code));
   if (!sku) {
@@ -360,7 +359,6 @@ for (const order of data.temu_orders) {
 
   addToSetMap(requiredProductIdsByWarehouse, order.warehouse_id, sku.product_id);
   const orderQuantity = Math.max(1, Math.trunc(Number(order.fulfillment_quantity) || 0));
-  const orderLineKey = getOrderLineKey(order);
   const orderLineLabel = getOrderLineLabel(order);
 
   for (const link of links) {
@@ -370,14 +368,14 @@ for (const order of data.temu_orders) {
     addToSetMap(requiredItemIdsByWarehouse, order.warehouse_id, link.item_id);
     addEvent(
       outboundEvents,
-      `${order.warehouse_id}:${link.item_id}:${orderLineKey}`,
+      `${order.warehouse_id}:${link.item_id}:${orderLineLabel}`,
       {
         warehouse_id: order.warehouse_id,
         item_id: link.item_id,
         owner_id: order.owner_id,
         quantity: Math.max(0, Math.trunc(Number(link.quantity) || 0)) * orderQuantity,
         order_no: order.order_no,
-        order_line_key: orderLineKey,
+        order_line_key: orderLineLabel,
         reason: `订单出库：${orderLineLabel}`,
       },
     );
@@ -505,7 +503,6 @@ for (const adjustment of data.warehouse_item_stock_adjustments) {
     existingOutboundLegacyCounts.set(key, (existingOutboundLegacyCounts.get(key) ?? 0) + 1);
   }
 }
-
 const adjustmentRows = [];
 const stockUpdateDrafts = new Map();
 
@@ -584,7 +581,7 @@ const validTemuOrderNos = new Set(
   data.temu_orders.map((order) => String(order.order_no ?? "").trim()).filter(Boolean),
 );
 const validTemuOrderLineKeys = new Set(
-  data.temu_orders.map((order) => getOrderLineKey(order)).filter(Boolean),
+  data.temu_orders.map((order) => getOrderLineLabel(order)).filter(Boolean),
 );
 
 const stalePurchaseChanges = new Map();
@@ -659,7 +656,7 @@ for (const staleChange of staleOutboundChanges.values()) {
   applyStockChange({
     ...staleChange,
     change_quantity: -staleChange.change_quantity,
-    reason: `删除订单冲回：${staleChange.order_no}`,
+    reason: `删除订单冲回：${staleChange.order_line_key || staleChange.order_no}`,
   });
 }
 

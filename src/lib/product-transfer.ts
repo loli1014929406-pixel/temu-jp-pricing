@@ -1,4 +1,10 @@
 import type { ProductTransferRecord } from "../types";
+import {
+  addObjectSheet,
+  createWorkbook,
+  readXlsxWorkbook,
+  worksheetToObjects,
+} from "./excel";
 
 type ValidationResult = {
   valid: boolean;
@@ -54,8 +60,7 @@ export function getTransferValidation(data: unknown): ValidationResult {
 }
 
 export async function buildWorkbook(records: ProductTransferRecord[]) {
-  const XLSX = await import("xlsx");
-  const workbook = XLSX.utils.book_new();
+  const workbook = await createWorkbook();
   type DetailRow = {
     product_index: number;
     product_code: string;
@@ -198,37 +203,12 @@ export async function buildWorkbook(records: ProductTransferRecord[]) {
     });
   });
 
-  XLSX.utils.book_append_sheet(
-    workbook,
-    XLSX.utils.json_to_sheet(detailRows),
-    "商品明细",
-  );
-
-  XLSX.utils.book_append_sheet(
-    workbook,
-    XLSX.utils.json_to_sheet(productRows),
-    "Products",
-  );
-  XLSX.utils.book_append_sheet(
-    workbook,
-    XLSX.utils.json_to_sheet(itemRows),
-    "Items",
-  );
-  XLSX.utils.book_append_sheet(
-    workbook,
-    XLSX.utils.json_to_sheet(skuRows),
-    "Skus",
-  );
-  XLSX.utils.book_append_sheet(
-    workbook,
-    XLSX.utils.json_to_sheet(linkRows),
-    "Links",
-  );
-  XLSX.utils.book_append_sheet(
-    workbook,
-    XLSX.utils.json_to_sheet(previewRows),
-    "Preview",
-  );
+  addObjectSheet(workbook, "商品明细", detailRows);
+  addObjectSheet(workbook, "Products", productRows);
+  addObjectSheet(workbook, "Items", itemRows);
+  addObjectSheet(workbook, "Skus", skuRows);
+  addObjectSheet(workbook, "Links", linkRows);
+  addObjectSheet(workbook, "Preview", previewRows);
 
   return workbook;
 }
@@ -238,21 +218,18 @@ export async function parseTransferFile(file: File) {
     return JSON.parse(await file.text()) as unknown;
   }
 
-  const XLSX = await import("xlsx");
-  const buffer = await file.arrayBuffer();
-  const workbook = XLSX.read(buffer, { type: "array" });
-  const products = XLSX.utils.sheet_to_json<Record<string, unknown>>(
-    workbook.Sheets.Products,
-  );
-  const items = XLSX.utils.sheet_to_json<Record<string, unknown>>(
-    workbook.Sheets.Items,
-  );
-  const skus = XLSX.utils.sheet_to_json<Record<string, unknown>>(
-    workbook.Sheets.Skus,
-  );
-  const links = XLSX.utils.sheet_to_json<Record<string, unknown>>(
-    workbook.Sheets.Links,
-  );
+  const workbook = await readXlsxWorkbook(file);
+  const productsSheet = workbook.getWorksheet("Products");
+  const itemsSheet = workbook.getWorksheet("Items");
+  const skusSheet = workbook.getWorksheet("Skus");
+  const linksSheet = workbook.getWorksheet("Links");
+  if (!productsSheet || !itemsSheet || !skusSheet || !linksSheet) {
+    throw new Error("Excel 文件缺少 Products、Items、Skus 或 Links 工作表");
+  }
+  const products = worksheetToObjects(productsSheet);
+  const items = worksheetToObjects(itemsSheet);
+  const skus = worksheetToObjects(skusSheet);
+  const links = worksheetToObjects(linksSheet);
 
   return products.map((product) => {
     const productIndex = Number(product.product_index);

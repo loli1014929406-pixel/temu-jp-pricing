@@ -19,10 +19,18 @@ import { Badge, PageHeader } from "../components/ui";
 import { isSameDraft, readDraft, useDraftPersistence } from "../hooks/use-draft-persistence";
 import { usePermissions } from "../hooks/use-permissions";
 import {
+  addObjectSheet,
+  createWorkbook,
+  downloadWorkbook,
+  readTabularFileObjects,
+} from "../lib/excel";
+import {
   deductWarehouseItemStocks,
   fetchWarehouseItemStocks,
   fetchWarehouses,
   fetchWarehouseSkus,
+  restoreWarehouseItemStockDeductions,
+  type WarehouseItemStockRestorationInput,
 } from "../lib/inventory";
 import {
   deleteTemuOrder,
@@ -1151,16 +1159,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
     (row) => getOrderStage(row.primaryOrder) === "uploaded_temu",
   ).length;
 
-  const selectedStockDeductibleOrdersInView = useMemo(
-    () =>
-      selectedOrdersInView.filter((order) =>
-        ["new_order", "pending_shipping", "shipped", "uploaded_temu", "completed"].includes(
-          getOrderStage(order),
-        ),
-      ),
-    [selectedOrdersInView],
-  );
-
   const selectedOrderLineInViewCount = selectedOrdersInView.length;
   const selectedInViewCount = selectedOrderRowsInView.length;
   const selectedSingleOrderInView =
@@ -1234,6 +1232,51 @@ export function OrdersPage({ user }: OrdersPageProps) {
       ...current,
       ...Object.fromEntries(nextOrders.map((order) => [order.id, toDraft(order)])),
     }));
+  }
+
+  function buildOrderInventoryRestorationInputs(
+    targetOrders: TemuOrderRecord[],
+  ): WarehouseItemStockRestorationInput[] {
+    const selectedOrderNoCounts = targetOrders.reduce<Record<string, number>>(
+      (counts, order) => {
+        const key = getOrderNoKey(order.order_no);
+        if (key) counts[key] = (counts[key] ?? 0) + 1;
+        return counts;
+      },
+      {},
+    );
+    const orderNoCounts = orders.reduce<Record<string, number>>((counts, order) => {
+      const key = getOrderNoKey(order.order_no);
+      if (key) counts[key] = (counts[key] ?? 0) + 1;
+      return counts;
+    }, {});
+    const inputsByReason = new Map<string, WarehouseItemStockRestorationInput>();
+
+    const addInput = (label: string) => {
+      const normalizedLabel = label.trim();
+      if (!normalizedLabel) return;
+      const input = {
+        outboundReason: `订单出库：${normalizedLabel}`,
+        reversalReason: `删除订单冲回：${normalizedLabel}`,
+      };
+      inputsByReason.set(`${input.outboundReason}\u0000${input.reversalReason}`, input);
+    };
+
+    targetOrders.forEach((order) => {
+      addInput(getOrderLineLabel(order));
+
+      const orderNo = order.order_no.trim();
+      const orderNoKey = getOrderNoKey(orderNo);
+      if (
+        orderNo &&
+        orderNoKey &&
+        (orderNoCounts[orderNoKey] ?? 0) === (selectedOrderNoCounts[orderNoKey] ?? 0)
+      ) {
+        addInput(orderNo);
+      }
+    });
+
+    return Array.from(inputsByReason.values());
   }
 
   function updateDraft<K extends keyof OrderDraft>(
@@ -1636,17 +1679,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
     setNoticeMessage("");
 
     try {
-      const XLSX = await import("xlsx");
-      const buffer = await file.arrayBuffer();
-      const workbook = XLSX.read(buffer, { type: "array", cellDates: false });
-      const firstSheetName = workbook.SheetNames[0];
-      const sheet = firstSheetName ? workbook.Sheets[firstSheetName] : undefined;
-      if (!sheet) throw new Error("Excel 文件里没有可读取的工作表");
-
-      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
-        defval: "",
-        raw: false,
-      });
+      const rows = await readTabularFileObjects(file);
       const missingColumns = importColumns.filter(
         (column) =>
           !["子订单号", "SKU货号", "应履约件数", "商品属性"].includes(column) &&
@@ -1757,17 +1790,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
     setNoticeMessage("");
 
     try {
-      const XLSX = await import("xlsx");
-      const buffer = await file.arrayBuffer();
-      const workbook = XLSX.read(buffer, { type: "array", cellDates: false });
-      const firstSheetName = workbook.SheetNames[0];
-      const sheet = firstSheetName ? workbook.Sheets[firstSheetName] : undefined;
-      if (!sheet) throw new Error("Excel 文件里没有可读取的工作表");
-
-      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
-        defval: "",
-        raw: false,
-      });
+      const rows = await readTabularFileObjects(file);
       const missingColumns = trackingImportColumns.filter(
         (column) => !Object.prototype.hasOwnProperty.call(rows[0] ?? {}, column),
       );
@@ -1922,8 +1945,12 @@ export function OrdersPage({ user }: OrdersPageProps) {
         return { order, updates, nextOrder };
       });
       const inventoryTargets = saveEntries
-        .map((entry) => entry.nextOrder)
-        .filter((order) => getOrderStage(order) === "new_order");
+        .filter(
+          ({ order, nextOrder }) =>
+            getOrderStage(order) === "pending_assignment" &&
+            getOrderStage(nextOrder) === "new_order",
+        )
+        .map((entry) => entry.nextOrder);
       const inventoryChanges = await deductInventoryForOrders(inventoryTargets);
       const nextOrders = await Promise.all(
         saveEntries.map(({ order, updates }) => updateTemuOrder(order.id, updates)),
@@ -1936,40 +1963,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
       );
     } catch (error) {
       setErrorMessage(getOrdersErrorMessage(error, "保存订单失败"));
-    } finally {
-      setBusyKey("");
-    }
-  }
-
-  async function handleRepairSelectedOrderInventory() {
-    if (!canEdit) {
-      setErrorMessage("当前账号没有编辑权限，不能补扣库存。");
-      return;
-    }
-    if (selectedStockDeductibleOrdersInView.length === 0) {
-      setNoticeMessage("请先勾选已进入新订单或后续流程的订单。");
-      return;
-    }
-
-    const confirmed = window.confirm(
-      `确认按当前选中的 ${selectedStockDeductibleOrdersInView.length} 条订单补扣库存吗？已扣过的订单会自动跳过。`,
-    );
-    if (!confirmed) return;
-
-    setBusyKey("repair-order-inventory");
-    setErrorMessage("");
-    setNoticeMessage("");
-    try {
-      const inventoryChanges = await deductInventoryForOrders(
-        selectedStockDeductibleOrdersInView.map((order) => mergeOrderDraft(order)),
-      );
-      setNoticeMessage(
-        inventoryChanges.length > 0
-          ? `已补扣 ${inventoryChanges.length} 项配件库存`
-          : "选中订单库存流水已存在，无需重复补扣",
-      );
-    } catch (error) {
-      setErrorMessage(getOrdersErrorMessage(error, "补扣库存失败"));
     } finally {
       setBusyKey("");
     }
@@ -2028,9 +2021,13 @@ export function OrdersPage({ user }: OrdersPageProps) {
     setBusyKey("delete-selected");
     setErrorMessage("");
     setNoticeMessage("");
+    let ordersDeleted = false;
 
     try {
+      const inventoryRestorations =
+        buildOrderInventoryRestorationInputs(selectedOrdersInView);
       await Promise.all(selectedOrdersInView.map((order) => deleteTemuOrder(order.id)));
+      ordersDeleted = true;
       setOrders((current) => current.filter((order) => !targetIds.has(order.id)));
       setSelectedOrderIds((current) => current.filter((id) => !targetIds.has(id)));
       setDrafts((current) => {
@@ -2040,9 +2037,23 @@ export function OrdersPage({ user }: OrdersPageProps) {
         });
         return next;
       });
-      setNoticeMessage(`已删除 ${targetIds.size} 条订单`);
+
+      const inventoryChanges = await restoreWarehouseItemStockDeductions(
+        inventoryRestorations,
+      );
+      applyWarehouseItemStockUpdates(inventoryChanges.map((change) => change.item));
+      setNoticeMessage(
+        inventoryChanges.length > 0
+          ? `已删除 ${targetIds.size} 条订单，并回补 ${inventoryChanges.length} 项配件库存`
+          : `已删除 ${targetIds.size} 条订单`,
+      );
     } catch (error) {
-      setErrorMessage(getOrdersErrorMessage(error, "批量删除订单失败"));
+      if (ordersDeleted) {
+        setNoticeMessage(`已删除 ${targetIds.size} 条订单，但库存回补失败`);
+        setErrorMessage(getOrdersErrorMessage(error, "库存回补失败"));
+      } else {
+        setErrorMessage(getOrdersErrorMessage(error, "批量删除订单失败"));
+      }
     } finally {
       setBusyKey("");
     }
@@ -2123,8 +2134,12 @@ export function OrdersPage({ user }: OrdersPageProps) {
         return { order, updates, nextOrder: { ...order, ...updates } };
       });
       const inventoryTargets = assignEntries
-        .map((entry) => entry.nextOrder)
-        .filter((order) => getOrderStage(order) === "new_order");
+        .filter(
+          ({ order, nextOrder }) =>
+            getOrderStage(order) === "pending_assignment" &&
+            getOrderStage(nextOrder) === "new_order",
+        )
+        .map((entry) => entry.nextOrder);
       const inventoryChanges = await deductInventoryForOrders(inventoryTargets);
       const nextOrders = await Promise.all(
         assignEntries.map(({ order, updates }) => updateTemuOrder(order.id, updates)),
@@ -2198,9 +2213,14 @@ export function OrdersPage({ user }: OrdersPageProps) {
         };
         return { order, updates, nextOrder: { ...order, ...updates } };
       });
-      const inventoryChanges = await deductInventoryForOrders(
-        matchedEntries.map((entry) => entry.nextOrder),
-      );
+      const inventoryTargets = matchedEntries
+        .filter(
+          ({ order, nextOrder }) =>
+            getOrderStage(order) === "pending_assignment" &&
+            getOrderStage(nextOrder) === "new_order",
+        )
+        .map((entry) => entry.nextOrder);
+      const inventoryChanges = await deductInventoryForOrders(inventoryTargets);
       const nextOrders = await Promise.all(
         matchedEntries.map(({ order, updates }) => updateTemuOrder(order.id, updates)),
       );
@@ -2230,8 +2250,10 @@ export function OrdersPage({ user }: OrdersPageProps) {
       const quantity = Math.max(0, link.quantity);
       const purchaseCost = item.purchase_price_rmb * quantity;
       const purchaseShipping =
-        ((item.item_weight_g * quantity) / 500) *
-        item.purchase_shipping_fee_per_500g_rmb;
+        item.item_weight_g > 0 && item.purchase_shipping_fee_per_500g_rmb > 0
+          ? Math.ceil((item.item_weight_g * quantity) / 500) *
+            item.purchase_shipping_fee_per_500g_rmb
+          : 0;
       return total + purchaseCost + purchaseShipping;
     }, 0);
   }
@@ -2492,6 +2514,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
         quantity: deduction.quantity,
         reason: `订单出库：${deduction.orderLineLabel}`,
         dedupeKey: deduction.orderLineLabel,
+        reversalReason: `删除订单冲回：${deduction.orderLineLabel}`,
       })),
     );
     applyWarehouseItemStockUpdates(inventoryChanges.map((change) => change.item));
@@ -2576,19 +2599,10 @@ export function OrdersPage({ user }: OrdersPageProps) {
   }
 
   async function downloadOcsShippingWorkbook(targetOrders: TemuOrderRecord[]) {
-    const XLSX = await import("xlsx");
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(
-      workbook,
-      XLSX.utils.json_to_sheet(buildOcsSheet1Rows(targetOrders)),
-      "Sheet1",
-    );
-    XLSX.utils.book_append_sheet(
-      workbook,
-      XLSX.utils.json_to_sheet(buildOcsSheet2Rows(targetOrders)),
-      "Sheet2",
-    );
-    XLSX.writeFile(workbook, `OCS-3cm-发货表格-${formatFileTimestamp()}.xlsx`);
+    const workbook = await createWorkbook();
+    addObjectSheet(workbook, "Sheet1", buildOcsSheet1Rows(targetOrders));
+    addObjectSheet(workbook, "Sheet2", buildOcsSheet2Rows(targetOrders));
+    await downloadWorkbook(workbook, `OCS-3cm-发货表格-${formatFileTimestamp()}.xlsx`);
   }
 
   function validateOrdersReadyForTemuUpload(targetOrders: TemuOrderRecord[]) {
@@ -2625,21 +2639,12 @@ export function OrdersPage({ user }: OrdersPageProps) {
   }
 
   async function downloadTemuUploadWorkbook(targetOrders: TemuOrderRecord[]) {
-    const XLSX = await import("xlsx");
-    const workbook = XLSX.utils.book_new();
-    const sheet = XLSX.utils.json_to_sheet(buildTemuUploadRows(targetOrders), {
-      header: [...temuUploadColumns],
+    const workbook = await createWorkbook();
+    addObjectSheet(workbook, "Sheet1", buildTemuUploadRows(targetOrders), {
+      headers: [...temuUploadColumns],
+      columnWidths: [28, 28, 10, 18, 14, 16],
     });
-    sheet["!cols"] = [
-      { wch: 28 },
-      { wch: 28 },
-      { wch: 10 },
-      { wch: 18 },
-      { wch: 14 },
-      { wch: 16 },
-    ];
-    XLSX.utils.book_append_sheet(workbook, sheet, "Sheet1");
-    XLSX.writeFile(workbook, `Temu上传发货表格-${formatFileTimestamp()}.xlsx`);
+    await downloadWorkbook(workbook, `Temu上传发货表格-${formatFileTimestamp()}.xlsx`);
   }
 
   async function handleMoveNewOrdersToPendingShipping(
@@ -2668,7 +2673,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
 
     try {
       const printedAt = formatLocalDateTime();
-      const inventoryChanges = await deductInventoryForOrders(mergedOrders);
       const nextOrders = await Promise.all(
         mergedOrders.map((order) =>
           updateTemuOrder(order.id, {
@@ -2686,7 +2690,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
       updateOrdersState(nextOrders);
       setActiveStage("pending_shipping");
       setNoticeMessage(
-        `已转入待发货 ${buildOrderDisplayRows(targetOrders).length} 行订单，并扣减 ${inventoryChanges.length} 项配件库存，请下载发货表格。`,
+        `已转入待发货 ${buildOrderDisplayRows(targetOrders).length} 行订单，请下载发货表格。`,
       );
     } catch (error) {
       setErrorMessage(getOrdersErrorMessage(error, "转入待发货失败"));
@@ -2850,14 +2854,14 @@ export function OrdersPage({ user }: OrdersPageProps) {
               <input
                 ref={inputRef}
                 type="file"
-                accept=".xlsx,.xls,.csv"
+                accept=".xlsx,.csv"
                 className="hidden"
                 onChange={(event) => void handleFileChange(event.target.files?.[0])}
               />
               <input
                 ref={trackingInputRef}
                 type="file"
-                accept=".xlsx,.xls,.csv"
+                accept=".xlsx,.csv"
                 className="hidden"
                 onChange={(event) => void handleTrackingFileChange(event.target.files?.[0])}
               />
@@ -3057,17 +3061,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
                 >
                   <Save size={16} />
                   保存（{selectedInViewCount}）
-                </button>
-              )}
-              {canEdit && selectedStockDeductibleOrdersInView.length > 0 && (
-                <button
-                  type="button"
-                  disabled={busyKey === "repair-order-inventory"}
-                  onClick={() => void handleRepairSelectedOrderInventory()}
-                  className="btn-secondary h-9 px-3"
-                >
-                  <RefreshCw size={16} />
-                  补扣库存（{selectedStockDeductibleOrdersInView.length}）
                 </button>
               )}
               {canEdit &&

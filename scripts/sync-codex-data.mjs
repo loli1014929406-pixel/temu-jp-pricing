@@ -113,15 +113,15 @@ const env = await loadEnv();
 const supabaseUrl = env.VITE_SUPABASE_URL;
 const supabaseAnonKey = env.VITE_SUPABASE_ANON_KEY;
 const supabaseServiceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY;
-const email = env.VITE_AUTO_LOGIN_EMAIL;
-const password = env.VITE_AUTO_LOGIN_PASSWORD;
+const email = env.SUPABASE_SYNC_EMAIL;
+const password = env.SUPABASE_SYNC_PASSWORD;
 
 if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error("缺少 VITE_SUPABASE_URL 或 VITE_SUPABASE_ANON_KEY。");
 }
 
 if (!supabaseServiceRoleKey && (!email || !password)) {
-  throw new Error("缺少 VITE_AUTO_LOGIN_EMAIL 或 VITE_AUTO_LOGIN_PASSWORD。");
+  throw new Error("缺少 SUPABASE_SYNC_EMAIL 或 SUPABASE_SYNC_PASSWORD。");
 }
 
 const authMode = supabaseServiceRoleKey ? "service_role" : "authenticated_user";

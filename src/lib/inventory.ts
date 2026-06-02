@@ -72,13 +72,12 @@ export async function updateWarehouse(
   warehouseId: string,
   updates: Pick<Warehouse, "name">,
 ) {
-  const { supabase, session } = await requireSession();
+  const { supabase } = await requireSession();
   const { data, error } = await withTimeout(
     supabase
       .from("warehouses")
       .update(updates)
       .eq("id", warehouseId)
-      .eq("owner_id", session.user.id)
       .select()
       .single(),
     "更新仓库",
@@ -89,13 +88,12 @@ export async function updateWarehouse(
 }
 
 export async function deleteWarehouse(warehouseId: string) {
-  const { supabase, session } = await requireSession();
+  const { supabase } = await requireSession();
   const { error } = await withTimeout(
     supabase
       .from("warehouses")
       .delete()
-      .eq("id", warehouseId)
-      .eq("owner_id", session.user.id),
+      .eq("id", warehouseId),
     "删除仓库",
   );
 
@@ -210,14 +208,13 @@ export async function removeWarehouseProduct(
   productId: string,
   itemIds: string[],
 ) {
-  const { supabase, session } = await requireSession();
+  const { supabase } = await requireSession();
   const { error: skuError } = await withTimeout(
     supabase
       .from("warehouse_skus")
       .delete()
       .eq("warehouse_id", warehouseId)
-      .eq("product_id", productId)
-      .eq("owner_id", session.user.id),
+      .eq("product_id", productId),
     "移除库存商品",
   );
 
@@ -229,8 +226,7 @@ export async function removeWarehouseProduct(
         .from("warehouse_item_stocks")
         .delete()
         .eq("warehouse_id", warehouseId)
-        .in("item_id", itemIds)
-        .eq("owner_id", session.user.id),
+        .in("item_id", itemIds),
       "移除仓库配件库存",
     );
 
@@ -243,19 +239,20 @@ export async function updateWarehouseItemStock(
   stockQuantity: number,
   reason: string,
 ) {
-  const { supabase, session } = await requireSession();
+  const { supabase } = await requireSession();
   const { data, error } = await withTimeout(
     supabase
       .from("warehouse_item_stocks")
       .update({ stock_quantity: stockQuantity })
       .eq("id", item.id)
-      .eq("owner_id", session.user.id)
+      .eq("stock_quantity", item.stock_quantity)
       .select()
-      .single(),
+      .maybeSingle(),
     "更新配件库存",
   );
 
   if (error) throw error;
+  if (!data) throw new Error("库存已被其他操作更新，请刷新后重试");
 
   const nextItem = data as WarehouseItemStock;
   const { data: adjustment, error: adjustmentError } = await withTimeout(
@@ -288,6 +285,12 @@ export type WarehouseItemStockDeductionInput = {
   quantity: number;
   reason: string;
   dedupeKey?: string;
+  reversalReason?: string;
+};
+
+type WarehouseItemStockInventoryChange = {
+  item: WarehouseItemStock;
+  adjustment: WarehouseItemStockAdjustment;
 };
 
 export async function deductWarehouseItemStocks(
@@ -301,24 +304,17 @@ export async function deductWarehouseItemStocks(
     .filter((deduction) => deduction.quantity > 0);
 
   if (normalizedDeductions.length === 0) {
-    return [] as Array<{
-      item: WarehouseItemStock;
-      adjustment: WarehouseItemStockAdjustment;
-    }>;
+    return [] as WarehouseItemStockInventoryChange[];
   }
 
-  const { supabase, session } = await requireSession();
-  const inventory: Array<{
-    item: WarehouseItemStock;
-    adjustment: WarehouseItemStockAdjustment;
-  }> = [];
+  const { supabase } = await requireSession();
+  const inventory: WarehouseItemStockInventoryChange[] = [];
   const stockIds = Array.from(new Set(normalizedDeductions.map((item) => item.stockId)));
   const { data: stockData, error: stockLoadError } = await withTimeout(
     supabase
       .from("warehouse_item_stocks")
       .select("*")
-      .in("id", stockIds)
-      .eq("owner_id", session.user.id),
+      .in("id", stockIds),
     "读取配件库存",
   );
 
@@ -335,22 +331,28 @@ export async function deductWarehouseItemStocks(
     const current = stocksById.get(deduction.stockId);
     if (!current) throw new Error("仓库配件库存不存在，请刷新后重试");
     if (deduction.dedupeKey) {
-      const { data: existingAdjustment, error: existingAdjustmentError } =
+      const relatedReasons = [
+        deduction.reason,
+        deduction.reversalReason ?? `删除订单冲回：${deduction.dedupeKey}`,
+      ];
+      const { data: existingAdjustments, error: existingAdjustmentError } =
         await withTimeout(
           supabase
             .from("warehouse_item_stock_adjustments")
-            .select("id")
+            .select("change_quantity")
             .eq("warehouse_id", current.warehouse_id)
             .eq("item_id", current.item_id)
-            .eq("owner_id", session.user.id)
-            .ilike("reason", `%${deduction.dedupeKey}%`)
-            .limit(1)
-            .maybeSingle(),
+            .in("reason", relatedReasons),
           "检查库存出库记录",
         );
 
       if (existingAdjustmentError) throw existingAdjustmentError;
-      if (existingAdjustment) continue;
+      const netChange = (existingAdjustments ?? []).reduce(
+        (total, adjustment) =>
+          total + Math.trunc(Number(adjustment.change_quantity) || 0),
+        0,
+      );
+      if (netChange < 0) continue;
     }
 
     activeDeductions.push(deduction);
@@ -379,7 +381,6 @@ export async function deductWarehouseItemStocks(
         .from("warehouse_item_stocks")
         .select("*")
         .eq("id", deduction.stockId)
-        .eq("owner_id", session.user.id)
         .maybeSingle(),
       "读取配件库存",
     );
@@ -394,7 +395,6 @@ export async function deductWarehouseItemStocks(
         .from("warehouse_item_stocks")
         .update({ stock_quantity: nextQuantity })
         .eq("id", current.id)
-        .eq("owner_id", session.user.id)
         .eq("stock_quantity", current.stock_quantity)
         .select()
         .maybeSingle(),
@@ -428,6 +428,150 @@ export async function deductWarehouseItemStocks(
       item: nextItem,
       adjustment: adjustmentData as WarehouseItemStockAdjustment,
     });
+  }
+
+  return inventory;
+}
+
+export type WarehouseItemStockRestorationInput = {
+  outboundReason: string;
+  reversalReason: string;
+};
+
+export async function restoreWarehouseItemStockDeductions(
+  restorations: WarehouseItemStockRestorationInput[],
+) {
+  const normalizedRestorations = Array.from(
+    new Map(
+      restorations
+        .map((restoration) => ({
+          outboundReason: restoration.outboundReason.trim(),
+          reversalReason: restoration.reversalReason.trim(),
+        }))
+        .filter((restoration) => restoration.outboundReason && restoration.reversalReason)
+        .map((restoration) => [
+          `${restoration.outboundReason}\u0000${restoration.reversalReason}`,
+          restoration,
+        ]),
+    ).values(),
+  );
+
+  if (normalizedRestorations.length === 0) {
+    return [] as WarehouseItemStockInventoryChange[];
+  }
+
+  const { supabase } = await requireSession();
+  const reasons = Array.from(
+    new Set(
+      normalizedRestorations.flatMap((restoration) => [
+        restoration.outboundReason,
+        restoration.reversalReason,
+      ]),
+    ),
+  );
+
+  const { data: adjustmentData, error: adjustmentError } = await withTimeout(
+    supabase
+      .from("warehouse_item_stock_adjustments")
+      .select("*")
+      .in("reason", reasons),
+    "读取订单库存流水",
+  );
+
+  if (adjustmentError) throw adjustmentError;
+
+  const adjustments = (adjustmentData ?? []) as WarehouseItemStockAdjustment[];
+  const inventory: WarehouseItemStockInventoryChange[] = [];
+
+  for (const restoration of normalizedRestorations) {
+    const netChangesByStock = new Map<
+      string,
+      {
+        warehouseId: string;
+        itemId: string;
+        netChange: number;
+      }
+    >();
+
+    adjustments.forEach((adjustment) => {
+      if (
+        adjustment.reason !== restoration.outboundReason &&
+        adjustment.reason !== restoration.reversalReason
+      ) {
+        return;
+      }
+
+      const changeQuantity = Math.trunc(Number(adjustment.change_quantity) || 0);
+      if (changeQuantity === 0) return;
+
+      const key = `${adjustment.warehouse_id}\u0000${adjustment.item_id}`;
+      const current = netChangesByStock.get(key) ?? {
+        warehouseId: adjustment.warehouse_id,
+        itemId: adjustment.item_id,
+        netChange: 0,
+      };
+      current.netChange += changeQuantity;
+      netChangesByStock.set(key, current);
+    });
+
+    for (const stockChange of netChangesByStock.values()) {
+      if (stockChange.netChange >= 0) continue;
+
+      const restoreQuantity = -stockChange.netChange;
+      const { data: currentData, error: currentError } = await withTimeout(
+        supabase
+          .from("warehouse_item_stocks")
+          .select("*")
+          .eq("warehouse_id", stockChange.warehouseId)
+          .eq("item_id", stockChange.itemId)
+          .maybeSingle(),
+        "读取配件库存",
+      );
+
+      if (currentError) throw currentError;
+      if (!currentData) throw new Error("仓库配件库存不存在，请刷新后重试");
+
+      const current = currentData as WarehouseItemStock;
+      const nextQuantity = current.stock_quantity + restoreQuantity;
+      const { data: nextData, error: nextError } = await withTimeout(
+        supabase
+          .from("warehouse_item_stocks")
+          .update({ stock_quantity: nextQuantity })
+          .eq("id", current.id)
+          .eq("stock_quantity", current.stock_quantity)
+          .select()
+          .maybeSingle(),
+        "回补配件库存",
+      );
+
+      if (nextError) throw nextError;
+      if (!nextData) throw new Error("库存已被其他操作更新，请刷新后重试");
+
+      const nextItem = nextData as WarehouseItemStock;
+      const { data: reversalData, error: reversalError } = await withTimeout(
+        supabase
+          .from("warehouse_item_stock_adjustments")
+          .insert({
+            warehouse_id: current.warehouse_id,
+            item_id: current.item_id,
+            previous_quantity: current.stock_quantity,
+            next_quantity: nextItem.stock_quantity,
+            change_quantity: restoreQuantity,
+            reason: restoration.reversalReason,
+            purchase_order_id: null,
+            purchase_package_id: null,
+          })
+          .select()
+          .single(),
+        "保存订单删除回补记录",
+      );
+
+      if (reversalError) throw reversalError;
+      inventory.push({
+        item: nextItem,
+        adjustment: reversalData as WarehouseItemStockAdjustment,
+      });
+    }
   }
 
   return inventory;
