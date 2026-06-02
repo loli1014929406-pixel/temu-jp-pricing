@@ -1,6 +1,20 @@
-# Temu 日本站申报核算
+# Temu JP 运营核算系统
 
-React + Vite + TypeScript 的 MVP，使用 Supabase 做登录与数据存储，使用 Tailwind CSS 做样式。
+用于 Temu 日本站半托管业务的商品资料、核价、利润分析、直发测算、订单履约、采购入库和库存管理。
+
+项目使用 React + Vite + TypeScript 开发，Supabase 负责登录、数据存储和权限控制，Tailwind CSS 负责界面样式。
+
+## 核心功能
+
+- 商品管理：维护商品基础资料、包装尺寸、3cm 每包件数、配件库和 SKU。
+- 核算定价：根据采购成本、包装成本、顺丰、头程、尾程和补贴计算申报价。
+- 利润数据分析：维护核价、流量加速、活动折扣、优惠券、ROAS，并查看广告后利润。
+- 多件利润测算：按商品和 SKU 测算多件直发、正常发货时的盈利或亏损停止点。
+- 直发测算：按 OCS 3cm、OCS 小包等规则查看直发物流成本和利润表现。
+- 订单管理：导入和维护 Temu 订单，处理物流方式、发货表格和履约状态。
+- 采购管理：维护采购记录、包裹入库和采购成本。
+- 仓储库存：查看 SKU 库存、配件库存和库存调整记录。
+- 参数设置：维护汇率、补贴、物流、包装、目标利润等计算参数。
 
 ## 本地启动
 
@@ -18,6 +32,8 @@ npm install
 npm run dev
 ```
 
+默认本地地址为 `http://127.0.0.1:5173/`。
+
 ## Cloudflare Pages
 
 - Build command: `npm run build`
@@ -28,14 +44,35 @@ npm run dev
 
 ## 页面
 
-- `/auth` 登录与注册
-- `/products` 商品列表
+- `/login` 登录
+- `/orders` 订单管理
+- `/products` 商品管理
 - `/products/new` 新增商品
 - `/products/:productCode/edit` 编辑商品
-- `/products/:productCode/pricing` 申报价结果
+- `/products/:productCode/pricing` 核算定价结果
+- `/products/:productCode/profit-calculation` 单商品 SKU 利润数据分析
+- `/declaration-prices` 核算定价总览
+- `/profit-calculation` 利润数据分析总览
+- `/profit-calculation/recommendations` 促销投放推荐
+- `/profit-calculation/direct-shipping` 多件直发商品选择
+- `/profit-calculation/direct-shipping/:productCode` 单商品多件直发测算
+- `/profit-calculation/standard-shipping` 多件正常发货商品选择
+- `/profit-calculation/standard-shipping/:productCode` 单商品多件正常发货测算
+- `/test-shipping` 直发测算
+- `/purchases/new` 新增采购
 - `/purchases/records` 采购记录
-- `/inventory` 库存
+- `/inventory` 仓储库存
 - `/parameter-settings` 参数设置
+
+## 常用命令
+
+```bash
+npm run dev
+npm run build
+npm run test
+npm run sync:data
+npm run sync:backend-context
+```
 
 ## 数据权限
 
