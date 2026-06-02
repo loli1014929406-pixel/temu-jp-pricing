@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import type { User } from "@supabase/supabase-js";
+import { Link } from "react-router-dom";
 import {
   fetchProductItemsByProductIds,
   fetchProductSkusByProductIds,
   fetchProducts,
+  getProductRouteKey,
 } from "../lib/products";
 import { fetchProfitCalculationsBySkuIds } from "../lib/profit-calculations";
 import { fetchSettings } from "../lib/settings";
@@ -28,6 +30,10 @@ const defaultDiscounts = {
   couponDiscountRate: 0,
   adRoas: 0,
 };
+
+function getDirectShipmentProfitPath(product: Pick<Product, "id" | "product_code">) {
+  return `/profit-calculation/direct-shipping/${getProductRouteKey(product)}`;
+}
 
 export function TestShippingPage({ user }: TestShippingPageProps) {
   const [products, setProducts] = useState<Product[]>([]);
@@ -282,7 +288,15 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
 
   return (
     <section className="grid gap-5">
-      <PageHeader title="直发测算" description="查看直发物流方案与利润表现" />
+      <PageHeader
+        title="直发测算"
+        description="查看直发物流方案与利润表现"
+        actions={
+          <Link to="/profit-calculation/direct-shipping" className="btn-secondary">
+            多件直发测算
+          </Link>
+        }
+      />
 
       {errorMessage && (
         <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
@@ -325,6 +339,11 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                     ? <span className={summary.profitRmb >= 0 ? "money text-emerald-700" : "money text-rose-700"}> {formatCurrency(summary.profitRmb)}</span>
                     : " --"}
                 </p>
+                <div className="mobile-summary-actions">
+                  <Link className="text-action" to={getDirectShipmentProfitPath(product)}>
+                    多件直发详情
+                  </Link>
+                </div>
               </article>
             );
           })
@@ -347,18 +366,19 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                 <th className="px-4 py-3 font-medium">物流方式</th>
                 <th className="px-4 py-3 font-medium">物流运费</th>
                 <th className="px-4 py-3 font-medium">利润（含广告）</th>
+                <th className="px-4 py-3 font-medium">操作</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={11} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={12} className="px-4 py-8 text-center text-slate-500">
                     加载中...
                   </td>
                 </tr>
               ) : products.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={12} className="px-4 py-8 text-center text-slate-500">
                     暂无商品
                   </td>
                 </tr>
@@ -414,6 +434,14 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                         {typeof summary?.profitRmb === "number"
                           ? <span className={summary.profitRmb >= 0 ? "money text-emerald-700" : "money text-rose-700"}>{formatCurrency(summary.profitRmb)}</span>
                           : "--"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <Link
+                          className="text-action whitespace-nowrap"
+                          to={getDirectShipmentProfitPath(product)}
+                        >
+                          多件直发详情
+                        </Link>
                       </td>
                     </tr>
                   );

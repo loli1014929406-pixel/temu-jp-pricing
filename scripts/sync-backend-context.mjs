@@ -92,9 +92,9 @@ async function buildCalculationRules(snapshot) {
         description: "商品申报价、采购成本、头程/尾程物流成本和目标利润率计算。",
         formulas: [
           "purchaseCostRmb = sum(item.purchase_price_rmb * item.quantity)",
-          "purchaseShippingRmb = sum(ceil(item_weight_g * quantity / 500) * purchase_shipping_fee_per_500g_rmb)",
+          "purchaseShippingRmb = sum((item_weight_g * quantity / 500) * purchase_shipping_fee_per_500g_rmb)",
           "subsidyRmb = temu_shipping_subsidy_jpy * exchange_rate_rmb_per_jpy",
-          "sfCostRmb = sf_first_price_rmb + max(packageWeightKg - sf_first_weight_kg, 0) * sf_extra_price_per_kg_rmb",
+          "sfCostRmb = min(packageWeightKg, sf_first_weight_kg) * (sf_first_price_rmb / sf_first_weight_kg) + max(packageWeightKg - sf_first_weight_kg, 0) * sf_extra_price_per_kg_rmb",
           "planA = huaianAirCostRmb + osakaLastmileRmb",
           "planB = huaianAirCostRmb + fukuokaLastmileRmb",
           "planC = ocsCostRmb * (1 + ocs_tariff_rate) + osakaLastmileRmb",

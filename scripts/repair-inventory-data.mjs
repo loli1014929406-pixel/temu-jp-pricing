@@ -243,12 +243,12 @@ function summarizeStockChanges(stockUpdates, stocksByKey, itemById, productById)
     );
 }
 
-const env = await loadEnv();
+const env = { ...(await loadEnv()), ...process.env };
 const supabaseUrl = env.VITE_SUPABASE_URL;
 const supabaseAnonKey = env.VITE_SUPABASE_ANON_KEY;
 const supabaseServiceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY;
-const email = env.SUPABASE_SYNC_EMAIL;
-const password = env.SUPABASE_SYNC_PASSWORD;
+const email = env.SUPABASE_SYNC_EMAIL || env.VITE_AUTO_LOGIN_EMAIL;
+const password = env.SUPABASE_SYNC_PASSWORD || env.VITE_AUTO_LOGIN_PASSWORD;
 
 if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error("缺少 VITE_SUPABASE_URL 或 VITE_SUPABASE_ANON_KEY。");
@@ -577,11 +577,14 @@ for (const event of Array.from(outboundEvents.values())) {
 
 const validPurchaseOrderIds = new Set(data.purchase_orders.map((order) => order.id));
 const validPurchasePackageIds = new Set(data.purchase_packages.map((pkg) => pkg.id));
+const assignedTemuOrders = data.temu_orders.filter(
+  (order) => isAssignedOrder(order) && order.warehouse_id,
+);
 const validTemuOrderNos = new Set(
-  data.temu_orders.map((order) => String(order.order_no ?? "").trim()).filter(Boolean),
+  assignedTemuOrders.map((order) => String(order.order_no ?? "").trim()).filter(Boolean),
 );
 const validTemuOrderLineKeys = new Set(
-  data.temu_orders.map((order) => getOrderLineLabel(order)).filter(Boolean),
+  assignedTemuOrders.map((order) => getOrderLineLabel(order)).filter(Boolean),
 );
 
 const stalePurchaseChanges = new Map();
@@ -658,6 +661,109 @@ for (const staleChange of staleOutboundChanges.values()) {
     change_quantity: -staleChange.change_quantity,
     reason: `删除订单冲回：${staleChange.order_line_key || staleChange.order_no}`,
   });
+}
+
+function addQuantity(map, key, quantity) {
+  map.set(key, (map.get(key) ?? 0) + quantity);
+}
+
+function isSourceManagedAdjustment(adjustment) {
+  const reason = String(adjustment.reason ?? "").trim();
+  return (
+    Boolean(adjustment.purchase_order_id || adjustment.purchase_package_id) ||
+    reason.startsWith("采购入库") ||
+    reason.startsWith("订单出库：") ||
+    reason.startsWith("删除订单冲回：") ||
+    reason.startsWith("删除采购单冲回：") ||
+    reason.startsWith("库存校准：")
+  );
+}
+
+const canonicalQuantityByStockKey = new Map();
+for (const event of inboundEvents.values()) {
+  addQuantity(
+    canonicalQuantityByStockKey,
+    stockKey(event.warehouse_id, event.item_id),
+    event.quantity,
+  );
+}
+for (const event of outboundEvents.values()) {
+  addQuantity(
+    canonicalQuantityByStockKey,
+    stockKey(event.warehouse_id, event.item_id),
+    -event.quantity,
+  );
+}
+for (const adjustment of data.warehouse_item_stock_adjustments) {
+  if (isSourceManagedAdjustment(adjustment)) continue;
+
+  addQuantity(
+    canonicalQuantityByStockKey,
+    stockKey(adjustment.warehouse_id, adjustment.item_id),
+    Number(adjustment.change_quantity) || 0,
+  );
+}
+
+const ledgerQuantityByStockKey = new Map();
+for (const adjustment of data.warehouse_item_stock_adjustments) {
+  addQuantity(
+    ledgerQuantityByStockKey,
+    stockKey(adjustment.warehouse_id, adjustment.item_id),
+    Number(adjustment.change_quantity) || 0,
+  );
+}
+for (const adjustment of adjustmentRows) {
+  addQuantity(
+    ledgerQuantityByStockKey,
+    stockKey(adjustment.warehouse_id, adjustment.item_id),
+    Number(adjustment.change_quantity) || 0,
+  );
+}
+
+const stockKeysToReconcile = new Set([
+  ...canonicalQuantityByStockKey.keys(),
+  ...ledgerQuantityByStockKey.keys(),
+  ...stockRowsForComputation.map((row) => stockKey(row.warehouse_id, row.item_id)),
+]);
+
+for (const key of stockKeysToReconcile) {
+  const stock = stocksByKey.get(key);
+  if (!stock) throw new Error(`缺少库存行：${key}`);
+
+  const expectedQuantity = canonicalQuantityByStockKey.get(key) ?? 0;
+  if (expectedQuantity < 0) {
+    const item = itemById.get(stock.item_id);
+    throw new Error(
+      `库存重算结果为负数，请先检查超卖订单：${item?.item_name ?? stock.item_id}`,
+    );
+  }
+
+  const ledgerQuantity = ledgerQuantityByStockKey.get(key) ?? 0;
+  const correctionQuantity = expectedQuantity - ledgerQuantity;
+  if (correctionQuantity !== 0) {
+    adjustmentRows.push({
+      warehouse_id: stock.warehouse_id,
+      item_id: stock.item_id,
+      owner_id: stock.owner_id,
+      previous_quantity: ledgerQuantity,
+      next_quantity: expectedQuantity,
+      change_quantity: correctionQuantity,
+      reason: "库存校准：按有效采购和订单重算",
+      purchase_order_id: null,
+      purchase_package_id: null,
+    });
+    ledgerQuantityByStockKey.set(key, expectedQuantity);
+  }
+
+  if (stock.stock_quantity !== expectedQuantity) {
+    stockUpdateDrafts.set(key, {
+      id: stock.id,
+      warehouse_id: stock.warehouse_id,
+      item_id: stock.item_id,
+      owner_id: stock.owner_id,
+      stock_quantity: expectedQuantity,
+    });
+  }
 }
 
 const stockUpdates = Array.from(stockUpdateDrafts.values()).filter((update) => {

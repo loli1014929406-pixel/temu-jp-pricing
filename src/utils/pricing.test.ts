@@ -42,19 +42,33 @@ function buildItem(overrides: Partial<ProductItem> = {}): ProductItem {
 }
 
 describe("calculatePricing", () => {
-  it("rounds purchase shipping up to each started 500g block", () => {
+  it("prorates purchase shipping by component weight", () => {
     const result = calculatePricing(
       0,
       [
         buildItem({
-          item_weight_g: 501,
-          purchase_shipping_fee_per_500g_rmb: 3,
+          item_weight_g: 250,
+          purchase_shipping_fee_per_500g_rmb: 4,
         }),
       ],
       buildSettings(),
     );
 
-    expect(result.purchaseShippingRmb).toBe(6);
+    expect(result.purchaseShippingRmb).toBe(2);
+  });
+
+  it("prorates SF first-weight cost by package weight", () => {
+    const result = calculatePricing(
+      500,
+      [],
+      buildSettings({
+        sf_first_weight_kg: 1,
+        sf_first_price_rmb: 10,
+        sf_extra_price_per_kg_rmb: 8,
+      }),
+    );
+
+    expect(result.sfCostRmb).toBe(5);
   });
 
   it("applies SF extra-weight pricing above the first weight", () => {

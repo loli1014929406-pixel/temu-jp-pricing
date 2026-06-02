@@ -7,6 +7,8 @@ import { AuthPage } from "./pages/auth-page";
 import { DeclarationPricesPage } from "./pages/declaration-prices-page";
 import { InventoryPage } from "./pages/inventory-page";
 import { OrdersPage } from "./pages/orders-page";
+import { MultiShipmentProfitPage } from "./pages/multi-shipment-profit-page";
+import { MultiShipmentProductsPage } from "./pages/multi-shipment-products-page";
 import { ProfitCalculationPage } from "./pages/profit-calculation-page";
 import { ProfitCalculationsPage } from "./pages/profit-calculations-page";
 import { PromotionRecommendationsPage } from "./pages/promotion-recommendations-page";
@@ -79,6 +81,22 @@ export default function App() {
         <Route
           path="/profit-calculation"
           element={user ? <ProfitCalculationsPage user={user} /> : null}
+        />
+        <Route
+          path="/profit-calculation/direct-shipping/:productKey"
+          element={user ? <MultiShipmentProfitPage user={user} mode="direct" /> : null}
+        />
+        <Route
+          path="/profit-calculation/direct-shipping"
+          element={user ? <MultiShipmentProductsPage user={user} mode="direct" /> : null}
+        />
+        <Route
+          path="/profit-calculation/standard-shipping/:productKey"
+          element={user ? <MultiShipmentProfitPage user={user} mode="standard" /> : null}
+        />
+        <Route
+          path="/profit-calculation/standard-shipping"
+          element={user ? <MultiShipmentProductsPage user={user} mode="standard" /> : null}
         />
         <Route
           path="/profit-calculation/recommendations"

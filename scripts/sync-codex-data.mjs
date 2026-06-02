@@ -109,12 +109,12 @@ function buildSummary(data) {
   );
 }
 
-const env = await loadEnv();
+const env = { ...(await loadEnv()), ...process.env };
 const supabaseUrl = env.VITE_SUPABASE_URL;
 const supabaseAnonKey = env.VITE_SUPABASE_ANON_KEY;
 const supabaseServiceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY;
-const email = env.SUPABASE_SYNC_EMAIL;
-const password = env.SUPABASE_SYNC_PASSWORD;
+const email = env.SUPABASE_SYNC_EMAIL || env.VITE_AUTO_LOGIN_EMAIL;
+const password = env.SUPABASE_SYNC_PASSWORD || env.VITE_AUTO_LOGIN_PASSWORD;
 
 if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error("缺少 VITE_SUPABASE_URL 或 VITE_SUPABASE_ANON_KEY。");

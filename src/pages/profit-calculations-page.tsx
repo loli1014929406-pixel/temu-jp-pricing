@@ -1,5 +1,5 @@
 import type { User } from "@supabase/supabase-js";
-import { ArrowDown, ArrowUp, ArrowUpDown, Download, Megaphone, Save } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Calculator, Download, Megaphone, Save } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -113,6 +113,7 @@ const defaultDiscounts: DiscountFields = {
   adRoas: 0,
 };
 
+
 const getSavedCalculationVersion = (calculation: { result_json?: { calculationVersion?: number } } | undefined) =>
   calculation?.result_json?.calculationVersion ?? 0;
 
@@ -127,6 +128,22 @@ function compareNullableNumbers(
   if (!firstIsNumber) return 1;
   if (!secondIsNumber) return -1;
   return first - second;
+}
+
+function matchesActivityDiscountFilter(
+  summary: DiscountSummary | undefined,
+  customMin: string,
+  customMax: string,
+) {
+  if (customMin.trim() === "" && customMax.trim() === "") return true;
+  if (!summary || typeof summary.activityDiscountRate !== "number") return false;
+
+  const discount = summary.activityDiscountRate;
+  const min = customMin.trim() === "" ? null : Number(customMin);
+  const max = customMax.trim() === "" ? null : Number(customMax);
+  if (min !== null && (Number.isNaN(min) || discount < min)) return false;
+  if (max !== null && (Number.isNaN(max) || discount > max)) return false;
+  return true;
 }
 
 function SortableHeader({ label, sortKey, sortState, onSort }: SortableHeaderProps) {
@@ -291,6 +308,8 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
     key: "productCode",
     direction: "asc",
   });
+  const [customActivityDiscountMin, setCustomActivityDiscountMin] = useState("");
+  const [customActivityDiscountMax, setCustomActivityDiscountMax] = useState("");
   const [draftNotice, setDraftNotice] = useState("");
 
   const draftValue = useMemo<ProfitCalculationsDraft>(
@@ -585,8 +604,23 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
     }));
   }
 
+  const filteredProducts = useMemo(() => {
+    return products.filter((product) =>
+      matchesActivityDiscountFilter(
+        discountSummaries[product.id],
+        customActivityDiscountMin,
+        customActivityDiscountMax,
+      ),
+    );
+  }, [
+    customActivityDiscountMax,
+    customActivityDiscountMin,
+    discountSummaries,
+    products,
+  ]);
+
   const sortedProducts = useMemo(() => {
-    return [...products].sort((first, second) => {
+    return [...filteredProducts].sort((first, second) => {
       let result = 0;
 
       if (sortState.key === "productCode") {
@@ -612,7 +646,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
 
       return sortState.direction === "asc" ? result : -result;
     });
-  }, [discountSummaries, products, sortState]);
+  }, [discountSummaries, filteredProducts, sortState]);
 
   async function handleExcelExport() {
     setExporting(true);
@@ -711,23 +745,6 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
       <PageHeader
         title="利润数据分析"
         description="实时分析利润率、最终售价及广告投放安全边际"
-        actions={
-          <>
-            <button
-              type="button"
-              className="btn-secondary"
-              disabled={loading || exporting || products.length === 0}
-              onClick={() => void handleExcelExport()}
-            >
-              <Download size={18} />
-              {exporting ? "下载中" : "下载表格"}
-            </button>
-            <Link to="/profit-calculation/recommendations" className="btn-secondary">
-              <Megaphone size={18} />
-              促销投放推荐
-            </Link>
-          </>
-        }
       />
 
       {errorMessage && (
@@ -828,10 +845,60 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
               <Megaphone size={18} />
               促销投放推荐
             </Link>
+            <Link to="/profit-calculation/standard-shipping" className="btn-secondary w-full justify-start">
+              <Calculator size={18} />
+              多件正常发货测算
+            </Link>
           </div>
           <p className="mt-3 text-xs leading-5 text-slate-500">
-            表格中的折扣、ROAS 与保存操作保持原功能。下载表格仍导出当前排序后的商品利润数据。
+            表格中的折扣、ROAS 与保存操作保持原功能。多件正常发货测算会先选择商品，再进入 SKU 明细。
           </p>
+        </div>
+      </section>
+
+      <section className="grid gap-3 rounded-lg border border-slate-200 bg-white p-3 md:hidden">
+        <p className="text-sm font-semibold text-slate-700">活动折扣筛选</p>
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+          <input
+            aria-label="活动折扣最小值"
+            className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15"
+            min="0"
+            max="10"
+            step="0.01"
+            type="number"
+            placeholder="最小"
+            value={customActivityDiscountMin}
+            onChange={(event) => setCustomActivityDiscountMin(event.target.value)}
+          />
+          <span className="text-sm text-slate-500">到</span>
+          <input
+            aria-label="活动折扣最大值"
+            className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15"
+            min="0"
+            max="10"
+            step="0.01"
+            type="number"
+            placeholder="最大"
+            value={customActivityDiscountMax}
+            onChange={(event) => setCustomActivityDiscountMax(event.target.value)}
+          />
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs font-semibold text-slate-500">
+            显示 {sortedProducts.length} / {products.length}
+          </span>
+          {(customActivityDiscountMin || customActivityDiscountMax) && (
+            <button
+              type="button"
+              className="btn-secondary h-9 px-3"
+              onClick={() => {
+                setCustomActivityDiscountMin("");
+                setCustomActivityDiscountMax("");
+              }}
+            >
+              清除筛选
+            </button>
+          )}
         </div>
       </section>
 
@@ -840,6 +907,8 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
           <div className="empty-state">加载中...</div>
         ) : products.length === 0 ? (
           <div className="empty-state">暂无商品</div>
+        ) : sortedProducts.length === 0 ? (
+          <div className="empty-state">没有符合当前筛选条件的商品</div>
         ) : (
           sortedProducts.map((product) => {
             const summary = discountSummaries[product.id];
@@ -964,15 +1033,52 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
       <div className="erp-toolbar hidden items-center justify-between gap-3 md:flex">
         <div>
           <h2 className="text-base font-semibold text-slate-950">商品利润明细</h2>
-          <p className="mt-1 text-sm text-slate-500">高密度 ERP 数据表，可排序并直接编辑折扣参数</p>
+          <p className="mt-1 text-sm text-slate-500">
+            高密度 ERP 数据表，可排序、筛选并直接编辑折扣参数
+          </p>
         </div>
-        <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
-          <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-          成功
-          <span className="inline-flex h-2 w-2 rounded-full bg-amber-500" />
-          观察
-          <span className="inline-flex h-2 w-2 rounded-full bg-rose-500" />
-          风险
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <span className="text-xs font-semibold text-slate-600">活动折扣筛选</span>
+          <div className="flex items-center gap-1 text-xs font-semibold text-slate-600">
+            <input
+              aria-label="活动折扣最小值"
+              className="h-9 w-20 rounded-md border border-slate-300 bg-white px-2 text-sm font-medium text-slate-700 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15"
+              min="0"
+              max="10"
+              step="0.01"
+              type="number"
+              placeholder="最小"
+              value={customActivityDiscountMin}
+              onChange={(event) => setCustomActivityDiscountMin(event.target.value)}
+            />
+            <span>-</span>
+            <input
+              aria-label="活动折扣最大值"
+              className="h-9 w-20 rounded-md border border-slate-300 bg-white px-2 text-sm font-medium text-slate-700 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15"
+              min="0"
+              max="10"
+              step="0.01"
+              type="number"
+              placeholder="最大"
+              value={customActivityDiscountMax}
+              onChange={(event) => setCustomActivityDiscountMax(event.target.value)}
+            />
+          </div>
+          {(customActivityDiscountMin || customActivityDiscountMax) && (
+            <button
+              type="button"
+              className="btn-secondary h-9 px-3"
+              onClick={() => {
+                setCustomActivityDiscountMin("");
+                setCustomActivityDiscountMax("");
+              }}
+            >
+              清除筛选
+            </button>
+          )}
+          <span className="text-xs font-semibold text-slate-500">
+            显示 {sortedProducts.length} / {products.length}
+          </span>
         </div>
       </div>
 
@@ -1038,6 +1144,12 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                 <tr>
                   <td colSpan={16} className="px-4 py-8 text-center text-slate-500">
                     暂无商品
+                  </td>
+                </tr>
+              ) : sortedProducts.length === 0 ? (
+                <tr>
+                  <td colSpan={16} className="px-4 py-8 text-center text-slate-500">
+                    没有符合当前筛选条件的商品
                   </td>
                 </tr>
               ) : (

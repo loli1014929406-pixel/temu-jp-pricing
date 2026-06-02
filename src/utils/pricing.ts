@@ -6,20 +6,22 @@ const round = (value: number, digits = 2) =>
 function calculatePurchaseShippingRmb(item: ProductItem) {
   const weightG = Math.max(0, item.item_weight_g * item.quantity);
   if (weightG === 0 || item.purchase_shipping_fee_per_500g_rmb <= 0) return 0;
-  return Math.ceil(weightG / 500) * item.purchase_shipping_fee_per_500g_rmb;
+  return (weightG / 500) * item.purchase_shipping_fee_per_500g_rmb;
 }
 
 function calculateSfCostRmb(packageWeightKg: number, settings: PricingSettings) {
   if (packageWeightKg <= 0) return 0;
 
   const firstWeightKg = Math.max(0, settings.sf_first_weight_kg);
-  if (firstWeightKg === 0 || packageWeightKg <= firstWeightKg) {
-    return settings.sf_first_price_rmb;
+  if (firstWeightKg === 0) {
+    return packageWeightKg * settings.sf_extra_price_per_kg_rmb;
   }
 
   return (
-    settings.sf_first_price_rmb +
-    (packageWeightKg - firstWeightKg) * settings.sf_extra_price_per_kg_rmb
+    Math.min(packageWeightKg, firstWeightKg) *
+      (settings.sf_first_price_rmb / firstWeightKg) +
+    Math.max(packageWeightKg - firstWeightKg, 0) *
+      settings.sf_extra_price_per_kg_rmb
   );
 }
 

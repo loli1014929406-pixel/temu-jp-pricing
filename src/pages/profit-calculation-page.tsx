@@ -1,7 +1,7 @@
 import { Save } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { Field, TextInput } from "../components/form-controls";
 import { BackToParentAction } from "../components/ui";
 import { isSameDraft, readDraft, useDraftPersistence } from "../hooks/use-draft-persistence";
@@ -11,6 +11,7 @@ import {
   fetchProduct,
   fetchProductItems,
   fetchProductSkus,
+  getProductRouteKey,
 } from "../lib/products";
 import { fetchSettings } from "../lib/settings";
 import type {
@@ -84,6 +85,13 @@ function ReadOnlyValue({ value }: { value: string }) {
       {value}
     </div>
   );
+}
+
+function getMultiShipmentProfitPath(
+  product: Pick<Product, "id" | "product_code">,
+  mode: "direct-shipping" | "standard-shipping",
+) {
+  return `/profit-calculation/${mode}/${getProductRouteKey(product)}`;
 }
 
 export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
@@ -344,7 +352,15 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
             {product.product_code} · {product.product_name_cn}
           </p>
         </div>
-        <BackToParentAction fallbackTo="/profit-calculation" />
+        <div className="flex flex-wrap items-center gap-2">
+          <Link className="btn-secondary" to={getMultiShipmentProfitPath(product, "direct-shipping")}>
+            多件直发
+          </Link>
+          <Link className="btn-secondary" to={getMultiShipmentProfitPath(product, "standard-shipping")}>
+            多件正常
+          </Link>
+          <BackToParentAction fallbackTo="/profit-calculation" />
+        </div>
       </div>
 
       {errorMessage && (
