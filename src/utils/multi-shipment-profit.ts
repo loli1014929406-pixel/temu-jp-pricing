@@ -188,14 +188,13 @@ function buildDirectThreeCmCandidate(
   };
 }
 
-function getCheapestNormalLogisticsCostRmb(
+function getHighestNormalLogisticsCostRmb(
   product: Product,
   skuItems: ProductItem[],
   settings: PricingSettings,
 ) {
   const pricing = calculatePricing(product.package_weight_g, skuItems, settings);
-  const planCosts = [pricing.planA, pricing.planB, pricing.planC, pricing.planD];
-  return Math.min(...planCosts);
+  return pricing.logisticsCostRmb;
 }
 
 function buildStandardReferencedLogisticsCandidate(
@@ -228,7 +227,7 @@ function buildStandardReferencedLogisticsCandidate(
     };
   }
 
-  const referencedLogisticsCostRmb = getCheapestNormalLogisticsCostRmb(
+  const referencedLogisticsCostRmb = getHighestNormalLogisticsCostRmb(
     product,
     skuItems,
     settings,

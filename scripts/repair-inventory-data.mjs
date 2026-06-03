@@ -222,6 +222,23 @@ async function updateStockRows(supabase, rows) {
   }
 }
 
+async function updatePurchaseOrderItemRows(supabase, rows) {
+  if (rows.length === 0 || dryRun) return;
+
+  for (const row of rows) {
+    const { data, error } = await supabase
+      .from("purchase_order_items")
+      .update({ item_id: row.item_id })
+      .eq("id", row.id)
+      .eq("owner_id", row.owner_id)
+      .is("item_id", null)
+      .select("id")
+      .maybeSingle();
+    if (error) throw new Error(`purchase_order_items: ${error.message}`);
+    if (!data) throw new Error(`purchase_order_items: 未能回写采购明细 ${row.id}`);
+  }
+}
+
 function summarizeStockChanges(stockUpdates, stocksByKey, itemById, productById) {
   return stockUpdates
     .map((update) => {
@@ -298,6 +315,7 @@ const requiredProductIdsByWarehouse = new Map();
 const requiredItemIdsByWarehouse = new Map();
 const inboundEvents = createEventMap();
 const outboundEvents = createEventMap();
+const purchaseItemIdUpdates = new Map();
 const unresolvedPurchases = [];
 const unresolvedOrders = [];
 
@@ -322,6 +340,13 @@ for (const packageItem of data.purchase_package_items) {
       product: productById.get(orderItem.product_id)?.product_code ?? orderItem.product_id,
     });
     continue;
+  }
+  if (!orderItem.item_id) {
+    purchaseItemIdUpdates.set(orderItem.id, {
+      id: orderItem.id,
+      owner_id: orderItem.owner_id,
+      item_id: productItem.id,
+    });
   }
 
   addToSetMap(requiredProductIdsByWarehouse, purchaseOrder.warehouse_id, orderItem.product_id);
@@ -780,10 +805,12 @@ const stockChangeSummary = summarizeStockChanges(
 console.log(dryRun ? "库存校准预览：" : "开始库存校准：");
 console.log(`补齐仓库 SKU：${skuRowsToInsert.length}`);
 console.log(`补齐配件库存行：${stockRowsToInsert.length}`);
+console.log(`回写采购明细配件：${purchaseItemIdUpdates.size}`);
 console.log(`补齐库存流水：${adjustmentRows.length}`);
 console.log(`更新库存数量：${stockUpdates.length}`);
 if (stockChangeSummary.length > 0) console.table(stockChangeSummary);
 
+await updatePurchaseOrderItemRows(supabase, Array.from(purchaseItemIdUpdates.values()));
 await insertRows(supabase, "warehouse_item_stock_adjustments", adjustmentRows);
 await updateStockRows(supabase, stockUpdates);
 

@@ -376,17 +376,6 @@ function normalizeLogisticsMethod(value: string) {
   return text;
 }
 
-function isThreeCmLogisticsMethod(value: string) {
-  const method = normalizeLogisticsMethod(value).replace(/\s+/g, "").toLowerCase();
-  return (
-    method === "ocs3cm" ||
-    method === "日本邮便3cm" ||
-    method === "日本郵便3cm" ||
-    method === "japanpost3cm" ||
-    method === "jp3cm"
-  );
-}
-
 function formatSkuSalesSpec(sku: ProductSku) {
   const entries = Object.entries(sku.attributes)
     .map(([name, value]) => [name.trim(), String(value).trim()] as const)
@@ -2431,29 +2420,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
     return Math.max(1, Math.trunc(order.fulfillment_quantity || 0));
   }
 
-  function getOrderShipmentGroupKey(order: TemuOrderRecord) {
-    const merged = mergeOrderDraft(order);
-    const declaration = getOrderDeclaration(merged);
-    const productKey =
-      declaration?.product.id ||
-      normalizeSkuCode(merged.sku_code) ||
-      normalizeSalesSpec(merged.product_attributes);
-
-    return [
-      getOrderNoKey(merged.order_no),
-      productKey,
-      getOrderStage(merged),
-      merged.warehouse_id ?? "",
-      merged.warehouse_name.trim().toLowerCase(),
-      normalizeLogisticsMethod(merged.logistics_method).toLowerCase(),
-      merged.logistics_tracking_no.trim(),
-      normalizeJapanesePhone(formatRecipientPhone(merged.recipient_phone)),
-      normalizePostalCode(merged.postal_code),
-      normalizeLooseText(formatRecipientName(merged.recipient_name)),
-      normalizeLooseText(getFullAddress(merged)),
-    ].join("\u0000");
-  }
-
   function getOrderExactSkuGroupKey(order: TemuOrderRecord) {
     return [
       normalizeSkuCode(order.sku_code),
@@ -2461,12 +2427,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
     ].join("\u0000");
   }
 
-  function getOrderParcelCapacity(order: TemuOrderRecord) {
-    if (!isThreeCmLogisticsMethod(order.logistics_method)) return 1;
-
-    const declaration = getOrderDeclaration(order);
-    const capacity = Number(declaration?.product.max_units_per_parcel ?? 1);
-    return Math.max(1, Math.trunc(Number.isFinite(capacity) ? capacity : 1));
+  function getOrderDisplayGroupKey(order: TemuOrderRecord) {
+    return getOrderNoKey(order.order_no) || order.id;
   }
 
   function createOrderDisplayRow(rowOrders: TemuOrderRecord[]): OrderDisplayRow | null {
@@ -2488,48 +2450,20 @@ export function OrdersPage({ user }: OrdersPageProps) {
   function buildOrderDisplayRows(targetOrders: TemuOrderRecord[]) {
     const groups = new Map<string, TemuOrderRecord[]>();
     targetOrders.forEach((order) => {
-      const key = getOrderShipmentGroupKey(order);
+      const key = getOrderDisplayGroupKey(order);
       groups.set(key, [...(groups.get(key) ?? []), order]);
     });
 
     const rows: OrderDisplayRow[] = [];
     groups.forEach((groupOrders) => {
       const mergedGroupOrders = groupOrders.map((order) => mergeOrderDraft(order));
-      const capacity = getOrderParcelCapacity(mergedGroupOrders[0]);
       const sortedGroupOrders = [...mergedGroupOrders].sort((left, right) => {
         const bySku = getOrderExactSkuGroupKey(left).localeCompare(
           getOrderExactSkuGroupKey(right),
         );
         return bySku || left.sub_order_no.localeCompare(right.sub_order_no);
       });
-
-      if (capacity <= 1) {
-        sortedGroupOrders.forEach((order) => {
-          const row = createOrderDisplayRow([order]);
-          if (row) rows.push(row);
-        });
-        return;
-      }
-
-      let currentRowOrders: TemuOrderRecord[] = [];
-      let currentQuantity = 0;
-      sortedGroupOrders.forEach((order) => {
-        const orderQuantity = getOrderFulfillmentQuantity(order);
-        if (
-          currentRowOrders.length > 0 &&
-          currentQuantity + orderQuantity > capacity
-        ) {
-          const row = createOrderDisplayRow(currentRowOrders);
-          if (row) rows.push(row);
-          currentRowOrders = [];
-          currentQuantity = 0;
-        }
-
-        currentRowOrders.push(order);
-        currentQuantity += orderQuantity;
-      });
-
-      const row = createOrderDisplayRow(currentRowOrders);
+      const row = createOrderDisplayRow(sortedGroupOrders);
       if (row) rows.push(row);
     });
 
@@ -2551,6 +2485,60 @@ export function OrdersPage({ user }: OrdersPageProps) {
     return Array.from(specGroups.values())
       .map((item) => (item.quantity > 1 ? `${item.label} ×${item.quantity}` : item.label))
       .join(" / ");
+  }
+
+  function getOrderDisplayRowDeclarationGroups(row: OrderDisplayRow) {
+    const groups = new Map<
+      string,
+      {
+        declaration: { sku: ProductSku; product: Product };
+        quantity: number;
+      }
+    >();
+
+    row.orders.forEach((order) => {
+      const declaration = getOrderDeclaration(order);
+      if (!declaration) return;
+
+      const key = declaration.sku.id || getOrderExactSkuGroupKey(order);
+      const current = groups.get(key);
+      groups.set(key, {
+        declaration: current?.declaration ?? declaration,
+        quantity: (current?.quantity ?? 0) + getOrderFulfillmentQuantity(order),
+      });
+    });
+
+    return Array.from(groups.values());
+  }
+
+  function getOrderDisplayRowSkuSummary(
+    row: OrderDisplayRow,
+    declarationGroups: ReturnType<typeof getOrderDisplayRowDeclarationGroups>,
+  ) {
+    const skuCount =
+      declarationGroups.length ||
+      new Set(
+        row.orders
+          .map((order) => getOrderExactSkuGroupKey(order))
+          .filter(Boolean),
+      ).size ||
+      row.orders.length;
+
+    return `${skuCount} 个 SKU 共${row.quantity} 件`;
+  }
+
+  function getOrderDisplayRowProductCodeSummary(
+    declarationGroups: ReturnType<typeof getOrderDisplayRowDeclarationGroups>,
+  ) {
+    const productCodes = Array.from(
+      new Set(
+        declarationGroups
+          .map((group) => group.declaration.product.product_code.trim())
+          .filter(Boolean),
+      ),
+    );
+
+    return productCodes.length > 0 ? productCodes.join(" / ") : "";
   }
 
   function buildOrderStockDeductions(targetOrders: TemuOrderRecord[]) {
@@ -3413,12 +3401,22 @@ export function OrdersPage({ user }: OrdersPageProps) {
                       draft.warehouse_id &&
                       draft.warehouse_name &&
                       !warehouses.some((warehouse) => warehouse.id === draft.warehouse_id);
-                    const declaration = getOrderDeclaration(mergedOrder);
+                    const declarationGroups = getOrderDisplayRowDeclarationGroups(orderRow);
+                    const primaryDeclaration = declarationGroups[0]?.declaration ?? null;
                     const trackingStatusLabel =
                       getTrackingStatusLabel(mergedOrder.logistics_status) || "待查询";
                     const rowSelected = orderRow.orders.every((item) =>
                       selectedOrderIdSet.has(item.id),
                     );
+                    const skuSummary = getOrderDisplayRowSkuSummary(
+                      orderRow,
+                      declarationGroups,
+                    );
+                    const productCodeSummary =
+                      getOrderDisplayRowProductCodeSummary(declarationGroups);
+                    const productMeta = [productCodeSummary, skuSummary]
+                      .filter(Boolean)
+                      .join(" · ");
 
                     return (
                       <tr key={orderRow.id}>
@@ -3507,23 +3505,30 @@ export function OrdersPage({ user }: OrdersPageProps) {
                         </td>
                         <td className="number-cell">{orderRow.quantity}</td>
                         <td className="order-product-col">
-                          {declaration ? (
-                            <div className="flex min-w-48 items-center gap-3">
-                              <SkuImageThumb
-                                product={declaration.product}
-                                sku={declaration.sku}
-                              />
+                          {primaryDeclaration ? (
+                            <div className="flex min-w-56 items-center gap-3">
+                              <div className="flex shrink-0 gap-1">
+                                {declarationGroups.slice(0, 4).map((group) => (
+                                  <SkuImageThumb
+                                    key={group.declaration.sku.id || group.declaration.sku.sku_code}
+                                    product={group.declaration.product}
+                                    sku={group.declaration.sku}
+                                  />
+                                ))}
+                              </div>
                               <div className="grid min-w-0 gap-1">
                                 <span className="font-medium text-slate-900">
-                                  {declaration.product.product_name_cn || "--"}
+                                  {primaryDeclaration.product.product_name_cn || "--"}
                                 </span>
                                 <span className="text-xs font-medium text-slate-500">
-                                  {declaration.product.product_code || "--"}
+                                  {productMeta || skuSummary}
                                 </span>
                               </div>
                             </div>
                           ) : (
-                            "--"
+                            <span className="text-sm font-medium text-slate-500">
+                              {skuSummary}
+                            </span>
                           )}
                         </td>
                         <td className="order-attr-col">{getOrderDisplayRowSalesSpec(orderRow) || "--"}</td>

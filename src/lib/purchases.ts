@@ -50,6 +50,7 @@ function getReceiptStatus(
 type ResolvedPackageItem = {
   packageItem: PurchasePackageItem;
   orderItem: PurchaseOrderItem & { item_id: string; product_id: string };
+  resolvedMissingItemId: boolean;
 };
 
 type PurchaseInventoryReversal = {
@@ -97,13 +98,46 @@ async function resolvePackageItems(
   return pkg.items.flatMap((packageItem) => {
     const item = itemsById[packageItem.order_item_id];
     if (!item?.product_id) return [];
-    const itemId = hasValue(item.item_id)
+    const resolvedMissingItemId = !hasValue(item.item_id);
+    const itemId = !resolvedMissingItemId
       ? item.item_id
       : productItemsByKey[`${item.product_id}\u0000${getItemIdentity(item)}`];
     return itemId
-      ? [{ packageItem, orderItem: { ...item, product_id: item.product_id, item_id: itemId } }]
+      ? [{
+          packageItem,
+          orderItem: { ...item, product_id: item.product_id, item_id: itemId },
+          resolvedMissingItemId,
+        }]
       : [];
   });
+}
+
+async function persistResolvedPurchaseItemIds(
+  supabase: SupabaseClient,
+  ownerId: string,
+  resolvedItems: ResolvedPackageItem[],
+) {
+  const updates = resolvedItems.filter(
+    ({ resolvedMissingItemId }) => resolvedMissingItemId,
+  );
+  if (updates.length === 0) return;
+
+  const results = await Promise.all(
+    updates.map(({ orderItem }) =>
+      supabase
+        .from("purchase_order_items")
+        .update({ item_id: orderItem.item_id })
+        .eq("id", orderItem.id)
+        .eq("owner_id", ownerId)
+        .is("item_id", null)
+        .select("id")
+        .maybeSingle(),
+    ),
+  );
+  const failedUpdate = results.find((result) => result.error);
+  if (failedUpdate?.error) throw failedUpdate.error;
+  const missedUpdate = results.find((result) => !result.data);
+  if (missedUpdate) throw new Error("采购明细配件绑定未能写入，请刷新后重试");
 }
 
 export async function fetchPurchaseOrders() {
@@ -160,6 +194,11 @@ type CreatePurchaseOrderInput = {
 };
 export async function createPurchaseOrder(input: CreatePurchaseOrderInput) {
   const { supabase, session } = await requireSession();
+  const missingLinkedItem = input.items.find((item) => !hasValue(item.item_id));
+  if (missingLinkedItem) {
+    throw new Error(`采购明细“${missingLinkedItem.item_name}”没有绑定商品配件，不能保存采购单`);
+  }
+
   const itemsTotalRmb = input.items.reduce((sum, item) => sum + item.quantity * item.unit_price_rmb, 0);
   const freightTotalRmb = input.sources.reduce((sum, source) => sum + source.freight_rmb, 0);
   const { data: orderData, error: orderError } = await withTimeout(
@@ -548,6 +587,7 @@ async function applyPurchasePackageInventory(
   if (pkg.items.length > 0 && resolvedItems.length !== pkg.items.length) {
     throw new Error("包裹内有配件无法匹配到商品配件库，请检查采购明细后再入库");
   }
+  await persistResolvedPurchaseItemIds(supabase, session.user.id, resolvedItems);
 
   const receivableItems = resolvedItems.map((entry) => entry.orderItem);
   await ensureWarehouseProductInventory(

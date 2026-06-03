@@ -118,7 +118,7 @@ describe("multi-shipment profit", () => {
     expect(row.logisticsCostRmb).toBe(36);
   });
 
-  it("uses the referenced profit logistics cost for standard shipping", () => {
+  it("uses the highest referenced profit logistics cost for standard shipping", () => {
     const row = calculateMultiShipmentProfitRow(
       "standard",
       buildProduct(),
@@ -134,7 +134,7 @@ describe("multi-shipment profit", () => {
 
     expect(row.selectedMethodName).toBe("利润页物流成本");
     expect(row.selectedPackageCount).toBe(1);
-    expect(row.logisticsCostRmb).toBe(11);
+    expect(row.logisticsCostRmb).toBe(13);
   });
 
   it("uses OCS small parcel for standard shipping when 3cm is unavailable", () => {
