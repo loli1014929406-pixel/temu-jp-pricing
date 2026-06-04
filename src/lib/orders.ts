@@ -76,6 +76,9 @@ const textOrderFields = [
   "updated_at",
 ] as const;
 
+const temuOrderSelectFields =
+  "id, owner_id, order_no, sub_order_no, order_status, sku_code, warehouse_name, logistics_method, label_printed_at, logistics_tracking_no, logistics_status, product_attributes, recipient_name, recipient_phone, email, province, city, district, address_line1, address_line2, postal_code, latest_ship_time, actual_ship_time, estimated_delivery_time, actual_signed_time, created_at, updated_at, warehouse_id, fulfillment_quantity";
+
 function normalizeLogisticsMethod(value: string) {
   const text = value.trim();
   if (text === "OCS 昆山3cm" || text === "OCS 昆山 3cm") return "OCS 3cm";
@@ -101,7 +104,7 @@ export async function fetchTemuOrders() {
   const { data, error } = await withTimeout(
     supabase
       .from("temu_orders")
-      .select("*")
+      .select(temuOrderSelectFields)
       .eq("owner_id", session.user.id)
       .order("latest_ship_time", { ascending: true })
       .order("created_at", { ascending: false }),
@@ -127,7 +130,7 @@ export async function importTemuOrders(rows: TemuOrderImportRow[]) {
         onConflict: "owner_id,order_no,sub_order_no",
         ignoreDuplicates: false,
       })
-      .select(),
+      .select(temuOrderSelectFields),
     "导入订单",
   );
   if (error) {
@@ -144,7 +147,7 @@ export async function importTemuOrders(rows: TemuOrderImportRow[]) {
             onConflict: "owner_id,order_no,sub_order_no",
             ignoreDuplicates: false,
           })
-          .select(),
+          .select(temuOrderSelectFields),
         "导入订单",
       );
       if (legacyError) throw legacyError;
@@ -186,7 +189,7 @@ export async function updateTemuOrder(
       .update(normalizedUpdates)
       .eq("id", orderId)
       .eq("owner_id", session.user.id)
-      .select()
+      .select(temuOrderSelectFields)
       .single(),
     "更新订单",
   );

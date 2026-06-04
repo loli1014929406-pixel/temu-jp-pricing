@@ -35,6 +35,12 @@ import { getErrorMessage } from "../utils/errors";
 type PurchasesPageProps = { user: User; view: "create" | "records" };
 type DraftItem = { id: string; itemId: string; quantity: string; unitPriceRmb: string };
 type DraftProduct = { id: string; productId: string; items: DraftItem[] };
+type DraftPurchaseUrlItem = { component: ProductItem; draftItem: DraftItem };
+type DraftPurchaseUrlSummary = {
+  urls: string[];
+  itemsByUrl: Map<string, DraftPurchaseUrlItem[]>;
+  totalsByUrl: Map<string, number>;
+};
 type PurchaseCreateDraft = {
   warehouseId: string;
   purchasedAt: string;
@@ -242,24 +248,32 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
     );
   }, [orders, search]);
 
-  const draftItemsTotal = draftProducts.reduce(
-    (sum, product) =>
-      sum +
-      product.items.reduce(
-        (inner, item) => inner + Number(item.quantity || 0) * Number(item.unitPriceRmb || 0),
+  const draftItemsTotal = useMemo(
+    () =>
+      draftProducts.reduce(
+        (sum, product) =>
+          sum +
+          product.items.reduce(
+            (inner, item) => inner + Number(item.quantity || 0) * Number(item.unitPriceRmb || 0),
+            0,
+          ),
         0,
       ),
-    0,
+    [draftProducts],
   );
-  const activePurchaseUrls = Array.from(
-    new Set(
-      draftProducts.flatMap((product) =>
-        product.items.flatMap((item) => {
-          const component = itemsById[item.itemId];
-          return component?.purchase_url ? [component.purchase_url] : [];
-        }),
+  const activePurchaseUrls = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          draftProducts.flatMap((product) =>
+            product.items.flatMap((item) => {
+              const component = itemsById[item.itemId];
+              return component?.purchase_url ? [component.purchase_url] : [];
+            }),
+          ),
+        ),
       ),
-    ),
+    [draftProducts, itemsById],
   );
   const [linkMetaDrafts, setLinkMetaDrafts] = useState<
     Record<string, { alibabaOrderNo: string; freightRmb: string }>
@@ -320,36 +334,60 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
     purchaseRecordsDraftValue,
     { enabled: view === "records" && !loading, shouldPersist: hasPurchaseRecordsDraft },
   );
-  const draftFreightTotal = activePurchaseUrls.reduce(
-    (sum, url) => sum + Number(linkMetaDrafts[url]?.freightRmb || 0),
-    0,
+  const draftFreightTotal = useMemo(
+    () =>
+      activePurchaseUrls.reduce(
+        (sum, url) => sum + Number(linkMetaDrafts[url]?.freightRmb || 0),
+        0,
+      ),
+    [activePurchaseUrls, linkMetaDrafts],
   );
   const draftTotal = draftItemsTotal + draftFreightTotal;
+  const draftPurchaseUrlSummaries = useMemo(() => {
+    const summaries = new Map<string, DraftPurchaseUrlSummary>();
+
+    for (const draftProduct of draftProducts) {
+      const urls: string[] = [];
+      const itemsByUrl = new Map<string, DraftPurchaseUrlItem[]>();
+      const totalsByUrl = new Map<string, number>();
+
+      for (const item of draftProduct.items) {
+        const component = itemsById[item.itemId];
+        if (!component?.purchase_url) continue;
+
+        const purchaseUrl = component.purchase_url;
+        let itemsForUrl = itemsByUrl.get(purchaseUrl);
+        if (!itemsForUrl) {
+          urls.push(purchaseUrl);
+          itemsForUrl = [];
+          itemsByUrl.set(purchaseUrl, itemsForUrl);
+          totalsByUrl.set(purchaseUrl, Number(linkMetaDrafts[purchaseUrl]?.freightRmb || 0));
+        }
+
+        itemsForUrl.push({ component, draftItem: item });
+        totalsByUrl.set(
+          purchaseUrl,
+          (totalsByUrl.get(purchaseUrl) ?? 0) +
+            Number(item.quantity || 0) * Number(item.unitPriceRmb || 0),
+        );
+      }
+
+      summaries.set(draftProduct.id, { urls, itemsByUrl, totalsByUrl });
+    }
+
+    return summaries;
+  }, [draftProducts, itemsById, linkMetaDrafts]);
   function getProductPurchaseUrls(draftProduct: DraftProduct) {
-    return Array.from(
-      new Set(
-        draftProduct.items.flatMap((item) => {
-          const component = itemsById[item.itemId];
-          return component?.purchase_url ? [component.purchase_url] : [];
-        }),
-      ),
-    );
+    return draftPurchaseUrlSummaries.get(draftProduct.id)?.urls ?? [];
   }
   function getDraftItemsByPurchaseUrl(draftProduct: DraftProduct, purchaseUrl: string) {
-    return draftProduct.items.flatMap((item) => {
-      const component = itemsById[item.itemId];
-      return component?.purchase_url === purchaseUrl
-        ? [{ component, draftItem: item }]
-        : [];
-    });
+    return draftPurchaseUrlSummaries.get(draftProduct.id)?.itemsByUrl.get(purchaseUrl) ?? [];
   }
   function getDraftPurchaseUrlTotal(draftProduct: DraftProduct, purchaseUrl: string) {
-    const itemTotal = getDraftItemsByPurchaseUrl(draftProduct, purchaseUrl).reduce(
-      (sum, entry) =>
-        sum + Number(entry.draftItem.quantity || 0) * Number(entry.draftItem.unitPriceRmb || 0),
-      0,
+    return (
+      draftPurchaseUrlSummaries.get(draftProduct.id)?.totalsByUrl.get(purchaseUrl) ??
+      Number(linkMetaDrafts[purchaseUrl]?.freightRmb || 0)
     );
-    return itemTotal + Number(linkMetaDrafts[purchaseUrl]?.freightRmb || 0);
   }
 
   function addDraftProduct() {

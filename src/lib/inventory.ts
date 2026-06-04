@@ -42,7 +42,7 @@ export async function fetchWarehouses() {
   const { data, error } = await withTimeout(
     supabase
       .from("warehouses")
-      .select("*")
+      .select("id, name")
       .order("created_at", { ascending: true }),
     "加载仓库",
   );
@@ -59,7 +59,7 @@ export async function createWarehouse(name: string) {
       .insert({
         name,
       })
-      .select()
+      .select("id, name")
       .single(),
     "新增仓库",
   );
@@ -78,7 +78,7 @@ export async function updateWarehouse(
       .from("warehouses")
       .update(updates)
       .eq("id", warehouseId)
-      .select()
+      .select("id, name")
       .single(),
     "更新仓库",
   );
@@ -107,7 +107,7 @@ export async function fetchWarehouseSkus(warehouseIds: string[]) {
   const { data, error } = await withTimeout(
     supabase
       .from("warehouse_skus")
-      .select("*")
+      .select("id, warehouse_id, product_id, sku_id, created_at")
       .in("warehouse_id", warehouseIds)
       .order("created_at", { ascending: true }),
     "加载库存 SKU",
@@ -124,7 +124,7 @@ export async function fetchWarehouseItemStocks(warehouseIds: string[]) {
   const { data, error } = await withTimeout(
     supabase
       .from("warehouse_item_stocks")
-      .select("*")
+      .select("id, warehouse_id, item_id, stock_quantity")
       .in("warehouse_id", warehouseIds)
       .order("created_at", { ascending: true }),
     "加载仓库配件库存",
@@ -141,7 +141,7 @@ export async function fetchWarehouseItemStockAdjustments(warehouseIds: string[])
   const { data, error } = await withTimeout(
     supabase
       .from("warehouse_item_stock_adjustments")
-      .select("*")
+      .select("id, warehouse_id, item_id, previous_quantity, next_quantity, change_quantity, reason")
       .in("warehouse_id", warehouseIds)
       .order("created_at", { ascending: false }),
     "加载库存调整记录",
@@ -172,7 +172,7 @@ export async function addWarehouseProductInventory(
           sku_id: skuId,
         })),
       )
-      .select(),
+      .select("id, warehouse_id, product_id, sku_id, created_at"),
     "添加库存 SKU",
   );
 
@@ -189,7 +189,7 @@ export async function addWarehouseProductInventory(
             item_id: itemId,
           })),
         )
-        .select(),
+        .select("id, warehouse_id, item_id, stock_quantity"),
       "添加仓库配件库存",
     );
 
@@ -246,7 +246,7 @@ export async function updateWarehouseItemStock(
       .update({ stock_quantity: stockQuantity })
       .eq("id", item.id)
       .eq("stock_quantity", item.stock_quantity)
-      .select()
+      .select("id, warehouse_id, item_id, stock_quantity")
       .maybeSingle(),
     "更新配件库存",
   );
@@ -268,7 +268,7 @@ export async function updateWarehouseItemStock(
         purchase_order_id: null,
         purchase_package_id: null,
       })
-      .select()
+      .select("id, warehouse_id, item_id, previous_quantity, next_quantity, change_quantity, reason")
       .single(),
     "保存库存调整记录",
   );
@@ -313,7 +313,7 @@ export async function deductWarehouseItemStocks(
   const { data: stockData, error: stockLoadError } = await withTimeout(
     supabase
       .from("warehouse_item_stocks")
-      .select("*")
+      .select("id, warehouse_id, item_id, stock_quantity")
       .in("id", stockIds),
     "读取配件库存",
   );
@@ -379,7 +379,7 @@ export async function deductWarehouseItemStocks(
     const { data: currentData, error: currentError } = await withTimeout(
       supabase
         .from("warehouse_item_stocks")
-        .select("*")
+        .select("id, warehouse_id, item_id, stock_quantity")
         .eq("id", deduction.stockId)
         .maybeSingle(),
       "读取配件库存",
@@ -396,7 +396,7 @@ export async function deductWarehouseItemStocks(
         .update({ stock_quantity: nextQuantity })
         .eq("id", current.id)
         .eq("stock_quantity", current.stock_quantity)
-        .select()
+        .select("id, warehouse_id, item_id, stock_quantity")
         .maybeSingle(),
       "扣减配件库存",
     );
@@ -418,7 +418,7 @@ export async function deductWarehouseItemStocks(
           purchase_order_id: null,
           purchase_package_id: null,
         })
-        .select()
+        .select("id")
         .single(),
       "保存库存出库记录",
     );
@@ -473,7 +473,7 @@ export async function restoreWarehouseItemStockDeductions(
   const { data: adjustmentData, error: adjustmentError } = await withTimeout(
     supabase
       .from("warehouse_item_stock_adjustments")
-      .select("*")
+      .select("warehouse_id, item_id, change_quantity, reason")
       .in("reason", reasons),
     "读取订单库存流水",
   );
@@ -521,7 +521,7 @@ export async function restoreWarehouseItemStockDeductions(
       const { data: currentData, error: currentError } = await withTimeout(
         supabase
           .from("warehouse_item_stocks")
-          .select("*")
+          .select("id, warehouse_id, item_id, stock_quantity")
           .eq("warehouse_id", stockChange.warehouseId)
           .eq("item_id", stockChange.itemId)
           .maybeSingle(),
@@ -539,7 +539,7 @@ export async function restoreWarehouseItemStockDeductions(
           .update({ stock_quantity: nextQuantity })
           .eq("id", current.id)
           .eq("stock_quantity", current.stock_quantity)
-          .select()
+          .select("id, warehouse_id, item_id, stock_quantity")
           .maybeSingle(),
         "回补配件库存",
       );
@@ -561,7 +561,7 @@ export async function restoreWarehouseItemStockDeductions(
             purchase_order_id: null,
             purchase_package_id: null,
           })
-          .select()
+          .select("id")
           .single(),
         "保存订单删除回补记录",
       );

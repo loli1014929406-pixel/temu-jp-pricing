@@ -26,8 +26,9 @@ import type {
 import { getErrorMessage } from "../utils/errors";
 import { calculatePricing, formatCurrency, formatPercent } from "../utils/pricing";
 import {
+  buildProfitCalculationInputFromSaved,
   calculateProfitProjection,
-  PROFIT_CALCULATION_VERSION,
+  resolveProfitCalculationResult,
 } from "../utils/profit-calculation";
 
 type ProfitCalculationPageProps = {
@@ -67,17 +68,6 @@ function hasProfitCalculationDraft(
     return baseCalculation ? !isSameDraft(input, baseCalculation.input) : false;
   });
 }
-
-const defaultInput: ProfitCalculationInput = {
-  temuPriceRmb: 0,
-  trafficDiscountRate: 0,
-  activityDiscountRate: 10,
-  couponDiscountRate: 0,
-  adRoas: 0,
-};
-
-const getSavedCalculationVersion = (calculation: { result_json?: { calculationVersion?: number } } | undefined) =>
-  calculation?.result_json?.calculationVersion ?? 0;
 
 function ReadOnlyValue({ value }: { value: string }) {
   return (
@@ -166,23 +156,10 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
 
             const pricing = calculatePricing(nextProduct.package_weight_g, skuItems, settings);
             const saved = savedBySkuId[sku.id];
-            const savedVersion = getSavedCalculationVersion(saved);
-            const usesDiscountFormula = savedVersion >= 4;
-            const usesAdFormula = savedVersion >= PROFIT_CALCULATION_VERSION;
-            const input = saved
-              ? {
-                  temuPriceRmb: saved.temu_price_rmb,
-                  trafficDiscountRate: usesDiscountFormula ? saved.traffic_discount_rate : 0,
-                  activityDiscountRate: saved.activity_discount_rate,
-                  couponDiscountRate: usesDiscountFormula
-                    ? saved.coupon_discount_rate ?? 0
-                    : 0,
-                  adRoas: usesAdFormula ? saved.result_json?.adRoas ?? 0 : 0,
-                }
-              : {
-                  ...defaultInput,
-                  temuPriceRmb: pricing.temuDeclarationPriceRmb,
-                };
+            const input = buildProfitCalculationInputFromSaved(
+              saved,
+              pricing.temuDeclarationPriceRmb,
+            );
 
             return [
               [
@@ -192,13 +169,12 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
                   items: skuItems,
                   pricing,
                   input,
-                  result:
-                    saved?.result_json &&
-                    Object.keys(saved.result_json).length > 0 &&
-                    saved.result_json.calculationVersion === PROFIT_CALCULATION_VERSION &&
-                    typeof saved.result_json.isValid === "boolean"
-                      ? saved.result_json
-                      : calculateProfitProjection(pricing, settings, input),
+                  result: resolveProfitCalculationResult(
+                    pricing,
+                    settings,
+                    input,
+                    saved?.result_json,
+                  ),
                 },
               ],
             ];

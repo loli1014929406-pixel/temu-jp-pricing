@@ -1,6 +1,6 @@
 import type { User } from "@supabase/supabase-js";
 import { ArrowRight } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { BackToParentAction, Badge, PageHeader, StatCard } from "../components/ui";
 import { fetchProducts, getProductRouteKey } from "../lib/products";
@@ -71,9 +71,12 @@ export function MultiShipmentProductsPage({
     };
   }, [user.id]);
 
-  const threeCmProducts = products.filter(
-    (product) => !getProductThreeCmUnavailableReason(product),
-  ).length;
+  const threeCmProducts = useMemo(
+    () =>
+      products.filter((product) => !getProductThreeCmUnavailableReason(product))
+        .length,
+    [products],
+  );
 
   return (
     <section className="grid gap-5">

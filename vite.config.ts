@@ -1,8 +1,40 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
+function normalizeModuleId(id: string) {
+  return id.replace(/\\/g, "/");
+}
+
 export default defineConfig({
   plugins: [react()],
+  build: {
+    chunkSizeWarningLimit: 800,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          const normalizedId = normalizeModuleId(id);
+
+          if (normalizedId.includes("/node_modules/react/") || normalizedId.includes("/node_modules/react-dom/")) {
+            return "react";
+          }
+          if (normalizedId.includes("/node_modules/@supabase/supabase-js/")) {
+            return "supabase";
+          }
+          if (normalizedId.includes("/node_modules/react-router-dom/")) {
+            return "router";
+          }
+          if (normalizedId.endsWith("/src/hooks/useOrders.ts")) {
+            return "orders-hook";
+          }
+
+          const pageMatch = normalizedId.match(/\/src\/pages\/([^/]+)\.tsx$/);
+          if (pageMatch) {
+            return pageMatch[1];
+          }
+        },
+      },
+    },
+  },
   server: {
     proxy: {
       "/yamato-tracking": {

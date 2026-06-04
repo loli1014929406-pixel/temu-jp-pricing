@@ -237,10 +237,14 @@ export function MultiShipmentProfitPage({
     return quantities.length > 0 ? Math.max(...quantities) : null;
   }, [calculations]);
 
-  const lossStoppedSkuCount = calculations.filter((calculation) => {
-    const lastRow = calculation.rows.at(-1);
-    return lastRow?.isValid && lastRow.profitRmb < 0;
-  }).length;
+  const lossStoppedSkuCount = useMemo(
+    () =>
+      calculations.filter((calculation) => {
+        const lastRow = calculation.rows.at(-1);
+        return lastRow?.isValid && lastRow.profitRmb < 0;
+      }).length,
+    [calculations],
+  );
   const content = modeContent[mode];
   const otherModePath = product
     ? buildProductProfitPath(product, content.otherMode)

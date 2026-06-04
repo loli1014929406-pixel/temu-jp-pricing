@@ -273,7 +273,7 @@ async function fetchSkuLinks(skuIds: string[]) {
   const { data, error } = await withTimeout(
     supabase
       .from("product_sku_items")
-      .select("*")
+      .select("sku_id, item_id, quantity")
       .in("sku_id", skuIds),
     "加载 SKU 配件映射",
   );
@@ -287,7 +287,7 @@ export async function fetchProductSkus(productId: string) {
   const { data, error } = await withTimeout(
     supabase
       .from("product_skus")
-      .select("*")
+      .select("id, product_id, owner_id, sku_code, temu_image_url, attributes, notes")
       .eq("product_id", productId)
       .order("created_at", { ascending: true }),
     "加载 SKU",
@@ -321,7 +321,7 @@ export async function fetchProductSkusByProductIds(productIds: string[]) {
   const { supabase } = await requireSession();
   const { data, error } = await supabase
     .from("product_skus")
-    .select("*")
+    .select("id, product_id, owner_id, sku_code, temu_image_url, attributes, notes")
     .in("product_id", productIds)
     .order("created_at", { ascending: true });
 
@@ -361,7 +361,7 @@ async function insertItems(productId: string, items: ProductItem[]) {
           return { ...item, product_id: productId };
         }),
       )
-      .select(),
+      .select("id"),
     "保存配件库",
   );
 
@@ -396,7 +396,7 @@ async function insertSkus(
           ...skuPayload,
           product_id: productId,
         })
-        .select()
+        .select("id, sku_code, attributes, temu_image_url")
         .single(),
       "保存 SKU",
     );
@@ -408,7 +408,7 @@ async function insertSkus(
             ...withoutSkuTemuImageUrl(skuPayload),
             product_id: productId,
           })
-          .select()
+          .select("id, sku_code, attributes, temu_image_url")
           .single(),
         "保存 SKU",
       );
@@ -465,7 +465,7 @@ export async function createProduct(
 
   const { supabase } = await requireSession();
   let { data, error } = await withTimeout(
-    supabase.from("products").insert(normalizedProduct).select().single(),
+    supabase.from("products").insert(normalizedProduct).select("id").single<{ id: string }>(),
     "保存商品",
   );
   if (
@@ -477,8 +477,8 @@ export async function createProduct(
       supabase
         .from("products")
         .insert(withoutProductParcelCapacity(normalizedProduct))
-        .select()
-        .single(),
+        .select("id")
+        .single<{ id: string }>(),
       "保存商品",
     );
     data = legacyResult.data;
@@ -489,8 +489,8 @@ export async function createProduct(
   }
   if (error) throw error;
 
-  const itemIdsByKey = await insertItems(data.id, items);
-  await insertSkus(data.id, skus, itemIdsByKey);
+  const itemIdsByKey = await insertItems(data!.id, items);
+  await insertSkus(data!.id, skus, itemIdsByKey);
   return data as Product;
 }
 
@@ -512,7 +512,7 @@ export async function updateProduct(
         ? [
             supabase
               .from("profit_calculations")
-              .select("*")
+              .select("temu_price_rmb, traffic_discount_rate, activity_discount_rate, coupon_discount_rate")
               .eq("sku_id", sku.id)
               .maybeSingle(),
           ]

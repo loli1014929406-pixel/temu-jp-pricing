@@ -9,13 +9,13 @@ import {
 } from "../lib/products";
 import { fetchProfitCalculationsBySkuIds } from "../lib/profit-calculations";
 import { fetchSettings } from "../lib/settings";
-import type { Product } from "../types";
+import { readDraft } from "../hooks/use-draft-persistence";
+import type { Product, ProfitCalculationInput } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { calculatePricing, formatCurrency } from "../utils/pricing";
 import {
-  calculateAdFeeRmb,
-  calculateFinalSalePriceRmb,
-  PROFIT_CALCULATION_VERSION,
+  buildProfitCalculationInputFromSaved,
+  resolveProfitCalculationResult,
 } from "../utils/profit-calculation";
 import { calculateTestShipping } from "../utils/test-shipping";
 import { Badge, PageHeader } from "../components/ui";
@@ -24,11 +24,15 @@ type TestShippingPageProps = {
   user: User;
 };
 
-const defaultDiscounts = {
-  trafficDiscountRate: 0,
-  activityDiscountRate: 10,
-  couponDiscountRate: 0,
-  adRoas: 0,
+type ProductDiscountDraft = Required<
+  Pick<
+    ProfitCalculationInput,
+    "trafficDiscountRate" | "activityDiscountRate" | "couponDiscountRate" | "adRoas"
+  >
+>;
+
+type ProfitCalculationsDraft = {
+  discountsByProductId: Record<string, ProductDiscountDraft>;
 };
 
 function getDirectShipmentProfitPath(product: Pick<Product, "id" | "product_code">) {
@@ -79,6 +83,9 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
         const itemsById = Object.fromEntries(
           items.flatMap((item) => (item.id ? [[item.id, item]] : [])),
         );
+        const draftKey = `profit-calculations-draft:v1:${user.id}`;
+        const draftDiscountsByProductId =
+          readDraft<ProfitCalculationsDraft>(draftKey)?.discountsByProductId ?? {};
         const skusByProductId = skus.reduce<Record<string, typeof skus>>(
           (groups, sku) => {
             if (!sku.product_id) return groups;
@@ -99,33 +106,7 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
               ? "OCS 3cm"
               : "OCS 小包";
             const productSkus = skusByProductId[product.id] ?? [];
-            const savedForProduct = productSkus.flatMap((sku) =>
-              sku.id && savedCalculationBySkuId[sku.id]
-                ? [savedCalculationBySkuId[sku.id]]
-                : [],
-            );
-            const firstSaved = savedForProduct[0];
-            const usesDiscountFormula =
-              (firstSaved?.result_json?.calculationVersion ?? 0) >= 4;
-            const usesAdFormula =
-              (firstSaved?.result_json?.calculationVersion ?? 0) >=
-              PROFIT_CALCULATION_VERSION;
-            const discounts = {
-              trafficDiscountRate: usesDiscountFormula
-                ? firstSaved?.traffic_discount_rate ??
-                  defaultDiscounts.trafficDiscountRate
-                : defaultDiscounts.trafficDiscountRate,
-              activityDiscountRate:
-                firstSaved?.activity_discount_rate ??
-                defaultDiscounts.activityDiscountRate,
-              couponDiscountRate: usesDiscountFormula
-                ? firstSaved?.coupon_discount_rate ??
-                  defaultDiscounts.couponDiscountRate
-                : defaultDiscounts.couponDiscountRate,
-              adRoas: usesAdFormula
-                ? firstSaved?.result_json?.adRoas ?? defaultDiscounts.adRoas
-                : defaultDiscounts.adRoas,
-            };
+            const draftDiscounts = draftDiscountsByProductId[product.id];
             const skuSummaries = productSkus.flatMap((sku) => {
               if (!sku.id) return [];
               const skuItems = sku.component_links.flatMap((link) => {
@@ -140,45 +121,26 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                 nextSettings,
               );
               const saved = savedCalculationBySkuId[sku.id];
-              const temuPriceRmb =
-                saved?.temu_price_rmb ?? pricing.temuDeclarationPriceRmb;
-              const finalSalePriceRmb = calculateFinalSalePriceRmb({
-                temuPriceRmb,
-                ...discounts,
-              });
-              const priceBeforeActivityDiscount =
-                temuPriceRmb -
-                discounts.trafficDiscountRate -
-                discounts.couponDiscountRate;
-              const isValid =
-                temuPriceRmb > 0 &&
-                discounts.trafficDiscountRate >= 0 &&
-                discounts.activityDiscountRate > 0 &&
-                discounts.activityDiscountRate <= 10 &&
-                discounts.couponDiscountRate >= 0 &&
-                priceBeforeActivityDiscount > 0 &&
-                finalSalePriceRmb > 0 &&
-                nextSettings.exchange_rate_rmb_per_jpy > 0;
-              const discountedUnitPriceJpy =
-                isValid
-                  ? finalSalePriceRmb / nextSettings.exchange_rate_rmb_per_jpy
-                  : null;
-              const subsidyRmb =
-                nextSettings.temu_shipping_subsidy_jpy *
-                nextSettings.exchange_rate_rmb_per_jpy;
-              const effectiveSubsidyRmb =
-                isValid &&
-                discountedUnitPriceJpy !== null &&
-                discountedUnitPriceJpy <= 3500
-                  ? subsidyRmb
-                  : 0;
-              const adFeeRmb =
-                isValid
-                  ? calculateAdFeeRmb({
-                      temuPriceRmb,
-                      ...discounts,
-                    })
-                  : 0;
+              const baseInput = buildProfitCalculationInputFromSaved(
+                saved,
+                pricing.temuDeclarationPriceRmb,
+              );
+              const input = draftDiscounts
+                ? {
+                    ...baseInput,
+                    ...draftDiscounts,
+                  }
+                : baseInput;
+              const profitResult = resolveProfitCalculationResult(
+                pricing,
+                nextSettings,
+                input,
+                draftDiscounts ? undefined : saved?.result_json,
+              );
+              const temuPriceRmb = input.temuPriceRmb;
+              const finalSalePriceRmb = profitResult.discountedSalePriceRmb;
+              const effectiveSubsidyRmb = profitResult.plans[0]?.effectiveSubsidyRmb ?? 0;
+              const adFeeRmb = profitResult.adFeeRmb;
               const totalCostRmb =
                 pricing.purchaseCostRmb +
                 pricing.purchaseShippingRmb +
@@ -186,7 +148,7 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                 pricing.sfCostRmb +
                 selectedLogisticsCostRmb +
                 adFeeRmb;
-              const revenueRmb = isValid
+              const revenueRmb = profitResult.isValid
                 ? finalSalePriceRmb + effectiveSubsidyRmb
                 : 0;
 
@@ -201,7 +163,7 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                   logisticsCostRmb: selectedLogisticsCostRmb,
                   adFeeRmb,
                   totalCostRmb,
-                  profitRmb: isValid ? revenueRmb - totalCostRmb : null,
+                  profitRmb: profitResult.isValid ? revenueRmb - totalCostRmb : null,
                 },
               ];
             });
@@ -215,14 +177,7 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                 ? Math.min(...savedTemuPrices)
                 : skuSummaries.length > 0
                   ? Math.min(...skuSummaries.map((summary) => summary.temuPriceRmb))
-                  : null;
-            const displayedFinalSalePrice =
-              displayedTemuPrice === null
-                ? null
-                : calculateFinalSalePriceRmb({
-                    temuPriceRmb: displayedTemuPrice,
-                    ...discounts,
-                  });
+                : null;
             const representativeCandidates =
               displayedTemuPrice === null
                 ? []
@@ -239,7 +194,7 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
             return [
               product.id,
               {
-                finalSalePriceRmb: displayedFinalSalePrice,
+                finalSalePriceRmb: representativeSummary?.finalSalePriceRmb ?? null,
                 purchaseTotalCostRmb:
                   representativeSummary === null
                     ? null

@@ -4,11 +4,54 @@ import type {
   ProfitCalculationInput,
   ProfitCalculationResult,
   ProfitLogisticsPlanKey,
+  SavedProfitCalculation,
 } from "../types";
 
 const round = (value: number, digits = 2) => Number(value.toFixed(digits));
 
 export const PROFIT_CALCULATION_VERSION = 5;
+
+type SavedProfitCalculationSnapshot = Pick<
+  SavedProfitCalculation,
+  | "temu_price_rmb"
+  | "traffic_discount_rate"
+  | "activity_discount_rate"
+  | "coupon_discount_rate"
+  | "result_json"
+>;
+
+export function getSavedProfitCalculationVersion(
+  calculation: Pick<SavedProfitCalculation, "result_json"> | undefined,
+) {
+  return calculation?.result_json?.calculationVersion ?? 0;
+}
+
+export function buildProfitCalculationInputFromSaved(
+  saved: SavedProfitCalculationSnapshot | undefined,
+  fallbackTemuPriceRmb: number,
+): ProfitCalculationInput {
+  if (!saved) {
+    return {
+      temuPriceRmb: fallbackTemuPriceRmb,
+      trafficDiscountRate: 0,
+      activityDiscountRate: 10,
+      couponDiscountRate: 0,
+      adRoas: 0,
+    };
+  }
+
+  const savedVersion = getSavedProfitCalculationVersion(saved);
+  const usesDiscountFormula = savedVersion >= 4;
+  const usesAdFormula = savedVersion >= PROFIT_CALCULATION_VERSION;
+
+  return {
+    temuPriceRmb: saved.temu_price_rmb,
+    trafficDiscountRate: usesDiscountFormula ? saved.traffic_discount_rate : 0,
+    activityDiscountRate: saved.activity_discount_rate,
+    couponDiscountRate: usesDiscountFormula ? saved.coupon_discount_rate ?? 0 : 0,
+    adRoas: usesAdFormula ? saved.result_json?.adRoas ?? 0 : 0,
+  };
+}
 
 export function calculateFinalSalePriceRmb(input: ProfitCalculationInput) {
   const activityDiscountCoefficient = input.activityDiscountRate / 10;
@@ -148,4 +191,20 @@ export function calculateProfitProjection(
       };
     }),
   };
+}
+
+export function resolveProfitCalculationResult(
+  pricing: PricingResult,
+  settings: PricingSettings,
+  input: ProfitCalculationInput,
+  savedResult: ProfitCalculationResult | undefined,
+) {
+  if (
+    savedResult?.calculationVersion === PROFIT_CALCULATION_VERSION &&
+    typeof savedResult.isValid === "boolean"
+  ) {
+    return savedResult;
+  }
+
+  return calculateProfitProjection(pricing, settings, input);
 }

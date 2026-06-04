@@ -6,6 +6,15 @@ import type {
 } from "../types";
 import { calculateAdFeeRmb, calculateFinalSalePriceRmb } from "./profit-calculation";
 import { calculatePricing } from "./pricing";
+import {
+  calculateOcsSmallParcelCostRmb,
+  calculateOcsThreeCmCostRmb,
+  calculatePurchaseShippingRmb,
+  calculateSfCostRmb,
+  getThreeCmDimensionIssue as getSharedThreeCmDimensionIssue,
+  getThreeCmUnavailableReason,
+  THREE_CM_WEIGHT_LIMIT_G,
+} from "./shipping-costs";
 
 export type MultiShipmentMode = "direct" | "standard";
 
@@ -42,71 +51,15 @@ export type MultiShipmentProfitRow = {
 };
 
 const FREE_SHIPPING_THRESHOLD_JPY = 3500;
-const DIRECT_THREE_CM_WEIGHT_LIMIT_G = 1000;
 
 const round = (value: number, digits = 2) => Number(value.toFixed(digits));
 
-function calculatePurchaseShippingRmb(item: ProductItem) {
-  const weightG = Math.max(0, item.item_weight_g * item.quantity);
-  if (weightG === 0 || item.purchase_shipping_fee_per_500g_rmb <= 0) return 0;
-  return (weightG / 500) * item.purchase_shipping_fee_per_500g_rmb;
-}
-
-function calculateSfCostRmb(packageWeightKg: number, settings: PricingSettings) {
-  if (packageWeightKg <= 0) return 0;
-
-  const firstWeightKg = Math.max(0, settings.sf_first_weight_kg);
-  if (firstWeightKg === 0) {
-    return packageWeightKg * settings.sf_extra_price_per_kg_rmb;
-  }
-
-  return (
-    Math.min(packageWeightKg, firstWeightKg) *
-      (settings.sf_first_price_rmb / firstWeightKg) +
-    Math.max(packageWeightKg - firstWeightKg, 0) *
-      settings.sf_extra_price_per_kg_rmb
-  );
-}
-
-function calculateOcsThreeCmCostRmb(weightG: number, settings: PricingSettings) {
-  const weightUnits = Math.max(Math.ceil(Math.max(0, weightG) / 100), 1);
-  return (
-    settings.test_ocs_3cm_first_price_rmb +
-    Math.max(weightUnits - 1, 0) * settings.test_ocs_3cm_extra_price_per_100g_rmb
-  );
-}
-
-function calculateOcsSmallParcelCostRmb(weightG: number, settings: PricingSettings) {
-  const weightUnits = Math.max(Math.ceil(Math.max(0, weightG) / 500), 1);
-  return (
-    settings.test_ocs_small_parcel_first_price_rmb +
-    Math.max(weightUnits - 1, 0) *
-      settings.test_ocs_small_parcel_extra_price_per_500g_rmb
-  );
-}
-
 export function getThreeCmDimensionIssue(product: Product) {
-  const dimensions = [
-    product.package_length_cm,
-    product.package_width_cm,
-    product.package_height_cm,
-  ];
-  const dimensionSum = dimensions.reduce((sum, dimension) => sum + dimension, 0);
-  const maxDimension = Math.max(...dimensions);
-
-  if (product.package_height_cm > 3) return "包装高度超过 3cm";
-  if (dimensionSum > 60) return "三边和超过 60cm";
-  if (maxDimension > 34) return "最长边超过 34cm";
-  return "";
+  return getSharedThreeCmDimensionIssue(product);
 }
 
 export function getProductThreeCmUnavailableReason(product: Product) {
-  const dimensionIssue = getThreeCmDimensionIssue(product);
-  if (dimensionIssue) return dimensionIssue;
-  if (product.package_weight_g > DIRECT_THREE_CM_WEIGHT_LIMIT_G) {
-    return "单件重量超过 1kg";
-  }
-  return "";
+  return getThreeCmUnavailableReason(product);
 }
 
 function getEffectiveThreeCmCapacity(product: Product) {
@@ -117,13 +70,13 @@ function getEffectiveThreeCmCapacity(product: Product) {
   const unitWeightG = Math.max(0, product.package_weight_g);
 
   if (unitWeightG <= 0) return configuredCapacity;
-  if (unitWeightG > DIRECT_THREE_CM_WEIGHT_LIMIT_G) return 0;
+  if (unitWeightG > THREE_CM_WEIGHT_LIMIT_G) return 0;
 
   return Math.max(
     1,
     Math.min(
       configuredCapacity,
-      Math.floor(DIRECT_THREE_CM_WEIGHT_LIMIT_G / unitWeightG),
+      Math.floor(THREE_CM_WEIGHT_LIMIT_G / unitWeightG),
     ),
   );
 }
@@ -342,7 +295,7 @@ export function calculateMultiShipmentProfitRow(
       0,
     ) * safeQuantity;
   const purchaseShippingRmb =
-    skuItems.reduce((sum, item) => sum + calculatePurchaseShippingRmb(item), 0) *
+    skuItems.reduce((sum, item) => sum + calculatePurchaseShippingRmb(item, item.quantity), 0) *
     safeQuantity;
   const packagingCostRmb = settings.packaging_cost_rmb * safeQuantity;
   const totalWeightG = product.package_weight_g * safeQuantity;

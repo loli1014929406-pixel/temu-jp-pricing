@@ -1,29 +1,11 @@
 import type { PricingResult, PricingSettings, ProductItem } from "../types";
+import {
+  calculatePurchaseShippingRmb,
+  calculateSfCostRmb,
+} from "./shipping-costs";
 
 const round = (value: number, digits = 2) =>
   Number(value.toFixed(digits));
-
-function calculatePurchaseShippingRmb(item: ProductItem) {
-  const weightG = Math.max(0, item.item_weight_g * item.quantity);
-  if (weightG === 0 || item.purchase_shipping_fee_per_500g_rmb <= 0) return 0;
-  return (weightG / 500) * item.purchase_shipping_fee_per_500g_rmb;
-}
-
-function calculateSfCostRmb(packageWeightKg: number, settings: PricingSettings) {
-  if (packageWeightKg <= 0) return 0;
-
-  const firstWeightKg = Math.max(0, settings.sf_first_weight_kg);
-  if (firstWeightKg === 0) {
-    return packageWeightKg * settings.sf_extra_price_per_kg_rmb;
-  }
-
-  return (
-    Math.min(packageWeightKg, firstWeightKg) *
-      (settings.sf_first_price_rmb / firstWeightKg) +
-    Math.max(packageWeightKg - firstWeightKg, 0) *
-      settings.sf_extra_price_per_kg_rmb
-  );
-}
 
 export function calculatePricing(
   packageWeightG: number,
@@ -35,7 +17,7 @@ export function calculatePricing(
     0,
   );
   const purchaseShippingRmb = items.reduce(
-    (sum, item) => sum + calculatePurchaseShippingRmb(item),
+    (sum, item) => sum + calculatePurchaseShippingRmb(item, item.quantity),
     0,
   );
   const packagingCostRmb = settings.packaging_cost_rmb;

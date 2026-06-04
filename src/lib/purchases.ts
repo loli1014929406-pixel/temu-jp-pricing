@@ -143,7 +143,7 @@ async function persistResolvedPurchaseItemIds(
 export async function fetchPurchaseOrders() {
   const { supabase, session } = await requireSession();
   const { data: ordersData, error: ordersError } = await withTimeout(
-    supabase.from("purchase_orders").select("*").eq("owner_id", session.user.id).order("created_at", { ascending: false }),
+    supabase.from("purchase_orders").select("id, order_code, warehouse_id, warehouse_name, purchased_at, items_total_rmb, total_cost_rmb, status").eq("owner_id", session.user.id).order("created_at", { ascending: false }),
     "加载采购单",
   );
   if (ordersError) throw ordersError;
@@ -151,9 +151,9 @@ export async function fetchPurchaseOrders() {
   if (orders.length === 0) return [] as PurchaseOrder[];
   const orderIds = orders.map((item) => item.id);
   const [{ data: sourcesData, error: sourcesError }, { data: itemsData, error: itemsError }, { data: packagesData, error: packagesError }] = await Promise.all([
-    supabase.from("purchase_order_sources").select("*").in("order_id", orderIds).eq("owner_id", session.user.id),
-    supabase.from("purchase_order_items").select("*").in("order_id", orderIds).eq("owner_id", session.user.id),
-    supabase.from("purchase_packages").select("*").in("order_id", orderIds).eq("owner_id", session.user.id),
+    supabase.from("purchase_order_sources").select("id, order_id, purchase_url, alibaba_order_no, freight_rmb").in("order_id", orderIds).eq("owner_id", session.user.id),
+    supabase.from("purchase_order_items").select("id, order_id, source_id, purchase_url, product_code, product_name_cn, item_name, item_spec, quantity, unit_price_rmb, product_id, item_id").in("order_id", orderIds).eq("owner_id", session.user.id),
+    supabase.from("purchase_packages").select("id, order_id, source_id, tracking_no, status").in("order_id", orderIds).eq("owner_id", session.user.id),
   ]);
   if (sourcesError) throw sourcesError;
   if (itemsError) throw itemsError;
@@ -161,7 +161,7 @@ export async function fetchPurchaseOrders() {
   const packages = packagesData as Omit<PurchasePackage, "items">[];
   const { data: packageItemsData, error: packageItemsError } = packages.length === 0
     ? { data: [] as PurchasePackageItem[], error: null }
-    : await supabase.from("purchase_package_items").select("*").in("package_id", packages.map((item) => item.id)).eq("owner_id", session.user.id);
+    : await supabase.from("purchase_package_items").select("package_id, order_item_id, quantity").in("package_id", packages.map((item) => item.id)).eq("owner_id", session.user.id);
   if (packageItemsError) throw packageItemsError;
   const group = <T extends { order_id: string }>(rows: T[]) =>
     rows.reduce<Record<string, T[]>>((acc, row) => ((acc[row.order_id] ??= []).push(row), acc), {});
@@ -210,7 +210,7 @@ export async function createPurchaseOrder(input: CreatePurchaseOrderInput) {
       items_total_rmb: itemsTotalRmb,
       total_cost_rmb: itemsTotalRmb + freightTotalRmb,
       notes: input.notes,
-    }).select().single(),
+    }).select("id, order_code, warehouse_id, warehouse_name, purchased_at, items_total_rmb, total_cost_rmb, status").single(),
     "保存采购单",
   );
   if (orderError) throw orderError;
@@ -221,7 +221,7 @@ export async function createPurchaseOrder(input: CreatePurchaseOrderInput) {
         ...source,
         order_id: order.id,
         owner_id: session.user.id,
-      }))).select(),
+      }))).select("id, order_id, purchase_url, alibaba_order_no, freight_rmb"),
       "保存采购链接",
     );
     if (sourceError) throw sourceError;
@@ -233,7 +233,7 @@ export async function createPurchaseOrder(input: CreatePurchaseOrderInput) {
         order_id: order.id,
         source_id: sourceIdByUrl[item.purchase_url],
         owner_id: session.user.id,
-      }))).select(),
+      }))).select("id, order_id, source_id, purchase_url, product_code, product_name_cn, item_name, item_spec, quantity, unit_price_rmb, product_id, item_id"),
       "保存采购单明细",
     );
     if (itemError) throw itemError;
@@ -247,7 +247,7 @@ export async function createPurchaseOrder(input: CreatePurchaseOrderInput) {
 export async function updatePurchaseSource(sourceId: string, updates: Pick<PurchaseOrderSource, "alibaba_order_no" | "freight_rmb">) {
   const { supabase, session } = await requireSession();
   const { data, error } = await withTimeout(
-    supabase.from("purchase_order_sources").update(updates).eq("id", sourceId).eq("owner_id", session.user.id).select().single(),
+    supabase.from("purchase_order_sources").update(updates).eq("id", sourceId).eq("owner_id", session.user.id).select("id, order_id, purchase_url, alibaba_order_no, freight_rmb").single(),
     "更新采购链接信息",
   );
   if (error) throw error;
@@ -269,7 +269,7 @@ async function loadPurchaseOrderForDeletion(
   const { data: orderData, error: orderError } = await withTimeout(
     supabase
       .from("purchase_orders")
-      .select("*")
+      .select("id, warehouse_id, order_code")
       .eq("id", orderId)
       .eq("owner_id", ownerId)
       .maybeSingle(),
@@ -283,12 +283,12 @@ async function loadPurchaseOrderForDeletion(
     await Promise.all([
       supabase
         .from("purchase_order_items")
-        .select("*")
+        .select("id, order_id, product_id, item_id, item_name, item_spec")
         .eq("order_id", order.id)
         .eq("owner_id", ownerId),
       supabase
         .from("purchase_packages")
-        .select("*")
+        .select("id, status")
         .eq("order_id", order.id)
         .eq("owner_id", ownerId),
     ]);
@@ -300,7 +300,7 @@ async function loadPurchaseOrderForDeletion(
     ? { data: [] as PurchasePackageItem[], error: null }
     : await supabase
         .from("purchase_package_items")
-        .select("*")
+        .select("package_id, order_item_id, quantity")
         .in("package_id", packages.map((item) => item.id))
         .eq("owner_id", ownerId);
   if (packageItemError) throw packageItemError;
@@ -376,7 +376,7 @@ async function reverseReceivedPurchaseInventory(order: PurchaseOrder) {
     const { data: currentData, error: currentError } = await withTimeout(
       supabase
         .from("warehouse_item_stocks")
-        .select("*")
+        .select("id, stock_quantity")
         .eq("warehouse_id", order.warehouse_id)
         .eq("item_id", reversal.itemId)
         .maybeSingle(),
@@ -399,7 +399,7 @@ async function reverseReceivedPurchaseInventory(order: PurchaseOrder) {
         .update({ stock_quantity: nextQuantity })
         .eq("id", current.id)
         .eq("stock_quantity", current.stock_quantity)
-        .select()
+        .select("id")
         .maybeSingle(),
       "冲回配件库存",
     );
@@ -476,7 +476,7 @@ export async function updatePurchasePackageTrackingNo(packageId: string, trackin
       .eq("id", packageId)
       .eq("owner_id", session.user.id)
       .eq("status", "pending")
-      .select()
+      .select("tracking_no")
       .single(),
     "更新快递单号",
   );
@@ -611,7 +611,7 @@ async function applyPurchasePackageInventory(
 
     const { data: currentData, error: currentError } = await supabase
       .from("warehouse_item_stocks")
-      .select("*")
+      .select("id, stock_quantity")
       .eq("warehouse_id", order.warehouse_id)
       .eq("item_id", item.item_id)
       .limit(1)
@@ -627,7 +627,7 @@ async function applyPurchasePackageInventory(
       .update({ stock_quantity: nextQuantity })
       .eq("id", current.id)
       .eq("stock_quantity", current.stock_quantity)
-      .select()
+      .select("id")
       .maybeSingle();
     if (nextError) throw nextError;
     if (!nextData) throw new Error("库存已被其他操作更新，请刷新后重试");
@@ -636,7 +636,7 @@ async function applyPurchasePackageInventory(
       warehouse_id: order.warehouse_id, item_id: item.item_id, previous_quantity: current.stock_quantity,
       next_quantity: next.stock_quantity, change_quantity: packageItem.quantity, reason: "采购入库",
       purchase_order_id: order.id, purchase_package_id: pkg.id,
-    }).select().single();
+    }).select("change_quantity").single();
     if (adjustmentError) throw adjustmentError;
     inventory.push({ stock: next, adjustment: adjustmentData as WarehouseItemStockAdjustment });
   }
@@ -650,7 +650,7 @@ export async function receivePurchasePackage(order: PurchaseOrder, pkg: Purchase
   let packageToReceive = pkg;
   const { data: persistedPackageData, error: packageLoadError } = await supabase
     .from("purchase_packages")
-    .select("*")
+    .select("id, status")
     .eq("id", pkg.id)
     .eq("owner_id", session.user.id)
     .maybeSingle();
@@ -670,14 +670,14 @@ export async function receivePurchasePackage(order: PurchaseOrder, pkg: Purchase
     [pkg.id, packageToReceive.id],
   );
   const receivedAt = new Date().toISOString();
-  const { data: packageData, error: packageError } = await supabase.from("purchase_packages").update({ status: "received", received_at: receivedAt }).eq("id", packageToReceive.id).eq("owner_id", session.user.id).eq("status", "pending").select().maybeSingle();
+  const { data: packageData, error: packageError } = await supabase.from("purchase_packages").update({ status: "received", received_at: receivedAt }).eq("id", packageToReceive.id).eq("owner_id", session.user.id).eq("status", "pending").select("id, source_id, tracking_no, status").maybeSingle();
   if (packageError) throw packageError;
   if (!packageData) {
     throw new Error("快递包裹状态已变化，请刷新页面后查看");
   }
   const { data: allPackageData, error: allPackageError } = await supabase
     .from("purchase_packages")
-    .select("*")
+    .select("id, status")
     .eq("order_id", order.id)
     .eq("owner_id", session.user.id);
   if (allPackageError) throw allPackageError;
@@ -686,14 +686,14 @@ export async function receivePurchasePackage(order: PurchaseOrder, pkg: Purchase
     ? { data: [] as PurchasePackageItem[], error: null }
     : await supabase
         .from("purchase_package_items")
-        .select("*")
+        .select("package_id, order_item_id, quantity")
         .in("package_id", allPackageRows.map((item) => item.id))
         .eq("owner_id", session.user.id);
   if (allPackageItemError) throw allPackageItemError;
   const packageItemsByPackage = (allPackageItemData as PurchasePackageItem[]).reduce<Record<string, PurchasePackageItem[]>>((acc, row) => ((acc[row.package_id] ??= []).push(row), acc), {});
   const allPackages = allPackageRows.map((item) => ({ ...item, items: packageItemsByPackage[item.id] ?? [] })) as PurchasePackage[];
   const status = getReceiptStatus(order.items, allPackages);
-  const { data: orderData, error: orderError } = await supabase.from("purchase_orders").update({ status, received_at: status === "received" ? receivedAt : null }).eq("id", order.id).eq("owner_id", session.user.id).select().single();
+  const { data: orderData, error: orderError } = await supabase.from("purchase_orders").update({ status, received_at: status === "received" ? receivedAt : null }).eq("id", order.id).eq("owner_id", session.user.id).select("status").single();
   if (orderError) throw orderError;
   return { order: orderData as Omit<PurchaseOrder, "sources" | "items" | "packages">, package: { ...(packageData as Omit<PurchasePackage, "items">), items: packageItemsByPackage[packageData.id] ?? packageToReceive.items }, inventory };
 }
@@ -728,7 +728,7 @@ export async function receiveRemainingPurchaseOrder(order: PurchaseOrder) {
       .update({ status: "received", received_at: receivedAt })
       .eq("id", order.id)
       .eq("owner_id", session.user.id)
-      .select()
+      .select("status")
       .single();
     if (orderError) throw orderError;
     return {
@@ -773,7 +773,7 @@ export async function receiveRemainingPurchaseOrder(order: PurchaseOrder) {
       .eq("id", pkg.id)
       .eq("owner_id", session.user.id)
       .eq("status", "pending")
-      .select()
+      .select("id, source_id, tracking_no, status")
       .single();
     if (packageError) throw packageError;
     receivedPackages.push({
@@ -789,7 +789,7 @@ export async function receiveRemainingPurchaseOrder(order: PurchaseOrder) {
     .update({ status, received_at: status === "received" ? receivedAt : null })
     .eq("id", order.id)
     .eq("owner_id", session.user.id)
-    .select()
+    .select("status")
     .single();
   if (orderError) throw orderError;
 

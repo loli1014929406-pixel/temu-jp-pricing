@@ -698,47 +698,71 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
     }
   }
 
-  const summaries = Object.values(discountSummaries);
-  const validProfitRates = summaries.flatMap((summary) =>
-    typeof summary.profitRate === "number" ? [summary.profitRate] : [],
-  );
-  const validAdFees = summaries.flatMap((summary) =>
-    typeof summary.adFeeRmb === "number" ? [summary.adFeeRmb] : [],
-  );
-  const validFinalPrices = summaries.flatMap((summary) =>
-    typeof summary.discountedSalePriceRmb === "number" ? [summary.discountedSalePriceRmb] : [],
-  );
-  const negativeProfitCount = summaries.filter(
-    (summary) => typeof summary.profitRmb === "number" && summary.profitRmb < 0,
-  ).length;
-  const warningProfitCount = summaries.filter(
-    (summary) =>
-      typeof summary.profitRate === "number" &&
-      summary.profitRate >= 0 &&
-      summary.profitRate < 0.15,
-  ).length;
-  const healthyProfitCount = summaries.filter(
-    (summary) => typeof summary.profitRate === "number" && summary.profitRate >= 0.3,
-  ).length;
-  const reviewedProductCount = validProfitRates.length;
-  const averageProfitRate =
-    validProfitRates.length > 0
-      ? `${((validProfitRates.reduce((sum, value) => sum + value, 0) / validProfitRates.length) * 100).toFixed(2)}%`
-      : "--";
-  const averageAdFee =
-    validAdFees.length > 0
-      ? formatCurrency(validAdFees.reduce((sum, value) => sum + value, 0) / validAdFees.length)
-      : "--";
-  const averageFinalPrice =
-    validFinalPrices.length > 0
-      ? formatCurrency(validFinalPrices.reduce((sum, value) => sum + value, 0) / validFinalPrices.length)
-      : "--";
-  const riskRows = [
-    { label: "健康利润率 ≥ 30%", value: healthyProfitCount, className: "bg-emerald-500" },
-    { label: "观察区间 0% - 15%", value: warningProfitCount, className: "bg-amber-500" },
-    { label: "广告后亏损", value: negativeProfitCount, className: "bg-rose-500" },
-  ];
-  const maxRiskValue = Math.max(1, ...riskRows.map((row) => row.value));
+  const {
+    averageAdFee,
+    averageFinalPrice,
+    averageProfitRate,
+    healthyProfitCount,
+    maxRiskValue,
+    negativeProfitCount,
+    reviewedProductCount,
+    riskRows,
+    warningProfitCount,
+  } = useMemo(() => {
+    const summaries = Object.values(discountSummaries);
+    const validProfitRates = summaries.flatMap((summary) =>
+      typeof summary.profitRate === "number" ? [summary.profitRate] : [],
+    );
+    const validAdFees = summaries.flatMap((summary) =>
+      typeof summary.adFeeRmb === "number" ? [summary.adFeeRmb] : [],
+    );
+    const validFinalPrices = summaries.flatMap((summary) =>
+      typeof summary.discountedSalePriceRmb === "number" ? [summary.discountedSalePriceRmb] : [],
+    );
+    const negativeProfitCount = summaries.filter(
+      (summary) => typeof summary.profitRmb === "number" && summary.profitRmb < 0,
+    ).length;
+    const warningProfitCount = summaries.filter(
+      (summary) =>
+        typeof summary.profitRate === "number" &&
+        summary.profitRate >= 0 &&
+        summary.profitRate < 0.15,
+    ).length;
+    const healthyProfitCount = summaries.filter(
+      (summary) => typeof summary.profitRate === "number" && summary.profitRate >= 0.3,
+    ).length;
+    const reviewedProductCount = validProfitRates.length;
+    const averageProfitRate =
+      validProfitRates.length > 0
+        ? `${((validProfitRates.reduce((sum, value) => sum + value, 0) / validProfitRates.length) * 100).toFixed(2)}%`
+        : "--";
+    const averageAdFee =
+      validAdFees.length > 0
+        ? formatCurrency(validAdFees.reduce((sum, value) => sum + value, 0) / validAdFees.length)
+        : "--";
+    const averageFinalPrice =
+      validFinalPrices.length > 0
+        ? formatCurrency(validFinalPrices.reduce((sum, value) => sum + value, 0) / validFinalPrices.length)
+        : "--";
+    const riskRows = [
+      { label: "健康利润率 ≥ 30%", value: healthyProfitCount, className: "bg-emerald-500" },
+      { label: "观察区间 0% - 15%", value: warningProfitCount, className: "bg-amber-500" },
+      { label: "广告后亏损", value: negativeProfitCount, className: "bg-rose-500" },
+    ];
+    const maxRiskValue = Math.max(1, ...riskRows.map((row) => row.value));
+
+    return {
+      averageAdFee,
+      averageFinalPrice,
+      averageProfitRate,
+      healthyProfitCount,
+      maxRiskValue,
+      negativeProfitCount,
+      reviewedProductCount,
+      riskRows,
+      warningProfitCount,
+    };
+  }, [discountSummaries]);
 
   return (
     <section className="grid gap-5">

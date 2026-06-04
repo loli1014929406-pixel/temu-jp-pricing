@@ -231,12 +231,16 @@ export function InventoryPage({ user }: InventoryPageProps) {
     [productItems],
   );
 
-  const skusByProductId = skus.reduce<Record<string, ProductSku[]>>((groups, sku) => {
-    if (!sku.product_id) return groups;
-    groups[sku.product_id] ??= [];
-    groups[sku.product_id].push(sku);
-    return groups;
-  }, {});
+  const skusByProductId = useMemo(
+    () =>
+      skus.reduce<Record<string, ProductSku[]>>((groups, sku) => {
+        if (!sku.product_id) return groups;
+        groups[sku.product_id] ??= [];
+        groups[sku.product_id].push(sku);
+        return groups;
+      }, {}),
+    [skus],
+  );
 
   const skuDisplayCodesById = useMemo(() => {
     const codesById: Record<string, string> = {};
@@ -260,13 +264,15 @@ export function InventoryPage({ user }: InventoryPageProps) {
     return skuDisplayCodesById[sku.id] || sku.sku_code || "--";
   }
 
-  const warehouseSkusByWarehouseId = warehouseSkus.reduce<
-    Record<string, WarehouseSku[]>
-  >((groups, item) => {
-    groups[item.warehouse_id] ??= [];
-    groups[item.warehouse_id].push(item);
-    return groups;
-  }, {});
+  const warehouseSkusByWarehouseId = useMemo(
+    () =>
+      warehouseSkus.reduce<Record<string, WarehouseSku[]>>((groups, item) => {
+        groups[item.warehouse_id] ??= [];
+        groups[item.warehouse_id].push(item);
+        return groups;
+      }, {}),
+    [warehouseSkus],
+  );
 
   const warehouseItemStocksByKey = useMemo(
     () =>
@@ -276,21 +282,74 @@ export function InventoryPage({ user }: InventoryPageProps) {
     [warehouseItemStocks],
   );
 
-  const warehouseItemStockAdjustmentsByKey = warehouseItemStockAdjustments.reduce<
-    Record<string, WarehouseItemStockAdjustment[]>
-  >((groups, adjustment) => {
-    const key = `${adjustment.warehouse_id}:${adjustment.item_id}`;
-    groups[key] ??= [];
-    groups[key].push(adjustment);
-    return groups;
-  }, {});
+  const warehouseItemStockAdjustmentsByKey = useMemo(
+    () =>
+      warehouseItemStockAdjustments.reduce<
+        Record<string, WarehouseItemStockAdjustment[]>
+      >((groups, adjustment) => {
+        const key = `${adjustment.warehouse_id}:${adjustment.item_id}`;
+        groups[key] ??= [];
+        groups[key].push(adjustment);
+        return groups;
+      }, {}),
+    [warehouseItemStockAdjustments],
+  );
 
-  const itemIdsByProductId = productItems.reduce<Record<string, string[]>>((groups, item) => {
-    if (!item.product_id || !item.id) return groups;
-    groups[item.product_id] ??= [];
-    groups[item.product_id].push(item.id);
-    return groups;
-  }, {});
+  const itemIdsByProductId = useMemo(
+    () =>
+      productItems.reduce<Record<string, string[]>>((groups, item) => {
+        if (!item.product_id || !item.id) return groups;
+        groups[item.product_id] ??= [];
+        groups[item.product_id].push(item.id);
+        return groups;
+      }, {}),
+    [productItems],
+  );
+
+  const sortedProducts = useMemo(
+    () =>
+      [...products].sort((left, right) => {
+        const byProductCode = productCodeCollator.compare(
+          right.product_code,
+          left.product_code,
+        );
+        if (byProductCode !== 0) return byProductCode;
+        return right.created_at.localeCompare(left.created_at);
+      }),
+    [productCodeCollator, products],
+  );
+
+  const sortedWarehouseSkusByWarehouseId = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(warehouseSkusByWarehouseId).map(([warehouseId, items]) => [
+          warehouseId,
+          [...items].sort((left, right) => {
+            const leftProductCode = productsById[left.product_id]?.product_code ?? "";
+            const rightProductCode = productsById[right.product_id]?.product_code ?? "";
+            const byProductCode = productCodeCollator.compare(
+              rightProductCode,
+              leftProductCode,
+            );
+            if (byProductCode !== 0) return byProductCode;
+
+            const leftSkuCode = getSkuDisplayCode(skusById[left.sku_id]);
+            const rightSkuCode = getSkuDisplayCode(skusById[right.sku_id]);
+            const bySkuCode = productCodeCollator.compare(rightSkuCode, leftSkuCode);
+            if (bySkuCode !== 0) return bySkuCode;
+
+            return right.created_at.localeCompare(left.created_at);
+          }),
+        ]),
+      ) as Record<string, WarehouseSku[]>,
+    [
+      productCodeCollator,
+      productsById,
+      skuDisplayCodesById,
+      skusById,
+      warehouseSkusByWarehouseId,
+    ],
+  );
 
   async function handleCreateWarehouse() {
     if (!canEdit) {
@@ -540,31 +599,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
           {warehouses.map((warehouse) => {
             const items = warehouseSkusByWarehouseId[warehouse.id] ?? [];
             const assignedProductIds = new Set(items.map((item) => item.product_id));
-            const sortedProducts = [...products]
-              .sort((left, right) => {
-                const byProductCode = productCodeCollator.compare(
-                  right.product_code,
-                  left.product_code,
-                );
-                if (byProductCode !== 0) return byProductCode;
-                return right.created_at.localeCompare(left.created_at);
-              });
-            const sortedItems = [...items].sort((left, right) => {
-              const leftProductCode = productsById[left.product_id]?.product_code ?? "";
-              const rightProductCode = productsById[right.product_id]?.product_code ?? "";
-              const byProductCode = productCodeCollator.compare(
-                rightProductCode,
-                leftProductCode,
-              );
-              if (byProductCode !== 0) return byProductCode;
-
-              const leftSkuCode = getSkuDisplayCode(skusById[left.sku_id]);
-              const rightSkuCode = getSkuDisplayCode(skusById[right.sku_id]);
-              const bySkuCode = productCodeCollator.compare(rightSkuCode, leftSkuCode);
-              if (bySkuCode !== 0) return bySkuCode;
-
-              return right.created_at.localeCompare(left.created_at);
-            });
+            const sortedItems = sortedWarehouseSkusByWarehouseId[warehouse.id] ?? [];
 
             return (
               <section key={warehouse.id} className="surface-card grid gap-4 p-5">

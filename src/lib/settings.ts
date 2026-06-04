@@ -10,6 +10,9 @@ type FetchSettingsOptions = {
   createIfMissing?: boolean;
 };
 
+const pricingSettingsSelectFields =
+  "id, owner_id, packaging_cost_rmb, exchange_rate_rmb_per_jpy, temu_shipping_subsidy_jpy, sf_first_weight_kg, sf_first_price_rmb, sf_extra_price_per_kg_rmb, huaian_air_price_per_kg_rmb, ocs_price_per_kg_rmb, osaka_lastmile_jpy, fukuoka_lastmile_jpy, test_ocs_3cm_first_price_rmb, test_ocs_3cm_extra_price_per_100g_rmb, test_ocs_small_parcel_first_price_rmb, test_ocs_small_parcel_extra_price_per_500g_rmb, target_profit_rate, target_post_ad_profit_rate, ocs_tariff_rate";
+
 function normalizeSettings(settings: Partial<PricingSettings>): PricingSettings {
   const normalized: PricingSettings = {
     packaging_cost_rmb:
@@ -71,7 +74,7 @@ export async function fetchSettings(
   const supabase = getSupabaseClient();
   const { data, error } = await supabase
     .from("pricing_settings")
-    .select("*")
+    .select(pricingSettingsSelectFields)
     .eq("owner_id", userId)
     .maybeSingle();
 
@@ -94,7 +97,7 @@ export async function fetchSettings(
     .insert({
       ...defaultSettings,
     })
-    .select()
+    .select(pricingSettingsSelectFields)
     .single();
 
   if (insertError) throw insertError;

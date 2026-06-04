@@ -1,22 +1,21 @@
 import type { User } from "@supabase/supabase-js";
 import {
-  ArrowRight,
-  CheckCircle2,
-  Download,
-  Eye,
   FileSpreadsheet,
   RefreshCw,
-  Save,
-  Search,
-  Sparkles,
-  Trash2,
-  Truck,
   Upload,
-  X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { OrderBulkActions } from "../components/orders/OrderBulkActions";
+import { OrderDetailPanel } from "../components/orders/OrderDetailPanel";
+import { OrderFilters } from "../components/orders/OrderFilters";
+import { memo, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { Badge, PageHeader } from "../components/ui";
-import { isSameDraft, readDraft, useDraftPersistence } from "../hooks/use-draft-persistence";
+import {
+  createEmptyDraft,
+  getOrdersErrorMessage,
+  toDraft,
+  type OrderDraft,
+  useOrders,
+} from "../hooks/useOrders";
 import { usePermissions } from "../hooks/use-permissions";
 import {
   addObjectSheet,
@@ -26,24 +25,15 @@ import {
 } from "../lib/excel";
 import {
   deductWarehouseItemStocks,
-  fetchWarehouseItemStocks,
-  fetchWarehouses,
-  fetchWarehouseSkus,
   restoreWarehouseItemStockDeductions,
   type WarehouseItemStockRestorationInput,
 } from "../lib/inventory";
 import {
   deleteTemuOrder,
-  fetchTemuOrders,
   importTemuOrders,
   updateTemuOrder,
   type TemuOrderImportRow,
 } from "../lib/orders";
-import {
-  fetchProducts,
-  fetchProductItemsByProductIds,
-  fetchProductSkusByProductIds,
-} from "../lib/products";
 import type {
   Product,
   ProductItem,
@@ -53,7 +43,7 @@ import type {
   WarehouseItemStock,
   WarehouseSku,
 } from "../types";
-import { getErrorMessage } from "../utils/errors";
+import { calculatePurchaseShippingRmb } from "../utils/shipping-costs";
 import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../utils/sku-code";
 
 type OrdersPageProps = {
@@ -75,36 +65,6 @@ type OrderSort = {
   key: OrderSortKey;
   direction: OrderSortDirection;
 };
-
-type OrderDraft = Pick<
-  TemuOrderRecord,
-  | "order_status"
-  | "warehouse_id"
-  | "warehouse_name"
-  | "logistics_method"
-  | "label_printed_at"
-  | "logistics_tracking_no"
-  | "logistics_status"
-  | "actual_ship_time"
-  | "actual_signed_time"
->;
-
-type OrdersDraftState = {
-  drafts: Record<string, OrderDraft>;
-  selectedOrderIds: string[];
-  bulkWarehouseId: string;
-  bulkLogisticsMethod: string;
-};
-
-function hasOrdersDraft(draft: OrdersDraftState | null | undefined) {
-  return Boolean(
-    draft &&
-      (Object.keys(draft.drafts).length > 0 ||
-        draft.selectedOrderIds.length > 0 ||
-        draft.bulkWarehouseId ||
-        draft.bulkLogisticsMethod),
-  );
-}
 
 type TrackingImportRecord = {
   rowIndex: number;
@@ -426,6 +386,118 @@ function buildSkuOrderLookup(products: Product[], skus: ProductSku[]) {
   return { salesSpecByCode, skuByCode, skuBySalesSpec };
 }
 
+type ProductsById = Map<string, Product>;
+type OrdersById = Map<string, TemuOrderRecord>;
+type SkuOrderLookup = ReturnType<typeof buildSkuOrderLookup>;
+type OrderDeclaration = {
+  sku: ProductSku;
+  product: Product;
+};
+type OrderDeclarationGroup = {
+  declaration: OrderDeclaration;
+  quantity: number;
+};
+
+function getOrderFulfillmentQuantity(order: TemuOrderRecord) {
+  return Math.max(1, Math.trunc(order.fulfillment_quantity || 0));
+}
+
+function getOrderExactSkuGroupKey(order: TemuOrderRecord) {
+  return [
+    normalizeSkuCode(order.sku_code),
+    normalizeSalesSpec(order.product_attributes),
+  ].join("\u0000");
+}
+
+function getOrderSkuFromLookup(
+  order: TemuOrderRecord,
+  skuOrderLookup: SkuOrderLookup,
+) {
+  const skuCode = normalizeSkuCode(order.sku_code);
+  if (skuCode) return skuOrderLookup.skuByCode.get(skuCode) ?? null;
+  return skuOrderLookup.skuBySalesSpec.get(normalizeSalesSpec(order.product_attributes)) ?? null;
+}
+
+function getOrderDeclarationFromLookups(
+  order: TemuOrderRecord,
+  productsById: ProductsById,
+  skuOrderLookup: SkuOrderLookup,
+): OrderDeclaration | null {
+  const sku = getOrderSkuFromLookup(order, skuOrderLookup);
+  const product = sku?.product_id ? productsById.get(sku.product_id) ?? null : null;
+  return sku && product ? { sku, product } : null;
+}
+
+function getOrderDisplayRowSalesSpec(rowOrders: TemuOrderRecord[]) {
+  const specGroups = new Map<string, { label: string; quantity: number }>();
+  rowOrders.forEach((order) => {
+    const label = order.product_attributes.trim() || "--";
+    const key = getOrderExactSkuGroupKey(order) || label;
+    const current = specGroups.get(key);
+    specGroups.set(key, {
+      label: current?.label ?? label,
+      quantity: (current?.quantity ?? 0) + getOrderFulfillmentQuantity(order),
+    });
+  });
+
+  return Array.from(specGroups.values())
+    .map((item) => (item.quantity > 1 ? `${item.label} ×${item.quantity}` : item.label))
+    .join(" / ");
+}
+
+function getOrderDisplayRowDeclarationGroups(
+  rowOrders: TemuOrderRecord[],
+  productsById: ProductsById,
+  skuOrderLookup: SkuOrderLookup,
+): OrderDeclarationGroup[] {
+  const groups = new Map<string, OrderDeclarationGroup>();
+
+  rowOrders.forEach((order) => {
+    const declaration = getOrderDeclarationFromLookups(order, productsById, skuOrderLookup);
+    if (!declaration) return;
+
+    const key = declaration.sku.id || getOrderExactSkuGroupKey(order);
+    const current = groups.get(key);
+    groups.set(key, {
+      declaration: current?.declaration ?? declaration,
+      quantity: (current?.quantity ?? 0) + getOrderFulfillmentQuantity(order),
+    });
+  });
+
+  return Array.from(groups.values());
+}
+
+function getOrderDisplayRowSkuSummary(
+  rowOrders: TemuOrderRecord[],
+  rowQuantity: number,
+  declarationGroups: OrderDeclarationGroup[],
+) {
+  const skuCount =
+    declarationGroups.length ||
+    new Set(
+      rowOrders
+        .map((order) => getOrderExactSkuGroupKey(order))
+        .filter(Boolean),
+    ).size ||
+    rowOrders.length;
+
+  return `${skuCount} 个 SKU 共${rowQuantity} 件`;
+}
+
+function getOrderDisplayRowProductCodeSummary(
+  declarationGroups: OrderDeclarationGroup[],
+) {
+  const productCodes = Array.from(
+    new Set(
+      declarationGroups
+        .map((group) => group.declaration.product.product_code.trim())
+        .filter(Boolean),
+    ),
+  );
+
+  return productCodes.length > 0 ? productCodes.join(" / ") : "";
+}
+
 function SkuImageThumb({ product, sku }: { product: Product; sku: ProductSku }) {
   const imageUrl = sku.temu_image_url.trim();
   if (!imageUrl) return null;
@@ -489,45 +561,6 @@ function isShippingTrackingStage(stage: OrderStage) {
   return stage === "shipped" || stage === "uploaded_temu";
 }
 
-function getOrderDedupStageRank(order: TemuOrderRecord) {
-  if (order.actual_signed_time.trim()) return 6;
-  if (isUploadedTemuStatus(order.order_status)) return 5;
-  if (order.actual_ship_time.trim() || order.logistics_tracking_no.trim()) return 4;
-  if (order.label_printed_at.trim()) return 3;
-  if (order.warehouse_id || order.warehouse_name.trim()) return 2;
-  if (order.order_status.trim()) return 1;
-  return 0;
-}
-
-function shouldReplaceDuplicateOrder(
-  current: TemuOrderRecord,
-  candidate: TemuOrderRecord,
-) {
-  const currentStageRank = getOrderDedupStageRank(current);
-  const candidateStageRank = getOrderDedupStageRank(candidate);
-  if (candidateStageRank !== currentStageRank) {
-    return candidateStageRank > currentStageRank;
-  }
-
-  return candidate.updated_at.localeCompare(current.updated_at) > 0;
-}
-
-function dedupeOrdersByOrderLine(orders: TemuOrderRecord[]) {
-  const uniqueOrders = new Map<string, TemuOrderRecord>();
-
-  orders.forEach((order) => {
-    const key = getOrderLineKey(order);
-    if (!key) return;
-
-    const current = uniqueOrders.get(key);
-    if (!current || shouldReplaceDuplicateOrder(current, order)) {
-      uniqueOrders.set(key, order);
-    }
-  });
-
-  return Array.from(uniqueOrders.values());
-}
-
 function dedupeImportRowsByOrderLine(rows: TemuOrderImportRow[]) {
   const uniqueRows = new Map<string, TemuOrderImportRow>();
 
@@ -555,34 +588,6 @@ function parseTrackingImportRecord(row: Record<string, unknown>, index: number):
     recipientName: readAnyCell(row, ["CONSIGNEE_NAME", "CONSIGNEE NAME", "收件人"]),
     address: readAnyCell(row, ["DELIVERY_ADDR_JP", "DELIVERY ADDR JP", "收件人地址", "地址"]),
     allText: Object.values(row).map((value) => cleanCell(value)).filter(Boolean).join(" "),
-  };
-}
-
-function toDraft(order: TemuOrderRecord): OrderDraft {
-  return {
-    order_status: order.order_status,
-    warehouse_id: order.warehouse_id,
-    warehouse_name: order.warehouse_name,
-    logistics_method: normalizeLogisticsMethod(order.logistics_method),
-    label_printed_at: order.label_printed_at,
-    logistics_tracking_no: order.logistics_tracking_no,
-    logistics_status: order.logistics_status,
-    actual_ship_time: order.actual_ship_time,
-    actual_signed_time: order.actual_signed_time,
-  };
-}
-
-function createEmptyDraft(): OrderDraft {
-  return {
-    order_status: "",
-    warehouse_id: null,
-    warehouse_name: "",
-    logistics_method: "",
-    label_printed_at: "",
-    logistics_tracking_no: "",
-    logistics_status: "",
-    actual_ship_time: "",
-    actual_signed_time: "",
   };
 }
 
@@ -744,6 +749,41 @@ function getDeliveryDeadlineBadge(order: TemuOrderRecord, now: Date) {
     : { label: "期限外签收", tone: "danger" as const };
 }
 
+function getYamatoTrackingUrl(order: TemuOrderRecord) {
+  const trackingNo = order.logistics_tracking_no.trim();
+  if (!trackingNo) return "";
+  return yamatoTrackingBaseUrl;
+}
+
+function openYamatoTracking(
+  event: MouseEvent<HTMLAnchorElement>,
+  trackingNo: string,
+) {
+  const normalizedTrackingNo = trackingNo.trim();
+  if (!normalizedTrackingNo) return;
+
+  event.preventDefault();
+  const form = document.createElement("form");
+  form.method = "post";
+  form.action = yamatoTrackingBaseUrl;
+  form.target = "_blank";
+
+  [
+    ["number01", normalizedTrackingNo],
+    ["category", "0"],
+  ].forEach(([name, value]) => {
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = name;
+    input.value = value;
+    form.appendChild(input);
+  });
+
+  document.body.appendChild(form);
+  form.submit();
+  form.remove();
+}
+
 function isUrgentUnuploadedOrder(order: TemuOrderRecord, now: Date) {
   const stage = getOrderStage(order);
   if (stage === "uploaded_temu" || stage === "completed") return false;
@@ -766,153 +806,403 @@ function compareOptionalNumber(left: number | null, right: number | null) {
   return left - right;
 }
 
-function getOrdersErrorMessage(error: unknown, fallback: string) {
-  const message = getErrorMessage(error, fallback);
-  if (message.includes("sku_code")) {
-    return "订单管理数据库还没有新增 SKU 货号字段，请在 Supabase SQL Editor 执行最新订单迁移以启用精准自动匹配";
-  }
-  if (
-    message.includes("public.temu_orders") ||
-    message.includes("warehouse_id") ||
-    message.includes("logistics_method") ||
-    message.includes("label_printed_at") ||
-    message.includes("logistics_tracking_no") ||
-    message.includes("logistics_status")
-  ) {
-    return "订单管理数据库还没有初始化最新流程字段，请先执行最新的订单表迁移";
-  }
-  if (
-    message.includes("warehouse_item_stocks") ||
-    message.includes("warehouse_item_stock_adjustments")
-  ) {
-    return "库存数据库还没有初始化最新配件库存字段，请先执行最新的库存表迁移";
-  }
-  return message;
-}
+type OrderTableRowProps = {
+  activeStage: OrderStage;
+  canEdit: boolean;
+  currentTime: Date;
+  logisticsMethodOptions: string[];
+  onHandleWarehouseChangeForOrders: (orderIds: string[], warehouseId: string) => void;
+  onSaveActualShipTimeForOrders: (targetOrders: TemuOrderRecord[]) => Promise<void>;
+  onToggleOrderRowSelection: (rowOrderIds: string[], checked: boolean) => void;
+  onUpdateDraftForOrders: <K extends keyof OrderDraft>(
+    orderIds: string[],
+    field: K,
+    value: OrderDraft[K],
+  ) => void;
+  ordersById: OrdersById;
+  primaryDraft: OrderDraft | undefined;
+  productsById: ProductsById;
+  rowId: string;
+  rowOrderIds: string[];
+  rowOrderIdsKey: string;
+  selectedOrderIdSet: Set<string>;
+  skuOrderLookup: SkuOrderLookup;
+  warehouses: Warehouse[];
+};
+
+const OrderTableRow = memo(function OrderTableRow({
+  activeStage,
+  canEdit,
+  currentTime,
+  logisticsMethodOptions,
+  onHandleWarehouseChangeForOrders,
+  onSaveActualShipTimeForOrders,
+  onToggleOrderRowSelection,
+  onUpdateDraftForOrders,
+  ordersById,
+  primaryDraft,
+  productsById,
+  rowId,
+  rowOrderIds,
+  rowOrderIdsKey,
+  selectedOrderIdSet,
+  skuOrderLookup,
+  warehouses,
+}: OrderTableRowProps) {
+  const rowOrders = useMemo(
+    () =>
+      rowOrderIds
+        .map((orderId) => ordersById.get(orderId))
+        .filter((order): order is TemuOrderRecord => Boolean(order)),
+    [ordersById, rowOrderIdsKey],
+  );
+
+  const primaryOrder = rowOrders[0] ?? null;
+  const rowQuantity = useMemo(
+    () =>
+      rowOrders.reduce(
+        (total, order) => total + getOrderFulfillmentQuantity(order),
+        0,
+      ),
+    [rowOrders],
+  );
+
+  const draft = useMemo(
+    () => (primaryOrder ? primaryDraft ?? toDraft(primaryOrder) : createEmptyDraft()),
+    [primaryDraft, primaryOrder],
+  );
+
+  const mergedOrder = useMemo(
+    () => (primaryOrder ? { ...primaryOrder, ...draft } : null),
+    [draft, primaryOrder],
+  );
+
+  const persistedStage = useMemo(
+    () => (mergedOrder ? getOrderStage(mergedOrder) : "pending_assignment"),
+    [mergedOrder],
+  );
+  const stage = useMemo(() => getStageDefinition(persistedStage), [persistedStage]);
+  const shipCountdown = useMemo(
+    () =>
+      mergedOrder
+        ? getShipDeadlineBadge(mergedOrder, currentTime)
+        : { label: "--", tone: "neutral" as const },
+    [currentTime, mergedOrder],
+  );
+  const deliveryCountdown = useMemo(
+    () =>
+      mergedOrder
+        ? getDeliveryDeadlineBadge(mergedOrder, currentTime)
+        : { label: "--", tone: "neutral" as const },
+    [currentTime, mergedOrder],
+  );
+  const draftWarehouse = useMemo(
+    () =>
+      draft.warehouse_id
+        ? warehouses.find((warehouse) => warehouse.id === draft.warehouse_id) ?? null
+        : null,
+    [draft.warehouse_id, warehouses],
+  );
+  const rowLogisticsOptions = useMemo(
+    () =>
+      draftWarehouse
+        ? getWarehouseLogisticsMethods(draftWarehouse.name, logisticsMethodOptions)
+        : [],
+    [draftWarehouse, logisticsMethodOptions],
+  );
+  const currentWarehouseMissing = useMemo(
+    () =>
+      Boolean(
+        draft.warehouse_id &&
+          draft.warehouse_name &&
+          !warehouses.some((warehouse) => warehouse.id === draft.warehouse_id),
+      ),
+    [draft.warehouse_id, draft.warehouse_name, warehouses],
+  );
+  const declarationGroups = useMemo(
+    () =>
+      getOrderDisplayRowDeclarationGroups(
+        rowOrders,
+        productsById,
+        skuOrderLookup,
+      ),
+    [productsById, rowOrders, skuOrderLookup],
+  );
+  const primaryDeclaration = declarationGroups[0]?.declaration ?? null;
+  const trackingStatusLabel = useMemo(
+    () => (mergedOrder ? getTrackingStatusLabel(mergedOrder.logistics_status) || "待查询" : "待查询"),
+    [mergedOrder],
+  );
+  const rowSelected = useMemo(
+    () => rowOrderIds.every((orderId) => selectedOrderIdSet.has(orderId)),
+    [rowOrderIdsKey, selectedOrderIdSet],
+  );
+  const skuSummary = useMemo(
+    () => getOrderDisplayRowSkuSummary(rowOrders, rowQuantity, declarationGroups),
+    [declarationGroups, rowOrders, rowQuantity],
+  );
+  const productCodeSummary = useMemo(
+    () => getOrderDisplayRowProductCodeSummary(declarationGroups),
+    [declarationGroups],
+  );
+  const productMeta = useMemo(
+    () => [productCodeSummary, skuSummary].filter(Boolean).join(" · "),
+    [productCodeSummary, skuSummary],
+  );
+  const salesSpec = useMemo(
+    () => getOrderDisplayRowSalesSpec(rowOrders),
+    [rowOrders],
+  );
+  const normalizedDraftLogisticsMethod = useMemo(
+    () => normalizeLogisticsMethod(draft.logistics_method),
+    [draft.logistics_method],
+  );
+  const trackingUrl = useMemo(
+    () => (mergedOrder ? getYamatoTrackingUrl(mergedOrder) : ""),
+    [mergedOrder],
+  );
+
+  if (!primaryOrder || !mergedOrder) return null;
+
+  const canAssignOrder = canEdit && persistedStage === "pending_assignment";
+
+  return (
+    <tr key={rowId}>
+      <td className="text-center">
+        <input
+          type="checkbox"
+          checked={rowSelected}
+          onChange={(event) =>
+            onToggleOrderRowSelection(rowOrderIds, event.target.checked)
+          }
+          aria-label={`选择订单 ${primaryOrder.order_no}`}
+          className="h-4 w-4 rounded border-slate-300 text-sky-700 focus:ring-sky-500"
+        />
+      </td>
+      <td className="order-no-col">{primaryOrder.order_no}</td>
+      {activeStage === "all" && (
+        <td>
+          <Badge tone={stage.tone}>{stage.label}</Badge>
+        </td>
+      )}
+      <td className="order-time-col" title={mergedOrder.latest_ship_time || undefined}>
+        <Badge tone={shipCountdown.tone}>{shipCountdown.label}</Badge>
+      </td>
+      <td className="order-time-col" title={mergedOrder.estimated_delivery_time || undefined}>
+        <Badge tone={deliveryCountdown.tone}>{deliveryCountdown.label}</Badge>
+      </td>
+      <td>
+        {canAssignOrder ? (
+          <select
+            value={draft.warehouse_id ?? ""}
+            onChange={(event) =>
+              onHandleWarehouseChangeForOrders(rowOrderIds, event.target.value)
+            }
+            className="h-9 w-36 rounded-md border border-line bg-white px-2 text-sm outline-none focus:border-accent"
+          >
+            <option value="">未分配</option>
+            {currentWarehouseMissing && (
+              <option value={draft.warehouse_id ?? ""}>{draft.warehouse_name}</option>
+            )}
+            {warehouses.map((warehouse) => (
+              <option key={warehouse.id} value={warehouse.id}>
+                {warehouse.name}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className="text-sm font-medium text-slate-700">
+            {draft.warehouse_name || "未分配"}
+          </span>
+        )}
+      </td>
+      <td>
+        {canAssignOrder ? (
+          <select
+            value={normalizedDraftLogisticsMethod}
+            disabled={!draft.warehouse_id}
+            onChange={(event) =>
+              onUpdateDraftForOrders(
+                rowOrderIds,
+                "logistics_method",
+                event.target.value,
+              )
+            }
+            className="h-9 w-36 rounded-md border border-line bg-white px-2 text-sm outline-none focus:border-accent disabled:bg-slate-50 disabled:text-slate-400"
+          >
+            <option value="">未分配</option>
+            {rowLogisticsOptions.map((method) => (
+              <option key={method} value={method}>
+                {method}
+              </option>
+            ))}
+            {draft.logistics_method &&
+              !rowLogisticsOptions.includes(normalizedDraftLogisticsMethod) && (
+                <option value={normalizedDraftLogisticsMethod}>
+                  {normalizedDraftLogisticsMethod}
+                </option>
+              )}
+          </select>
+        ) : (
+          <span className="text-sm font-medium text-slate-700">
+            {normalizedDraftLogisticsMethod || "未分配"}
+          </span>
+        )}
+      </td>
+      <td className="number-cell">{rowQuantity}</td>
+      <td className="order-product-col">
+        {primaryDeclaration ? (
+          <div className="flex min-w-56 items-center gap-3">
+            <div className="flex shrink-0 gap-1">
+              {declarationGroups.slice(0, 4).map((group) => (
+                <SkuImageThumb
+                  key={group.declaration.sku.id || group.declaration.sku.sku_code}
+                  product={group.declaration.product}
+                  sku={group.declaration.sku}
+                />
+              ))}
+            </div>
+            <div className="grid min-w-0 gap-1">
+              <span className="font-medium text-slate-900">
+                {primaryDeclaration.product.product_name_cn || "--"}
+              </span>
+              <span className="text-xs font-medium text-slate-500">
+                {productMeta || skuSummary}
+              </span>
+            </div>
+          </div>
+        ) : (
+          <span className="text-sm font-medium text-slate-500">
+            {skuSummary}
+          </span>
+        )}
+      </td>
+      <td className="order-attr-col">{salesSpec || "--"}</td>
+      {isShippingTrackingStage(activeStage) && (
+        <>
+          <td className="order-tracking-col">
+            {mergedOrder.logistics_tracking_no ? (
+              trackingUrl ? (
+                <a
+                  href={trackingUrl}
+                  onClick={(event) =>
+                    openYamatoTracking(event, mergedOrder.logistics_tracking_no)
+                  }
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-semibold text-sky-700 hover:text-sky-900"
+                >
+                  {mergedOrder.logistics_tracking_no}
+                </a>
+              ) : (
+                mergedOrder.logistics_tracking_no
+              )
+            ) : (
+              "--"
+            )}
+          </td>
+          <td className="order-tracking-status-col">
+            {mergedOrder.logistics_tracking_no ? (
+              trackingUrl ? (
+                <a
+                  href={trackingUrl}
+                  onClick={(event) =>
+                    openYamatoTracking(event, mergedOrder.logistics_tracking_no)
+                  }
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-semibold text-sky-700 hover:text-sky-900"
+                >
+                  {trackingStatusLabel}
+                </a>
+              ) : (
+                trackingStatusLabel
+              )
+            ) : (
+              "--"
+            )}
+          </td>
+        </>
+      )}
+      <td>{formatRecipientName(mergedOrder.recipient_name) || "--"}</td>
+      <td className="order-phone-col">{formatRecipientPhone(mergedOrder.recipient_phone) || "--"}</td>
+      <td className="order-address-col">{getFullAddress(mergedOrder) || "--"}</td>
+      <td>{mergedOrder.postal_code || "--"}</td>
+      <td>
+        {activeStage === "uploaded_temu" ? (
+          <input
+            value={draft.actual_ship_time}
+            readOnly={!canEdit}
+            onChange={(event) =>
+              onUpdateDraftForOrders(
+                rowOrderIds,
+                "actual_ship_time",
+                event.target.value,
+              )
+            }
+            onBlur={() => void onSaveActualShipTimeForOrders(rowOrders)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.currentTarget.blur();
+              }
+            }}
+            placeholder="填写时间"
+            className="h-9 w-40 rounded-md border border-line bg-white px-2 text-sm outline-none focus:border-accent"
+          />
+        ) : (
+          <span className="text-sm font-medium text-slate-700">
+            {draft.actual_ship_time || "--"}
+          </span>
+        )}
+      </td>
+    </tr>
+  );
+});
 
 export function OrdersPage({ user }: OrdersPageProps) {
   const { canEdit, canDelete } = usePermissions();
-  const draftKey = `orders-draft:v1:${user.id}`;
-  const restoredDraftRef = useRef(readDraft<OrdersDraftState>(draftKey));
-  const restoredDraft = restoredDraftRef.current;
   const inputRef = useRef<HTMLInputElement | null>(null);
   const trackingInputRef = useRef<HTMLInputElement | null>(null);
-  const [orders, setOrders] = useState<TemuOrderRecord[]>([]);
-  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [productItems, setProductItems] = useState<ProductItem[]>([]);
-  const [productSkus, setProductSkus] = useState<ProductSku[]>([]);
-  const [warehouseSkus, setWarehouseSkus] = useState<WarehouseSku[]>([]);
-  const [warehouseItemStocks, setWarehouseItemStocks] = useState<WarehouseItemStock[]>([]);
-  const [drafts, setDrafts] = useState<Record<string, OrderDraft>>(restoredDraft?.drafts ?? {});
-  const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>(
-    restoredDraft?.selectedOrderIds ?? [],
-  );
-  const [bulkWarehouseId, setBulkWarehouseId] = useState(restoredDraft?.bulkWarehouseId ?? "");
-  const [bulkLogisticsMethod, setBulkLogisticsMethod] = useState(restoredDraft?.bulkLogisticsMethod ?? "");
+  const {
+    orders,
+    warehouses,
+    products,
+    productItems,
+    productSkus,
+    warehouseSkus,
+    warehouseItemStocks,
+    drafts,
+    selectedOrderIds,
+    bulkWarehouseId,
+    bulkLogisticsMethod,
+    loading,
+    errorMessage,
+    draftNotice,
+    currentTime,
+    setSelectedOrderIds,
+    setBulkWarehouseId,
+    setBulkLogisticsMethod,
+    setErrorMessage,
+    updateDraftForOrders,
+    updateDraftFieldsForOrders,
+    replaceOrders,
+    removeOrders,
+    mergeOrders: updateOrdersState,
+    replaceDraftsFromOrders,
+    clearDrafts,
+    applyWarehouseItemStockUpdates,
+    fetchLatestOrders,
+    fetchLatestProductsAndSkus,
+  } = useOrders(user);
   const [activeStage, setActiveStage] = useState<OrderStage>("all");
   const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState("");
-  const [errorMessage, setErrorMessage] = useState("");
   const [noticeMessage, setNoticeMessage] = useState("");
-  const [draftNotice, setDraftNotice] = useState(
-    hasOrdersDraft(restoredDraft) ? "已恢复上次未保存的订单编辑草稿。" : "",
-  );
   const [detailOrder, setDetailOrder] = useState<TemuOrderRecord | null>(null);
-  const [currentTime, setCurrentTime] = useState(() => new Date());
   const [orderSort, setOrderSort] = useState<OrderSort>(defaultOrderSort);
   const [showUrgentUnuploadedOnly, setShowUrgentUnuploadedOnly] = useState(false);
   const autoQueriedTrackingNosRef = useRef<Set<string>>(new Set());
   const autoCompletedDeliveredOrderIdsRef = useRef<Set<string>>(new Set());
-
-  useEffect(() => {
-    let active = true;
-
-    async function load() {
-      setLoading(true);
-      setErrorMessage("");
-      try {
-        const [nextOrders, nextWarehouses, nextProducts] = await Promise.all([
-          fetchTemuOrders(),
-          fetchWarehouses(),
-          fetchProducts(),
-        ]);
-        const [nextProductItems, nextProductSkus, nextWarehouseSkus, nextWarehouseItemStocks] = await Promise.all([
-          fetchProductItemsByProductIds(nextProducts.map((product) => product.id)),
-          fetchProductSkusByProductIds(nextProducts.map((product) => product.id)),
-          fetchWarehouseSkus(nextWarehouses.map((warehouse) => warehouse.id)),
-          fetchWarehouseItemStocks(nextWarehouses.map((warehouse) => warehouse.id)),
-        ]);
-        if (!active) return;
-        const uniqueOrders = dedupeOrdersByOrderLine(nextOrders);
-        setOrders(uniqueOrders);
-        setWarehouses(nextWarehouses);
-        setProducts(nextProducts);
-        setProductItems(nextProductItems);
-        setProductSkus(nextProductSkus);
-        setWarehouseSkus(nextWarehouseSkus);
-        setWarehouseItemStocks(nextWarehouseItemStocks);
-        const serverDrafts = Object.fromEntries(uniqueOrders.map((order) => [order.id, toDraft(order)]));
-        const latestDraft = readDraft<OrdersDraftState>(draftKey);
-        setDrafts({
-          ...serverDrafts,
-          ...(latestDraft?.drafts ?? {}),
-        });
-        setBulkWarehouseId(latestDraft?.bulkWarehouseId ?? "");
-        setBulkLogisticsMethod(latestDraft?.bulkLogisticsMethod ?? "");
-        setSelectedOrderIds(latestDraft?.selectedOrderIds ?? []);
-        if (hasOrdersDraft(latestDraft)) {
-          setDraftNotice("已恢复上次未保存的订单编辑草稿。");
-        }
-      } catch (error) {
-        if (active) setErrorMessage(getOrdersErrorMessage(error, "加载订单失败"));
-      } finally {
-        if (active) setLoading(false);
-      }
-    }
-
-    void load();
-    return () => {
-      active = false;
-    };
-  }, [draftKey, user.id]);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setCurrentTime(new Date()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  const ordersDraftValue = useMemo<OrdersDraftState>(
-    () => {
-      const ordersById = new Map(orders.map((order) => [order.id, order]));
-
-      return {
-        drafts: Object.fromEntries(
-          Object.entries(drafts).filter(([orderId, draft]) => {
-            const order = ordersById.get(orderId);
-            return order ? !isSameDraft(draft, toDraft(order)) : false;
-          }),
-        ),
-        selectedOrderIds,
-        bulkWarehouseId,
-        bulkLogisticsMethod,
-      };
-    },
-    [bulkLogisticsMethod, bulkWarehouseId, drafts, orders, selectedOrderIds],
-  );
-
-  useDraftPersistence(
-    draftKey,
-    ordersDraftValue,
-    {
-      enabled: !loading,
-      shouldPersist: (draft) =>
-        Object.keys(draft.drafts).length > 0 ||
-        draft.selectedOrderIds.length > 0 ||
-        Boolean(draft.bulkWarehouseId || draft.bulkLogisticsMethod),
-    },
-  );
 
   const logisticsMethodOptions = useMemo(
     () =>
@@ -930,6 +1220,11 @@ export function OrdersPage({ user }: OrdersPageProps) {
   const skuOrderLookup = useMemo(
     () => buildSkuOrderLookup(products, productSkus),
     [products, productSkus],
+  );
+
+  const ordersById = useMemo(
+    () => new Map(orders.map((order) => [order.id, order])),
+    [orders],
   );
 
   const productsById = useMemo(
@@ -1142,18 +1437,29 @@ export function OrdersPage({ user }: OrdersPageProps) {
       ),
     [filteredOrderRows, selectedOrderIdSet],
   );
-  const selectedNewOrderRowCount = selectedOrderRowsInView.filter(
-    (row) => getOrderStage(row.primaryOrder) === "new_order",
-  ).length;
-  const selectedPendingShippingRowCount = selectedOrderRowsInView.filter(
-    (row) => getOrderStage(row.primaryOrder) === "pending_shipping",
-  ).length;
-  const selectedShippedRowCount = selectedOrderRowsInView.filter(
-    (row) => getOrderStage(row.primaryOrder) === "shipped",
-  ).length;
-  const selectedUploadedTemuRowCount = selectedOrderRowsInView.filter(
-    (row) => getOrderStage(row.primaryOrder) === "uploaded_temu",
-  ).length;
+  const {
+    selectedNewOrderRowCount,
+    selectedPendingShippingRowCount,
+    selectedShippedRowCount,
+    selectedUploadedTemuRowCount,
+  } = useMemo(() => {
+    const counts = {
+      selectedNewOrderRowCount: 0,
+      selectedPendingShippingRowCount: 0,
+      selectedShippedRowCount: 0,
+      selectedUploadedTemuRowCount: 0,
+    };
+
+    selectedOrderRowsInView.forEach((row) => {
+      const stage = getOrderStage(row.primaryOrder);
+      if (stage === "new_order") counts.selectedNewOrderRowCount += 1;
+      if (stage === "pending_shipping") counts.selectedPendingShippingRowCount += 1;
+      if (stage === "shipped") counts.selectedShippedRowCount += 1;
+      if (stage === "uploaded_temu") counts.selectedUploadedTemuRowCount += 1;
+    });
+
+    return counts;
+  }, [selectedOrderRowsInView]);
 
   const selectedOrderLineInViewCount = selectedOrdersInView.length;
   const selectedInViewCount = selectedOrderRowsInView.length;
@@ -1221,16 +1527,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
     };
   }
 
-  function updateOrdersState(nextOrders: TemuOrderRecord[]) {
-    setOrders((current) =>
-      current.map((order) => nextOrders.find((nextOrder) => nextOrder.id === order.id) ?? order),
-    );
-    setDrafts((current) => ({
-      ...current,
-      ...Object.fromEntries(nextOrders.map((order) => [order.id, toDraft(order)])),
-    }));
-  }
-
   function buildOrderInventoryRestorationInputs(
     targetOrders: TemuOrderRecord[],
   ): WarehouseItemStockRestorationInput[] {
@@ -1274,52 +1570,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
     });
 
     return Array.from(inputsByReason.values());
-  }
-
-  function updateDraft<K extends keyof OrderDraft>(
-    orderId: string,
-    field: K,
-    value: OrderDraft[K],
-  ) {
-    updateDraftForOrders([orderId], field, value);
-  }
-
-  function updateDraftForOrders<K extends keyof OrderDraft>(
-    orderIds: string[],
-    field: K,
-    value: OrderDraft[K],
-  ) {
-    setDrafts((current) => {
-      const next = { ...current };
-      orderIds.forEach((orderId) => {
-        next[orderId] = {
-          ...(next[orderId] ?? createEmptyDraft()),
-          [field]: value,
-        };
-      });
-      return next;
-    });
-  }
-
-  function updateDraftFields(orderId: string, values: Partial<OrderDraft>) {
-    updateDraftFieldsForOrders([orderId], values);
-  }
-
-  function updateDraftFieldsForOrders(orderIds: string[], values: Partial<OrderDraft>) {
-    setDrafts((current) => {
-      const next = { ...current };
-      orderIds.forEach((orderId) => {
-        next[orderId] = {
-          ...(next[orderId] ?? createEmptyDraft()),
-          ...values,
-        };
-      });
-      return next;
-    });
-  }
-
-  function handleWarehouseChange(orderId: string, warehouseId: string) {
-    handleWarehouseChangeForOrders([orderId], warehouseId);
   }
 
   function handleWarehouseChangeForOrders(orderIds: string[], warehouseId: string) {
@@ -1693,8 +1943,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
     );
   }
 
-  function toggleOrderRowSelection(row: OrderDisplayRow, checked: boolean) {
-    const rowIds = row.orders.map((order) => order.id);
+  function toggleOrderRowSelection(rowIds: string[], checked: boolean) {
     setSelectedOrderIds((current) =>
       checked
         ? Array.from(new Set([...current, ...rowIds]))
@@ -1743,10 +1992,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
         throw new Error(`缺少必要列：${missingColumns.join("、")}`);
       }
 
-      const nextProducts = await fetchProducts();
-      const nextSkus = await fetchProductSkusByProductIds(
-        nextProducts.map((product) => product.id),
-      );
+      const { products: nextProducts, productSkus: nextSkus } =
+        await fetchLatestProductsAndSkus();
       const importSkuLookup = buildSkuOrderLookup(nextProducts, nextSkus);
 
       const importRows: TemuOrderImportRow[] = rows.flatMap((row, index) => {
@@ -1783,7 +2030,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
 
       const uniqueImportRows = dedupeImportRowsByOrderLine(importRows);
       const skippedDuplicateCount = importRows.length - uniqueImportRows.length;
-      const existingOrders = await fetchTemuOrders();
+      const existingOrders = await fetchLatestOrders();
       const existingOrdersByLineKey = new Map(
         existingOrders.flatMap((order) => {
           const key = getOrderLineKey(order);
@@ -1807,11 +2054,10 @@ export function OrdersPage({ user }: OrdersPageProps) {
         importRowsForSave.length > 0
           ? await importTemuOrders(importRowsForSave)
           : [] as TemuOrderRecord[];
-      const nextOrders = dedupeOrdersByOrderLine(
-        importRowsForSave.length > 0 ? await fetchTemuOrders() : existingOrders,
-      );
-      setOrders(nextOrders);
-      setDrafts(Object.fromEntries(nextOrders.map((order) => [order.id, toDraft(order)])));
+      const nextOrders =
+        importRowsForSave.length > 0 ? await fetchLatestOrders() : existingOrders;
+      replaceOrders(nextOrders);
+      replaceDraftsFromOrders(nextOrders);
       const skipMessages = [
         skippedDuplicateCount > 0 ? `跳过上传表内重复订单明细 ${skippedDuplicateCount} 行` : "",
         existingLineCount > 0 ? `更新已有订单明细 ${existingLineCount} 条` : "",
@@ -2135,15 +2381,9 @@ export function OrdersPage({ user }: OrdersPageProps) {
         buildOrderInventoryRestorationInputs(selectedOrdersInView);
       await Promise.all(selectedOrdersInView.map((order) => deleteTemuOrder(order.id)));
       ordersDeleted = true;
-      setOrders((current) => current.filter((order) => !targetIds.has(order.id)));
+      removeOrders(Array.from(targetIds));
       setSelectedOrderIds((current) => current.filter((id) => !targetIds.has(id)));
-      setDrafts((current) => {
-        const next = { ...current };
-        targetIds.forEach((id) => {
-          delete next[id];
-        });
-        return next;
-      });
+      clearDrafts(Array.from(targetIds));
 
       const inventoryChanges = await restoreWarehouseItemStockDeductions(
         inventoryRestorations,
@@ -2368,11 +2608,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
 
       const quantity = Math.max(0, link.quantity);
       const purchaseCost = item.purchase_price_rmb * quantity;
-      const purchaseShipping =
-        item.item_weight_g > 0 && item.purchase_shipping_fee_per_500g_rmb > 0
-          ? ((item.item_weight_g * quantity) / 500) *
-            item.purchase_shipping_fee_per_500g_rmb
-          : 0;
+      const purchaseShipping = calculatePurchaseShippingRmb(item, quantity);
       return total + purchaseCost + purchaseShipping;
     }, 0);
   }
@@ -2606,16 +2842,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
     }
 
     return { errorMessage: "", deductions };
-  }
-
-  function applyWarehouseItemStockUpdates(nextStocks: WarehouseItemStock[]) {
-    if (nextStocks.length === 0) return;
-
-    setWarehouseItemStocks((current) =>
-      current.map(
-        (item) => nextStocks.find((nextItem) => nextItem.id === item.id) ?? item,
-      ),
-    );
   }
 
   async function deductInventoryForOrders(targetOrders: TemuOrderRecord[]) {
@@ -3022,66 +3248,27 @@ export function OrdersPage({ user }: OrdersPageProps) {
         </div>
       )}
 
-      {urgentUnuploadedOrders.length > 0 && (
-        <section className="surface-card p-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="min-w-20 text-sm font-medium text-slate-700">待办任务</span>
-            <button
-              type="button"
-              onClick={() => {
-                setActiveStage("all");
-                setOrderSort(defaultOrderSort);
-                setSelectedOrderIds([]);
-                setShowUrgentUnuploadedOnly(true);
-              }}
-              className={`inline-flex h-10 min-w-60 items-center justify-center gap-2 rounded-md border px-4 text-sm font-semibold transition ${
-                showUrgentUnuploadedOnly
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-line bg-white text-slate-900 hover:border-slate-300 hover:bg-slate-50"
-              }`}
-            >
-              <span>即将逾期未发货</span>
-              <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-600 px-1.5 text-xs font-bold leading-none text-white">
-                {urgentUnuploadedOrders.length}
-              </span>
-            </button>
-          </div>
-        </section>
-      )}
-
-      <section className="surface-card p-3">
-        <div className="flex flex-wrap gap-2">
-          {stageDefinitions.map((stage) => {
-            const active = activeStage === stage.key;
-            return (
-              <button
-                key={stage.key}
-                type="button"
-                onClick={() => {
-                  setActiveStage(stage.key);
-                  setOrderSort(defaultOrderSort);
-                  setSelectedOrderIds([]);
-                  setShowUrgentUnuploadedOnly(false);
-                }}
-                className={`inline-flex h-10 items-center gap-2 rounded-lg px-3 text-sm font-semibold transition ${
-                  active
-                    ? "bg-slate-900 text-white shadow-soft"
-                    : "bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-950"
-                }`}
-              >
-                <span>{stage.label}</span>
-                <span
-                  className={`rounded-md px-2 py-0.5 text-xs tabular-nums ${
-                    active ? "bg-white/15 text-white" : "bg-slate-100 text-slate-500"
-                  }`}
-                >
-                  {stageCounts[stage.key]}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </section>
+      <OrderFilters
+        activeStage={activeStage}
+        stages={stageDefinitions}
+        stageCounts={stageCounts}
+        search={search}
+        urgentUnuploadedCount={urgentUnuploadedOrders.length}
+        showUrgentUnuploadedOnly={showUrgentUnuploadedOnly}
+        onSearchChange={setSearch}
+        onStageChange={(stage) => {
+          setActiveStage(stage as OrderStage);
+          setOrderSort(defaultOrderSort);
+          setSelectedOrderIds([]);
+          setShowUrgentUnuploadedOnly(false);
+        }}
+        onShowUrgentUnuploadedOnly={() => {
+          setActiveStage("all");
+          setOrderSort(defaultOrderSort);
+          setSelectedOrderIds([]);
+          setShowUrgentUnuploadedOnly(true);
+        }}
+      />
 
       <section className="surface-card grid gap-4 p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -3112,227 +3299,76 @@ export function OrdersPage({ user }: OrdersPageProps) {
                 查询物流状态
               </button>
             )}
-            <div className="relative w-full sm:w-[360px]">
-              <Search size={16} className="absolute left-3 top-3 text-slate-400" />
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="搜索订单号 / 收货人 / 地址 / 物流"
-                className="h-10 w-full rounded-md border border-line bg-white pl-9 pr-3 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
-              />
-            </div>
           </div>
         </div>
 
-        {selectedOrderLineInViewCount > 0 && (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3">
-            <span className="text-sm font-semibold text-slate-900">
-              已选 {selectedInViewCount || selectedOrderLineInViewCount}
-              {selectedInViewCount > 0 ? " 行" : " 条明细"}
-              {selectedInViewCount > 0 && selectedOrderLineInViewCount !== selectedInViewCount
-                ? `（${selectedOrderLineInViewCount} 条明细）`
-                : ""}
-            </span>
-            <div className="flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                disabled={Boolean(busyKey)}
-                onClick={() => setSelectedOrderIds([])}
-                className="text-sm font-medium text-slate-500 transition hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                清空选中
-              </button>
-              {canEdit && activeStage === "new_order" && selectedNewOrdersInView.length > 0 && (
-                <button
-                  type="button"
-                  disabled={busyKey === "download-batch"}
-                  onClick={() =>
-                    void handleMoveNewOrdersToPendingShipping(
-                      selectedNewOrdersInView,
-                      "download-batch",
-                    )
-                  }
-                  className="btn-secondary h-9 px-3"
-                >
-                  <Truck size={16} />
-                  转到待发货（{selectedNewOrderRowCount}）
-                </button>
-              )}
-              <button
-                type="button"
-                disabled={Boolean(busyKey) || !selectedSingleOrderInView}
-                onClick={() => {
-                  if (selectedSingleOrderInView) setDetailOrder(selectedSingleOrderInView);
-                }}
-                title={selectedSingleOrderInView ? undefined : "详情只能查看单条订单"}
-                className="btn-secondary h-9 px-3"
-              >
-                <Eye size={16} />
-                详情
-              </button>
-              {canEdit && (
-                <button
-                  type="button"
-                  disabled={busyKey === "save-selected"}
-                  onClick={() => void handleSaveSelectedOrders()}
-                  className="btn-secondary h-9 px-3"
-                >
-                  <Save size={16} />
-                  保存（{selectedInViewCount}）
-                </button>
-              )}
-              {canEdit &&
-                activeStage === "pending_shipping" &&
-                selectedPendingShippingOrdersInView.length > 0 && (
-                  <button
-                    type="button"
-                    disabled={busyKey === "download-shipping-table"}
-                    onClick={() =>
-                      void handleDownloadShippingTable(
-                        selectedPendingShippingOrdersInView,
-                        "download-shipping-table",
-                      )
-                    }
-                    className="btn-secondary h-9 px-3"
-                  >
-                    <Download size={16} />
-                    下载发货表格（{selectedPendingShippingRowCount}）
-                  </button>
-                )}
-              {canEdit && canManageSelectedShippedOrders && (
-                <>
-                  <button
-                    type="button"
-                    disabled={busyKey === "download-temu-upload-table"}
-                    onClick={() =>
-                      void handleDownloadTemuUploadTable(
-                        selectedShippedOrdersInView,
-                        "download-temu-upload-table",
-                      )
-                    }
-                    className="btn-secondary h-9 px-3"
-                  >
-                    <Download size={16} />
-                    下载上传Temu表格（{selectedShippedRowCount}）
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busyKey === "uploaded-temu-selected"}
-                    onClick={() => void handleMarkSelectedUploadedTemu()}
-                    className="btn-secondary h-9 px-3"
-                  >
-                    <ArrowRight size={16} />
-                    转到上传Temu（{selectedShippedRowCount}）
-                  </button>
-                </>
-              )}
-              {canEdit &&
-                activeStage === "uploaded_temu" &&
-                selectedCompletableOrdersInView.length > 0 && (
-                <button
-                  type="button"
-                  disabled={busyKey === "complete-selected"}
-                  onClick={() => void handleMarkSelectedCompleted()}
-                  className="btn-secondary h-9 px-3"
-                >
-                  <CheckCircle2 size={16} />
-                  签收（{selectedUploadedTemuRowCount}）
-                </button>
-              )}
-              {canDelete && (
-                <button
-                  type="button"
-                  disabled={busyKey === "delete-selected" || hasSelectedCompletedOrders}
-                  onClick={() => void handleDeleteSelectedOrders()}
-                  title={hasSelectedCompletedOrders ? "已完成订单不能删除" : undefined}
-                  className="inline-flex h-9 items-center gap-2 rounded-md border border-rose-200 bg-white px-3 text-sm font-semibold text-rose-600 shadow-sm transition hover:border-rose-300 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <Trash2 size={16} />
-                  删除（{selectedInViewCount}）
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-
-        {canEdit && activeStage === "pending_assignment" && (
-          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
-            <span className="text-sm font-semibold text-slate-700">
-              批量分配
-            </span>
-            <span className="rounded-md bg-white px-2.5 py-1 text-xs font-semibold text-slate-500 ring-1 ring-slate-200">
-              已选 {selectedInViewCount}
-            </span>
-            <label className="flex items-center gap-2 text-sm font-medium text-slate-600">
-              <span>仓库</span>
-              <select
-                value={bulkWarehouseId}
-                disabled={busyKey === "bulk-assign"}
-                onChange={(event) => {
-                  const warehouseId = event.target.value;
-                  const warehouse = warehouses.find((item) => item.id === warehouseId);
-                  setBulkWarehouseId(warehouseId);
-                  if (
-                    warehouse &&
-                    bulkLogisticsMethod &&
-                    !isLogisticsMethodAllowedForWarehouse(
-                      warehouse.name,
-                      bulkLogisticsMethod,
-                      logisticsMethodOptions,
-                    )
-                  ) {
-                    setBulkLogisticsMethod("");
-                  }
-                }}
-                className="h-10 min-w-40 rounded-md border border-line bg-white px-2 text-sm outline-none focus:border-accent"
-              >
-                <option value="">不修改仓库</option>
-                {warehouses.map((warehouse) => (
-                  <option key={warehouse.id} value={warehouse.id}>
-                    {warehouse.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex items-center gap-2 text-sm font-medium text-slate-600">
-              <span>发货方式</span>
-              <select
-                value={bulkLogisticsMethod}
-                disabled={busyKey === "bulk-assign"}
-                onChange={(event) => setBulkLogisticsMethod(event.target.value)}
-                className="h-10 min-w-44 rounded-md border border-line bg-white px-3 text-sm outline-none focus:border-accent"
-              >
-                <option value="">不修改发货方式</option>
-                {bulkLogisticsMethodOptions.map((method) => (
-                  <option key={method} value={method}>
-                    {method}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              type="button"
-              disabled={
-                selectedOrderLineInViewCount === 0 ||
-                busyKey === "bulk-assign" ||
-                (!bulkWarehouseId && !bulkLogisticsMethod.trim())
-              }
-              onClick={() => void handleBulkAssign()}
-              className="btn-primary h-10 px-3"
-            >
-              批量分配
-            </button>
-            <button
-              type="button"
-              disabled={busyKey === "auto-match" || filteredOrders.length === 0}
-              onClick={() => void handleAutoMatchPendingOrders()}
-              className="btn-secondary h-10 px-3"
-            >
-              <Sparkles size={16} />
-              自动匹配
-            </button>
-          </div>
-        )}
+        <OrderBulkActions
+          activeStage={activeStage}
+          busyKey={busyKey}
+          canDelete={canDelete}
+          canEdit={canEdit}
+          selectedOrderLineInViewCount={selectedOrderLineInViewCount}
+          selectedInViewCount={selectedInViewCount}
+          selectedNewOrderRowCount={selectedNewOrderRowCount}
+          selectedPendingShippingRowCount={selectedPendingShippingRowCount}
+          selectedShippedRowCount={selectedShippedRowCount}
+          selectedUploadedTemuRowCount={selectedUploadedTemuRowCount}
+          selectedNewOrdersInViewCount={selectedNewOrdersInView.length}
+          selectedPendingShippingOrdersInViewCount={selectedPendingShippingOrdersInView.length}
+          selectedCompletableOrdersInViewCount={selectedCompletableOrdersInView.length}
+          selectedSingleOrderInView={Boolean(selectedSingleOrderInView)}
+          canManageSelectedShippedOrders={canManageSelectedShippedOrders}
+          hasSelectedCompletedOrders={hasSelectedCompletedOrders}
+          bulkWarehouseId={bulkWarehouseId}
+          bulkLogisticsMethod={bulkLogisticsMethod}
+          bulkLogisticsMethodOptions={bulkLogisticsMethodOptions}
+          warehouses={warehouses}
+          filteredOrdersCount={filteredOrders.length}
+          onClearSelection={() => setSelectedOrderIds([])}
+          onShowSelectedDetail={() => {
+            if (selectedSingleOrderInView) setDetailOrder(selectedSingleOrderInView);
+          }}
+          onMoveNewOrdersToPendingShipping={() =>
+            void handleMoveNewOrdersToPendingShipping(
+              selectedNewOrdersInView,
+              "download-batch",
+            )
+          }
+          onSaveSelectedOrders={() => void handleSaveSelectedOrders()}
+          onDownloadShippingTable={() =>
+            void handleDownloadShippingTable(
+              selectedPendingShippingOrdersInView,
+              "download-shipping-table",
+            )
+          }
+          onDownloadTemuUploadTable={() =>
+            void handleDownloadTemuUploadTable(
+              selectedShippedOrdersInView,
+              "download-temu-upload-table",
+            )
+          }
+          onMarkSelectedUploadedTemu={() => void handleMarkSelectedUploadedTemu()}
+          onMarkSelectedCompleted={() => void handleMarkSelectedCompleted()}
+          onDeleteSelectedOrders={() => void handleDeleteSelectedOrders()}
+          onBulkWarehouseChange={(warehouseId) => {
+            const warehouse = warehouses.find((item) => item.id === warehouseId);
+            setBulkWarehouseId(warehouseId);
+            if (
+              warehouse &&
+              bulkLogisticsMethod &&
+              !isLogisticsMethodAllowedForWarehouse(
+                warehouse.name,
+                bulkLogisticsMethod,
+                logisticsMethodOptions,
+              )
+            ) {
+              setBulkLogisticsMethod("");
+            }
+          }}
+          onBulkLogisticsMethodChange={setBulkLogisticsMethod}
+          onBulkAssign={() => void handleBulkAssign()}
+          onAutoMatchPendingOrders={() => void handleAutoMatchPendingOrders()}
+        />
 
         {loading ? (
           <div className="text-sm text-slate-500">加载中...</div>
@@ -3378,246 +3414,28 @@ export function OrdersPage({ user }: OrdersPageProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredOrderRows.map((orderRow) => {
-                    const order = orderRow.primaryOrder;
-                    const rowOrderIds = orderRow.orders.map((item) => item.id);
-                    const draft = drafts[order.id] ?? toDraft(order);
-                    const mergedOrder = order;
-                    const persistedStage = getOrderStage(order);
-                    const stage = getStageDefinition(persistedStage);
-                    const shipCountdown = getShipDeadlineBadge(mergedOrder, currentTime);
-                    const deliveryCountdown = getDeliveryDeadlineBadge(
-                      mergedOrder,
-                      currentTime,
-                    );
-                    const canAssignOrder = canEdit && persistedStage === "pending_assignment";
-                    const draftWarehouse = draft.warehouse_id
-                      ? warehouses.find((warehouse) => warehouse.id === draft.warehouse_id) ?? null
-                      : null;
-                    const rowLogisticsOptions = draftWarehouse
-                      ? getWarehouseLogisticsMethods(draftWarehouse.name, logisticsMethodOptions)
-                      : [];
-                    const currentWarehouseMissing =
-                      draft.warehouse_id &&
-                      draft.warehouse_name &&
-                      !warehouses.some((warehouse) => warehouse.id === draft.warehouse_id);
-                    const declarationGroups = getOrderDisplayRowDeclarationGroups(orderRow);
-                    const primaryDeclaration = declarationGroups[0]?.declaration ?? null;
-                    const trackingStatusLabel =
-                      getTrackingStatusLabel(mergedOrder.logistics_status) || "待查询";
-                    const rowSelected = orderRow.orders.every((item) =>
-                      selectedOrderIdSet.has(item.id),
-                    );
-                    const skuSummary = getOrderDisplayRowSkuSummary(
-                      orderRow,
-                      declarationGroups,
-                    );
-                    const productCodeSummary =
-                      getOrderDisplayRowProductCodeSummary(declarationGroups);
-                    const productMeta = [productCodeSummary, skuSummary]
-                      .filter(Boolean)
-                      .join(" · ");
-
-                    return (
-                      <tr key={orderRow.id}>
-                        <td className="text-center">
-                          <input
-                            type="checkbox"
-                            checked={rowSelected}
-                            onChange={(event) =>
-                              toggleOrderRowSelection(orderRow, event.target.checked)
-                            }
-                            aria-label={`选择订单 ${order.order_no}`}
-                            className="h-4 w-4 rounded border-slate-300 text-sky-700 focus:ring-sky-500"
-                          />
-                        </td>
-                        <td className="order-no-col">{order.order_no}</td>
-                        {activeStage === "all" && (
-                          <td>
-                            <Badge tone={stage.tone}>{stage.label}</Badge>
-                          </td>
-                        )}
-                        <td className="order-time-col" title={order.latest_ship_time || undefined}>
-                          <Badge tone={shipCountdown.tone}>{shipCountdown.label}</Badge>
-                        </td>
-                        <td className="order-time-col" title={order.estimated_delivery_time || undefined}>
-                          <Badge tone={deliveryCountdown.tone}>{deliveryCountdown.label}</Badge>
-                        </td>
-                        <td>
-                          {canAssignOrder ? (
-                            <select
-                              value={draft.warehouse_id ?? ""}
-                              onChange={(event) =>
-                                handleWarehouseChangeForOrders(rowOrderIds, event.target.value)
-                              }
-                              className="h-9 w-36 rounded-md border border-line bg-white px-2 text-sm outline-none focus:border-accent"
-                            >
-                              <option value="">未分配</option>
-                              {currentWarehouseMissing && (
-                                <option value={draft.warehouse_id ?? ""}>{draft.warehouse_name}</option>
-                              )}
-                              {warehouses.map((warehouse) => (
-                                <option key={warehouse.id} value={warehouse.id}>
-                                  {warehouse.name}
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
-                            <span className="text-sm font-medium text-slate-700">
-                              {draft.warehouse_name || "未分配"}
-                            </span>
-                          )}
-                        </td>
-                        <td>
-                          {canAssignOrder ? (
-                            <select
-                              value={normalizeLogisticsMethod(draft.logistics_method)}
-                              disabled={!draft.warehouse_id}
-                              onChange={(event) =>
-                                updateDraftForOrders(
-                                  rowOrderIds,
-                                  "logistics_method",
-                                  event.target.value,
-                                )
-                              }
-                              className="h-9 w-36 rounded-md border border-line bg-white px-2 text-sm outline-none focus:border-accent disabled:bg-slate-50 disabled:text-slate-400"
-                            >
-                              <option value="">未分配</option>
-                              {rowLogisticsOptions.map((method) => (
-                                <option key={method} value={method}>
-                                  {method}
-                                </option>
-                              ))}
-                              {draft.logistics_method &&
-                                !rowLogisticsOptions.includes(
-                                  normalizeLogisticsMethod(draft.logistics_method),
-                                ) && (
-                                  <option value={normalizeLogisticsMethod(draft.logistics_method)}>
-                                    {normalizeLogisticsMethod(draft.logistics_method)}
-                                  </option>
-                                )}
-                            </select>
-                          ) : (
-                            <span className="text-sm font-medium text-slate-700">
-                              {normalizeLogisticsMethod(draft.logistics_method) || "未分配"}
-                            </span>
-                          )}
-                        </td>
-                        <td className="number-cell">{orderRow.quantity}</td>
-                        <td className="order-product-col">
-                          {primaryDeclaration ? (
-                            <div className="flex min-w-56 items-center gap-3">
-                              <div className="flex shrink-0 gap-1">
-                                {declarationGroups.slice(0, 4).map((group) => (
-                                  <SkuImageThumb
-                                    key={group.declaration.sku.id || group.declaration.sku.sku_code}
-                                    product={group.declaration.product}
-                                    sku={group.declaration.sku}
-                                  />
-                                ))}
-                              </div>
-                              <div className="grid min-w-0 gap-1">
-                                <span className="font-medium text-slate-900">
-                                  {primaryDeclaration.product.product_name_cn || "--"}
-                                </span>
-                                <span className="text-xs font-medium text-slate-500">
-                                  {productMeta || skuSummary}
-                                </span>
-                              </div>
-                            </div>
-                          ) : (
-                            <span className="text-sm font-medium text-slate-500">
-                              {skuSummary}
-                            </span>
-                          )}
-                        </td>
-                        <td className="order-attr-col">{getOrderDisplayRowSalesSpec(orderRow) || "--"}</td>
-                        {isShippingTrackingStage(activeStage) && (
-                          <>
-                            <td className="order-tracking-col">
-                              {mergedOrder.logistics_tracking_no ? (
-                                getYamatoTrackingUrl(mergedOrder) ? (
-                                  <a
-                                    href={getYamatoTrackingUrl(mergedOrder)}
-                                    onClick={(event) =>
-                                      openYamatoTracking(
-                                        event,
-                                        mergedOrder.logistics_tracking_no,
-                                      )
-                                    }
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="font-semibold text-sky-700 hover:text-sky-900"
-                                  >
-                                    {mergedOrder.logistics_tracking_no}
-                                  </a>
-                                ) : (
-                                  mergedOrder.logistics_tracking_no
-                                )
-                              ) : (
-                                "--"
-                              )}
-                            </td>
-                            <td className="order-tracking-status-col">
-                              {mergedOrder.logistics_tracking_no ? (
-                                getYamatoTrackingUrl(mergedOrder) ? (
-                                  <a
-                                    href={getYamatoTrackingUrl(mergedOrder)}
-                                    onClick={(event) =>
-                                      openYamatoTracking(
-                                        event,
-                                        mergedOrder.logistics_tracking_no,
-                                      )
-                                    }
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="font-semibold text-sky-700 hover:text-sky-900"
-                                  >
-                                    {trackingStatusLabel}
-                                  </a>
-                                ) : (
-                                  trackingStatusLabel
-                                )
-                              ) : (
-                                "--"
-                              )}
-                            </td>
-                          </>
-                        )}
-                        <td>{formatRecipientName(order.recipient_name) || "--"}</td>
-                        <td className="order-phone-col">{formatRecipientPhone(order.recipient_phone) || "--"}</td>
-                        <td className="order-address-col">{getFullAddress(order) || "--"}</td>
-                        <td>{order.postal_code || "--"}</td>
-                        <td>
-                          {activeStage === "uploaded_temu" ? (
-                            <input
-                              value={draft.actual_ship_time}
-                              readOnly={!canEdit}
-                              onChange={(event) =>
-                                updateDraftForOrders(
-                                  rowOrderIds,
-                                  "actual_ship_time",
-                                  event.target.value,
-                                )
-                              }
-                              onBlur={() => void handleSaveActualShipTimeForOrders(orderRow.orders)}
-                              onKeyDown={(event) => {
-                                if (event.key === "Enter") {
-                                  event.currentTarget.blur();
-                                }
-                              }}
-                              placeholder="填写时间"
-                              className="h-9 w-40 rounded-md border border-line bg-white px-2 text-sm outline-none focus:border-accent"
-                            />
-                          ) : (
-                            <span className="text-sm font-medium text-slate-700">
-                              {draft.actual_ship_time || "--"}
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {filteredOrderRows.map((orderRow) => (
+                    <OrderTableRow
+                      key={orderRow.id}
+                      activeStage={activeStage}
+                      canEdit={canEdit}
+                      currentTime={currentTime}
+                      logisticsMethodOptions={logisticsMethodOptions}
+                      onHandleWarehouseChangeForOrders={handleWarehouseChangeForOrders}
+                      onSaveActualShipTimeForOrders={handleSaveActualShipTimeForOrders}
+                      onToggleOrderRowSelection={toggleOrderRowSelection}
+                      onUpdateDraftForOrders={updateDraftForOrders}
+                      ordersById={ordersById}
+                      primaryDraft={drafts[orderRow.primaryOrder.id]}
+                      productsById={productsById}
+                      rowId={orderRow.id}
+                      rowOrderIds={orderRow.orders.map((item) => item.id)}
+                      rowOrderIdsKey={orderRow.orders.map((item) => item.id).join("|")}
+                      selectedOrderIdSet={selectedOrderIdSet}
+                      skuOrderLookup={skuOrderLookup}
+                      warehouses={warehouses}
+                    />
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -3626,46 +3444,11 @@ export function OrdersPage({ user }: OrdersPageProps) {
       </section>
 
       {detailOrder && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-label="订单详情"
-        >
-          <div className="max-h-[86vh] w-full max-w-4xl overflow-hidden rounded-lg bg-white shadow-xl">
-            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-              <div>
-                <h2 className="text-base font-semibold text-slate-950">订单详情</h2>
-                <p className="mt-1 text-xs font-medium text-slate-500">
-                  {detailOrder.order_no}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setDetailOrder(null)}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50 hover:text-slate-950"
-                aria-label="关闭详情"
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <div className="max-h-[calc(86vh-72px)] overflow-auto p-4">
-              <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {getOrderDetailRows(detailOrder).map(([label, value]) => (
-                  <div
-                    key={label}
-                    className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2"
-                  >
-                    <dt className="text-xs font-semibold text-slate-500">{label}</dt>
-                    <dd className="mt-1 whitespace-pre-wrap break-words text-sm font-medium text-slate-900">
-                      {value || "--"}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            </div>
-          </div>
-        </div>
+        <OrderDetailPanel
+          orderNo={detailOrder.order_no}
+          rows={getOrderDetailRows(detailOrder)}
+          onClose={() => setDetailOrder(null)}
+        />
       )}
     </section>
   );

@@ -1,4 +1,5 @@
 import { Link, Navigate, Route, Routes } from "react-router-dom";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PageShell } from "./components/page-shell";
 import { ProtectedRoute } from "./components/protected-route";
 import { useAuth } from "./hooks/use-auth";
@@ -38,90 +39,116 @@ export default function App() {
     typeof window !== "undefined" && window.location.hostname.split(".")[0] === "orders";
 
   return (
-    <Routes>
-      <Route path="/login" element={<AuthPage user={user} />} />
-      <Route
-        element={
-          <ProtectedRoute user={user} loading={loading}>
-            <PermissionProvider user={user}>
-              <PageShell />
-            </PermissionProvider>
-          </ProtectedRoute>
-        }
-      >
-        <Route index element={isOrdersSubdomain ? <Navigate to="/orders" replace /> : <NotFoundPage />} />
-        <Route path="/products" element={user ? <ProductsPage user={user} /> : null} />
-        <Route path="/orders" element={user ? <OrdersPage user={user} /> : null} />
+    <ErrorBoundary>
+      <Routes>
+        <Route path="/login" element={<AuthPage user={user} />} />
         <Route
-          path="/products/new"
           element={
-            user ? (
+            <ProtectedRoute user={user} loading={loading}>
+              <PermissionProvider user={user}>
+                <PageShell />
+              </PermissionProvider>
+            </ProtectedRoute>
+          }
+        >
+          <Route index element={isOrdersSubdomain ? <Navigate to="/orders" replace /> : <NotFoundPage />} />
+          <Route path="/products" element={user ? <ProductsPage user={user} /> : null} />
+          <Route
+            path="/orders"
+            element={
+              user ? (
+                <ErrorBoundary>
+                  <OrdersPage user={user} />
+                </ErrorBoundary>
+              ) : null
+            }
+          />
+          <Route
+            path="/products/new"
+            element={
+              user ? (
+                <PermissionGate action="edit">
+                  <ProductCreatePage user={user} />
+                </PermissionGate>
+              ) : null
+            }
+          />
+          <Route
+            path="/products/:productId/edit"
+            element={
               <PermissionGate action="edit">
-                <ProductCreatePage user={user} />
+                <ProductEditPage />
               </PermissionGate>
-            ) : null
-          }
-        />
-        <Route
-          path="/products/:productId/edit"
-          element={
-            <PermissionGate action="edit">
-              <ProductEditPage />
-            </PermissionGate>
-          }
-        />
-        <Route
-          path="/products/:productId/pricing"
-          element={user ? <PricingResultPage user={user} /> : null}
-        />
-        <Route
-          path="/declaration-prices"
-          element={user ? <DeclarationPricesPage user={user} /> : null}
-        />
-        <Route
-          path="/profit-calculation"
-          element={user ? <ProfitCalculationsPage user={user} /> : null}
-        />
-        <Route
-          path="/profit-calculation/direct-shipping/:productKey"
-          element={user ? <MultiShipmentProfitPage user={user} mode="direct" /> : null}
-        />
-        <Route
-          path="/profit-calculation/direct-shipping"
-          element={user ? <MultiShipmentProductsPage user={user} mode="direct" /> : null}
-        />
-        <Route
-          path="/profit-calculation/standard-shipping/:productKey"
-          element={user ? <MultiShipmentProfitPage user={user} mode="standard" /> : null}
-        />
-        <Route
-          path="/profit-calculation/standard-shipping"
-          element={user ? <MultiShipmentProductsPage user={user} mode="standard" /> : null}
-        />
-        <Route
-          path="/profit-calculation/recommendations"
-          element={user ? <PromotionRecommendationsPage user={user} /> : null}
-        />
-        <Route path="/test-shipping" element={user ? <TestShippingPage user={user} /> : null} />
-        <Route
-          path="/purchases/new"
-          element={
-            user ? (
-              <PermissionGate action="edit">
-                <PurchasesPage user={user} view="create" />
-              </PermissionGate>
-            ) : null
-          }
-        />
-        <Route path="/purchases/records" element={user ? <PurchasesPage user={user} view="records" /> : null} />
-        <Route path="/inventory" element={user ? <InventoryPage user={user} /> : null} />
-        <Route
-          path="/products/:productId/profit-calculation"
-          element={user ? <ProfitCalculationPage user={user} /> : null}
-        />
-        <Route path="/parameter-settings" element={user ? <SettingsPage user={user} /> : null} />
-        <Route path="*" element={<NotFoundPage />} />
-      </Route>
-    </Routes>
+            }
+          />
+          <Route
+            path="/products/:productId/pricing"
+            element={user ? <PricingResultPage user={user} /> : null}
+          />
+          <Route
+            path="/declaration-prices"
+            element={user ? <DeclarationPricesPage user={user} /> : null}
+          />
+          <Route
+            path="/profit-calculation"
+            element={
+              user ? (
+                <ErrorBoundary>
+                  <ProfitCalculationsPage user={user} />
+                </ErrorBoundary>
+              ) : null
+            }
+          />
+          <Route
+            path="/profit-calculation/direct-shipping/:productKey"
+            element={user ? <MultiShipmentProfitPage user={user} mode="direct" /> : null}
+          />
+          <Route
+            path="/profit-calculation/direct-shipping"
+            element={user ? <MultiShipmentProductsPage user={user} mode="direct" /> : null}
+          />
+          <Route
+            path="/profit-calculation/standard-shipping/:productKey"
+            element={user ? <MultiShipmentProfitPage user={user} mode="standard" /> : null}
+          />
+          <Route
+            path="/profit-calculation/standard-shipping"
+            element={user ? <MultiShipmentProductsPage user={user} mode="standard" /> : null}
+          />
+          <Route
+            path="/profit-calculation/recommendations"
+            element={user ? <PromotionRecommendationsPage user={user} /> : null}
+          />
+          <Route path="/test-shipping" element={user ? <TestShippingPage user={user} /> : null} />
+          <Route
+            path="/purchases/new"
+            element={
+              user ? (
+                <PermissionGate action="edit">
+                  <PurchasesPage user={user} view="create" />
+                </PermissionGate>
+              ) : null
+            }
+          />
+          <Route path="/purchases/records" element={user ? <PurchasesPage user={user} view="records" /> : null} />
+          <Route
+            path="/inventory"
+            element={
+              user ? (
+                <ErrorBoundary>
+                  <InventoryPage user={user} />
+                </ErrorBoundary>
+              ) : null
+            }
+          />
+          <Route
+            path="/products/:productId/profit-calculation"
+            element={user ? <ProfitCalculationPage user={user} /> : null}
+          />
+          <Route path="/parameter-settings" element={user ? <SettingsPage user={user} /> : null} />
+          <Route path="*" element={<NotFoundPage />} />
+        </Route>
+      </Routes>
+    </ErrorBoundary>
   );
 }
