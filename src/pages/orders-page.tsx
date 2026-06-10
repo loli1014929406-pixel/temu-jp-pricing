@@ -2402,8 +2402,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
 
     for (const entry of entries) {
       const shouldDeductInventory =
-        getOrderStage(mergeOrderDraft(entry.order)) === "pending_assignment" &&
-        getOrderStage(entry.nextOrder) === "new_order";
+        getOrderStage(mergeOrderDraft(entry.order)) === "pending_shipping" &&
+        getOrderStage(entry.nextOrder) === "shipped";
       let entryInventoryChanges: Awaited<ReturnType<typeof deductInventoryForOrders>> = [];
 
       try {
@@ -2541,8 +2541,13 @@ export function OrdersPage({ user }: OrdersPageProps) {
     let ordersDeleted = false;
 
     try {
+      // 只回补已经实际发货（已扣过库存）的订单，避免未发货订单删除时错误回补
+      const shippedOrdersToRestore = selectedOrdersInView.filter((order) => {
+        const stage = getOrderStage(order);
+        return stage === "shipped" || stage === "uploaded_temu" || stage === "completed";
+      });
       const inventoryRestorations =
-        buildOrderInventoryRestorationInputs(selectedOrdersInView);
+        buildOrderInventoryRestorationInputs(shippedOrdersToRestore);
       await Promise.all(selectedOrdersInView.map((order) => deleteTemuOrder(order.id)));
       ordersDeleted = true;
       removeOrders(Array.from(targetIds));

@@ -684,17 +684,20 @@ export async function receivePurchasePackage(order: PurchaseOrder, pkg: Purchase
     throw new Error("该包裹已经签收");
   }
 
-  const inventory = await applyPurchasePackageInventory(
-    order,
-    packageToReceive,
-    [pkg.id, packageToReceive.id],
-  );
+  // 先更新包裹状态为 received，再写库存流水
+  // 这样即使库存写入失败，包裹会停在 received（幂等性由 applyPurchasePackageInventory 的去重保证）
+  // 比原来「先写库存再更新包裹」更安全：不会出现「有流水但包裹还是 pending」
   const receivedAt = new Date().toISOString();
   const { data: packageData, error: packageError } = await supabase.from("purchase_packages").update({ status: "received", received_at: receivedAt }).eq("id", packageToReceive.id).eq("owner_id", session.user.id).eq("status", "pending").select("id, source_id, tracking_no, status").maybeSingle();
   if (packageError) throw packageError;
   if (!packageData) {
     throw new Error("快递包裹状态已变化，请刷新页面后查看");
   }
+  const inventory = await applyPurchasePackageInventory(
+    order,
+    packageToReceive,
+    [pkg.id, packageToReceive.id],
+  );
   const { data: allPackageData, error: allPackageError } = await supabase
     .from("purchase_packages")
     .select("id, status")
