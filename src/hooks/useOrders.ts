@@ -430,10 +430,15 @@ export function useOrders(user: User) {
         (order) => nextOrders.find((nextOrder) => nextOrder.id === order.id) ?? order,
       ),
     );
-    setDrafts((current) => ({
-      ...current,
-      ...buildDraftMap(nextOrders),
-    }));
+    setDrafts((current) => {
+      const next = { ...current };
+      nextOrders.forEach((order) => {
+        if (!(order.id in next)) {
+          next[order.id] = toDraft(order);
+        }
+      });
+      return next;
+    });
   }
 
   function replaceDraftsFromOrders(nextOrders: TemuOrderRecord[]) {

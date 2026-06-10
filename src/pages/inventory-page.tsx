@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { Link, useParams } from "react-router-dom";
 import {
@@ -342,10 +342,13 @@ export function InventoryPage({ user }: InventoryPageProps) {
     return codesById;
   }, [productsById, skusByProductId]);
 
-  function getSkuDisplayCode(sku?: ProductSku) {
-    if (!sku?.id) return "--";
-    return skuDisplayCodesById[sku.id] || sku.sku_code || "--";
-  }
+  const getSkuDisplayCode = useCallback(
+    (sku?: ProductSku) => {
+      if (!sku?.id) return "--";
+      return skuDisplayCodesById[sku.id] || sku.sku_code || "--";
+    },
+    [skuDisplayCodesById],
+  );
 
   const warehouseSkusByWarehouseId = useMemo(
     () =>
@@ -428,9 +431,9 @@ export function InventoryPage({ user }: InventoryPageProps) {
     [
       productCodeCollator,
       productsById,
-      skuDisplayCodesById,
       skusById,
       warehouseSkusByWarehouseId,
+      getSkuDisplayCode,
     ],
   );
 

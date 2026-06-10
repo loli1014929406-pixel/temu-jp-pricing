@@ -1,28 +1,5 @@
-import { getSupabaseClient } from "./supabase";
+import { withTimeout, requireSession } from "./supabase-helpers";
 import type { TemuOrderRecord } from "../types";
-
-const requestTimeoutMs = 15000;
-
-async function withTimeout<T>(promise: PromiseLike<T>, label: string) {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timeoutId = setTimeout(() => reject(new Error(`${label}超时，请稍后重试`)), requestTimeoutMs);
-  });
-  try {
-    return await Promise.race([promise, timeout]);
-  } finally {
-    if (timeoutId) clearTimeout(timeoutId);
-  }
-}
-
-async function requireSession() {
-  const supabase = getSupabaseClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session?.user) throw new Error("当前登录已失效，请重新登录");
-  return { supabase, session };
-}
 
 export type TemuOrderImportRow = Pick<
   TemuOrderRecord,

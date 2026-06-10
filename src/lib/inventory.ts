@@ -1,4 +1,4 @@
-import { getSupabaseClient } from "./supabase";
+import { withTimeout, requireSession } from "./supabase-helpers";
 import type {
   Warehouse,
   WarehouseItemStock,
@@ -6,43 +6,12 @@ import type {
   WarehouseSku,
 } from "../types";
 
-const requestTimeoutMs = 15000;
-
-async function withTimeout<T>(promise: PromiseLike<T>, label: string) {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timeoutId = setTimeout(
-      () => reject(new Error(`${label}超时，请稍后重试`)),
-      requestTimeoutMs,
-    );
-  });
-
-  try {
-    return await Promise.race([promise, timeout]);
-  } finally {
-    if (timeoutId) clearTimeout(timeoutId);
-  }
-}
-
-async function requireSession() {
-  const supabase = getSupabaseClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  if (!session?.user) {
-    throw new Error("当前登录已失效，请重新登录");
-  }
-
-  return { supabase, session };
-}
-
 export async function fetchWarehouses() {
   const { supabase } = await requireSession();
   const { data, error } = await withTimeout(
     supabase
       .from("warehouses")
-      .select("id, name")
+      .select("id, name, owner_id, created_at, updated_at")
       .order("created_at", { ascending: true }),
     "加载仓库",
   );
@@ -59,7 +28,7 @@ export async function createWarehouse(name: string) {
       .insert({
         name,
       })
-      .select("id, name")
+      .select("id, name, owner_id, created_at, updated_at")
       .single(),
     "新增仓库",
   );
@@ -78,7 +47,7 @@ export async function updateWarehouse(
       .from("warehouses")
       .update(updates)
       .eq("id", warehouseId)
-      .select("id, name")
+      .select("id, name, owner_id, created_at, updated_at")
       .single(),
     "更新仓库",
   );
@@ -107,7 +76,7 @@ export async function fetchWarehouseSkus(warehouseIds: string[]) {
   const { data, error } = await withTimeout(
     supabase
       .from("warehouse_skus")
-      .select("id, warehouse_id, product_id, sku_id, created_at")
+      .select("id, warehouse_id, product_id, sku_id, owner_id, stock_quantity, created_at, updated_at")
       .in("warehouse_id", warehouseIds)
       .order("created_at", { ascending: true }),
     "加载库存 SKU",
