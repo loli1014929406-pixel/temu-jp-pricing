@@ -5,7 +5,14 @@ import { createClient } from "@supabase/supabase-js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectDir = path.resolve(__dirname, "..");
+const showHelp = process.argv.includes("--help") || process.argv.includes("-h");
 const dryRun = process.argv.includes("--dry-run");
+
+if (showHelp) {
+  console.log("用法：node scripts/repair-inventory-data.mjs [--dry-run]");
+  console.log("--dry-run  只预览库存校准，不写入 Supabase");
+  process.exit(0);
+}
 
 const tables = [
   "warehouses",
@@ -513,9 +520,28 @@ const existingInboundKeys = new Set(
       : [],
   ),
 );
+const existingInboundLegacyQuantities = new Map();
 const existingOutboundLineKeys = new Set();
 const existingOutboundLegacyCounts = new Map();
 for (const adjustment of data.warehouse_item_stock_adjustments) {
+  const reason = String(adjustment.reason ?? "").trim();
+  const purchaseOrderId = adjustment.purchase_order_id ?? "";
+  const purchasePackageId = adjustment.purchase_package_id ?? "";
+  const changeQuantity = Math.trunc(Number(adjustment.change_quantity) || 0);
+
+  if (
+    purchaseOrderId &&
+    !purchasePackageId &&
+    reason.startsWith("采购入库") &&
+    changeQuantity > 0
+  ) {
+    const key = `${adjustment.warehouse_id}:${adjustment.item_id}:${purchaseOrderId}`;
+    existingInboundLegacyQuantities.set(
+      key,
+      (existingInboundLegacyQuantities.get(key) ?? 0) + changeQuantity,
+    );
+  }
+
   const identity = parseOutboundOrderIdentity(adjustment.reason);
   if (!identity.orderNo) continue;
 
@@ -581,7 +607,20 @@ function applyAdjustmentEvent(event) {
 for (const event of Array.from(inboundEvents.values())) {
   const key = `${event.warehouse_id}:${event.item_id}:${event.purchase_package_id}`;
   if (existingInboundKeys.has(key)) continue;
-  applyAdjustmentEvent({ ...event, direction: "in" });
+
+  const legacyKey = `${event.warehouse_id}:${event.item_id}:${event.purchase_order_id}`;
+  const legacyQuantity = existingInboundLegacyQuantities.get(legacyKey) ?? 0;
+  if (legacyQuantity >= event.quantity) {
+    existingInboundLegacyQuantities.set(legacyKey, legacyQuantity - event.quantity);
+    continue;
+  }
+
+  existingInboundLegacyQuantities.set(legacyKey, 0);
+  applyAdjustmentEvent({
+    ...event,
+    quantity: event.quantity - legacyQuantity,
+    direction: "in",
+  });
 }
 
 for (const event of Array.from(outboundEvents.values())) {
@@ -788,6 +827,8 @@ for (const key of stockKeysToReconcile) {
       owner_id: stock.owner_id,
       stock_quantity: expectedQuantity,
     });
+  } else {
+    stockUpdateDrafts.delete(key);
   }
 }
 

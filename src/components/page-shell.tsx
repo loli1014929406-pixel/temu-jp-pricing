@@ -20,14 +20,27 @@ const navItems = [
   { to: "/test-shipping", label: "直发测算", module: "物流测算", icon: Truck },
   { to: "/purchases/records", label: "采购管理", module: "采购入库", icon: ShoppingCart },
   { to: "/inventory", label: "仓储库存", module: "库存管理", icon: Warehouse },
+  { to: "/inventory/transfer", label: "库存调拨", module: "库存管理", icon: Warehouse },
   { to: "/parameter-settings", label: "参数设置", module: "系统配置", icon: Settings },
 ] as const;
 
 function getActiveModule(pathname: string) {
   return (
-    navItems.find((item) => pathname === item.to || pathname.startsWith(`${item.to}/`)) ??
+    [...navItems]
+      .sort((left, right) => right.to.length - left.to.length)
+      .find((item) => pathname === item.to || pathname.startsWith(`${item.to}/`)) ??
     navItems[0]
   );
+}
+
+function isNavItemActive(pathname: string, itemTo: string, isActive: boolean) {
+  if (itemTo === "/inventory") {
+    return (
+      pathname === "/inventory" ||
+      (pathname.startsWith("/inventory/") && pathname !== "/inventory/transfer")
+    );
+  }
+  return isActive;
 }
 
 export function PageShell() {
@@ -56,7 +69,11 @@ export function PageShell() {
                   key={item.to}
                   to={item.to}
                   className={({ isActive }) =>
-                    `erp-side-nav-item ${isActive ? "erp-side-nav-item-active" : ""}`
+                    `erp-side-nav-item ${
+                      isNavItemActive(location.pathname, item.to, isActive)
+                        ? "erp-side-nav-item-active"
+                        : ""
+                    }`
                   }
                 >
                   <Icon size={16} />
@@ -68,14 +85,18 @@ export function PageShell() {
 
           <div className="erp-side-section">
             <p className="erp-side-section-title">仓库</p>
-            {navItems.slice(1, 7).map((item) => {
+            {navItems.slice(1, 8).map((item) => {
               const Icon = item.icon;
               return (
                 <NavLink
                   key={item.to}
                   to={item.to}
                   className={({ isActive }) =>
-                    `erp-side-nav-item ${isActive ? "erp-side-nav-item-active" : ""}`
+                    `erp-side-nav-item ${
+                      isNavItemActive(location.pathname, item.to, isActive)
+                        ? "erp-side-nav-item-active"
+                        : ""
+                    }`
                   }
                 >
                   <Icon size={16} />
@@ -87,14 +108,18 @@ export function PageShell() {
 
           <div className="erp-side-section">
             <p className="erp-side-section-title">系统</p>
-            {navItems.slice(7).map((item) => {
+            {navItems.slice(8).map((item) => {
               const Icon = item.icon;
               return (
                 <NavLink
                   key={item.to}
                   to={item.to}
                   className={({ isActive }) =>
-                    `erp-side-nav-item ${isActive ? "erp-side-nav-item-active" : ""}`
+                    `erp-side-nav-item ${
+                      isNavItemActive(location.pathname, item.to, isActive)
+                        ? "erp-side-nav-item-active"
+                        : ""
+                    }`
                   }
                 >
                   <Icon size={16} />

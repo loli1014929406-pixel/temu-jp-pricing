@@ -136,8 +136,28 @@ async function persistResolvedPurchaseItemIds(
   );
   const failedUpdate = results.find((result) => result.error);
   if (failedUpdate?.error) throw failedUpdate.error;
-  const missedUpdate = results.find((result) => !result.data);
-  if (missedUpdate) throw new Error("采购明细配件绑定未能写入，请刷新后重试");
+
+  // 对于没有匹配到行（item_id 已非 NULL）的情况，
+  // 验证数据库里的值是否已经是期望值，是则幂等通过，否则才报错
+  const missedUpdates = updates.filter((_, i) => !results[i].data);
+  if (missedUpdates.length === 0) return;
+
+  const missedIds = missedUpdates.map(({ orderItem }) => orderItem.id);
+  const { data: existingRows, error: existingError } = await supabase
+    .from("purchase_order_items")
+    .select("id, item_id")
+    .in("id", missedIds)
+    .eq("owner_id", ownerId);
+  if (existingError) throw existingError;
+
+  const existingById = Object.fromEntries(
+    (existingRows ?? []).map((row) => [row.id, row.item_id]),
+  );
+  console.log("[persist] missedUpdates", missedUpdates.map(({orderItem}) => ({ id: orderItem.id, expected: orderItem.item_id, actual: existingById[orderItem.id] })));
+  const trueFailure = missedUpdates.find(
+    ({ orderItem }) => existingById[orderItem.id] !== orderItem.item_id,
+  );
+  if (trueFailure) throw new Error("采购明细配件绑定未能写入，请刷新后重试");
 }
 
 export async function fetchPurchaseOrders() {
@@ -376,7 +396,7 @@ async function reverseReceivedPurchaseInventory(order: PurchaseOrder) {
     const { data: currentData, error: currentError } = await withTimeout(
       supabase
         .from("warehouse_item_stocks")
-        .select("id, stock_quantity")
+        .select("id, warehouse_id, item_id, stock_quantity")
         .eq("warehouse_id", order.warehouse_id)
         .eq("item_id", reversal.itemId)
         .maybeSingle(),
@@ -399,7 +419,7 @@ async function reverseReceivedPurchaseInventory(order: PurchaseOrder) {
         .update({ stock_quantity: nextQuantity })
         .eq("id", current.id)
         .eq("stock_quantity", current.stock_quantity)
-        .select("id")
+        .select("id, warehouse_id, item_id, stock_quantity")
         .maybeSingle(),
       "冲回配件库存",
     );
@@ -627,7 +647,7 @@ async function applyPurchasePackageInventory(
       .update({ stock_quantity: nextQuantity })
       .eq("id", current.id)
       .eq("stock_quantity", current.stock_quantity)
-      .select("id")
+      .select("id, stock_quantity")
       .maybeSingle();
     if (nextError) throw nextError;
     if (!nextData) throw new Error("库存已被其他操作更新，请刷新后重试");

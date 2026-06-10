@@ -94,26 +94,95 @@ type OrderDisplayRow = {
   quantity: number;
 };
 
-const importColumns = [
-  "订单号",
-  "子订单号",
-  "订单状态",
-  "SKU货号",
-  "应履约件数",
-  "商品属性",
-  "收货人姓名",
-  "收货人联系方式",
-  "邮箱",
-  "省份",
-  "城市",
-  "区县",
-  "详细地址1",
-  "详细地址2",
-  "收货地址邮编",
-  "要求最晚发货时间",
-  "实际发货时间",
-  "预计送达时间",
-] as const;
+type TemuOrderImportField = keyof TemuOrderImportRow;
+
+const importColumnAliases = {
+  order_no: ["订单号", "主订单号", "订单编号", "订单ID", "Order ID"],
+  sub_order_no: ["子订单号", "子订单编号", "子订单ID", "Sub Order ID", "Sub-order ID"],
+  order_status: ["订单状态", "状态", "Order Status"],
+  sku_code: ["SKU货号", "SKU 货号", "SKU", "SKU ID", "商品SKU", "商家SKU"],
+  fulfillment_quantity: ["应履约件数", "商品数量", "数量", "购买数量", "件数", "商品件数"],
+  product_attributes: ["商品属性", "商品规格", "销售属性", "SKU属性", "规格"],
+  recipient_name: [
+    "收货人姓名",
+    "收件人姓名",
+    "收货人",
+    "收件人",
+    "CONSIGNEE_NAME",
+    "CONSIGNEE NAME",
+    "Recipient Name",
+  ],
+  recipient_phone: [
+    "收货人联系方式",
+    "收件人联系方式",
+    "收货电话",
+    "收件电话",
+    "联系电话",
+    "电话",
+    "CONTACT_TEL",
+    "CONTACT TEL",
+    "Recipient Phone",
+  ],
+  email: ["邮箱", "电子邮箱", "Email", "E-mail"],
+  province: ["省份", "都道府县", "都道府県", "州/省", "Province"],
+  city: ["城市", "市区町村", "市", "City"],
+  district: ["区县", "区町村", "区", "District"],
+  address_line1: [
+    "详细地址1",
+    "详细地址 1",
+    "地址1",
+    "收货地址1",
+    "收件地址1",
+    "收件人地址",
+    "收货地址",
+    "地址",
+    "住所1",
+    "DELIVERY_ADDR_JP",
+    "DELIVERY ADDR JP",
+  ],
+  address_line2: ["详细地址2", "详细地址 2", "地址2", "收货地址2", "收件地址2", "住所2"],
+  postal_code: [
+    "收货地址邮编",
+    "邮编",
+    "收件邮编",
+    "收货邮编",
+    "郵便番号",
+    "POSTCODE",
+    "Postal Code",
+    "Zip Code",
+  ],
+  latest_ship_time: ["要求最晚发货时间", "最晚发货时间", "发货截止时间", "Latest Ship Time"],
+  actual_ship_time: ["实际发货时间", "Actual Ship Time"],
+  estimated_delivery_time: ["预计送达时间", "预计送达日期", "Estimated Delivery Time"],
+} satisfies Record<TemuOrderImportField, readonly string[]>;
+
+const optionalImportFields = new Set<TemuOrderImportField>([
+  "sub_order_no",
+  "sku_code",
+  "fulfillment_quantity",
+  "product_attributes",
+]);
+
+const importFieldLabels = {
+  order_no: "订单号",
+  sub_order_no: "子订单号",
+  order_status: "订单状态",
+  sku_code: "SKU货号",
+  fulfillment_quantity: "应履约件数",
+  product_attributes: "商品属性",
+  recipient_name: "收货人姓名",
+  recipient_phone: "收货人联系方式",
+  email: "邮箱",
+  province: "省份",
+  city: "城市",
+  district: "区县",
+  address_line1: "详细地址1",
+  address_line2: "详细地址2",
+  postal_code: "收货地址邮编",
+  latest_ship_time: "要求最晚发货时间",
+  actual_ship_time: "实际发货时间",
+  estimated_delivery_time: "预计送达时间",
+} satisfies Record<TemuOrderImportField, string>;
 
 const trackingImportColumns = ["CWB_NO", "REMARK"] as const;
 
@@ -186,18 +255,43 @@ function cleanCell(value: unknown) {
   return text === "--" ? "" : text;
 }
 
-function readCell(row: Record<string, unknown>, column: (typeof importColumns)[number]) {
-  return cleanCell(row[column]);
+function normalizeColumnName(value: string) {
+  return value
+    .replace(/^\uFEFF/, "")
+    .replace(/[\s_\-＿－]+/g, "")
+    .toLowerCase();
+}
+
+function hasAnyColumn(row: Record<string, unknown>, columns: readonly string[]) {
+  const normalizedColumns = new Set(columns.map(normalizeColumnName));
+  return (
+    columns.some((column) => Object.prototype.hasOwnProperty.call(row, column)) ||
+    Object.keys(row).some((column) => normalizedColumns.has(normalizeColumnName(column)))
+  );
 }
 
 function readAnyCell(row: Record<string, unknown>, columns: readonly string[]) {
+  const normalizedColumns = new Set(columns.map(normalizeColumnName));
+
   for (const column of columns) {
     if (Object.prototype.hasOwnProperty.call(row, column)) {
       const value = cleanCell(row[column]);
       if (value) return value;
     }
   }
+
+  for (const [column, rawValue] of Object.entries(row)) {
+    if (normalizedColumns.has(normalizeColumnName(column))) {
+      const value = cleanCell(rawValue);
+      if (value) return value;
+    }
+  }
+
   return "";
+}
+
+function readImportCell(row: Record<string, unknown>, field: TemuOrderImportField) {
+  return readAnyCell(row, importColumnAliases[field]);
 }
 
 function normalizeSkuCode(value: string) {
@@ -591,7 +685,12 @@ function parseTrackingImportRecord(row: Record<string, unknown>, index: number):
   };
 }
 
-function getFullAddress(order: TemuOrderRecord) {
+function getFullAddress(
+  order: Pick<
+    TemuOrderRecord,
+    "province" | "city" | "district" | "address_line1" | "address_line2"
+  >,
+) {
   return [
     order.province,
     order.city,
@@ -607,6 +706,62 @@ function formatRecipientPhone(phone: string) {
 
 function formatRecipientName(name: string) {
   return name.replace(/[（(][^（）()]*[）)]/g, "").trim();
+}
+
+const recipientImportFields = [
+  "recipient_name",
+  "recipient_phone",
+  "email",
+  "province",
+  "city",
+  "district",
+  "address_line1",
+  "address_line2",
+  "postal_code",
+] as const satisfies readonly TemuOrderImportField[];
+
+type RecipientInfoRecord = Pick<
+  TemuOrderImportRow,
+  (typeof recipientImportFields)[number]
+>;
+
+function hasAnyRecipientInfo(order: RecipientInfoRecord) {
+  return recipientImportFields.some((field) => String(order[field] ?? "").trim());
+}
+
+function hasCompleteRecipientInfo(
+  order: Pick<
+    TemuOrderImportRow,
+    "recipient_name" | "recipient_phone" | "province" | "city" | "district" | "address_line1" | "address_line2" | "postal_code"
+  >,
+) {
+  return Boolean(
+    formatRecipientName(order.recipient_name) &&
+      formatRecipientPhone(order.recipient_phone) &&
+      getFullAddress(order) &&
+      order.postal_code.trim(),
+  );
+}
+
+function mergeImportRowWithExistingOrder(
+  row: TemuOrderImportRow,
+  existingOrder: TemuOrderRecord | undefined,
+) {
+  if (!existingOrder) return row;
+
+  const merged: TemuOrderImportRow = {
+    ...row,
+    order_status: existingOrder.order_status || row.order_status,
+    actual_ship_time: existingOrder.actual_ship_time || row.actual_ship_time,
+  };
+
+  recipientImportFields.forEach((field) => {
+    if (!String(merged[field] ?? "").trim()) {
+      merged[field] = existingOrder[field];
+    }
+  });
+
+  return merged;
 }
 
 function getOrderStage(order: TemuOrderRecord): Exclude<OrderStage, "all"> {
@@ -1275,10 +1430,11 @@ export function OrdersPage({ user }: OrdersPageProps) {
   const filteredOrders = useMemo(() => {
     const term = search.trim().toLowerCase();
     const nextOrders = orders.filter((order) => {
-      if (showUrgentUnuploadedOnly && !isUrgentUnuploadedOrder(order, currentTime)) {
+      const merged = mergeOrderDraft(order);
+      if (showUrgentUnuploadedOnly && !isUrgentUnuploadedOrder(merged, currentTime)) {
         return false;
       }
-      if (activeStage !== "all" && getOrderStage(order) !== activeStage) return false;
+      if (activeStage !== "all" && getOrderStage(merged) !== activeStage) return false;
       if (!term) return true;
 
       return [
@@ -1331,6 +1487,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
   }, [
     activeStage,
     currentTime,
+    drafts,
     orders,
     orderSort,
     productsById,
@@ -1368,13 +1525,13 @@ export function OrdersPage({ user }: OrdersPageProps) {
   );
 
   const newOrdersInView = useMemo(
-    () => filteredOrders.filter((order) => getOrderStage(order) === "new_order"),
-    [filteredOrders],
+    () => filteredOrders.filter((order) => getOrderStage(mergeOrderDraft(order)) === "new_order"),
+    [drafts, filteredOrders],
   );
 
   const pendingShippingOrdersInView = useMemo(
-    () => filteredOrders.filter((order) => getOrderStage(order) === "pending_shipping"),
-    [filteredOrders],
+    () => filteredOrders.filter((order) => getOrderStage(mergeOrderDraft(order)) === "pending_shipping"),
+    [drafts, filteredOrders],
   );
 
   const selectedOrderIdSet = useMemo(
@@ -1395,27 +1552,27 @@ export function OrdersPage({ user }: OrdersPageProps) {
   const selectedShippedOrdersInView = useMemo(
     () =>
       filteredOrders.filter(
-        (order) => selectedOrderIdSet.has(order.id) && getOrderStage(order) === "shipped",
+        (order) => selectedOrderIdSet.has(order.id) && getOrderStage(mergeOrderDraft(order)) === "shipped",
       ),
-    [filteredOrders, selectedOrderIdSet],
+    [drafts, filteredOrders, selectedOrderIdSet],
   );
 
   const selectedUploadedTemuOrdersInView = useMemo(
     () =>
       filteredOrders.filter(
         (order) =>
-          selectedOrderIdSet.has(order.id) && getOrderStage(order) === "uploaded_temu",
+          selectedOrderIdSet.has(order.id) && getOrderStage(mergeOrderDraft(order)) === "uploaded_temu",
       ),
-    [filteredOrders, selectedOrderIdSet],
+    [drafts, filteredOrders, selectedOrderIdSet],
   );
 
   const selectedCompletableOrdersInView = useMemo(
     () =>
       filteredOrders.filter(
         (order) =>
-          selectedOrderIdSet.has(order.id) && getOrderStage(order) === "uploaded_temu",
+          selectedOrderIdSet.has(order.id) && getOrderStage(mergeOrderDraft(order)) === "uploaded_temu",
       ),
-    [filteredOrders, selectedOrderIdSet],
+    [drafts, filteredOrders, selectedOrderIdSet],
   );
 
   const selectedOrdersInView = useMemo(
@@ -1425,9 +1582,9 @@ export function OrdersPage({ user }: OrdersPageProps) {
   const selectedCompletedOrdersInView = useMemo(
     () =>
       filteredOrders.filter(
-        (order) => selectedOrderIdSet.has(order.id) && getOrderStage(order) === "completed",
+        (order) => selectedOrderIdSet.has(order.id) && getOrderStage(mergeOrderDraft(order)) === "completed",
       ),
-    [filteredOrders, selectedOrderIdSet],
+    [drafts, filteredOrders, selectedOrderIdSet],
   );
 
   const selectedOrderRowsInView = useMemo(
@@ -1473,9 +1630,9 @@ export function OrdersPage({ user }: OrdersPageProps) {
     () =>
       filteredOrders.filter(
         (order) =>
-          isShippingTrackingStage(getOrderStage(order)) && order.logistics_tracking_no.trim(),
+          isShippingTrackingStage(getOrderStage(mergeOrderDraft(order))) && order.logistics_tracking_no.trim(),
       ),
-    [filteredOrders],
+    [drafts, filteredOrders],
   );
   const allFilteredSelected =
     filteredOrderRows.length > 0 &&
@@ -1983,11 +2140,13 @@ export function OrdersPage({ user }: OrdersPageProps) {
 
     try {
       const rows = await readTabularFileObjects(file);
-      const missingColumns = importColumns.filter(
-        (column) =>
-          !["子订单号", "SKU货号", "应履约件数", "商品属性"].includes(column) &&
-          !Object.prototype.hasOwnProperty.call(rows[0] ?? {}, column),
-      );
+      const missingColumns = (Object.keys(importColumnAliases) as TemuOrderImportField[])
+        .filter(
+          (field) =>
+            !optionalImportFields.has(field) &&
+            !hasAnyColumn(rows[0] ?? {}, importColumnAliases[field]),
+        )
+        .map((field) => importFieldLabels[field]);
       if (missingColumns.length > 0) {
         throw new Error(`缺少必要列：${missingColumns.join("、")}`);
       }
@@ -1997,32 +2156,32 @@ export function OrdersPage({ user }: OrdersPageProps) {
       const importSkuLookup = buildSkuOrderLookup(nextProducts, nextSkus);
 
       const importRows: TemuOrderImportRow[] = rows.flatMap((row, index) => {
-        const orderNo = readCell(row, "订单号");
+        const orderNo = readImportCell(row, "order_no");
         if (!orderNo) return [];
-        const skuCode = readCell(row, "SKU货号");
+        const skuCode = readImportCell(row, "sku_code");
         const matchedSalesSpec = importSkuLookup.salesSpecByCode.get(normalizeSkuCode(skuCode));
         return [
           {
             order_no: orderNo,
-            sub_order_no: readCell(row, "子订单号") || String(index + 2),
-            order_status: readCell(row, "订单状态"),
+            sub_order_no: readImportCell(row, "sub_order_no") || String(index + 2),
+            order_status: readImportCell(row, "order_status"),
             sku_code: skuCode,
             fulfillment_quantity: parseFulfillmentQuantity(
-              readAnyCell(row, ["应履约件数", "商品数量", "数量", "购买数量", "件数", "商品件数"]),
+              readImportCell(row, "fulfillment_quantity"),
             ),
-            product_attributes: matchedSalesSpec ?? readCell(row, "商品属性"),
-            recipient_name: readCell(row, "收货人姓名"),
-            recipient_phone: readCell(row, "收货人联系方式"),
-            email: readCell(row, "邮箱"),
-            province: readCell(row, "省份"),
-            city: readCell(row, "城市"),
-            district: readCell(row, "区县"),
-            address_line1: readCell(row, "详细地址1"),
-            address_line2: readCell(row, "详细地址2"),
-            postal_code: readCell(row, "收货地址邮编"),
-            latest_ship_time: readCell(row, "要求最晚发货时间"),
-            actual_ship_time: readCell(row, "实际发货时间"),
-            estimated_delivery_time: readCell(row, "预计送达时间"),
+            product_attributes: matchedSalesSpec ?? readImportCell(row, "product_attributes"),
+            recipient_name: readImportCell(row, "recipient_name"),
+            recipient_phone: readImportCell(row, "recipient_phone"),
+            email: readImportCell(row, "email"),
+            province: readImportCell(row, "province"),
+            city: readImportCell(row, "city"),
+            district: readImportCell(row, "district"),
+            address_line1: readImportCell(row, "address_line1"),
+            address_line2: readImportCell(row, "address_line2"),
+            postal_code: readImportCell(row, "postal_code"),
+            latest_ship_time: readImportCell(row, "latest_ship_time"),
+            actual_ship_time: readImportCell(row, "actual_ship_time"),
+            estimated_delivery_time: readImportCell(row, "estimated_delivery_time"),
           },
         ];
       });
@@ -2040,16 +2199,15 @@ export function OrdersPage({ user }: OrdersPageProps) {
       const existingLineCount = uniqueImportRows.filter((row) =>
         existingOrdersByLineKey.has(getOrderLineKey(row)),
       ).length;
-      const importRowsForSave = uniqueImportRows.map((row) => {
-        const existingOrder = existingOrdersByLineKey.get(getOrderLineKey(row));
-        return existingOrder
-          ? {
-              ...row,
-              order_status: existingOrder.order_status || row.order_status,
-              actual_ship_time: existingOrder.actual_ship_time || row.actual_ship_time,
-            }
-          : row;
-      });
+      const importedRowsMissingRecipientInfo = uniqueImportRows.filter(
+        (row) => !hasAnyRecipientInfo(row),
+      ).length;
+      const importRowsForSave = uniqueImportRows.map((row) =>
+        mergeImportRowWithExistingOrder(row, existingOrdersByLineKey.get(getOrderLineKey(row))),
+      );
+      const unresolvedRowsMissingRecipientInfo = importRowsForSave.filter(
+        (row) => !hasAnyRecipientInfo(row),
+      ).length;
       const savedOrders =
         importRowsForSave.length > 0
           ? await importTemuOrders(importRowsForSave)
@@ -2061,6 +2219,12 @@ export function OrdersPage({ user }: OrdersPageProps) {
       const skipMessages = [
         skippedDuplicateCount > 0 ? `跳过上传表内重复订单明细 ${skippedDuplicateCount} 行` : "",
         existingLineCount > 0 ? `更新已有订单明细 ${existingLineCount} 条` : "",
+        importedRowsMissingRecipientInfo > unresolvedRowsMissingRecipientInfo
+          ? `保留已有收件信息 ${importedRowsMissingRecipientInfo - unresolvedRowsMissingRecipientInfo} 条`
+          : "",
+        unresolvedRowsMissingRecipientInfo > 0
+          ? `${unresolvedRowsMissingRecipientInfo} 条订单仍缺少收件信息，请重新上传包含收件信息的 Temu 订单表`
+          : "",
       ].filter(Boolean);
       setNoticeMessage(
         [
@@ -2103,7 +2267,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
         .filter((row): row is TrackingImportRecord => Boolean(row));
       if (trackingRows.length === 0) throw new Error("没有读取到可用的物流单号 CWB_NO");
 
-      const pendingOrders = orders.filter((order) => getOrderStage(order) === "pending_shipping");
+      const pendingOrders = orders.filter((order) => getOrderStage(mergeOrderDraft(order)) === "pending_shipping");
       if (pendingOrders.length === 0) {
         setNoticeMessage("当前没有待发货订单需要匹配物流单号。");
         return;
@@ -2238,7 +2402,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
 
     for (const entry of entries) {
       const shouldDeductInventory =
-        getOrderStage(entry.order) === "pending_assignment" &&
+        getOrderStage(mergeOrderDraft(entry.order)) === "pending_assignment" &&
         getOrderStage(entry.nextOrder) === "new_order";
       let entryInventoryChanges: Awaited<ReturnType<typeof deductInventoryForOrders>> = [];
 
@@ -2325,7 +2489,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
     if (!canEdit) return;
 
     const changedOrders = targetOrders.filter((order) => {
-      if (getOrderStage(order) !== "uploaded_temu") return false;
+      if (getOrderStage(mergeOrderDraft(order)) !== "uploaded_temu") return false;
       const nextActualShipTime = (drafts[order.id] ?? toDraft(order)).actual_ship_time.trim();
       return nextActualShipTime !== order.actual_ship_time.trim();
     });
@@ -2416,7 +2580,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
       return;
     }
     const pendingSelectedOrders = selectedOrdersInView.filter(
-      (order) => getOrderStage(order) === "pending_assignment",
+      (order) => getOrderStage(mergeOrderDraft(order)) === "pending_assignment",
     );
     if (pendingSelectedOrders.length === 0) {
       setNoticeMessage("请先勾选要批量分配的订单。");
@@ -2530,7 +2694,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
 
     const targetOrders = (
       selectedOrderLineInViewCount > 0 ? selectedOrdersInView : filteredOrders
-    ).filter((order) => getOrderStage(order) === "pending_assignment");
+    ).filter((order) => getOrderStage(mergeOrderDraft(order)) === "pending_assignment");
     if (targetOrders.length === 0) {
       setNoticeMessage("当前没有需要匹配的待分配订单。");
       return;
@@ -2624,15 +2788,22 @@ export function OrdersPage({ user }: OrdersPageProps) {
     return sku && product ? { sku, product } : null;
   }
 
-  function validateOrdersReadyForFulfillment(targetOrders: TemuOrderRecord[]) {
+  function validateOrdersReadyForFulfillment(targetOrders: TemuOrderRecord[], requireLogistics = true) {
     const mergedOrders = targetOrders.map((order) => mergeOrderDraft(order));
     const missingWarehouse = mergedOrders.find(
       (order) => !order.warehouse_id && !order.warehouse_name.trim(),
     );
     if (missingWarehouse) return `订单 ${missingWarehouse.order_no} 还没有分配仓库。`;
 
-    const missingLogistics = mergedOrders.find((order) => !order.logistics_method.trim());
-    if (missingLogistics) return `订单 ${missingLogistics.order_no} 还没有填写物流方式。`;
+    if (requireLogistics) {
+      const missingLogistics = mergedOrders.find((order) => !order.logistics_method.trim());
+      if (missingLogistics) return `订单 ${missingLogistics.order_no} 还没有填写物流方式。`;
+    }
+
+    const missingRecipient = mergedOrders.find((order) => !hasCompleteRecipientInfo(order));
+    if (missingRecipient) {
+      return `订单 ${missingRecipient.order_no} 缺少收件人信息，请重新上传包含收件信息的 Temu 订单表。`;
+    }
 
     const missingProduct = mergedOrders.find((order) => !getOrderDeclaration(order));
     if (missingProduct) return `订单 ${missingProduct.order_no} 没有匹配到商品 SKU，不能生成发货表格。`;
@@ -3005,7 +3176,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
     }
 
     const mergedOrders = targetOrders.map((order) => mergeOrderDraft(order));
-    const validationMessage = validateOrdersReadyForFulfillment(mergedOrders);
+    const validationMessage = validateOrdersReadyForFulfillment(mergedOrders, false);
     if (validationMessage) {
       setErrorMessage(validationMessage);
       return;

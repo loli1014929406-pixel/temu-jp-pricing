@@ -1,6 +1,7 @@
 import { ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
+import { Link, useParams } from "react-router-dom";
 import {
   addWarehouseProductInventory,
   createWarehouse,
@@ -45,6 +46,67 @@ type InventoryDraft = {
   warehouseNameDrafts: Record<string, string>;
 };
 
+const knownWarehouseSlugRules = [
+  { slug: "suzhou", names: ["苏州", "suzhou"] },
+  { slug: "fugang", names: ["福冈", "福岡", "fugang", "fukuoka"] },
+] as const;
+
+function normalizeWarehouseRouteText(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/[仓庫库]/g, "");
+}
+
+function decodeRouteSegment(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function getWarehouseRouteSlug(warehouse: Pick<Warehouse, "name" | "id">) {
+  const normalizedName = normalizeWarehouseRouteText(warehouse.name);
+  const knownRule = knownWarehouseSlugRules.find((rule) =>
+    rule.names.some((name) => normalizeWarehouseRouteText(name) === normalizedName),
+  );
+  if (knownRule) return knownRule.slug;
+
+  const asciiSlug = warehouse.name
+    .trim()
+    .toLowerCase()
+    .replace(/['"]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return asciiSlug || encodeURIComponent(warehouse.name.trim() || warehouse.id);
+}
+
+function isWarehouseRouteMatch(warehouse: Warehouse, routeSlug: string) {
+  const decodedRouteSlug = decodeRouteSegment(routeSlug);
+  const normalizedRouteSlug = normalizeWarehouseRouteText(decodedRouteSlug);
+  const normalizedWarehouseName = normalizeWarehouseRouteText(warehouse.name);
+  const normalizedGeneratedSlug = normalizeWarehouseRouteText(
+    decodeRouteSegment(getWarehouseRouteSlug(warehouse)),
+  );
+
+  return (
+    normalizedRouteSlug === normalizedGeneratedSlug ||
+    normalizedRouteSlug === normalizedWarehouseName
+  );
+}
+
+function getWarehouseRouteLabel(routeSlug: string) {
+  const decodedRouteSlug = decodeRouteSegment(routeSlug);
+  const normalizedRouteSlug = normalizeWarehouseRouteText(decodedRouteSlug);
+  const knownRule = knownWarehouseSlugRules.find(
+    (rule) => normalizeWarehouseRouteText(rule.slug) === normalizedRouteSlug,
+  );
+  return knownRule?.names[0] ?? decodedRouteSlug;
+}
+
 function hasInventoryDraft(
   draft: InventoryDraft | null | undefined,
   stockValuesById: Record<string, string> = {},
@@ -73,6 +135,7 @@ function getInventoryErrorMessage(error: unknown, fallback: string) {
 }
 
 export function InventoryPage({ user }: InventoryPageProps) {
+  const { warehouseSlug } = useParams();
   const { canEdit, canDelete } = usePermissions();
   const draftKey = `inventory-draft:v1:${user.id}`;
   const restoredDraftRef = useRef(readDraft<InventoryDraft>(draftKey));
@@ -110,6 +173,26 @@ export function InventoryPage({ user }: InventoryPageProps) {
     () => new Intl.Collator("zh-CN", { numeric: true, sensitivity: "base" }),
     [],
   );
+  const routeWarehouse = useMemo(
+    () =>
+      warehouseSlug
+        ? warehouses.find((warehouse) => isWarehouseRouteMatch(warehouse, warehouseSlug)) ??
+          null
+        : null,
+    [warehouseSlug, warehouses],
+  );
+  const visibleWarehouses = warehouseSlug
+    ? routeWarehouse
+      ? [routeWarehouse]
+      : []
+    : warehouses;
+  const routeWarehouseLabel = warehouseSlug
+    ? routeWarehouse?.name ?? getWarehouseRouteLabel(warehouseSlug)
+    : "";
+  const pageTitle = routeWarehouseLabel ? `${routeWarehouseLabel}仓库存` : "仓储库存";
+  const pageDescription = routeWarehouseLabel
+    ? `仅显示${routeWarehouseLabel}仓库的 SKU 与配件库存`
+    : "显示全部仓库的 SKU 与配件库存";
 
   useEffect(() => {
     let active = true;
@@ -552,7 +635,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
 
   return (
     <section className="grid gap-5">
-      <PageHeader title="仓储库存" description="按仓库查看 SKU 与配件库存" />
+      <PageHeader title={pageTitle} description={pageDescription} />
 
       {errorMessage && (
         <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
@@ -563,6 +646,39 @@ export function InventoryPage({ user }: InventoryPageProps) {
         <div className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-700">
           {draftNotice}
         </div>
+      )}
+
+      {!loading && warehouses.length > 0 && (
+        <section className="surface-card p-3">
+          <div className="flex flex-wrap gap-2">
+            <Link
+              to="/inventory"
+              className={`inline-flex h-10 items-center rounded-md border px-4 text-sm font-semibold transition ${
+                !warehouseSlug
+                  ? "border-sky-200 bg-sky-50 text-sky-700"
+                  : "border-line bg-white text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              全部
+            </Link>
+            {warehouses.map((warehouse) => {
+              const isActive = routeWarehouse?.id === warehouse.id;
+              return (
+                <Link
+                  key={warehouse.id}
+                  to={`/inventory/${getWarehouseRouteSlug(warehouse)}`}
+                  className={`inline-flex h-10 items-center rounded-md border px-4 text-sm font-semibold transition ${
+                    isActive
+                      ? "border-sky-200 bg-sky-50 text-sky-700"
+                      : "border-line bg-white text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  {warehouse.name}
+                </Link>
+              );
+            })}
+          </div>
+        </section>
       )}
 
       {canEdit && (
@@ -588,15 +704,34 @@ export function InventoryPage({ user }: InventoryPageProps) {
         </section>
       )}
 
+      {canEdit && (
+        <section className="surface-card flex flex-wrap items-center justify-between gap-3 p-5">
+          <div>
+            <h2 className="text-base font-semibold text-ink">库存调拨</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              调拨多个 SKU、填写调拨日期，并查看调拨记录。
+            </p>
+          </div>
+          <Link to="/inventory/transfer" className="btn-primary">
+            <Plus size={18} />
+            去库存调拨
+          </Link>
+        </section>
+      )}
+
       {loading ? (
         <div className="text-sm text-slate-500">加载中...</div>
       ) : warehouses.length === 0 ? (
         <div className="empty-state">
           暂无仓库
         </div>
+      ) : warehouseSlug && visibleWarehouses.length === 0 ? (
+        <div className="empty-state">
+          未找到{routeWarehouseLabel}仓库
+        </div>
       ) : (
         <div className="grid gap-5">
-          {warehouses.map((warehouse) => {
+          {visibleWarehouses.map((warehouse) => {
             const items = warehouseSkusByWarehouseId[warehouse.id] ?? [];
             const assignedProductIds = new Set(items.map((item) => item.product_id));
             const sortedItems = sortedWarehouseSkusByWarehouseId[warehouse.id] ?? [];

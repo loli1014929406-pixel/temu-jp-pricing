@@ -7,6 +7,7 @@ import { PermissionGate, PermissionProvider } from "./hooks/use-permissions";
 import { AuthPage } from "./pages/auth-page";
 import { DeclarationPricesPage } from "./pages/declaration-prices-page";
 import { InventoryPage } from "./pages/inventory-page";
+import { InventoryTransferPage } from "./pages/inventory-transfer-page";
 import { OrdersPage } from "./pages/orders-page";
 import { MultiShipmentProfitPage } from "./pages/multi-shipment-profit-page";
 import { MultiShipmentProductsPage } from "./pages/multi-shipment-products-page";
@@ -133,6 +134,26 @@ export default function App() {
           <Route path="/purchases/records" element={user ? <PurchasesPage user={user} view="records" /> : null} />
           <Route
             path="/inventory"
+            element={
+              user ? (
+                <ErrorBoundary>
+                  <InventoryPage user={user} />
+                </ErrorBoundary>
+              ) : null
+            }
+          />
+          <Route
+            path="/inventory/transfer"
+            element={
+              user ? (
+                <ErrorBoundary>
+                  <InventoryTransferPage user={user} />
+                </ErrorBoundary>
+              ) : null
+            }
+          />
+          <Route
+            path="/inventory/:warehouseSlug"
             element={
               user ? (
                 <ErrorBoundary>
