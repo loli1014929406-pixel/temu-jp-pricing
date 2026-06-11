@@ -655,6 +655,10 @@ function isShippingTrackingStage(stage: OrderStage) {
   return stage === "shipped" || stage === "uploaded_temu";
 }
 
+function shouldReserveOrderInventory(stage: Exclude<OrderStage, "all">) {
+  return stage !== "pending_assignment";
+}
+
 function dedupeImportRowsByOrderLine(rows: TemuOrderImportRow[]) {
   const uniqueRows = new Map<string, TemuOrderImportRow>();
 
@@ -1891,17 +1895,26 @@ export function OrdersPage({ user }: OrdersPageProps) {
     }
 
     try {
-      const nextOrders = await Promise.all(
-        targetOrders.map((order) =>
-          updateTemuOrder(
-            order.id,
-            buildTrackingStatusUpdates(order, order.logistics_status),
-          ),
-        ),
-      );
+      const saveEntries = targetOrders.map((order) => {
+        const updates = buildTrackingStatusUpdates(order, order.logistics_status);
+        return { order, updates, nextOrder: { ...order, ...updates } };
+      });
+      const { nextOrders, inventoryChanges, failures } =
+        await saveOrderEntriesWithInventory(saveEntries);
+      if (nextOrders.length === 0 && failures.length > 0) {
+        throw failures[0].error;
+      }
       updateOrdersState(nextOrders);
       if (showNotice) {
-        setNoticeMessage(`已自动完成 ${nextOrders.length} 条配達完了订单`);
+        setNoticeMessage(
+          [
+            `已自动完成 ${nextOrders.length} 条配達完了订单`,
+            inventoryChanges.length > 0
+              ? `扣减 ${inventoryChanges.length} 项配件库存`
+              : "",
+            failures.length > 0 ? `${failures.length} 条更新失败` : "",
+          ].filter(Boolean).join("，"),
+        );
       }
     } catch (error) {
       targetOrders.forEach((order) => {
@@ -2287,18 +2300,22 @@ export function OrdersPage({ user }: OrdersPageProps) {
         return;
       }
 
-      const nextOrders = await Promise.all(
-        matchedPairs.map(({ order, trackingRow }) => {
-          const draft = drafts[order.id] ?? toDraft(order);
-          return updateTemuOrder(order.id, {
-            ...draft,
-            order_status: "已发货",
-            actual_ship_time: "",
-            logistics_tracking_no: trackingRow.trackingNo,
-            logistics_status: "待查询",
-          });
-        }),
-      );
+      const saveEntries = matchedPairs.map(({ order, trackingRow }) => {
+        const draft = drafts[order.id] ?? toDraft(order);
+        const updates = {
+          ...draft,
+          order_status: "已发货",
+          actual_ship_time: "",
+          logistics_tracking_no: trackingRow.trackingNo,
+          logistics_status: "待查询",
+        };
+        return { order, updates, nextOrder: { ...order, ...updates } };
+      });
+      const { nextOrders, inventoryChanges, failures } =
+        await saveOrderEntriesWithInventory(saveEntries);
+      if (nextOrders.length === 0 && failures.length > 0) {
+        throw failures[0].error;
+      }
 
       updateOrdersState(nextOrders);
       setSelectedOrderIds((current) =>
@@ -2306,9 +2323,13 @@ export function OrdersPage({ user }: OrdersPageProps) {
       );
       setActiveStage("shipped");
       setNoticeMessage(
-        `已匹配物流单号 ${nextOrders.length} 条并转入已发货，未匹配 ${
-          pendingOrders.length - nextOrders.length
-        } 条继续留在待发货。`,
+        [
+          `已匹配物流单号 ${nextOrders.length} 条并转入已发货`,
+          inventoryChanges.length > 0
+            ? `扣减 ${inventoryChanges.length} 项配件库存`
+            : "",
+          `未处理 ${pendingOrders.length - nextOrders.length} 条继续留在待发货`,
+        ].filter(Boolean).join("，"),
       );
     } catch (error) {
       setErrorMessage(getOrdersErrorMessage(error, "导入物流单号失败"));
@@ -2354,11 +2375,15 @@ export function OrdersPage({ user }: OrdersPageProps) {
         }),
       );
 
-      const nextOrders = await Promise.all(
-        statusResults.map(({ order, logisticsStatus }) =>
-          updateTemuOrder(order.id, buildTrackingStatusUpdates(order, logisticsStatus)),
-        ),
-      );
+      const saveEntries = statusResults.map(({ order, logisticsStatus }) => {
+        const updates = buildTrackingStatusUpdates(order, logisticsStatus);
+        return { order, updates, nextOrder: { ...order, ...updates } };
+      });
+      const { nextOrders, inventoryChanges, failures } =
+        await saveOrderEntriesWithInventory(saveEntries);
+      if (nextOrders.length === 0 && failures.length > 0) {
+        throw failures[0].error;
+      }
 
       updateOrdersState(nextOrders);
       if (showNotice) {
@@ -2366,9 +2391,15 @@ export function OrdersPage({ user }: OrdersPageProps) {
           isDeliveredTrackingStatus(logisticsStatus),
         ).length;
         setNoticeMessage(
-          completedCount > 0
-            ? `已查询 ${nextOrders.length} 条物流状态，自动完成 ${completedCount} 条订单`
-            : `已查询 ${nextOrders.length} 条物流状态`,
+          [
+            completedCount > 0
+              ? `已查询 ${nextOrders.length} 条物流状态，自动完成 ${completedCount} 条订单`
+              : `已查询 ${nextOrders.length} 条物流状态`,
+            inventoryChanges.length > 0
+              ? `扣减 ${inventoryChanges.length} 项配件库存`
+              : "",
+            failures.length > 0 ? `${failures.length} 条更新失败` : "",
+          ].filter(Boolean).join("，"),
         );
       }
     } catch (error) {
@@ -2392,7 +2423,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
   async function saveOrderEntriesWithInventory(
     entries: Array<{
       order: TemuOrderRecord;
-      updates: OrderDraft;
+      updates: Parameters<typeof updateTemuOrder>[1];
       nextOrder: TemuOrderRecord;
     }>,
   ) {
@@ -2401,9 +2432,9 @@ export function OrdersPage({ user }: OrdersPageProps) {
     const failures: Array<{ order: TemuOrderRecord; error: unknown }> = [];
 
     for (const entry of entries) {
-      const shouldDeductInventory =
-        getOrderStage(mergeOrderDraft(entry.order)) === "pending_shipping" &&
-        getOrderStage(entry.nextOrder) === "shipped";
+      const shouldDeductInventory = shouldReserveOrderInventory(
+        getOrderStage(entry.nextOrder),
+      );
       let entryInventoryChanges: Awaited<ReturnType<typeof deductInventoryForOrders>> = [];
 
       try {
@@ -2481,6 +2512,83 @@ export function OrdersPage({ user }: OrdersPageProps) {
     }
   }
 
+  async function handleMoveSelectedNewOrdersToPendingAssignment() {
+    if (!canEdit) {
+      setErrorMessage("当前账号没有编辑权限，不能退回订单。");
+      return;
+    }
+    if (selectedNewOrdersInView.length === 0) {
+      setNoticeMessage("请先勾选要退回待分配的新订单。");
+      return;
+    }
+
+    const targetOrders = selectedNewOrdersInView.map((order) => mergeOrderDraft(order));
+    const targetIds = new Set(targetOrders.map((order) => order.id));
+    const inventoryRestorations = buildOrderInventoryRestorationInputs(targetOrders);
+    const pendingAssignmentUpdates: Parameters<typeof updateTemuOrder>[1] = {
+      order_status: "",
+      warehouse_id: null,
+      warehouse_name: "",
+      logistics_method: "",
+      label_printed_at: "",
+      logistics_tracking_no: "",
+      logistics_status: "",
+      actual_ship_time: "",
+      actual_signed_time: "",
+    };
+
+    setBusyKey("new-to-pending-assignment");
+    setErrorMessage("");
+    setNoticeMessage("");
+
+    try {
+      const inventoryChanges = await restoreWarehouseItemStockDeductions(
+        inventoryRestorations,
+      );
+
+      let nextOrders: TemuOrderRecord[] = [];
+      try {
+        nextOrders = await Promise.all(
+          targetOrders.map((order) =>
+            updateTemuOrder(order.id, pendingAssignmentUpdates),
+          ),
+        );
+      } catch (error) {
+        if (inventoryChanges.length > 0) {
+          try {
+            await deductInventoryForOrders(targetOrders);
+          } catch (rollbackError) {
+            throw new Error(
+              `${getOrdersErrorMessage(error, "退回待分配失败")}；库存已回补但订单退回失败，且库存回滚失败：${getOrdersErrorMessage(
+                rollbackError,
+                "库存回滚失败",
+              )}`,
+            );
+          }
+        }
+        throw error;
+      }
+
+      applyWarehouseItemStockUpdates(inventoryChanges.map((change) => change.item));
+      updateOrdersState(nextOrders);
+      clearDrafts(Array.from(targetIds));
+      setSelectedOrderIds((current) => current.filter((id) => !targetIds.has(id)));
+      setActiveStage("pending_assignment");
+      setNoticeMessage(
+        [
+          `已退回待分配 ${nextOrders.length} 条订单`,
+          inventoryChanges.length > 0
+            ? `回补 ${inventoryChanges.length} 项配件库存`
+            : "",
+        ].filter(Boolean).join("，"),
+      );
+    } catch (error) {
+      setErrorMessage(getOrdersErrorMessage(error, "退回待分配失败"));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
   async function handleSaveActualShipTime(order: TemuOrderRecord) {
     await handleSaveActualShipTimeForOrders([order]);
   }
@@ -2499,15 +2607,27 @@ export function OrdersPage({ user }: OrdersPageProps) {
     setErrorMessage("");
 
     try {
-      const nextOrders = await Promise.all(
-        changedOrders.map((order) =>
-          updateTemuOrder(order.id, {
-            actual_ship_time: (drafts[order.id] ?? toDraft(order)).actual_ship_time.trim(),
-          }),
-        ),
-      );
+      const saveEntries = changedOrders.map((order) => {
+        const updates = {
+          actual_ship_time: (drafts[order.id] ?? toDraft(order)).actual_ship_time.trim(),
+        };
+        return { order, updates, nextOrder: { ...order, ...updates } };
+      });
+      const { nextOrders, inventoryChanges, failures } =
+        await saveOrderEntriesWithInventory(saveEntries);
+      if (nextOrders.length === 0 && failures.length > 0) {
+        throw failures[0].error;
+      }
       updateOrdersState(nextOrders);
-      setNoticeMessage(`已保存 ${nextOrders.length} 条订单明细的实际发货时间`);
+      setNoticeMessage(
+        [
+          `已保存 ${nextOrders.length} 条订单明细的实际发货时间`,
+          inventoryChanges.length > 0
+            ? `扣减 ${inventoryChanges.length} 项配件库存`
+            : "",
+          failures.length > 0 ? `${failures.length} 条保存失败` : "",
+        ].filter(Boolean).join("，"),
+      );
     } catch (error) {
       setErrorMessage(getOrdersErrorMessage(error, "保存实际发货时间失败"));
     } finally {
@@ -2541,13 +2661,12 @@ export function OrdersPage({ user }: OrdersPageProps) {
     let ordersDeleted = false;
 
     try {
-      // 只回补已经实际发货（已扣过库存）的订单，避免未发货订单删除时错误回补
-      const shippedOrdersToRestore = selectedOrdersInView.filter((order) => {
+      const ordersToRestoreInventory = selectedOrdersInView.filter((order) => {
         const stage = getOrderStage(order);
-        return stage === "shipped" || stage === "uploaded_temu" || stage === "completed";
+        return shouldReserveOrderInventory(stage);
       });
       const inventoryRestorations =
-        buildOrderInventoryRestorationInputs(shippedOrdersToRestore);
+        buildOrderInventoryRestorationInputs(ordersToRestoreInventory);
       await Promise.all(selectedOrdersInView.map((order) => deleteTemuOrder(order.id)));
       ordersDeleted = true;
       removeOrders(Array.from(targetIds));
@@ -3193,24 +3312,39 @@ export function OrdersPage({ user }: OrdersPageProps) {
 
     try {
       const printedAt = formatLocalDateTime();
-      const nextOrders = await Promise.all(
-        mergedOrders.map((order) =>
-          updateTemuOrder(order.id, {
-            order_status: "待发货",
-            warehouse_id: order.warehouse_id,
-            warehouse_name: order.warehouse_name,
-            logistics_method: order.logistics_method,
-            label_printed_at: printedAt,
-            actual_ship_time: order.actual_ship_time,
-            actual_signed_time: order.actual_signed_time,
-          }),
-        ),
-      );
+      const saveEntries = targetOrders.map((order, index) => {
+        const mergedOrder = mergedOrders[index];
+        const updates = {
+          order_status: "待发货",
+          warehouse_id: mergedOrder.warehouse_id,
+          warehouse_name: mergedOrder.warehouse_name,
+          logistics_method: mergedOrder.logistics_method,
+          label_printed_at: printedAt,
+          actual_ship_time: mergedOrder.actual_ship_time,
+          actual_signed_time: mergedOrder.actual_signed_time,
+        };
+        return {
+          order,
+          updates,
+          nextOrder: { ...mergedOrder, ...updates },
+        };
+      });
+      const { nextOrders, inventoryChanges, failures } =
+        await saveOrderEntriesWithInventory(saveEntries);
+      if (nextOrders.length === 0 && failures.length > 0) {
+        throw failures[0].error;
+      }
 
       updateOrdersState(nextOrders);
       setActiveStage("pending_shipping");
       setNoticeMessage(
-        `已转入待发货 ${buildOrderDisplayRows(targetOrders).length} 行订单，请下载发货表格。`,
+        [
+          `已转入待发货 ${buildOrderDisplayRows(nextOrders).length} 行订单，请下载发货表格`,
+          inventoryChanges.length > 0
+            ? `扣减 ${inventoryChanges.length} 项配件库存`
+            : "",
+          failures.length > 0 ? `${failures.length} 条转入失败` : "",
+        ].filter(Boolean).join("，"),
       );
     } catch (error) {
       setErrorMessage(getOrdersErrorMessage(error, "转入待发货失败"));
@@ -3297,26 +3431,38 @@ export function OrdersPage({ user }: OrdersPageProps) {
     setNoticeMessage("");
 
     try {
-      const nextOrders = await Promise.all(
-        selectedShippedOrdersInView.map((order) => {
-          const draft = drafts[order.id] ?? toDraft(order);
-          const shippedAt = formatLocalDateTime();
-          const printedAt = draft.label_printed_at.trim() || formatLocalDateTime();
+      const saveEntries = selectedShippedOrdersInView.map((order) => {
+        const draft = drafts[order.id] ?? toDraft(order);
+        const shippedAt = formatLocalDateTime();
+        const printedAt = draft.label_printed_at.trim() || formatLocalDateTime();
 
-          return updateTemuOrder(order.id, {
-            ...draft,
-            order_status: uploadedTemuOrderStatus,
-            label_printed_at: printedAt,
-            actual_ship_time: shippedAt,
-          });
-        }),
-      );
+        const updates = {
+          ...draft,
+          order_status: uploadedTemuOrderStatus,
+          label_printed_at: printedAt,
+          actual_ship_time: shippedAt,
+        };
+        return { order, updates, nextOrder: { ...order, ...updates } };
+      });
+      const { nextOrders, inventoryChanges, failures } =
+        await saveOrderEntriesWithInventory(saveEntries);
+      if (nextOrders.length === 0 && failures.length > 0) {
+        throw failures[0].error;
+      }
       updateOrdersState(nextOrders);
       setSelectedOrderIds((current) =>
         current.filter((id) => !nextOrders.some((order) => order.id === id)),
       );
       setActiveStage("uploaded_temu");
-      setNoticeMessage(`已标记 ${nextOrders.length} 条订单为上传Temu`);
+      setNoticeMessage(
+        [
+          `已标记 ${nextOrders.length} 条订单为上传Temu`,
+          inventoryChanges.length > 0
+            ? `扣减 ${inventoryChanges.length} 项配件库存`
+            : "",
+          failures.length > 0 ? `${failures.length} 条更新失败` : "",
+        ].filter(Boolean).join("，"),
+      );
     } catch (error) {
       setErrorMessage(getOrdersErrorMessage(error, "标记上传Temu失败"));
     } finally {
@@ -3339,23 +3485,35 @@ export function OrdersPage({ user }: OrdersPageProps) {
     setNoticeMessage("");
 
     try {
-      const nextOrders = await Promise.all(
-        selectedCompletableOrdersInView.map((order) => {
-          const draft = drafts[order.id] ?? toDraft(order);
-          const finishedAt = draft.actual_signed_time.trim() || formatLocalDateTime();
-          const printedAt = draft.label_printed_at.trim() || formatLocalDateTime();
+      const saveEntries = selectedCompletableOrdersInView.map((order) => {
+        const draft = drafts[order.id] ?? toDraft(order);
+        const finishedAt = draft.actual_signed_time.trim() || formatLocalDateTime();
+        const printedAt = draft.label_printed_at.trim() || formatLocalDateTime();
 
-          return updateTemuOrder(order.id, {
-            ...draft,
-            order_status: "已完成",
-            label_printed_at: printedAt,
-            actual_ship_time: draft.actual_ship_time.trim(),
-            actual_signed_time: finishedAt,
-          });
-        }),
-      );
+        const updates = {
+          ...draft,
+          order_status: "已完成",
+          label_printed_at: printedAt,
+          actual_ship_time: draft.actual_ship_time.trim(),
+          actual_signed_time: finishedAt,
+        };
+        return { order, updates, nextOrder: { ...order, ...updates } };
+      });
+      const { nextOrders, inventoryChanges, failures } =
+        await saveOrderEntriesWithInventory(saveEntries);
+      if (nextOrders.length === 0 && failures.length > 0) {
+        throw failures[0].error;
+      }
       updateOrdersState(nextOrders);
-      setNoticeMessage(`已标记签收 ${nextOrders.length} 条订单`);
+      setNoticeMessage(
+        [
+          `已标记签收 ${nextOrders.length} 条订单`,
+          inventoryChanges.length > 0
+            ? `扣减 ${inventoryChanges.length} 项配件库存`
+            : "",
+          failures.length > 0 ? `${failures.length} 条更新失败` : "",
+        ].filter(Boolean).join("，"),
+      );
     } catch (error) {
       setErrorMessage(getOrdersErrorMessage(error, "标记签收失败"));
     } finally {
@@ -3504,6 +3662,9 @@ export function OrdersPage({ user }: OrdersPageProps) {
           onShowSelectedDetail={() => {
             if (selectedSingleOrderInView) setDetailOrder(selectedSingleOrderInView);
           }}
+          onMoveNewOrdersToPendingAssignment={() =>
+            void handleMoveSelectedNewOrdersToPendingAssignment()
+          }
           onMoveNewOrdersToPendingShipping={() =>
             void handleMoveNewOrdersToPendingShipping(
               selectedNewOrdersInView,

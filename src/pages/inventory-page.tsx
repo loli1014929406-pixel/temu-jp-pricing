@@ -134,6 +134,29 @@ function getInventoryErrorMessage(error: unknown, fallback: string) {
     : message;
 }
 
+function parseStockDraftValue(item: WarehouseItemStock, value: string) {
+  const text = value.trim();
+  if (!text) {
+    return { stockQuantity: item.stock_quantity, errorMessage: "" };
+  }
+
+  const quantity = Number(text);
+  if (!Number.isFinite(quantity) || !Number.isInteger(quantity)) {
+    return { stockQuantity: item.stock_quantity, errorMessage: "请填写整数库存数量。" };
+  }
+
+  const isDeltaInput = /^[+-]/.test(text);
+  const stockQuantity = isDeltaInput ? item.stock_quantity + quantity : quantity;
+  if (stockQuantity < 0) {
+    return {
+      stockQuantity: item.stock_quantity,
+      errorMessage: `库存不能小于 0，当前库存 ${item.stock_quantity}。`,
+    };
+  }
+
+  return { stockQuantity, errorMessage: "" };
+}
+
 export function InventoryPage({ user }: InventoryPageProps) {
   const { warehouseSlug } = useParams();
   const { canEdit, canDelete } = usePermissions();
@@ -597,7 +620,13 @@ export function InventoryPage({ user }: InventoryPageProps) {
       return;
     }
 
-    const nextStock = Math.max(0, Number(itemStockDrafts[item.id] || 0));
+    const { stockQuantity: nextStock, errorMessage: stockDraftError } =
+      parseStockDraftValue(item, itemStockDrafts[item.id] ?? String(item.stock_quantity));
+    if (stockDraftError) {
+      setErrorMessage(stockDraftError);
+      return;
+    }
+
     const reason = itemStockReasonDrafts[item.id]?.trim() ?? "";
     if (!reason) return;
     setBusyKey(`item-stock-${item.id}`);
@@ -937,9 +966,9 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                                       {itemStock ? (
                                                         <div className="flex items-center gap-2">
                                                           <input
-                                                            min="0"
                                                             step="1"
                                                             type="number"
+                                                            placeholder="+/- 调整"
                                                             disabled={!canEdit}
                                                             value={
                                                               itemStockDrafts[itemStock.id] ??

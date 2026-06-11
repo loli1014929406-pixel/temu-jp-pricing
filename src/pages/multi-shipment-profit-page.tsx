@@ -56,7 +56,7 @@ const modeContent = {
   },
   standard: {
     title: "多件正常发货利润测算",
-    description: "3cm 内引用利润数据分析里的物流成本，超过 3cm 时按 OCS 小包测算，亏损后停止继续测算。",
+    description: "3cm 内引用利润分析里的物流成本，超过 3cm 时按 OCS 小包测算，亏损后停止继续测算。",
     otherModeLabel: "查看直发",
     otherMode: "direct-shipping",
   },
@@ -314,7 +314,7 @@ export function MultiShipmentProfitPage({
             />
           </Field>
           <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-            核价、流量加速、活动折扣、优惠券和 ROAS 来自已保存的利润数据分析；3cm
+            核价、流量加速、活动折扣、优惠券和 ROAS 来自已保存的利润分析；3cm
             每包件数来自商品编辑页，刷新后按最新商品数据计算。
           </div>
         </div>

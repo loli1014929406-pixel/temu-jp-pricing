@@ -16,7 +16,7 @@ const navItems = [
   { to: "/orders", label: "订单管理", module: "销售履约", icon: ListOrdered },
   { to: "/products", label: "商品管理", module: "商品资料", icon: PackageSearch },
   { to: "/declaration-prices", label: "核算定价", module: "定价中心", icon: ClipboardList },
-  { to: "/profit-calculation", label: "利润数据分析", module: "经营分析", icon: Calculator },
+  { to: "/profit-calculation", label: "利润分析", module: "经营分析", icon: Calculator },
   { to: "/test-shipping", label: "直发测算", module: "物流测算", icon: Truck },
   { to: "/purchases/records", label: "采购管理", module: "采购入库", icon: ShoppingCart },
   { to: "/inventory", label: "仓储库存", module: "库存管理", icon: Warehouse },

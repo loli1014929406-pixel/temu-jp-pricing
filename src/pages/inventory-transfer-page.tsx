@@ -1,4 +1,13 @@
-import { Plus, Trash2 } from "lucide-react";
+import {
+  CheckCircle2,
+  ExternalLink,
+  PackageCheck,
+  PackageOpen,
+  Plus,
+  Search,
+  Trash2,
+  Truck,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { Link } from "react-router-dom";
@@ -7,6 +16,9 @@ import {
   fetchWarehouseItemStocks,
   fetchWarehouseSkus,
   fetchWarehouses,
+  getWarehouseTransferReasonInfo,
+  parseWarehouseTransferReasonDetail,
+  receiveWarehouseTransferInventory,
   transferWarehouseInventory,
 } from "../lib/inventory";
 import {
@@ -23,6 +35,7 @@ import type {
   WarehouseItemStockAdjustment,
   WarehouseSku,
 } from "../types";
+import type { WarehouseInventoryTransferMetadata } from "../lib/inventory";
 import { PageHeader } from "../components/ui";
 import { usePermissions } from "../hooks/use-permissions";
 import { getErrorMessage } from "../utils/errors";
@@ -46,11 +59,20 @@ type TransferRecord = {
   key: string;
   createdAt: string;
   transferDate: string;
+  sourceWarehouseId: string;
+  destinationWarehouseId: string;
   sourceWarehouseName: string;
   destinationWarehouseName: string;
   trackingNo: string;
   skuSummary: string;
+  metadata: WarehouseInventoryTransferMetadata | null;
   adjustments: TransferAdjustmentEntry[];
+  itemSummaries: Array<{
+    itemId: string;
+    transferQuantity: number;
+    receivedQuantity: number;
+  }>;
+  status: "in_transit" | "received";
 };
 
 function getTodayInputValue() {
@@ -69,52 +91,6 @@ function getInventoryErrorMessage(error: unknown, fallback: string) {
     : message;
 }
 
-function getTransferReasonInfo(reason: string) {
-  const outPrefix = "库存调拨出库：";
-  const inPrefix = "库存调拨入库：";
-
-  if (reason.startsWith(outPrefix)) {
-    return { direction: "out" as const, detail: reason.slice(outPrefix.length) };
-  }
-  if (reason.startsWith(inPrefix)) {
-    return { direction: "in" as const, detail: reason.slice(inPrefix.length) };
-  }
-  return null;
-}
-
-function parseTransferReasonDetail(detail: string, fallbackDate: string) {
-  const parts = detail
-    .split(" / ")
-    .map((part) => part.trim())
-    .filter(Boolean);
-  const route = parts[0] ?? "";
-  const [sourceWarehouseName = "--", destinationWarehouseName = "--"] = route
-    .split(" -> ")
-    .map((part) => part.trim());
-  const transferDate =
-    parts.find((part) => part.startsWith("调拨日期："))?.replace("调拨日期：", "").trim() ||
-    fallbackDate;
-  const trackingNo =
-    parts.find((part) => part.startsWith("快递单号："))?.replace("快递单号：", "").trim() ||
-    "--";
-  const skuSummary =
-    parts
-      .slice(1)
-      .filter(
-        (part) =>
-          !part.startsWith("调拨日期：") && !part.startsWith("快递单号："),
-      )
-      .join(" / ") || "--";
-
-  return {
-    sourceWarehouseName,
-    destinationWarehouseName,
-    transferDate,
-    trackingNo,
-    skuSummary,
-  };
-}
-
 function formatDateTime(value: string) {
   if (!value) return "--";
   const date = new Date(value);
@@ -126,6 +102,18 @@ function formatDateTime(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+function buildOcsTrackingUrl(trackingNo: string) {
+  const normalizedTrackingNo = trackingNo.trim();
+  if (!normalizedTrackingNo || normalizedTrackingNo === "--") return "";
+  return `https://webcsw.ocs.co.jp/csw/ECSWG0201R00003P.do?cwbno=${encodeURIComponent(
+    normalizedTrackingNo,
+  )}`;
+}
+
+function getTransferRecordBusyKey(record: TransferRecord) {
+  return `receive-transfer-${record.metadata?.batchId ?? record.key}`;
 }
 
 export function InventoryTransferPage({ user: _user }: InventoryTransferPageProps) {
@@ -426,20 +414,24 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
     const recordsByKey = new Map<string, TransferRecord>();
 
     warehouseItemStockAdjustments.forEach((adjustment) => {
-      const reasonInfo = getTransferReasonInfo(adjustment.reason);
+      const reasonInfo = getWarehouseTransferReasonInfo(adjustment.reason);
       if (!reasonInfo) return;
 
       const createdAt = adjustment.created_at || "";
       const fallbackDate = createdAt.slice(0, 10) || "--";
-      const detail = parseTransferReasonDetail(reasonInfo.detail, fallbackDate);
+      const detail = parseWarehouseTransferReasonDetail(reasonInfo.detail, fallbackDate);
       const existing = recordsByKey.get(reasonInfo.detail);
       const record =
         existing ??
         ({
           key: reasonInfo.detail,
           createdAt,
+          sourceWarehouseId: detail.metadata?.sourceWarehouseId ?? "",
+          destinationWarehouseId: detail.metadata?.destinationWarehouseId ?? "",
           ...detail,
           adjustments: [],
+          itemSummaries: [],
+          status: "in_transit",
         } satisfies TransferRecord);
 
       if (createdAt && (!record.createdAt || createdAt > record.createdAt)) {
@@ -452,12 +444,57 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
       recordsByKey.set(reasonInfo.detail, record);
     });
 
-    return Array.from(recordsByKey.values()).sort((left, right) => {
+    const records = Array.from(recordsByKey.values()).map((record) => {
+      const itemSummaryMap = new Map<
+        string,
+        {
+          itemId: string;
+          transferQuantity: number;
+          receivedQuantity: number;
+        }
+      >();
+
+      record.adjustments.forEach(({ adjustment, direction }) => {
+        const current = itemSummaryMap.get(adjustment.item_id) ?? {
+          itemId: adjustment.item_id,
+          transferQuantity: 0,
+          receivedQuantity: 0,
+        };
+        const changeQuantity = Math.trunc(Number(adjustment.change_quantity) || 0);
+        if (direction === "out") {
+          current.transferQuantity += Math.max(0, -changeQuantity);
+        } else {
+          current.receivedQuantity += changeQuantity;
+        }
+        itemSummaryMap.set(adjustment.item_id, current);
+      });
+
+      const itemSummaries = Array.from(itemSummaryMap.values()).filter(
+        (item) => item.transferQuantity > 0,
+      );
+      const status: TransferRecord["status"] =
+        itemSummaries.length > 0 &&
+        itemSummaries.every((item) => item.receivedQuantity >= item.transferQuantity)
+          ? "received"
+          : "in_transit";
+
+      return {
+        ...record,
+        itemSummaries,
+        status,
+      };
+    });
+
+    return records.sort((left, right) => {
       const byTransferDate = right.transferDate.localeCompare(left.transferDate);
       if (byTransferDate !== 0) return byTransferDate;
       return right.createdAt.localeCompare(left.createdAt);
     });
   }, [warehouseItemStockAdjustments]);
+
+  const inTransitTransferRecordCount = transferRecords.filter(
+    (record) => record.status === "in_transit",
+  ).length;
 
   function handleAddTransferSkuLine() {
     const sku = skusById[transferSkuId];
@@ -633,9 +670,75 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
       setTransferSkuId("");
       setTransferSkuLines([]);
       setTransferTrackingNo("");
-      setSuccessMessage("库存调拨已保存。");
+      setSuccessMessage("库存调拨已出库，签收后会加入调入仓库。");
     } catch (error) {
       setErrorMessage(getInventoryErrorMessage(error, "库存调拨失败"));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
+  async function handleReceiveTransferRecord(record: TransferRecord) {
+    if (!canEdit) {
+      setErrorMessage("当前账号没有编辑权限，不能签收调拨库存。");
+      return;
+    }
+    if (record.status === "received") {
+      setErrorMessage("该调拨记录已经签收。");
+      return;
+    }
+
+    const destinationWarehouse =
+      (record.destinationWarehouseId
+        ? warehousesById[record.destinationWarehouseId]
+        : undefined) ??
+      warehouses.find((warehouse) => warehouse.name === record.destinationWarehouseName);
+    if (!destinationWarehouse) {
+      setErrorMessage("找不到调入仓库，不能签收入库。");
+      return;
+    }
+
+    const receivableItems = record.itemSummaries
+      .map((item) => ({
+        itemId: item.itemId,
+        quantity: item.transferQuantity,
+      }))
+      .filter((item) => item.quantity > 0);
+    if (receivableItems.length === 0) {
+      setErrorMessage("该调拨记录没有可签收的配件明细。");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `确认签收快递单号“${record.trackingNo}”，并把库存加入“${destinationWarehouse.name}”吗？`,
+    );
+    if (!confirmed) return;
+
+    const nextBusyKey = getTransferRecordBusyKey(record);
+    setBusyKey(nextBusyKey);
+    setErrorMessage("");
+    setSuccessMessage("");
+    try {
+      const result = await receiveWarehouseTransferInventory({
+        destinationWarehouseId: destinationWarehouse.id,
+        reasonDetail: record.key,
+        items: receivableItems,
+        lines: record.metadata?.lines,
+      });
+
+      mergeWarehouseSkus(result.warehouseSkus);
+      mergeWarehouseItemStocks(result.itemStocks);
+      setWarehouseItemStockAdjustments((current) => [
+        ...result.adjustments,
+        ...current,
+      ]);
+      setSuccessMessage(
+        result.adjustments.length > 0
+          ? `已签收快递单号 ${record.trackingNo}，库存已加入 ${destinationWarehouse.name}。`
+          : `快递单号 ${record.trackingNo} 已签收，无需重复入库。`,
+      );
+    } catch (error) {
+      setErrorMessage(getInventoryErrorMessage(error, "调拨签收失败"));
     } finally {
       setBusyKey("");
     }
@@ -645,7 +748,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
     <section className="grid gap-5">
       <PageHeader
         title="库存调拨"
-        description="从一个仓库调拨多个 SKU 到另一个仓库，并记录调拨日期和快递单号"
+        description="先从调出仓扣减库存，快递签收后再加入调入仓库"
         actions={
           <Link to="/inventory" className="btn-secondary">
             返回库存
@@ -849,7 +952,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
             disabled={!canSubmitTransfer || busyKey === "transfer-inventory"}
             className="btn-primary h-11 w-full md:w-auto"
           >
-            调拨库存
+            调拨出库
           </button>
         </div>
         {warehouses.length < 2 && (
@@ -862,88 +965,193 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
       <section className="surface-card grid gap-4 p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-base font-semibold text-ink">调拨记录</h2>
-          <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-500">
-            {transferRecords.length} 条记录
-          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            {inTransitTransferRecordCount > 0 && (
+              <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700">
+                <PackageOpen size={14} />
+                运输中 {inTransitTransferRecordCount}
+              </span>
+            )}
+            <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-500">
+              {transferRecords.length} 条记录
+            </span>
+          </div>
         </div>
         {loading ? (
           <div className="text-sm text-slate-500">加载中...</div>
         ) : transferRecords.length === 0 ? (
           <div className="empty-state">暂无调拨记录</div>
         ) : (
-          <div className="table-card shadow-none">
-            <div className="overflow-x-auto">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th className="px-4 py-3 text-left">调拨日期</th>
-                    <th className="px-4 py-3 text-left">调拨路线</th>
-                    <th className="px-4 py-3 text-left">快递单号</th>
-                    <th className="px-4 py-3 text-left">SKU</th>
-                    <th className="px-4 py-3 text-left">调拨记录</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {transferRecords.map((record) => (
-                    <tr key={record.key}>
-                      <td className="px-4 py-3 align-top">
-                        <div className="font-medium text-ink">{record.transferDate}</div>
-                        <div className="mt-1 text-xs text-slate-500">
-                          {formatDateTime(record.createdAt)}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 align-top">
-                        <div className="font-medium text-ink">
-                          {record.sourceWarehouseName} → {record.destinationWarehouseName}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 align-top text-slate-700">
+          <div className="grid gap-3">
+            {transferRecords.map((record) => {
+              const trackingUrl = buildOcsTrackingUrl(record.trackingNo);
+              const receiveBusyKey = getTransferRecordBusyKey(record);
+              const isReceived = record.status === "received";
+              const totalTransferQuantity = record.itemSummaries.reduce(
+                (total, item) => total + item.transferQuantity,
+                0,
+              );
+              const totalReceivedQuantity = record.itemSummaries.reduce(
+                (total, item) =>
+                  total +
+                  Math.min(Math.max(0, item.receivedQuantity), item.transferQuantity),
+                0,
+              );
+
+              return (
+                <article
+                  key={record.key}
+                  className="rounded-md border border-line bg-white p-4 shadow-soft"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={
+                            isReceived
+                              ? "inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700"
+                              : "inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700"
+                          }
+                        >
+                          {isReceived ? (
+                            <PackageCheck size={14} />
+                          ) : (
+                            <PackageOpen size={14} />
+                          )}
+                          {isReceived ? "已签收" : "运输中"}
+                        </span>
+                        <span className="text-sm font-semibold text-ink">
+                          {record.transferDate}
+                        </span>
+                        <span className="text-xs text-slate-500">
+                          创建：{formatDateTime(record.createdAt)}
+                        </span>
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm font-semibold text-ink">
+                        <Truck size={16} className="text-slate-500" />
+                        <span>{record.sourceWarehouseName}</span>
+                        <span className="text-slate-400">→</span>
+                        <span>{record.destinationWarehouseName}</span>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {trackingUrl && (
+                        <a
+                          href={trackingUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="btn-secondary h-9 px-3 text-xs"
+                          title="打开 OCS 物流查询"
+                        >
+                          <Search size={15} />
+                          查询物流
+                          <ExternalLink size={13} />
+                        </a>
+                      )}
+                      {canEdit && !isReceived && (
+                        <button
+                          type="button"
+                          onClick={() => void handleReceiveTransferRecord(record)}
+                          disabled={busyKey === receiveBusyKey}
+                          className="btn-primary h-9 px-3 text-xs"
+                        >
+                          <CheckCircle2 size={15} />
+                          {busyKey === receiveBusyKey ? "签收中" : "签收"}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(180px,240px)_1fr_minmax(160px,220px)]">
+                    <div>
+                      <div className="text-xs font-semibold text-slate-500">快递单号</div>
+                      <div className="mt-1 break-all font-mono text-sm font-semibold text-sky-700">
                         {record.trackingNo}
-                      </td>
-                      <td className="px-4 py-3 align-top text-slate-700">
-                        {record.skuSummary}
-                      </td>
-                      <td className="px-4 py-3 align-top">
-                        <div className="grid gap-1">
-                          {record.adjustments.map(({ adjustment, direction }) => {
-                            const warehouse = warehousesById[adjustment.warehouse_id];
-                            const item = productItemsById[adjustment.item_id];
-                            const changeLabel =
-                              adjustment.change_quantity > 0
-                                ? `+${adjustment.change_quantity}`
-                                : String(adjustment.change_quantity);
-                            return (
-                              <div key={adjustment.id} className="text-sm text-slate-700">
-                                <span className="font-medium text-ink">
-                                  {direction === "out" ? "出库" : "入库"}
-                                </span>
-                                {" · "}
-                                {warehouse?.name ?? "--"}
-                                {" · "}
-                                {item?.item_name ?? "--"}
-                                {item?.item_spec ? `（${item.item_spec}）` : ""}
-                                {" · "}
-                                <span
-                                  className={
-                                    adjustment.change_quantity < 0
-                                      ? "font-medium text-rose-600"
-                                      : "font-medium text-emerald-600"
-                                  }
-                                >
-                                  {changeLabel}
-                                </span>
-                                {" · "}
-                                {adjustment.previous_quantity} → {adjustment.next_quantity}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-semibold text-slate-500">SKU</div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {record.skuSummary.split("；").map((skuLabel) => (
+                          <span
+                            key={skuLabel}
+                            className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700"
+                          >
+                            {skuLabel}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-semibold text-slate-500">入库进度</div>
+                      <div className="mt-1 text-sm font-semibold text-ink">
+                        {totalReceivedQuantity} / {totalTransferQuantity}
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {isReceived ? "库存已加入调入仓库" : "等待签收后加入调入仓库"}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 border-t border-slate-100 pt-3">
+                    <div className="mb-2 text-xs font-semibold text-slate-500">
+                      库存流水
+                    </div>
+                    <div className="grid gap-2">
+                      {record.adjustments.map(({ adjustment, direction }) => {
+                        const warehouse = warehousesById[adjustment.warehouse_id];
+                        const item = productItemsById[adjustment.item_id];
+                        const changeLabel =
+                          adjustment.change_quantity > 0
+                            ? `+${adjustment.change_quantity}`
+                            : String(adjustment.change_quantity);
+                        const flowLabel =
+                          direction === "out"
+                            ? "出库"
+                            : adjustment.change_quantity < 0
+                              ? "撤销入库"
+                              : "入库";
+                        return (
+                          <div
+                            key={adjustment.id}
+                            className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-700"
+                          >
+                            <span
+                              className={
+                                direction === "out"
+                                  ? "font-semibold text-rose-600"
+                                  : "font-semibold text-emerald-600"
+                              }
+                            >
+                              {flowLabel}
+                            </span>
+                            <span className="text-slate-300">|</span>
+                            <span>{warehouse?.name ?? "--"}</span>
+                            <span className="text-slate-300">|</span>
+                            <span>
+                              {item?.item_name ?? "--"}
+                              {item?.item_spec ? `（${item.item_spec}）` : ""}
+                            </span>
+                            <span
+                              className={
+                                adjustment.change_quantity < 0
+                                  ? "font-semibold text-rose-600"
+                                  : "font-semibold text-emerald-600"
+                              }
+                            >
+                              {changeLabel}
+                            </span>
+                            <span className="text-xs text-slate-500">
+                              {adjustment.previous_quantity} → {adjustment.next_quantity}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
           </div>
         )}
       </section>

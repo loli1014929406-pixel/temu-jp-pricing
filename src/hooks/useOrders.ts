@@ -50,6 +50,35 @@ export type OrdersDraftState = {
   bulkLogisticsMethod: string;
 };
 
+const orderDraftFields = [
+  "order_status",
+  "warehouse_id",
+  "warehouse_name",
+  "logistics_method",
+  "label_printed_at",
+  "logistics_tracking_no",
+  "logistics_status",
+  "actual_ship_time",
+  "actual_signed_time",
+] as const satisfies readonly (keyof OrderDraft)[];
+
+const serverManagedDraftFields = [
+  "order_status",
+  "label_printed_at",
+  "logistics_tracking_no",
+  "logistics_status",
+  "actual_ship_time",
+  "actual_signed_time",
+] as const satisfies readonly (keyof OrderDraft)[];
+
+const serverManagedDraftFieldSet = new Set<keyof OrderDraft>(serverManagedDraftFields);
+
+const restoredEditableDraftFields = [
+  "warehouse_id",
+  "warehouse_name",
+  "logistics_method",
+] as const satisfies readonly (keyof OrderDraft)[];
+
 type UseOrdersResult = {
   orders: TemuOrderRecord[];
   warehouses: Warehouse[];
@@ -246,6 +275,64 @@ function buildDraftMap(orders: TemuOrderRecord[]) {
   >;
 }
 
+function setDraftField<K extends keyof OrderDraft>(
+  draft: OrderDraft,
+  field: K,
+  value: OrderDraft[K],
+) {
+  draft[field] = value;
+}
+
+function syncDraftWithOrderUpdate(
+  currentDraft: OrderDraft | undefined,
+  previousOrder: TemuOrderRecord | undefined,
+  nextOrder: TemuOrderRecord,
+) {
+  const nextOrderDraft = toDraft(nextOrder);
+  if (!currentDraft) return nextOrderDraft;
+  if (!previousOrder) return currentDraft;
+
+  const previousOrderDraft = toDraft(previousOrder);
+  const syncedDraft = { ...currentDraft };
+  serverManagedDraftFields.forEach((field) => {
+    setDraftField(syncedDraft, field, nextOrderDraft[field]);
+  });
+  orderDraftFields.forEach((field) => {
+    if (
+      !serverManagedDraftFieldSet.has(field) &&
+      currentDraft[field] === previousOrderDraft[field]
+    ) {
+      setDraftField(syncedDraft, field, nextOrderDraft[field]);
+    }
+  });
+  return syncedDraft;
+}
+
+function restoreDraftForOrder(
+  order: TemuOrderRecord,
+  restoredDraft: OrderDraft | undefined,
+) {
+  const draft = toDraft(order);
+  if (!restoredDraft) return draft;
+
+  restoredEditableDraftFields.forEach((field) => {
+    setDraftField(draft, field, restoredDraft[field]);
+  });
+  return draft;
+}
+
+function restoreDraftMapFromOrders(
+  orders: TemuOrderRecord[],
+  restoredDrafts: Record<string, OrderDraft> | undefined,
+) {
+  return Object.fromEntries(
+    orders.map((order) => [
+      order.id,
+      restoreDraftForOrder(order, restoredDrafts?.[order.id]),
+    ]),
+  ) as Record<string, OrderDraft>;
+}
+
 async function loadLatestOrders() {
   return dedupeOrdersByOrderLine(await fetchTemuOrders());
 }
@@ -324,10 +411,7 @@ export function useOrders(user: User) {
         setWarehouseItemStocks(nextWarehouseItemStocks);
 
         const latestDraft = readDraft<OrdersDraftState>(draftKey);
-        setDrafts({
-          ...buildDraftMap(nextOrders),
-          ...(latestDraft?.drafts ?? {}),
-        });
+        setDrafts(restoreDraftMapFromOrders(nextOrders, latestDraft?.drafts));
         setBulkWarehouseId(latestDraft?.bulkWarehouseId ?? "");
         setBulkLogisticsMethod(latestDraft?.bulkLogisticsMethod ?? "");
         setSelectedOrderIds(latestDraft?.selectedOrderIds ?? []);
@@ -425,6 +509,7 @@ export function useOrders(user: User) {
   }
 
   function mergeOrders(nextOrders: TemuOrderRecord[]) {
+    const previousOrdersById = new Map(orders.map((order) => [order.id, order]));
     setOrders((current) =>
       current.map(
         (order) => nextOrders.find((nextOrder) => nextOrder.id === order.id) ?? order,
@@ -433,9 +518,11 @@ export function useOrders(user: User) {
     setDrafts((current) => {
       const next = { ...current };
       nextOrders.forEach((order) => {
-        if (!(order.id in next)) {
-          next[order.id] = toDraft(order);
-        }
+        next[order.id] = syncDraftWithOrderUpdate(
+          next[order.id],
+          previousOrdersById.get(order.id),
+          order,
+        );
       });
       return next;
     });

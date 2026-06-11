@@ -30,6 +30,11 @@ import {
   calculateProfitProjection,
   resolveProfitCalculationResult,
 } from "../utils/profit-calculation";
+import {
+  readProductDiscountDraft,
+  writeProductDiscountDraft,
+  type ProfitDiscountFields,
+} from "../utils/profit-discount-drafts";
 
 type ProfitCalculationPageProps = {
   user: User;
@@ -43,29 +48,22 @@ type SkuCalculationState = {
   result: ProfitCalculationResult;
 };
 
-type ProductDiscountDraft = Required<
-  Pick<
-    ProfitCalculationInput,
-    "trafficDiscountRate" | "activityDiscountRate" | "couponDiscountRate" | "adRoas"
-  >
->;
+type ProductDiscountDraft = ProfitDiscountFields;
 
 type ProfitCalculationDraft = {
   productDiscounts: ProductDiscountDraft;
-  skuInputs: Record<string, ProfitCalculationInput>;
+  skuInputs: Record<string, Pick<ProfitCalculationInput, "temuPriceRmb">>;
 };
 
-function hasProfitCalculationDraft(
+function hasSkuPriceDraft(
   draft: ProfitCalculationDraft | null | undefined,
-  baseProductDiscounts: ProductDiscountDraft,
   baseCalculations: Record<string, SkuCalculationState>,
 ) {
   if (!draft) return false;
-  if (!isSameDraft(draft.productDiscounts, baseProductDiscounts)) return true;
 
   return Object.entries(draft.skuInputs).some(([skuId, input]) => {
     const baseCalculation = baseCalculations[skuId];
-    return baseCalculation ? !isSameDraft(input, baseCalculation.input) : false;
+    return baseCalculation ? input.temuPriceRmb !== baseCalculation.input.temuPriceRmb : false;
   });
 }
 
@@ -109,7 +107,7 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
       skuInputs: Object.fromEntries(
         Object.entries(calculations).map(([skuId, calculation]) => [
           skuId,
-          calculation.input,
+          { temuPriceRmb: calculation.input.temuPriceRmb },
         ]),
       ),
     }),
@@ -117,6 +115,11 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
   );
 
   useDraftPersistence(draftKey, draftValue, { enabled: Boolean(product && !loading) });
+
+  useEffect(() => {
+    if (!product || loading) return;
+    writeProductDiscountDraft(user.id, product.id, productDiscounts);
+  }, [loading, product, productDiscounts, user.id]);
 
   useEffect(() => {
     let active = true;
@@ -190,34 +193,39 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
             couponDiscountRate: firstCalculation?.input.couponDiscountRate ?? 0,
             adRoas: firstCalculation?.input.adRoas ?? 0,
           };
-          const shouldRestoreDraft = hasProfitCalculationDraft(
-            latestDraft,
-            baseProductDiscounts,
-            nextCalculations,
-          );
-          const nextProductDiscounts = shouldRestoreDraft && latestDraft
-            ? latestDraft.productDiscounts
-            : baseProductDiscounts;
-          const mergedCalculations = shouldRestoreDraft && latestDraft
-            ? Object.fromEntries(
-                Object.entries(nextCalculations).map(([skuId, calculation]) => {
-                  const input = {
-                    ...calculation.input,
-                    ...nextProductDiscounts,
-                    ...(latestDraft.skuInputs[skuId] ?? {}),
-                  };
+          const sharedProductDiscounts = readProductDiscountDraft(user.id, nextProduct.id);
+          const legacyProductDiscounts =
+            latestDraft && !isSameDraft(latestDraft.productDiscounts, baseProductDiscounts)
+              ? latestDraft.productDiscounts
+              : null;
+          const nextProductDiscounts =
+            sharedProductDiscounts ?? legacyProductDiscounts ?? baseProductDiscounts;
+          const shouldRestoreDraft =
+            Boolean(
+              sharedProductDiscounts &&
+                !isSameDraft(sharedProductDiscounts, baseProductDiscounts),
+            ) ||
+            Boolean(legacyProductDiscounts) ||
+            hasSkuPriceDraft(latestDraft, nextCalculations);
+          const mergedCalculations = Object.fromEntries(
+            Object.entries(nextCalculations).map(([skuId, calculation]) => {
+              const draftSkuInput = latestDraft?.skuInputs[skuId];
+              const input = {
+                ...calculation.input,
+                ...(draftSkuInput ? { temuPriceRmb: draftSkuInput.temuPriceRmb } : {}),
+                ...nextProductDiscounts,
+              };
 
-                  return [
-                    skuId,
-                    {
-                      ...calculation,
-                      input,
-                      result: calculateProfitProjection(calculation.pricing, settings, input),
-                    },
-                  ];
-                }),
-              )
-            : nextCalculations;
+              return [
+                skuId,
+                {
+                  ...calculation,
+                  input,
+                  result: calculateProfitProjection(calculation.pricing, settings, input),
+                },
+              ];
+            }),
+          );
           setProduct(nextProduct);
           setSettings(settings);
           setProductDiscounts(nextProductDiscounts);
@@ -264,6 +272,9 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
 
     const nextProductDiscounts = { ...productDiscounts, [field]: value };
     setProductDiscounts(nextProductDiscounts);
+    if (product) {
+      writeProductDiscountDraft(user.id, product.id, nextProductDiscounts);
+    }
     setCalculations((state) =>
       Object.fromEntries(
         Object.entries(state).map(([skuId, current]) => {
@@ -323,7 +334,7 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
     <section className="grid gap-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-        <h1 className="text-2xl font-semibold text-ink">利润数据分析</h1>
+        <h1 className="text-2xl font-semibold text-ink">利润分析</h1>
           <p className="mt-1 text-sm text-slate-500">
             {product.product_code} · {product.product_name_cn}
           </p>

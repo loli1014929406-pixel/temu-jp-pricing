@@ -8,13 +8,15 @@ import {
   fetchProducts,
   getProductRoutePath,
 } from "../lib/products";
+import { fetchTemuOrders } from "../lib/orders";
 import { fetchProfitCalculationsBySkuIds, saveProfitCalculation } from "../lib/profit-calculations";
 import { fetchSettings } from "../lib/settings";
 import type {
   PricingResult,
   PricingSettings,
   Product,
-  ProfitCalculationInput,
+  ProductSku,
+  TemuOrderRecord,
 } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { calculatePricing, formatCurrency } from "../utils/pricing";
@@ -24,21 +26,23 @@ import {
   calculateProfitProjection,
   PROFIT_CALCULATION_VERSION,
 } from "../utils/profit-calculation";
+import {
+  getProfitCalculationsDraftKey,
+  writeProductDiscountDraft,
+  type ProfitCalculationsDraft,
+  type ProfitDiscountFields,
+} from "../utils/profit-discount-drafts";
 import { Badge, PageHeader, StatCard } from "../components/ui";
 import { isSameDraft, readDraft, useDraftPersistence } from "../hooks/use-draft-persistence";
 import { usePermissions } from "../hooks/use-permissions";
 import { addObjectSheet, createWorkbook, downloadWorkbook } from "../lib/excel";
+import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../utils/sku-code";
 
 type ProfitCalculationsPageProps = {
   user: User;
 };
 
-type DiscountFields = Required<
-  Pick<
-    ProfitCalculationInput,
-    "trafficDiscountRate" | "activityDiscountRate" | "couponDiscountRate" | "adRoas"
-  >
->;
+type DiscountFields = ProfitDiscountFields;
 
 type ProductRuntimeCalculation = {
   skuId: string;
@@ -55,10 +59,6 @@ type DiscountSummary = DiscountFields & {
   costProfitRate: number | null;
   criticalValue: number | null;
   freeShippingThresholdQty: number | null;
-};
-
-type ProfitCalculationsDraft = {
-  discountsByProductId: Record<string, DiscountFields>;
 };
 
 function getDiscountFields(summary: DiscountSummary): DiscountFields {
@@ -91,7 +91,12 @@ type DiscountInputProps = {
   onChange: (value: number) => void;
 };
 
-type SortKey = "productCode" | "activityDiscountRate" | "profitRmb" | "profitRate";
+type SortKey =
+  | "productCode"
+  | "salesQuantity"
+  | "activityDiscountRate"
+  | "profitRmb"
+  | "profitRate";
 type SortDirection = "asc" | "desc";
 
 type SortState = {
@@ -116,6 +121,77 @@ const defaultDiscounts: DiscountFields = {
 
 const getSavedCalculationVersion = (calculation: { result_json?: { calculationVersion?: number } } | undefined) =>
   calculation?.result_json?.calculationVersion ?? 0;
+
+function normalizeSkuCode(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function normalizeSalesSpec(value: string) {
+  return value.replace(/\s+/g, "").toLowerCase();
+}
+
+function formatSkuSalesSpec(sku: ProductSku) {
+  const entries = Object.entries(sku.attributes)
+    .map(([name, value]) => [name.trim(), String(value).trim()] as const)
+    .filter(([name, value]) => name && value);
+
+  return entries.length > 0
+    ? entries.map(([name, value]) => `${name}：${value}`).join(" / ")
+    : "无规格";
+}
+
+function getOrderFulfillmentQuantity(order: TemuOrderRecord) {
+  return Math.max(1, Math.trunc(order.fulfillment_quantity || 0));
+}
+
+function buildProductSalesQuantities(
+  products: Product[],
+  skus: ProductSku[],
+  orders: TemuOrderRecord[],
+) {
+  const productsById = Object.fromEntries(products.map((product) => [product.id, product]));
+  const skuByCode = new Map<string, ProductSku>();
+  const skuBySalesSpec = new Map<string, ProductSku>();
+  const skusByProductId = skus.reduce<Record<string, ProductSku[]>>((groups, sku) => {
+    if (!sku.product_id) return groups;
+    groups[sku.product_id] ??= [];
+    groups[sku.product_id].push(sku);
+    return groups;
+  }, {});
+
+  Object.entries(skusByProductId).forEach(([productId, productSkus]) => {
+    const product = productsById[productId];
+
+    productSkus.forEach((sku, index) => {
+      const salesSpecKey = normalizeSalesSpec(formatSkuSalesSpec(sku));
+      if (salesSpecKey && !skuBySalesSpec.has(salesSpecKey)) {
+        skuBySalesSpec.set(salesSpecKey, sku);
+      }
+
+      [
+        sku.sku_code,
+        product && isLegacyDefaultSkuCode(sku.sku_code)
+          ? buildDefaultSkuCode(product.product_code, index)
+          : "",
+      ].forEach((skuCode) => {
+        const key = normalizeSkuCode(skuCode);
+        if (key) skuByCode.set(key, sku);
+      });
+    });
+  });
+
+  return orders.reduce<Record<string, number>>((totals, order) => {
+    const skuCode = normalizeSkuCode(order.sku_code);
+    const sku = skuCode
+      ? skuByCode.get(skuCode)
+      : skuBySalesSpec.get(normalizeSalesSpec(order.product_attributes));
+    if (!sku?.product_id) return totals;
+
+    totals[sku.product_id] =
+      (totals[sku.product_id] ?? 0) + getOrderFulfillmentQuantity(order);
+    return totals;
+  }, {});
+}
 
 function compareNullableNumbers(
   first: number | null | undefined,
@@ -291,10 +367,11 @@ function DiscountInput({
 
 export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
   const { canEdit } = usePermissions();
-  const draftKey = `profit-calculations-draft:v1:${user.id}`;
+  const draftKey = getProfitCalculationsDraftKey(user.id);
   const [products, setProducts] = useState<Product[]>([]);
   const [temuPrices, setTemuPrices] = useState<Record<string, number | null>>({});
   const [discountSummaries, setDiscountSummaries] = useState<Record<string, DiscountSummary>>({});
+  const [salesQuantities, setSalesQuantities] = useState<Record<string, number>>({});
   const [runtimeCalculations, setRuntimeCalculations] = useState<
     Record<string, ProductRuntimeCalculation[]>
   >({});
@@ -305,9 +382,10 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
   const [errorMessage, setErrorMessage] = useState("");
   const [savedProductId, setSavedProductId] = useState("");
   const [sortState, setSortState] = useState<SortState>({
-    key: "productCode",
-    direction: "asc",
+    key: "salesQuantity",
+    direction: "desc",
   });
+  const [productSearchTerm, setProductSearchTerm] = useState("");
   const [customActivityDiscountMin, setCustomActivityDiscountMin] = useState("");
   const [customActivityDiscountMax, setCustomActivityDiscountMax] = useState("");
   const [draftNotice, setDraftNotice] = useState("");
@@ -340,11 +418,17 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
 
       try {
         const nextProducts = await fetchProducts();
-        const [items, skus, settings] = await Promise.all([
+        const [items, skus, settings, orders] = await Promise.all([
           fetchProductItemsByProductIds(nextProducts.map((product) => product.id)),
           fetchProductSkusByProductIds(nextProducts.map((product) => product.id)),
           fetchSettings(user.id),
+          fetchTemuOrders(),
         ]);
+        const nextSalesQuantities = buildProductSalesQuantities(
+          nextProducts,
+          skus,
+          orders,
+        );
         const savedCalculations = await fetchProfitCalculationsBySkuIds(
           skus.flatMap((sku) => (sku.id ? [sku.id] : [])),
         );
@@ -483,9 +567,10 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
           setProducts(nextProducts);
           setTemuPrices(nextTemuPrices);
           setDiscountSummaries(restoredDiscountSummaries);
+          setSalesQuantities(nextSalesQuantities);
           setRuntimeCalculations(nextRuntimeCalculations);
           setSettings(settings);
-          setDraftNotice(shouldRestoreDraft ? "已恢复上次未保存的利润数据分析草稿。" : "");
+          setDraftNotice(shouldRestoreDraft ? "已恢复上次未保存的利润分析草稿。" : "");
         }
       } catch (error) {
         if (active) {
@@ -512,29 +597,29 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
     if (!settings || Number.isNaN(value) || value < 0) return;
     if (field === "activityDiscountRate" && value > 10) return;
 
+    const current = discountSummaries[productId];
+    if (!current) return;
+
+    const discounts = {
+      trafficDiscountRate: current.trafficDiscountRate,
+      activityDiscountRate: current.activityDiscountRate,
+      couponDiscountRate: current.couponDiscountRate,
+      adRoas: current.adRoas ?? defaultDiscounts.adRoas,
+      [field]: value,
+    };
+    const nextSummary = calculateProductDiscountSummary(
+      discounts,
+      temuPrices[productId] ?? null,
+      runtimeCalculations[productId] ?? [],
+      settings,
+    );
+
     setSavedProductId("");
-    setDiscountSummaries((state) => {
-      const current = state[productId];
-      if (!current) return state;
-
-      const discounts = {
-        trafficDiscountRate: current.trafficDiscountRate,
-        activityDiscountRate: current.activityDiscountRate,
-        couponDiscountRate: current.couponDiscountRate,
-        adRoas: current.adRoas ?? defaultDiscounts.adRoas,
-        [field]: value,
-      };
-
-      return {
-        ...state,
-        [productId]: calculateProductDiscountSummary(
-          discounts,
-          temuPrices[productId] ?? null,
-          runtimeCalculations[productId] ?? [],
-          settings,
-        ),
-      };
-    });
+    setDiscountSummaries((state) => ({
+      ...state,
+      [productId]: nextSummary,
+    }));
+    writeProductDiscountDraft(user.id, productId, discounts);
   }
 
   async function handleSaveProduct(product: Product) {
@@ -605,17 +690,28 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
   }
 
   const filteredProducts = useMemo(() => {
-    return products.filter((product) =>
-      matchesActivityDiscountFilter(
-        discountSummaries[product.id],
-        customActivityDiscountMin,
-        customActivityDiscountMax,
-      ),
-    );
+    const normalizedSearchTerm = productSearchTerm.trim().toLowerCase();
+
+    return products.filter((product) => {
+      const matchesProductSearch =
+        !normalizedSearchTerm ||
+        product.product_code.toLowerCase().includes(normalizedSearchTerm) ||
+        product.product_name_cn.toLowerCase().includes(normalizedSearchTerm);
+
+      return (
+        matchesProductSearch &&
+        matchesActivityDiscountFilter(
+          discountSummaries[product.id],
+          customActivityDiscountMin,
+          customActivityDiscountMax,
+        )
+      );
+    });
   }, [
     customActivityDiscountMax,
     customActivityDiscountMin,
     discountSummaries,
+    productSearchTerm,
     products,
   ]);
 
@@ -628,6 +724,8 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
           numeric: true,
           sensitivity: "base",
         });
+      } else if (sortState.key === "salesQuantity") {
+        result = (salesQuantities[first.id] ?? 0) - (salesQuantities[second.id] ?? 0);
       } else {
         const firstSummary = discountSummaries[first.id];
         const secondSummary = discountSummaries[second.id];
@@ -646,7 +744,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
 
       return sortState.direction === "asc" ? result : -result;
     });
-  }, [discountSummaries, filteredProducts, sortState]);
+  }, [discountSummaries, filteredProducts, salesQuantities, sortState]);
 
   async function handleExcelExport() {
     setExporting(true);
@@ -660,6 +758,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
         return {
           商品编号: product.product_code,
           产品名称: product.product_name_cn,
+          销量: salesQuantities[product.id] ?? 0,
           核价: typeof temuPrice === "number" ? temuPrice : "",
           总成本: typeof summary?.totalCostRmb === "number" ? summary.totalCostRmb : "",
           流量加速: summary?.trafficDiscountRate ?? "",
@@ -686,7 +785,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
         };
       });
       const workbook = await createWorkbook();
-      addObjectSheet(workbook, "利润数据分析", rows);
+      addObjectSheet(workbook, "利润分析", rows);
       await downloadWorkbook(
         workbook,
         `profit-calculation-${new Date().toISOString().slice(0, 10)}.xlsx`,
@@ -767,7 +866,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
   return (
     <section className="grid gap-5">
       <PageHeader
-        title="利润数据分析"
+        title="利润分析"
         description="实时分析利润率、最终售价及广告投放安全边际"
       />
 
@@ -881,6 +980,15 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
       </section>
 
       <section className="grid gap-3 rounded-lg border border-slate-200 bg-white p-3 md:hidden">
+        <p className="text-sm font-semibold text-slate-700">商品筛选</p>
+        <input
+          aria-label="商品编号或商品名筛选"
+          className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15"
+          type="search"
+          placeholder="输入商品编号或商品名"
+          value={productSearchTerm}
+          onChange={(event) => setProductSearchTerm(event.target.value)}
+        />
         <p className="text-sm font-semibold text-slate-700">活动折扣筛选</p>
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
           <input
@@ -911,11 +1019,12 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
           <span className="text-xs font-semibold text-slate-500">
             显示 {sortedProducts.length} / {products.length}
           </span>
-          {(customActivityDiscountMin || customActivityDiscountMax) && (
+          {(productSearchTerm || customActivityDiscountMin || customActivityDiscountMax) && (
             <button
               type="button"
               className="btn-secondary h-9 px-3"
               onClick={() => {
+                setProductSearchTerm("");
                 setCustomActivityDiscountMin("");
                 setCustomActivityDiscountMax("");
               }}
@@ -947,6 +1056,9 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                 <div className="mobile-summary-grid">
                   <div className="mobile-summary-cell">
                     核价：{typeof temuPrices[product.id] === "number" ? formatCurrency(temuPrices[product.id] as number) : "--"}
+                  </div>
+                  <div className="mobile-summary-cell">
+                    销量：{salesQuantities[product.id] ?? 0}
                   </div>
                   <div className="mobile-summary-cell">
                     总成本：{typeof summary?.totalCostRmb === "number" ? formatCurrency(summary.totalCostRmb) : "--"}
@@ -1062,6 +1174,14 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
+          <input
+            aria-label="商品编号或商品名筛选"
+            className="h-9 w-56 rounded-md border border-slate-300 bg-white px-2 text-sm font-medium text-slate-700 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15"
+            type="search"
+            placeholder="输入商品编号或商品名"
+            value={productSearchTerm}
+            onChange={(event) => setProductSearchTerm(event.target.value)}
+          />
           <span className="text-xs font-semibold text-slate-600">活动折扣筛选</span>
           <div className="flex items-center gap-1 text-xs font-semibold text-slate-600">
             <input
@@ -1088,11 +1208,12 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
               onChange={(event) => setCustomActivityDiscountMax(event.target.value)}
             />
           </div>
-          {(customActivityDiscountMin || customActivityDiscountMax) && (
+          {(productSearchTerm || customActivityDiscountMin || customActivityDiscountMax) && (
             <button
               type="button"
               className="btn-secondary h-9 px-3"
               onClick={() => {
+                setProductSearchTerm("");
                 setCustomActivityDiscountMin("");
                 setCustomActivityDiscountMax("");
               }}
@@ -1120,6 +1241,14 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                   />
                 </th>
                 <th className="product-name-col px-4 py-3 font-medium">产品名称</th>
+                <th className="px-4 py-3 font-medium">
+                  <SortableHeader
+                    label="销量"
+                    sortKey="salesQuantity"
+                    sortState={sortState}
+                    onSort={handleSort}
+                  />
+                </th>
                 <th className="px-4 py-3 font-medium">核价</th>
                 <th className="px-4 py-3 font-medium">总成本</th>
                 <th className="px-4 py-3 font-medium">流量加速</th>
@@ -1160,19 +1289,19 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={16} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={17} className="px-4 py-8 text-center text-slate-500">
                     加载中...
                   </td>
                 </tr>
               ) : products.length === 0 ? (
                 <tr>
-                  <td colSpan={16} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={17} className="px-4 py-8 text-center text-slate-500">
                     暂无商品
                   </td>
                 </tr>
               ) : sortedProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={16} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={17} className="px-4 py-8 text-center text-slate-500">
                     没有符合当前筛选条件的商品
                   </td>
                 </tr>
@@ -1184,6 +1313,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                   <tr key={product.id}>
                     <td className="px-4 py-3">{product.product_code}</td>
                     <td className="product-name-col px-4 py-3">{product.product_name_cn}</td>
+                    <td className="number-cell">{salesQuantities[product.id] ?? 0}</td>
                     <td className="money">
                       {typeof temuPrices[product.id] === "number"
                         ? formatCurrency(temuPrices[product.id] as number)

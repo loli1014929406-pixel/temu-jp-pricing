@@ -270,11 +270,181 @@ export type WarehouseInventoryTransferInput = {
   lines: WarehouseInventoryTransferLineInput[];
 };
 
+export type WarehouseInventoryTransferMetadataLine = {
+  productId: string;
+  skuId: string;
+  quantity: number;
+  items: Array<{
+    itemId: string;
+    quantity: number;
+  }>;
+};
+
+export type WarehouseInventoryTransferMetadata = {
+  batchId: string;
+  sourceWarehouseId: string;
+  destinationWarehouseId: string;
+  lines: WarehouseInventoryTransferMetadataLine[];
+};
+
 type WarehouseInventoryTransferResult = {
   warehouseSkus: WarehouseSku[];
   itemStocks: WarehouseItemStock[];
   adjustments: WarehouseItemStockAdjustment[];
 };
+
+const transferOutReasonPrefix = "库存调拨出库：";
+const transferInReasonPrefix = "库存调拨入库：";
+const transferMetadataPartPrefix = "调拨数据：";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseWarehouseInventoryTransferMetadataLine(
+  value: unknown,
+): WarehouseInventoryTransferMetadataLine | null {
+  if (!isRecord(value)) return null;
+
+  const productId = typeof value.productId === "string" ? value.productId.trim() : "";
+  const skuId = typeof value.skuId === "string" ? value.skuId.trim() : "";
+  const quantity = Math.trunc(Number(value.quantity) || 0);
+  const rawItems = Array.isArray(value.items) ? value.items : [];
+  const items = rawItems.flatMap((item): WarehouseInventoryTransferMetadataLine["items"] => {
+    if (!isRecord(item)) return [];
+    const itemId = typeof item.itemId === "string" ? item.itemId.trim() : "";
+    const itemQuantity = Math.trunc(Number(item.quantity) || 0);
+    return itemId && itemQuantity > 0 ? [{ itemId, quantity: itemQuantity }] : [];
+  });
+
+  if (!productId || !skuId || quantity <= 0 || items.length === 0) return null;
+  return { productId, skuId, quantity, items };
+}
+
+export function parseWarehouseInventoryTransferMetadata(
+  encodedMetadata: string,
+): WarehouseInventoryTransferMetadata | null {
+  try {
+    const parsed: unknown = JSON.parse(decodeURIComponent(encodedMetadata));
+    if (!isRecord(parsed)) return null;
+
+    const batchId = typeof parsed.batchId === "string" ? parsed.batchId.trim() : "";
+    const sourceWarehouseId =
+      typeof parsed.sourceWarehouseId === "string"
+        ? parsed.sourceWarehouseId.trim()
+        : "";
+    const destinationWarehouseId =
+      typeof parsed.destinationWarehouseId === "string"
+        ? parsed.destinationWarehouseId.trim()
+        : "";
+    const rawLines = Array.isArray(parsed.lines) ? parsed.lines : [];
+    const lines = rawLines.flatMap((line): WarehouseInventoryTransferMetadataLine[] => {
+      const parsedLine = parseWarehouseInventoryTransferMetadataLine(line);
+      return parsedLine ? [parsedLine] : [];
+    });
+
+    if (!batchId || !sourceWarehouseId || !destinationWarehouseId || lines.length === 0) {
+      return null;
+    }
+    return { batchId, sourceWarehouseId, destinationWarehouseId, lines };
+  } catch {
+    return null;
+  }
+}
+
+export function getWarehouseTransferReasonInfo(reason: string) {
+  if (reason.startsWith(transferOutReasonPrefix)) {
+    return {
+      direction: "out" as const,
+      detail: reason.slice(transferOutReasonPrefix.length),
+    };
+  }
+  if (reason.startsWith(transferInReasonPrefix)) {
+    return {
+      direction: "in" as const,
+      detail: reason.slice(transferInReasonPrefix.length),
+    };
+  }
+  return null;
+}
+
+export function parseWarehouseTransferReasonDetail(detail: string, fallbackDate: string) {
+  const parts = detail
+    .split(" / ")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const route = parts[0] ?? "";
+  const [sourceWarehouseName = "--", destinationWarehouseName = "--"] = route
+    .split(" -> ")
+    .map((part) => part.trim());
+  const transferDate =
+    parts.find((part) => part.startsWith("调拨日期："))?.replace("调拨日期：", "").trim() ||
+    fallbackDate;
+  const trackingNo =
+    parts.find((part) => part.startsWith("快递单号："))?.replace("快递单号：", "").trim() ||
+    "--";
+  const metadata = parseWarehouseInventoryTransferMetadata(
+    parts
+      .find((part) => part.startsWith(transferMetadataPartPrefix))
+      ?.slice(transferMetadataPartPrefix.length) ?? "",
+  );
+  const skuSummary =
+    parts
+      .slice(1)
+      .filter(
+        (part) =>
+          !part.startsWith("调拨日期：") &&
+          !part.startsWith("快递单号：") &&
+          !part.startsWith(transferMetadataPartPrefix),
+      )
+      .join(" / ") || "--";
+
+  return {
+    sourceWarehouseName,
+    destinationWarehouseName,
+    transferDate,
+    trackingNo,
+    skuSummary,
+    metadata,
+  };
+}
+
+function createTransferBatchId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function buildTransferReasonLabel(
+  input: WarehouseInventoryTransferInput,
+  transferLines: Array<
+    Omit<WarehouseInventoryTransferLineInput, "items"> & {
+      items: WarehouseInventoryTransferMetadataLine["items"];
+    }
+  >,
+) {
+  const metadata: WarehouseInventoryTransferMetadata = {
+    batchId: createTransferBatchId(),
+    sourceWarehouseId: input.sourceWarehouseId.trim(),
+    destinationWarehouseId: input.destinationWarehouseId.trim(),
+    lines: transferLines.map((line) => ({
+      productId: line.productId,
+      skuId: line.skuId,
+      quantity: line.quantity,
+      items: line.items,
+    })),
+  };
+  const skuLabel = transferLines
+    .map((line) => `${line.skuLabel || line.skuId} x${line.quantity}`)
+    .join("；");
+
+  return `${input.sourceWarehouseName || metadata.sourceWarehouseId} -> ${
+    input.destinationWarehouseName || metadata.destinationWarehouseId
+  } / ${skuLabel} / 调拨日期：${input.transferDate.trim()} / 快递单号：${input.trackingNo.trim()} / ${transferMetadataPartPrefix}${encodeURIComponent(
+    JSON.stringify(metadata),
+  )}`;
+}
 
 function normalizeTransferItems(items: WarehouseInventoryTransferLineInput["items"]) {
   const quantityByItemId = new Map<string, number>();
@@ -332,7 +502,7 @@ export async function transferWarehouseInventory(
     throw new Error("请填写调拨快递单号");
   }
 
-  const { supabase, session } = await requireSession();
+  const { supabase } = await requireSession();
   const itemIds = transferItems.map((item) => item.itemId);
 
   const { data: sourceStockData, error: sourceStockError } = await withTimeout(
@@ -366,88 +536,13 @@ export async function transferWarehouseInventory(
     );
   }
 
-  const { error: skuUpsertError } = await withTimeout(
-    supabase
-      .from("warehouse_skus")
-      .upsert(
-        Array.from(
-          new Map(
-            transferLines.map((line) => [
-              line.skuId,
-              {
-                warehouse_id: destinationWarehouseId,
-                product_id: line.productId,
-                sku_id: line.skuId,
-                owner_id: session.user.id,
-              },
-            ]),
-          ).values(),
-        ),
-        { onConflict: "warehouse_id,sku_id", ignoreDuplicates: true },
-      ),
-    "准备调入仓库 SKU",
-  );
-  if (skuUpsertError) throw skuUpsertError;
-
-  const { error: itemStockUpsertError } = await withTimeout(
-    supabase
-      .from("warehouse_item_stocks")
-      .upsert(
-        itemIds.map((itemId) => ({
-          warehouse_id: destinationWarehouseId,
-          item_id: itemId,
-          owner_id: session.user.id,
-        })),
-        { onConflict: "warehouse_id,item_id", ignoreDuplicates: true },
-      ),
-    "准备调入仓库配件库存",
-  );
-  if (itemStockUpsertError) throw itemStockUpsertError;
-
-  const [
-    { data: destinationSkuData, error: destinationSkuError },
-    { data: destinationStockData, error: destinationStockError },
-  ] = await Promise.all([
-    supabase
-      .from("warehouse_skus")
-      .select("id, warehouse_id, product_id, sku_id, created_at")
-      .eq("warehouse_id", destinationWarehouseId)
-      .in("sku_id", Array.from(new Set(transferLines.map((line) => line.skuId)))),
-    supabase
-      .from("warehouse_item_stocks")
-      .select("id, warehouse_id, item_id, stock_quantity")
-      .eq("warehouse_id", destinationWarehouseId)
-      .in("item_id", itemIds),
-  ]);
-  if (destinationSkuError) throw destinationSkuError;
-  if (destinationStockError) throw destinationStockError;
-
-  const destinationStocksByItemId = new Map(
-    ((destinationStockData ?? []) as WarehouseItemStock[]).map((item) => [
-      item.item_id,
-      item,
-    ]),
-  );
-  const missingDestinationStock = transferItems.find(
-    (item) => !destinationStocksByItemId.has(item.itemId),
-  );
-  if (missingDestinationStock) {
-    throw new Error("调入仓库配件库存准备失败，请刷新后重试");
-  }
-
-  const skuLabel = transferLines
-    .map((line) => `${line.skuLabel || line.skuId} x${line.quantity}`)
-    .join("；");
-  const reasonLabel = `${input.sourceWarehouseName || sourceWarehouseId} -> ${
-    input.destinationWarehouseName || destinationWarehouseId
-  } / ${skuLabel} / 调拨日期：${transferDate} / 快递单号：${trackingNo}`;
+  const reasonLabel = buildTransferReasonLabel(input, transferLines);
   const updatedStocks: WarehouseItemStock[] = [];
   const adjustments: WarehouseItemStockAdjustment[] = [];
 
   for (const transferItem of transferItems) {
     const sourceStock = sourceStocksByItemId.get(transferItem.itemId);
-    const destinationStock = destinationStocksByItemId.get(transferItem.itemId);
-    if (!sourceStock || !destinationStock) continue;
+    if (!sourceStock) continue;
 
     const nextSourceQuantity = sourceStock.stock_quantity - transferItem.quantity;
     const { data: nextSourceStockData, error: sourceUpdateError } = await withTimeout(
@@ -474,60 +569,225 @@ export async function transferWarehouseInventory(
             previous_quantity: sourceStock.stock_quantity,
             next_quantity: nextSourceStock.stock_quantity,
             change_quantity: -transferItem.quantity,
-            reason: `库存调拨出库：${reasonLabel}`,
+            reason: `${transferOutReasonPrefix}${reasonLabel}`,
             purchase_order_id: null,
             purchase_package_id: null,
           })
-          .select("id, warehouse_id, item_id, previous_quantity, next_quantity, change_quantity, reason, created_at")
+          .select("id, warehouse_id, item_id, owner_id, previous_quantity, next_quantity, change_quantity, reason, purchase_order_id, purchase_package_id, created_at")
           .single(),
         "保存调拨出库记录",
       );
     if (sourceAdjustmentError) throw sourceAdjustmentError;
 
-    const nextDestinationQuantity =
-      destinationStock.stock_quantity + transferItem.quantity;
-    const { data: nextDestinationStockData, error: destinationUpdateError } =
-      await withTimeout(
-        supabase
-          .from("warehouse_item_stocks")
-          .update({ stock_quantity: nextDestinationQuantity })
-          .eq("id", destinationStock.id)
-          .eq("stock_quantity", destinationStock.stock_quantity)
-          .select("id, warehouse_id, item_id, stock_quantity")
-          .maybeSingle(),
-        "增加调入仓库库存",
-      );
-    if (destinationUpdateError) throw destinationUpdateError;
-    if (!nextDestinationStockData) {
-      throw new Error("库存已被其他操作更新，请刷新后重试");
-    }
+    updatedStocks.push(nextSourceStock);
+    adjustments.push(sourceAdjustmentData as WarehouseItemStockAdjustment);
+  }
 
-    const nextDestinationStock = nextDestinationStockData as WarehouseItemStock;
-    const { data: destinationAdjustmentData, error: destinationAdjustmentError } =
-      await withTimeout(
-        supabase
-          .from("warehouse_item_stock_adjustments")
-          .insert({
-            warehouse_id: destinationStock.warehouse_id,
-            item_id: destinationStock.item_id,
-            previous_quantity: destinationStock.stock_quantity,
-            next_quantity: nextDestinationStock.stock_quantity,
-            change_quantity: transferItem.quantity,
-            reason: `库存调拨入库：${reasonLabel}`,
-            purchase_order_id: null,
-            purchase_package_id: null,
-          })
-          .select("id, warehouse_id, item_id, previous_quantity, next_quantity, change_quantity, reason, created_at")
-          .single(),
-        "保存调拨入库记录",
-      );
-    if (destinationAdjustmentError) throw destinationAdjustmentError;
+  return {
+    warehouseSkus: [],
+    itemStocks: updatedStocks,
+    adjustments,
+  };
+}
 
-    updatedStocks.push(nextSourceStock, nextDestinationStock);
-    adjustments.push(
-      sourceAdjustmentData as WarehouseItemStockAdjustment,
-      destinationAdjustmentData as WarehouseItemStockAdjustment,
+export type WarehouseInventoryTransferReceiptInput = {
+  destinationWarehouseId: string;
+  reasonDetail: string;
+  items: Array<{
+    itemId: string;
+    quantity: number;
+  }>;
+  lines?: WarehouseInventoryTransferMetadataLine[];
+};
+
+export async function receiveWarehouseTransferInventory(
+  input: WarehouseInventoryTransferReceiptInput,
+): Promise<WarehouseInventoryTransferResult> {
+  const destinationWarehouseId = input.destinationWarehouseId.trim();
+  const reasonDetail = input.reasonDetail.trim();
+  const transferItems = normalizeTransferItems(input.items);
+  const transferLines = (input.lines ?? [])
+    .map((line) => ({
+      productId: line.productId.trim(),
+      skuId: line.skuId.trim(),
+      quantity: Math.trunc(Number(line.quantity) || 0),
+      items: normalizeTransferItems(line.items),
+    }))
+    .filter(
+      (line) =>
+        line.productId &&
+        line.skuId &&
+        line.quantity > 0 &&
+        line.items.length > 0,
     );
+
+  if (!destinationWarehouseId) {
+    throw new Error("缺少调入仓库，不能签收入库");
+  }
+  if (!reasonDetail) {
+    throw new Error("缺少调拨记录，不能签收入库");
+  }
+  if (transferItems.length === 0) {
+    throw new Error("调拨记录没有可签收的配件明细");
+  }
+
+  const { supabase, session } = await requireSession();
+  const itemIds = transferItems.map((item) => item.itemId);
+  const skuIds = Array.from(new Set(transferLines.map((line) => line.skuId)));
+  const inboundReason = `${transferInReasonPrefix}${reasonDetail}`;
+
+  if (transferLines.length > 0) {
+    const { error: skuUpsertError } = await withTimeout(
+      supabase
+        .from("warehouse_skus")
+        .upsert(
+          Array.from(
+            new Map(
+              transferLines.map((line) => [
+                line.skuId,
+                {
+                  warehouse_id: destinationWarehouseId,
+                  product_id: line.productId,
+                  sku_id: line.skuId,
+                  owner_id: session.user.id,
+                },
+              ]),
+            ).values(),
+          ),
+          { onConflict: "warehouse_id,sku_id", ignoreDuplicates: true },
+        ),
+      "准备签收仓库 SKU",
+    );
+    if (skuUpsertError) throw skuUpsertError;
+  }
+
+  const { error: itemStockUpsertError } = await withTimeout(
+    supabase
+      .from("warehouse_item_stocks")
+      .upsert(
+        itemIds.map((itemId) => ({
+          warehouse_id: destinationWarehouseId,
+          item_id: itemId,
+          owner_id: session.user.id,
+        })),
+        { onConflict: "warehouse_id,item_id", ignoreDuplicates: true },
+      ),
+    "准备签收仓库配件库存",
+  );
+  if (itemStockUpsertError) throw itemStockUpsertError;
+
+  const [
+    { data: destinationSkuData, error: destinationSkuError },
+    { data: destinationStockData, error: destinationStockError },
+    { data: existingInboundData, error: existingInboundError },
+  ] = await Promise.all([
+    skuIds.length > 0
+      ? supabase
+          .from("warehouse_skus")
+          .select("id, warehouse_id, product_id, sku_id, owner_id, stock_quantity, created_at, updated_at")
+          .eq("warehouse_id", destinationWarehouseId)
+          .in("sku_id", skuIds)
+      : Promise.resolve({ data: [], error: null }),
+    supabase
+      .from("warehouse_item_stocks")
+      .select("id, warehouse_id, item_id, stock_quantity")
+      .eq("warehouse_id", destinationWarehouseId)
+      .in("item_id", itemIds),
+    supabase
+      .from("warehouse_item_stock_adjustments")
+      .select("item_id, change_quantity")
+      .eq("warehouse_id", destinationWarehouseId)
+      .eq("reason", inboundReason)
+      .in("item_id", itemIds),
+  ]);
+  if (destinationSkuError) throw destinationSkuError;
+  if (destinationStockError) throw destinationStockError;
+  if (existingInboundError) throw existingInboundError;
+
+  const destinationStocksByItemId = new Map(
+    ((destinationStockData ?? []) as WarehouseItemStock[]).map((item) => [
+      item.item_id,
+      item,
+    ]),
+  );
+  const missingDestinationStock = transferItems.find(
+    (item) => !destinationStocksByItemId.has(item.itemId),
+  );
+  if (missingDestinationStock) {
+    throw new Error("签收仓库配件库存准备失败，请刷新后重试");
+  }
+
+  const receivedQuantityByItemId = new Map<string, number>();
+  ((existingInboundData ?? []) as Array<
+    Pick<WarehouseItemStockAdjustment, "item_id" | "change_quantity">
+  >).forEach((adjustment) => {
+    receivedQuantityByItemId.set(
+      adjustment.item_id,
+      (receivedQuantityByItemId.get(adjustment.item_id) ?? 0) +
+        Math.trunc(Number(adjustment.change_quantity) || 0),
+    );
+  });
+
+  const updatedStocks: WarehouseItemStock[] = [];
+  const adjustments: WarehouseItemStockAdjustment[] = [];
+
+  for (const transferItem of transferItems) {
+    const alreadyReceivedQuantity =
+      Math.max(0, receivedQuantityByItemId.get(transferItem.itemId) ?? 0);
+    const receiveQuantity = transferItem.quantity - alreadyReceivedQuantity;
+    if (receiveQuantity <= 0) continue;
+
+    const currentStock = destinationStocksByItemId.get(transferItem.itemId);
+    if (!currentStock) continue;
+
+    const { data: currentData, error: currentError } = await withTimeout(
+      supabase
+        .from("warehouse_item_stocks")
+        .select("id, warehouse_id, item_id, stock_quantity")
+        .eq("id", currentStock.id)
+        .maybeSingle(),
+      "读取签收仓库配件库存",
+    );
+    if (currentError) throw currentError;
+    if (!currentData) throw new Error("签收仓库配件库存不存在，请刷新后重试");
+
+    const current = currentData as WarehouseItemStock;
+    const nextQuantity = current.stock_quantity + receiveQuantity;
+    const { data: nextStockData, error: stockUpdateError } = await withTimeout(
+      supabase
+        .from("warehouse_item_stocks")
+        .update({ stock_quantity: nextQuantity })
+        .eq("id", current.id)
+        .eq("stock_quantity", current.stock_quantity)
+        .select("id, warehouse_id, item_id, stock_quantity")
+        .maybeSingle(),
+      "增加签收仓库配件库存",
+    );
+    if (stockUpdateError) throw stockUpdateError;
+    if (!nextStockData) throw new Error("库存已被其他操作更新，请刷新后重试");
+
+    const nextStock = nextStockData as WarehouseItemStock;
+    const { data: adjustmentData, error: adjustmentError } = await withTimeout(
+      supabase
+        .from("warehouse_item_stock_adjustments")
+        .insert({
+          warehouse_id: destinationWarehouseId,
+          item_id: current.item_id,
+          previous_quantity: current.stock_quantity,
+          next_quantity: nextStock.stock_quantity,
+          change_quantity: receiveQuantity,
+          reason: inboundReason,
+          purchase_order_id: null,
+          purchase_package_id: null,
+        })
+        .select("id, warehouse_id, item_id, owner_id, previous_quantity, next_quantity, change_quantity, reason, purchase_order_id, purchase_package_id, created_at")
+        .single(),
+      "保存调拨签收记录",
+    );
+    if (adjustmentError) throw adjustmentError;
+
+    updatedStocks.push(nextStock);
+    adjustments.push(adjustmentData as WarehouseItemStockAdjustment);
   }
 
   return {

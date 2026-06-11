@@ -1,4 +1,5 @@
 import {
+  ArrowLeft,
   ArrowRight,
   CheckCircle2,
   Download,
@@ -34,6 +35,7 @@ type OrderBulkActionsProps = {
   filteredOrdersCount: number;
   onClearSelection: () => void;
   onShowSelectedDetail: () => void;
+  onMoveNewOrdersToPendingAssignment: () => void;
   onMoveNewOrdersToPendingShipping: () => void;
   onSaveSelectedOrders: () => void;
   onDownloadShippingTable: () => void;
@@ -71,6 +73,7 @@ export function OrderBulkActions({
   filteredOrdersCount,
   onClearSelection,
   onShowSelectedDetail,
+  onMoveNewOrdersToPendingAssignment,
   onMoveNewOrdersToPendingShipping,
   onSaveSelectedOrders,
   onDownloadShippingTable,
@@ -104,15 +107,26 @@ export function OrderBulkActions({
               清空选中
             </button>
             {canEdit && activeStage === "new_order" && selectedNewOrdersInViewCount > 0 && (
-              <button
-                type="button"
-                disabled={busyKey === "download-batch"}
-                onClick={onMoveNewOrdersToPendingShipping}
-                className="btn-secondary h-9 px-3"
-              >
-                <Truck size={16} />
-                转到待发货（{selectedNewOrderRowCount}）
-              </button>
+              <>
+                <button
+                  type="button"
+                  disabled={busyKey === "new-to-pending-assignment"}
+                  onClick={onMoveNewOrdersToPendingAssignment}
+                  className="btn-secondary h-9 px-3"
+                >
+                  <ArrowLeft size={16} />
+                  退回待分配（{selectedNewOrderRowCount}）
+                </button>
+                <button
+                  type="button"
+                  disabled={busyKey === "download-batch"}
+                  onClick={onMoveNewOrdersToPendingShipping}
+                  className="btn-secondary h-9 px-3"
+                >
+                  <Truck size={16} />
+                  转到待发货（{selectedNewOrderRowCount}）
+                </button>
+              </>
             )}
             <button
               type="button"
