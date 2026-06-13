@@ -137,9 +137,13 @@ function hasInventoryDraft(
 
 function getInventoryErrorMessage(error: unknown, fallback: string) {
   const message = getErrorMessage(error, fallback);
-  return message.includes("public.warehouses") ||
+  if (
     message.includes("public.logistics_methods") ||
-    message.includes("public.warehouse_logistics_methods") ||
+    message.includes("public.warehouse_logistics_methods")
+  ) {
+    return "仓库发货方式数据库还没有完整初始化，请完整执行 20260613_add_warehouse_logistics_methods.sql 迁移";
+  }
+  return message.includes("public.warehouses") ||
     message.includes("public.warehouse_skus") ||
     message.includes("public.warehouse_item_stocks") ||
     message.includes("public.warehouse_item_stock_adjustments")

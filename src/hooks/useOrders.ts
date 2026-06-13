@@ -256,9 +256,13 @@ export function getOrdersErrorMessage(error: unknown, fallback: string) {
     return "订单管理数据库还没有新增 SKU 货号字段，请在 Supabase SQL Editor 执行最新订单迁移以启用精准自动匹配";
   }
   if (
-    message.includes("public.temu_orders") ||
     message.includes("logistics_methods") ||
-    message.includes("warehouse_logistics_methods") ||
+    message.includes("warehouse_logistics_methods")
+  ) {
+    return "仓库发货方式数据库还没有完整初始化，请完整执行 20260613_add_warehouse_logistics_methods.sql 迁移";
+  }
+  if (
+    message.includes("public.temu_orders") ||
     message.includes("warehouse_id") ||
     message.includes("logistics_method") ||
     message.includes("label_printed_at") ||
