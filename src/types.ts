@@ -210,6 +210,27 @@ export type Warehouse = {
   updated_at: string;
 };
 
+export type LogisticsMethod = {
+  id: string;
+  owner_id: string;
+  name: string;
+  is_active: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WarehouseLogisticsMethod = {
+  id: string;
+  warehouse_id: string;
+  logistics_method_id: string;
+  owner_id: string;
+  is_default: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
 export type WarehouseSku = {
   id: string;
   warehouse_id: string;

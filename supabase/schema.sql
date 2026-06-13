@@ -133,6 +133,35 @@ create table if not exists public.warehouses (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.logistics_methods (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  name text not null check (btrim(name) <> ''),
+  is_active boolean not null default true,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index if not exists logistics_methods_name_unique
+on public.logistics_methods (lower(btrim(name)));
+
+create table if not exists public.warehouse_logistics_methods (
+  id uuid primary key default gen_random_uuid(),
+  warehouse_id uuid not null references public.warehouses(id) on delete cascade,
+  logistics_method_id uuid not null references public.logistics_methods(id) on delete cascade,
+  owner_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  is_default boolean not null default false,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (warehouse_id, logistics_method_id)
+);
+
+create unique index if not exists warehouse_logistics_methods_one_default
+on public.warehouse_logistics_methods (warehouse_id)
+where is_default;
+
 create table if not exists public.warehouse_skus (
   id uuid primary key default gen_random_uuid(),
   warehouse_id uuid not null references public.warehouses(id) on delete cascade,
@@ -242,6 +271,14 @@ to authenticated;
 
 grant select, insert, update, delete
 on table public.warehouses
+to authenticated;
+
+grant select, insert, update, delete
+on table public.logistics_methods
+to authenticated;
+
+grant select, insert, update, delete
+on table public.warehouse_logistics_methods
 to authenticated;
 
 grant select, insert, update, delete
@@ -362,6 +399,16 @@ create trigger warehouses_set_updated_at
 before update on public.warehouses
 for each row execute function public.set_updated_at();
 
+drop trigger if exists logistics_methods_set_updated_at on public.logistics_methods;
+create trigger logistics_methods_set_updated_at
+before update on public.logistics_methods
+for each row execute function public.set_updated_at();
+
+drop trigger if exists warehouse_logistics_methods_set_updated_at on public.warehouse_logistics_methods;
+create trigger warehouse_logistics_methods_set_updated_at
+before update on public.warehouse_logistics_methods
+for each row execute function public.set_updated_at();
+
 drop trigger if exists warehouse_skus_set_updated_at on public.warehouse_skus;
 create trigger warehouse_skus_set_updated_at
 before update on public.warehouse_skus
@@ -395,6 +442,8 @@ alter table public.pricing_settings enable row level security;
 alter table public.pricing_results enable row level security;
 alter table public.profit_calculations enable row level security;
 alter table public.warehouses enable row level security;
+alter table public.logistics_methods enable row level security;
+alter table public.warehouse_logistics_methods enable row level security;
 alter table public.warehouse_skus enable row level security;
 alter table public.warehouse_item_stocks enable row level security;
 alter table public.warehouse_item_stock_adjustments enable row level security;
@@ -1358,6 +1407,16 @@ create policy "warehouses_select_authenticated"
 on public.warehouses for select to authenticated
 using (public.current_account_has_permission());
 
+drop policy if exists "logistics_methods_select_authenticated" on public.logistics_methods;
+create policy "logistics_methods_select_authenticated"
+on public.logistics_methods for select to authenticated
+using (public.current_account_has_permission());
+
+drop policy if exists "warehouse_logistics_methods_select_authenticated" on public.warehouse_logistics_methods;
+create policy "warehouse_logistics_methods_select_authenticated"
+on public.warehouse_logistics_methods for select to authenticated
+using (public.current_account_has_permission());
+
 drop policy if exists "warehouse_skus_select_authenticated" on public.warehouse_skus;
 create policy "warehouse_skus_select_authenticated"
 on public.warehouse_skus for select to authenticated
@@ -1389,6 +1448,45 @@ with check (public.current_account_can_edit());
 create policy "warehouses_delete_admin"
 on public.warehouses for delete to authenticated
 using (public.current_account_can_delete());
+
+drop policy if exists "logistics_methods_insert_editor" on public.logistics_methods;
+drop policy if exists "logistics_methods_update_editor" on public.logistics_methods;
+drop policy if exists "logistics_methods_delete_admin" on public.logistics_methods;
+create policy "logistics_methods_insert_editor"
+on public.logistics_methods for insert to authenticated
+with check (public.current_account_can_edit());
+create policy "logistics_methods_update_editor"
+on public.logistics_methods for update to authenticated
+using (public.current_account_can_edit())
+with check (public.current_account_can_edit());
+create policy "logistics_methods_delete_admin"
+on public.logistics_methods for delete to authenticated
+using (public.current_account_can_delete());
+
+drop policy if exists "warehouse_logistics_methods_insert_editor" on public.warehouse_logistics_methods;
+drop policy if exists "warehouse_logistics_methods_update_editor" on public.warehouse_logistics_methods;
+drop policy if exists "warehouse_logistics_methods_delete_editor" on public.warehouse_logistics_methods;
+create policy "warehouse_logistics_methods_insert_editor"
+on public.warehouse_logistics_methods for insert to authenticated
+with check (
+  public.current_account_can_edit()
+  and exists (
+    select 1 from public.warehouses
+    where warehouses.id = warehouse_logistics_methods.warehouse_id
+  )
+  and exists (
+    select 1 from public.logistics_methods
+    where logistics_methods.id = warehouse_logistics_methods.logistics_method_id
+      and logistics_methods.is_active
+  )
+);
+create policy "warehouse_logistics_methods_update_editor"
+on public.warehouse_logistics_methods for update to authenticated
+using (public.current_account_can_edit())
+with check (public.current_account_can_edit());
+create policy "warehouse_logistics_methods_delete_editor"
+on public.warehouse_logistics_methods for delete to authenticated
+using (public.current_account_can_edit());
 
 drop policy if exists "warehouse_skus_insert_own" on public.warehouse_skus;
 drop policy if exists "warehouse_skus_update_own" on public.warehouse_skus;

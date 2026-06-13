@@ -12,6 +12,11 @@ import {
   fetchWarehouses,
   fetchWarehouseSkus,
 } from "../lib/inventory";
+import {
+  fetchLogisticsMethods,
+  fetchWarehouseLogisticsMethods,
+  normalizeLogisticsMethodName,
+} from "../lib/logistics-methods";
 import { fetchTemuOrders } from "../lib/orders";
 import {
   fetchProducts,
@@ -22,9 +27,11 @@ import type {
   Product,
   ProductItem,
   ProductSku,
+  LogisticsMethod,
   TemuOrderRecord,
   Warehouse,
   WarehouseItemStock,
+  WarehouseLogisticsMethod,
   WarehouseSku,
 } from "../types";
 import { getErrorMessage } from "../utils/errors";
@@ -85,6 +92,8 @@ type UseOrdersResult = {
   products: Product[];
   productItems: ProductItem[];
   productSkus: ProductSku[];
+  logisticsMethods: LogisticsMethod[];
+  warehouseLogisticsMethods: WarehouseLogisticsMethod[];
   warehouseSkus: WarehouseSku[];
   warehouseItemStocks: WarehouseItemStock[];
   drafts: Record<string, OrderDraft>;
@@ -127,10 +136,7 @@ function normalizeSalesSpec(value: string) {
 }
 
 function normalizeLogisticsMethod(value: string) {
-  const text = value.trim();
-  if (text === "OCS 昆山3cm" || text === "OCS 昆山 3cm") return "OCS 3cm";
-  if (text === "OCS 昆山小包") return "OCS 小包";
-  return text;
+  return normalizeLogisticsMethodName(value);
 }
 
 function getOrderNoKey(value: string) {
@@ -251,6 +257,8 @@ export function getOrdersErrorMessage(error: unknown, fallback: string) {
   }
   if (
     message.includes("public.temu_orders") ||
+    message.includes("logistics_methods") ||
+    message.includes("warehouse_logistics_methods") ||
     message.includes("warehouse_id") ||
     message.includes("logistics_method") ||
     message.includes("label_printed_at") ||
@@ -355,6 +363,10 @@ export function useOrders(user: User) {
   const [products, setProducts] = useState<Product[]>([]);
   const [productItems, setProductItems] = useState<ProductItem[]>([]);
   const [productSkus, setProductSkus] = useState<ProductSku[]>([]);
+  const [logisticsMethods, setLogisticsMethods] = useState<LogisticsMethod[]>([]);
+  const [warehouseLogisticsMethods, setWarehouseLogisticsMethods] = useState<
+    WarehouseLogisticsMethod[]
+  >([]);
   const [warehouseSkus, setWarehouseSkus] = useState<WarehouseSku[]>([]);
   const [warehouseItemStocks, setWarehouseItemStocks] = useState<WarehouseItemStock[]>([]);
   const [drafts, setDrafts] = useState<Record<string, OrderDraft>>(restoredDraft?.drafts ?? {});
@@ -381,11 +393,13 @@ export function useOrders(user: User) {
       setLoading(true);
       setErrorMessage("");
       try {
-        const [nextOrders, nextWarehouses, nextProducts] = await Promise.all([
-          loadLatestOrders(),
-          fetchWarehouses(),
-          fetchProducts(),
-        ]);
+        const [nextOrders, nextWarehouses, nextProducts, nextLogisticsMethods] =
+          await Promise.all([
+            loadLatestOrders(),
+            fetchWarehouses(),
+            fetchProducts(),
+            fetchLogisticsMethods(),
+          ]);
         const productIds = nextProducts.map((product) => product.id);
         const warehouseIds = nextWarehouses.map((warehouse) => warehouse.id);
         const [
@@ -393,11 +407,13 @@ export function useOrders(user: User) {
           nextProductSkus,
           nextWarehouseSkus,
           nextWarehouseItemStocks,
+          nextWarehouseLogisticsMethods,
         ] = await Promise.all([
           fetchProductItemsByProductIds(productIds),
           fetchProductSkusByProductIds(productIds),
           fetchWarehouseSkus(warehouseIds),
           fetchWarehouseItemStocks(warehouseIds),
+          fetchWarehouseLogisticsMethods(warehouseIds),
         ]);
 
         if (!active) return;
@@ -407,6 +423,8 @@ export function useOrders(user: User) {
         setProducts(nextProducts);
         setProductItems(nextProductItems);
         setProductSkus(nextProductSkus);
+        setLogisticsMethods(nextLogisticsMethods);
+        setWarehouseLogisticsMethods(nextWarehouseLogisticsMethods);
         setWarehouseSkus(nextWarehouseSkus);
         setWarehouseItemStocks(nextWarehouseItemStocks);
 
@@ -572,6 +590,8 @@ export function useOrders(user: User) {
     products,
     productItems,
     productSkus,
+    logisticsMethods,
+    warehouseLogisticsMethods,
     warehouseSkus,
     warehouseItemStocks,
     drafts,

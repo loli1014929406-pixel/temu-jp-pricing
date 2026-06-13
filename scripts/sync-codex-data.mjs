@@ -21,6 +21,8 @@ const tables = [
   "profit_calculations",
   "strategy_rule_settings",
   "warehouses",
+  "logistics_methods",
+  "warehouse_logistics_methods",
   "warehouse_skus",
   "warehouse_item_stocks",
   "warehouse_item_stock_adjustments",

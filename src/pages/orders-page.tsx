@@ -29,6 +29,11 @@ import {
   type WarehouseItemStockRestorationInput,
 } from "../lib/inventory";
 import {
+  getWarehouseLogisticsMethodNames,
+  isLogisticsMethodAllowedForWarehouse as isConfiguredLogisticsMethodAllowedForWarehouse,
+  normalizeLogisticsMethodName,
+} from "../lib/logistics-methods";
+import {
   deleteTemuOrder,
   importTemuOrders,
   updateTemuOrder,
@@ -38,9 +43,11 @@ import type {
   Product,
   ProductItem,
   ProductSku,
+  LogisticsMethod,
   TemuOrderRecord,
   Warehouse,
   WarehouseItemStock,
+  WarehouseLogisticsMethod,
   WarehouseSku,
 } from "../types";
 import { calculatePurchaseShippingRmb } from "../utils/shipping-costs";
@@ -200,12 +207,6 @@ const stageDefinitions = [
   tone: "success" | "warning" | "danger" | "neutral" | "info";
 }>;
 
-const warehouseLogisticsRules = [
-  { warehouseNameIncludes: "苏州", methods: ["OCS 3cm", "OCS 小包"] },
-] as const;
-
-const defaultLogisticsMethods = warehouseLogisticsRules.flatMap((rule) => [...rule.methods]);
-const restrictedLogisticsMethods = new Set<string>(defaultLogisticsMethods);
 const rmbPerUsdForDeclaration = 7;
 const defaultOrderSort: OrderSort = { key: "ship_deadline", direction: "asc" };
 const yamatoTrackingBaseUrl = "https://toi.kuronekoyamato.co.jp/cgi-bin/tneko";
@@ -424,10 +425,7 @@ function formatStyleColorForDeclaration(value: string) {
 }
 
 function normalizeLogisticsMethod(value: string) {
-  const text = value.trim();
-  if (text === "OCS 昆山3cm" || text === "OCS 昆山 3cm") return "OCS 3cm";
-  if (text === "OCS 昆山小包") return "OCS 小包";
-  return text;
+  return normalizeLogisticsMethodName(value);
 }
 
 function formatSkuSalesSpec(sku: ProductSku) {
@@ -792,24 +790,6 @@ function getStageDefinition(stage: OrderStage) {
   return stageDefinitions.find((item) => item.key === stage) ?? stageDefinitions[0];
 }
 
-function getWarehouseLogisticsMethods(warehouseName: string, allMethods: string[]) {
-  const rule = warehouseLogisticsRules.find((item) =>
-    warehouseName.includes(item.warehouseNameIncludes),
-  );
-  if (rule) return [...rule.methods] as string[];
-  return allMethods.filter((method) => !restrictedLogisticsMethods.has(method));
-}
-
-function isLogisticsMethodAllowedForWarehouse(
-  warehouseName: string,
-  logisticsMethod: string,
-  allMethods: string[],
-) {
-  const method = normalizeLogisticsMethod(logisticsMethod);
-  if (!method) return true;
-  return getWarehouseLogisticsMethods(warehouseName, allMethods).includes(method);
-}
-
 function formatLocalDateTime(date = new Date()) {
   const pad = (value: number) => String(value).padStart(2, "0");
   return [
@@ -969,7 +949,7 @@ type OrderTableRowProps = {
   activeStage: OrderStage;
   canEdit: boolean;
   currentTime: Date;
-  logisticsMethodOptions: string[];
+  logisticsMethods: LogisticsMethod[];
   onHandleWarehouseChangeForOrders: (orderIds: string[], warehouseId: string) => void;
   onSaveActualShipTimeForOrders: (targetOrders: TemuOrderRecord[]) => Promise<void>;
   onToggleOrderRowSelection: (rowOrderIds: string[], checked: boolean) => void;
@@ -986,6 +966,7 @@ type OrderTableRowProps = {
   rowOrderIdsKey: string;
   selectedOrderIdSet: Set<string>;
   skuOrderLookup: SkuOrderLookup;
+  warehouseLogisticsMethods: WarehouseLogisticsMethod[];
   warehouses: Warehouse[];
 };
 
@@ -993,7 +974,7 @@ const OrderTableRow = memo(function OrderTableRow({
   activeStage,
   canEdit,
   currentTime,
-  logisticsMethodOptions,
+  logisticsMethods,
   onHandleWarehouseChangeForOrders,
   onSaveActualShipTimeForOrders,
   onToggleOrderRowSelection,
@@ -1006,6 +987,7 @@ const OrderTableRow = memo(function OrderTableRow({
   rowOrderIdsKey,
   selectedOrderIdSet,
   skuOrderLookup,
+  warehouseLogisticsMethods,
   warehouses,
 }: OrderTableRowProps) {
   const rowOrders = useMemo(
@@ -1065,9 +1047,13 @@ const OrderTableRow = memo(function OrderTableRow({
   const rowLogisticsOptions = useMemo(
     () =>
       draftWarehouse
-        ? getWarehouseLogisticsMethods(draftWarehouse.name, logisticsMethodOptions)
+        ? getWarehouseLogisticsMethodNames(
+            draftWarehouse.id,
+            logisticsMethods,
+            warehouseLogisticsMethods,
+          )
         : [],
-    [draftWarehouse, logisticsMethodOptions],
+    [draftWarehouse, logisticsMethods, warehouseLogisticsMethods],
   );
   const currentWarehouseMissing = useMemo(
     () =>
@@ -1328,6 +1314,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
     products,
     productItems,
     productSkus,
+    logisticsMethods,
+    warehouseLogisticsMethods,
     warehouseSkus,
     warehouseItemStocks,
     drafts,
@@ -1365,15 +1353,15 @@ export function OrdersPage({ user }: OrdersPageProps) {
 
   const logisticsMethodOptions = useMemo(
     () =>
-      Array.from(
-        new Set([
-          ...defaultLogisticsMethods,
-          ...orders
-            .map((order) => normalizeLogisticsMethod(order.logistics_method))
-            .filter(Boolean),
-        ]),
-      ),
-    [orders],
+      logisticsMethods
+        .filter((method) => method.is_active)
+        .sort((left, right) => {
+          if (left.sort_order !== right.sort_order) return left.sort_order - right.sort_order;
+          return left.created_at.localeCompare(right.created_at);
+        })
+        .map((method) => normalizeLogisticsMethod(method.name))
+        .filter(Boolean),
+    [logisticsMethods],
   );
 
   const skuOrderLookup = useMemo(
@@ -1415,9 +1403,18 @@ export function OrdersPage({ user }: OrdersPageProps) {
   const bulkLogisticsMethodOptions = useMemo(
     () =>
       selectedBulkWarehouse
-        ? getWarehouseLogisticsMethods(selectedBulkWarehouse.name, logisticsMethodOptions)
+        ? getWarehouseLogisticsMethodNames(
+            selectedBulkWarehouse.id,
+            logisticsMethods,
+            warehouseLogisticsMethods,
+          )
         : logisticsMethodOptions,
-    [logisticsMethodOptions, selectedBulkWarehouse],
+    [
+      logisticsMethodOptions,
+      logisticsMethods,
+      selectedBulkWarehouse,
+      warehouseLogisticsMethods,
+    ],
   );
 
   const urgentUnuploadedOrders = useMemo(
@@ -1746,11 +1743,14 @@ export function OrdersPage({ user }: OrdersPageProps) {
     const warehouse = warehouses.find((item) => item.id === warehouseId);
     const currentDraft = drafts[orderIds[0]] ?? createEmptyDraft();
     const nextWarehouseName = warehouse?.name ?? "";
-    const nextLogisticsMethod = isLogisticsMethodAllowedForWarehouse(
-      nextWarehouseName,
-      currentDraft.logistics_method,
-      logisticsMethodOptions,
-    )
+    const nextLogisticsMethod =
+      warehouse &&
+      isConfiguredLogisticsMethodAllowedForWarehouse(
+        warehouse.id,
+        currentDraft.logistics_method,
+        logisticsMethods,
+        warehouseLogisticsMethods,
+      )
       ? currentDraft.logistics_method
       : "";
     updateDraftFieldsForOrders(orderIds, {
@@ -1767,7 +1767,11 @@ export function OrdersPage({ user }: OrdersPageProps) {
   }
 
   function getDefaultLogisticsMethod(warehouse: Warehouse, sku: ProductSku | null) {
-    const methods = getWarehouseLogisticsMethods(warehouse.name, logisticsMethodOptions);
+    const methods = getWarehouseLogisticsMethodNames(
+      warehouse.id,
+      logisticsMethods,
+      warehouseLogisticsMethods,
+    );
     if (methods.length === 0) return "";
 
     if (methods.includes("OCS 3cm") && methods.includes("OCS 小包") && sku?.product_id) {
@@ -2725,10 +2729,11 @@ export function OrdersPage({ user }: OrdersPageProps) {
     if (
       selectedWarehouse &&
       logisticsMethod &&
-      !isLogisticsMethodAllowedForWarehouse(
-        selectedWarehouse.name,
+      !isConfiguredLogisticsMethodAllowedForWarehouse(
+        selectedWarehouse.id,
         logisticsMethod,
-        logisticsMethodOptions,
+        logisticsMethods,
+        warehouseLogisticsMethods,
       )
     ) {
       setErrorMessage(`${selectedWarehouse.name} 不能使用“${logisticsMethod}”发货方式。`);
@@ -2745,17 +2750,21 @@ export function OrdersPage({ user }: OrdersPageProps) {
         const nextWarehouseName = selectedWarehouse
           ? selectedWarehouse.name
           : draft.warehouse_name;
+        const nextWarehouseId = selectedWarehouse
+          ? selectedWarehouse.id
+          : draft.warehouse_id;
         const nextLogisticsMethod = logisticsMethod || draft.logistics_method;
         const nextDraft: OrderDraft = {
           ...draft,
-          warehouse_id: selectedWarehouse ? selectedWarehouse.id : draft.warehouse_id,
+          warehouse_id: nextWarehouseId,
           warehouse_name: nextWarehouseName,
           logistics_method:
-            nextWarehouseName &&
-            isLogisticsMethodAllowedForWarehouse(
-              nextWarehouseName,
+            nextWarehouseId &&
+            isConfiguredLogisticsMethodAllowedForWarehouse(
+              nextWarehouseId,
               nextLogisticsMethod,
-              logisticsMethodOptions,
+              logisticsMethods,
+              warehouseLogisticsMethods,
             )
               ? nextLogisticsMethod
               : "",
@@ -3693,10 +3702,11 @@ export function OrdersPage({ user }: OrdersPageProps) {
             if (
               warehouse &&
               bulkLogisticsMethod &&
-              !isLogisticsMethodAllowedForWarehouse(
-                warehouse.name,
+              !isConfiguredLogisticsMethodAllowedForWarehouse(
+                warehouse.id,
                 bulkLogisticsMethod,
-                logisticsMethodOptions,
+                logisticsMethods,
+                warehouseLogisticsMethods,
               )
             ) {
               setBulkLogisticsMethod("");
@@ -3757,7 +3767,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
                       activeStage={activeStage}
                       canEdit={canEdit}
                       currentTime={currentTime}
-                      logisticsMethodOptions={logisticsMethodOptions}
+                      logisticsMethods={logisticsMethods}
                       onHandleWarehouseChangeForOrders={handleWarehouseChangeForOrders}
                       onSaveActualShipTimeForOrders={handleSaveActualShipTimeForOrders}
                       onToggleOrderRowSelection={toggleOrderRowSelection}
@@ -3770,6 +3780,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
                       rowOrderIdsKey={orderRow.orders.map((item) => item.id).join("|")}
                       selectedOrderIdSet={selectedOrderIdSet}
                       skuOrderLookup={skuOrderLookup}
+                      warehouseLogisticsMethods={warehouseLogisticsMethods}
                       warehouses={warehouses}
                     />
                   ))}

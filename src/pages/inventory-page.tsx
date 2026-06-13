@@ -15,6 +15,13 @@ import {
   updateWarehouseItemStock,
 } from "../lib/inventory";
 import {
+  createLogisticsMethod,
+  fetchLogisticsMethods,
+  fetchWarehouseLogisticsMethods,
+  normalizeLogisticsMethodName,
+  replaceWarehouseLogisticsMethods,
+} from "../lib/logistics-methods";
+import {
   fetchProductItemsByProductIds,
   fetchProductSkusByProductIds,
   fetchProducts,
@@ -23,9 +30,11 @@ import type {
   Product,
   ProductItem,
   ProductSku,
+  LogisticsMethod,
   Warehouse,
   WarehouseItemStock,
   WarehouseItemStockAdjustment,
+  WarehouseLogisticsMethod,
   WarehouseSku,
 } from "../types";
 import { getErrorMessage } from "../utils/errors";
@@ -40,6 +49,7 @@ type InventoryPageProps = {
 
 type InventoryDraft = {
   draftWarehouseName: string;
+  draftLogisticsMethodName: string;
   selectedProductIds: Record<string, string>;
   itemStockDrafts: Record<string, string>;
   itemStockReasonDrafts: Record<string, string>;
@@ -115,6 +125,7 @@ function hasInventoryDraft(
 
   return Boolean(
     draft.draftWarehouseName.trim() ||
+      draft.draftLogisticsMethodName?.trim() ||
       Object.values(draft.selectedProductIds).some(Boolean) ||
       Object.values(draft.itemStockReasonDrafts).some((value) => value.trim()) ||
       Object.values(draft.warehouseNameDrafts).some((value) => value.trim()) ||
@@ -127,6 +138,8 @@ function hasInventoryDraft(
 function getInventoryErrorMessage(error: unknown, fallback: string) {
   const message = getErrorMessage(error, fallback);
   return message.includes("public.warehouses") ||
+    message.includes("public.logistics_methods") ||
+    message.includes("public.warehouse_logistics_methods") ||
     message.includes("public.warehouse_skus") ||
     message.includes("public.warehouse_item_stocks") ||
     message.includes("public.warehouse_item_stock_adjustments")
@@ -167,12 +180,19 @@ export function InventoryPage({ user }: InventoryPageProps) {
   const [productItems, setProductItems] = useState<ProductItem[]>([]);
   const [skus, setSkus] = useState<ProductSku[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [logisticsMethods, setLogisticsMethods] = useState<LogisticsMethod[]>([]);
+  const [warehouseLogisticsMethods, setWarehouseLogisticsMethods] = useState<
+    WarehouseLogisticsMethod[]
+  >([]);
   const [warehouseSkus, setWarehouseSkus] = useState<WarehouseSku[]>([]);
   const [warehouseItemStocks, setWarehouseItemStocks] = useState<WarehouseItemStock[]>([]);
   const [warehouseItemStockAdjustments, setWarehouseItemStockAdjustments] = useState<
     WarehouseItemStockAdjustment[]
   >([]);
   const [draftWarehouseName, setDraftWarehouseName] = useState(restoredDraft?.draftWarehouseName ?? "");
+  const [draftLogisticsMethodName, setDraftLogisticsMethodName] = useState(
+    restoredDraft?.draftLogisticsMethodName ?? "",
+  );
   const [selectedProductIds, setSelectedProductIds] = useState<Record<string, string>>(
     restoredDraft?.selectedProductIds ?? {},
   );
@@ -225,9 +245,10 @@ export function InventoryPage({ user }: InventoryPageProps) {
       setErrorMessage("");
 
       try {
-        const [nextProducts, nextWarehouses] = await Promise.all([
+        const [nextProducts, nextWarehouses, nextLogisticsMethods] = await Promise.all([
           fetchProducts(),
           fetchWarehouses(),
+          fetchLogisticsMethods(),
         ]);
         const [
           nextItems,
@@ -235,20 +256,26 @@ export function InventoryPage({ user }: InventoryPageProps) {
           nextWarehouseSkus,
           nextWarehouseItemStocks,
           nextWarehouseItemStockAdjustments,
+          nextWarehouseLogisticsMethods,
         ] =
           await Promise.all([
-          fetchProductItemsByProductIds(nextProducts.map((product) => product.id)),
-          fetchProductSkusByProductIds(nextProducts.map((product) => product.id)),
-          fetchWarehouseSkus(nextWarehouses.map((warehouse) => warehouse.id)),
-          fetchWarehouseItemStocks(nextWarehouses.map((warehouse) => warehouse.id)),
-          fetchWarehouseItemStockAdjustments(nextWarehouses.map((warehouse) => warehouse.id)),
-        ]);
+            fetchProductItemsByProductIds(nextProducts.map((product) => product.id)),
+            fetchProductSkusByProductIds(nextProducts.map((product) => product.id)),
+            fetchWarehouseSkus(nextWarehouses.map((warehouse) => warehouse.id)),
+            fetchWarehouseItemStocks(nextWarehouses.map((warehouse) => warehouse.id)),
+            fetchWarehouseItemStockAdjustments(
+              nextWarehouses.map((warehouse) => warehouse.id),
+            ),
+            fetchWarehouseLogisticsMethods(nextWarehouses.map((warehouse) => warehouse.id)),
+          ]);
 
         if (active) {
           setProducts(nextProducts);
           setProductItems(nextItems);
           setSkus(nextSkus);
           setWarehouses(nextWarehouses);
+          setLogisticsMethods(nextLogisticsMethods);
+          setWarehouseLogisticsMethods(nextWarehouseLogisticsMethods);
           setWarehouseSkus(nextWarehouseSkus);
           setWarehouseItemStocks(nextWarehouseItemStocks);
           setWarehouseItemStockAdjustments(nextWarehouseItemStockAdjustments);
@@ -264,6 +291,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
           setSelectedProductIds(latestDraft?.selectedProductIds ?? {});
           setWarehouseNameDrafts(latestDraft?.warehouseNameDrafts ?? {});
           setDraftWarehouseName(latestDraft?.draftWarehouseName ?? "");
+          setDraftLogisticsMethodName(latestDraft?.draftLogisticsMethodName ?? "");
           if (hasInventoryDraft(latestDraft, serverStockValues)) {
             setDraftNotice("已恢复上次未保存的库存编辑草稿。");
           }
@@ -288,6 +316,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
   const inventoryDraftValue = useMemo<InventoryDraft>(
     () => ({
       draftWarehouseName,
+      draftLogisticsMethodName,
       selectedProductIds,
       itemStockDrafts,
       itemStockReasonDrafts,
@@ -295,6 +324,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
     }),
     [
       draftWarehouseName,
+      draftLogisticsMethodName,
       itemStockDrafts,
       itemStockReasonDrafts,
       selectedProductIds,
@@ -404,6 +434,27 @@ export function InventoryPage({ user }: InventoryPageProps) {
     [warehouseItemStockAdjustments],
   );
 
+  const activeLogisticsMethods = useMemo(
+    () =>
+      logisticsMethods
+        .filter((method) => method.is_active)
+        .sort((left, right) => {
+          if (left.sort_order !== right.sort_order) return left.sort_order - right.sort_order;
+          return left.created_at.localeCompare(right.created_at);
+        }),
+    [logisticsMethods],
+  );
+
+  const warehouseLogisticsMethodIdsByWarehouseId = useMemo(
+    () =>
+      warehouseLogisticsMethods.reduce<Record<string, string[]>>((groups, item) => {
+        groups[item.warehouse_id] ??= [];
+        groups[item.warehouse_id].push(item.logistics_method_id);
+        return groups;
+      }, {}),
+    [warehouseLogisticsMethods],
+  );
+
   const itemIdsByProductId = useMemo(
     () =>
       productItems.reduce<Record<string, string[]>>((groups, item) => {
@@ -459,6 +510,63 @@ export function InventoryPage({ user }: InventoryPageProps) {
       getSkuDisplayCode,
     ],
   );
+
+  async function handleCreateLogisticsMethod() {
+    if (!canEdit) {
+      setErrorMessage("当前账号没有编辑权限，不能新增发货方式。");
+      return;
+    }
+
+    const name = normalizeLogisticsMethodName(draftLogisticsMethodName);
+    if (!name) return;
+
+    const exists = logisticsMethods.some(
+      (method) => normalizeLogisticsMethodName(method.name).toLowerCase() === name.toLowerCase(),
+    );
+    if (exists) {
+      setErrorMessage(`发货方式“${name}”已存在。`);
+      return;
+    }
+
+    setBusyKey("create-logistics-method");
+    setErrorMessage("");
+    try {
+      const method = await createLogisticsMethod(name);
+      setLogisticsMethods((current) => [...current, method]);
+      setDraftLogisticsMethodName("");
+    } catch (error) {
+      setErrorMessage(getInventoryErrorMessage(error, "新增发货方式失败"));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
+  async function handleToggleWarehouseLogisticsMethod(
+    warehouse: Warehouse,
+    method: LogisticsMethod,
+    checked: boolean,
+  ) {
+    if (!canEdit) return;
+
+    const currentMethodIds = warehouseLogisticsMethodIdsByWarehouseId[warehouse.id] ?? [];
+    const nextMethodIds = checked
+      ? [...currentMethodIds, method.id]
+      : currentMethodIds.filter((methodId) => methodId !== method.id);
+
+    setBusyKey(`warehouse-logistics-${warehouse.id}`);
+    setErrorMessage("");
+    try {
+      const nextLinks = await replaceWarehouseLogisticsMethods(warehouse.id, nextMethodIds);
+      setWarehouseLogisticsMethods((current) => [
+        ...current.filter((item) => item.warehouse_id !== warehouse.id),
+        ...nextLinks,
+      ]);
+    } catch (error) {
+      setErrorMessage(getInventoryErrorMessage(error, "更新仓库发货方式失败"));
+    } finally {
+      setBusyKey("");
+    }
+  }
 
   async function handleCreateWarehouse() {
     if (!canEdit) {
@@ -521,6 +629,9 @@ export function InventoryPage({ user }: InventoryPageProps) {
     try {
       await deleteWarehouse(warehouse.id);
       setWarehouses((current) => current.filter((item) => item.id !== warehouse.id));
+      setWarehouseLogisticsMethods((current) =>
+        current.filter((item) => item.warehouse_id !== warehouse.id),
+      );
       setWarehouseSkus((current) =>
         current.filter((item) => item.warehouse_id !== warehouse.id),
       );
@@ -737,6 +848,46 @@ export function InventoryPage({ user }: InventoryPageProps) {
       )}
 
       {canEdit && (
+        <section className="surface-card grid gap-4 p-5">
+          <h2 className="text-base font-semibold text-ink">发货方式选项</h2>
+          <div className="grid gap-3 md:grid-cols-[minmax(220px,1fr)_auto]">
+            <input
+              value={draftLogisticsMethodName}
+              onChange={(event) => setDraftLogisticsMethodName(event.target.value)}
+              placeholder="发货方式名称"
+              className="h-11 rounded-xl border border-line bg-white px-3 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
+            />
+            <button
+              type="button"
+              onClick={() => void handleCreateLogisticsMethod()}
+              disabled={
+                !draftLogisticsMethodName.trim() ||
+                busyKey === "create-logistics-method"
+              }
+              className="btn-primary"
+            >
+              <Plus size={18} />
+              增加发货方式
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {activeLogisticsMethods.length === 0 ? (
+              <span className="text-sm text-slate-500">暂无发货方式</span>
+            ) : (
+              activeLogisticsMethods.map((method) => (
+                <span
+                  key={method.id}
+                  className="rounded-md bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600"
+                >
+                  {method.name}
+                </span>
+              ))
+            )}
+          </div>
+        </section>
+      )}
+
+      {canEdit && (
         <section className="surface-card flex flex-wrap items-center justify-between gap-3 p-5">
           <div>
             <h2 className="text-base font-semibold text-ink">库存调拨</h2>
@@ -804,6 +955,47 @@ export function InventoryPage({ user }: InventoryPageProps) {
                       <Trash2 size={18} />
                       删除仓库
                     </button>
+                  )}
+                </div>
+
+                <div className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <div className="text-sm font-semibold text-slate-700">
+                    可用发货方式
+                  </div>
+                  {activeLogisticsMethods.length === 0 ? (
+                    <div className="text-sm text-slate-500">暂无发货方式</div>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {activeLogisticsMethods.map((method) => {
+                        const methodIds =
+                          warehouseLogisticsMethodIdsByWarehouseId[warehouse.id] ?? [];
+                        const checked = methodIds.includes(method.id);
+                        return (
+                          <label
+                            key={method.id}
+                            className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={
+                                !canEdit ||
+                                busyKey === `warehouse-logistics-${warehouse.id}`
+                              }
+                              onChange={(event) =>
+                                void handleToggleWarehouseLogisticsMethod(
+                                  warehouse,
+                                  method,
+                                  event.target.checked,
+                                )
+                              }
+                              className="h-4 w-4 rounded border-slate-300 text-sky-700 focus:ring-sky-500"
+                            />
+                            {method.name}
+                          </label>
+                        );
+                      })}
+                    </div>
                   )}
                 </div>
 
