@@ -43,6 +43,12 @@ export default defineConfig({
         secure: true,
         rewrite: (path) => path.replace(/^\/yamato-tracking/, ""),
       },
+      "/japanpost-tracking": {
+        target: "https://trackings.post.japanpost.jp",
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/japanpost-tracking/, ""),
+      },
     },
   },
 });

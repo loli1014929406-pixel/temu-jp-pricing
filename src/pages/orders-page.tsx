@@ -76,14 +76,20 @@ type OrderSort = {
 type TrackingImportRecord = {
   rowIndex: number;
   trackingNo: string;
+  orderNo: string;
+  subOrderNo: string;
   remark: string;
   refNo: string;
   phone: string;
   postalCode: string;
   recipientName: string;
   address: string;
+  carrier: string;
+  warehouseName: string;
   allText: string;
 };
+
+type TrackingCarrier = "yamato" | "japan_post";
 
 type OrderStockDeduction = {
   stock: WarehouseItemStock;
@@ -191,7 +197,24 @@ const importFieldLabels = {
   estimated_delivery_time: "预计送达时间",
 } satisfies Record<TemuOrderImportField, string>;
 
-const trackingImportColumns = ["CWB_NO", "REMARK"] as const;
+const trackingNoImportColumnAliases = [
+  "CWB_NO",
+  "CWB NO",
+  "跟踪单号",
+  "物流单号",
+  "运单号",
+  "单号",
+  "お問い合わせ番号",
+  "Tracking No",
+  "Tracking Number",
+] as const;
+const trackingOrderNoImportColumnAliases = ["订单号", "主订单号", "REF_NO", "REF NO", "Order ID"] as const;
+const trackingSubOrderNoImportColumnAliases = [
+  "子订单号",
+  "子订单编号",
+  "Sub Order ID",
+  "Sub-order ID",
+] as const;
 
 const stageDefinitions = [
   { key: "all", label: "全部", tone: "neutral" },
@@ -210,9 +233,11 @@ const stageDefinitions = [
 const rmbPerUsdForDeclaration = 7;
 const defaultOrderSort: OrderSort = { key: "ship_deadline", direction: "asc" };
 const yamatoTrackingBaseUrl = "https://toi.kuronekoyamato.co.jp/cgi-bin/tneko";
+const japanPostTrackingBaseUrl =
+  "https://trackings.post.japanpost.jp/services/srv/search/direct";
+const japanPostTrackingProxyPath = "/japanpost-tracking/services/srv/search/direct";
 const uploadedTemuOrderStatus = "上传Temu";
 const legacyUploadedTemuOrderStatus = "已上传Temu";
-const temuUploadCarrier = "Yamato";
 const temuUploadWarehouseName = "东京仓";
 const urgentUnuploadedDeadlineMs = 12 * 60 * 60 * 1000;
 
@@ -671,18 +696,22 @@ function dedupeImportRowsByOrderLine(rows: TemuOrderImportRow[]) {
 }
 
 function parseTrackingImportRecord(row: Record<string, unknown>, index: number): TrackingImportRecord | null {
-  const trackingNo = readAnyCell(row, ["CWB_NO", "CWB NO", "物流单号", "运单号", "单号"]);
+  const trackingNo = readAnyCell(row, trackingNoImportColumnAliases);
   if (!trackingNo) return null;
 
   return {
     rowIndex: index + 2,
     trackingNo,
+    orderNo: readAnyCell(row, trackingOrderNoImportColumnAliases),
+    subOrderNo: readAnyCell(row, trackingSubOrderNoImportColumnAliases),
     remark: readAnyCell(row, ["REMARK", "备注", "客户备注"]),
-    refNo: readAnyCell(row, ["REF_NO", "REF NO", "订单号"]),
+    refNo: readAnyCell(row, ["REF_NO", "REF NO", "订单号", "主订单号"]),
     phone: readAnyCell(row, ["CONTACT_TEL", "CONTACT TEL", "收件电话", "电话"]),
     postalCode: readAnyCell(row, ["POSTCODE", "邮编", "收件邮编"]),
     recipientName: readAnyCell(row, ["CONSIGNEE_NAME", "CONSIGNEE NAME", "收件人"]),
     address: readAnyCell(row, ["DELIVERY_ADDR_JP", "DELIVERY ADDR JP", "收件人地址", "地址"]),
+    carrier: readAnyCell(row, ["物流承运商", "承运商", "Carrier"]),
+    warehouseName: readAnyCell(row, ["发货仓库名称", "仓库", "Warehouse"]),
     allText: Object.values(row).map((value) => cleanCell(value)).filter(Boolean).join(" "),
   };
 }
@@ -776,7 +805,9 @@ function getOrderStage(order: TemuOrderRecord): Exclude<OrderStage, "all"> {
 }
 
 function isDeliveredTrackingStatus(status: string) {
-  return status.includes("配達完了");
+  return ["配達完了", "お届け済み", "配達済み", "Delivered"].some((keyword) =>
+    status.includes(keyword),
+  );
 }
 
 function getTrackingStatusLabel(status: string) {
@@ -788,6 +819,79 @@ function getTrackingStatusLabel(status: string) {
 
 function getStageDefinition(stage: OrderStage) {
   return stageDefinitions.find((item) => item.key === stage) ?? stageDefinitions[0];
+}
+
+function hasFukuokaText(value: string) {
+  return /福[冈岡]|fukuoka/i.test(value);
+}
+
+function hasJapanPostText(value: string) {
+  return /japan\s*post|japanpost|日本[邮郵]便|邮便|郵便/i.test(value);
+}
+
+function getOrderTrackingCarrier(order: Pick<TemuOrderRecord, "warehouse_name" | "logistics_method">): TrackingCarrier {
+  if (
+    hasJapanPostText(order.logistics_method) ||
+    hasJapanPostText(order.warehouse_name) ||
+    hasFukuokaText(order.logistics_method) ||
+    hasFukuokaText(order.warehouse_name)
+  ) {
+    return "japan_post";
+  }
+
+  return "yamato";
+}
+
+function getTemuUploadCarrier(order: Pick<TemuOrderRecord, "warehouse_name" | "logistics_method">) {
+  return getOrderTrackingCarrier(order) === "japan_post" ? "Japan Post" : "Yamato";
+}
+
+function getJapanPostTrackingUrl(trackingNo: string) {
+  const normalizedTrackingNo = trackingNo.trim();
+  if (!normalizedTrackingNo) return "";
+
+  const params = new URLSearchParams({
+    reqCodeNo1: normalizedTrackingNo,
+    searchKind: "S002",
+    locale: "ja",
+  });
+  return `${japanPostTrackingBaseUrl}?${params.toString()}`;
+}
+
+function getTrackingUrl(order: TemuOrderRecord) {
+  const trackingNo = order.logistics_tracking_no.trim();
+  if (!trackingNo) return "";
+  if (getOrderTrackingCarrier(order) === "japan_post") {
+    return getJapanPostTrackingUrl(trackingNo);
+  }
+  return yamatoTrackingBaseUrl;
+}
+
+function openTracking(event: MouseEvent<HTMLAnchorElement>, order: TemuOrderRecord) {
+  const trackingNo = order.logistics_tracking_no.trim();
+  if (!trackingNo) return;
+  if (getOrderTrackingCarrier(order) === "japan_post") return;
+
+  event.preventDefault();
+  const form = document.createElement("form");
+  form.method = "post";
+  form.action = yamatoTrackingBaseUrl;
+  form.target = "_blank";
+
+  [
+    ["number01", trackingNo],
+    ["category", "0"],
+  ].forEach(([name, value]) => {
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = name;
+    input.value = value;
+    form.appendChild(input);
+  });
+
+  document.body.appendChild(form);
+  form.submit();
+  form.remove();
 }
 
 function formatLocalDateTime(date = new Date()) {
@@ -886,41 +990,6 @@ function getDeliveryDeadlineBadge(order: TemuOrderRecord, now: Date) {
   return actualSignedDate.getTime() <= deadlineDate.getTime()
     ? { label: "期限内签收", tone: "success" as const }
     : { label: "期限外签收", tone: "danger" as const };
-}
-
-function getYamatoTrackingUrl(order: TemuOrderRecord) {
-  const trackingNo = order.logistics_tracking_no.trim();
-  if (!trackingNo) return "";
-  return yamatoTrackingBaseUrl;
-}
-
-function openYamatoTracking(
-  event: MouseEvent<HTMLAnchorElement>,
-  trackingNo: string,
-) {
-  const normalizedTrackingNo = trackingNo.trim();
-  if (!normalizedTrackingNo) return;
-
-  event.preventDefault();
-  const form = document.createElement("form");
-  form.method = "post";
-  form.action = yamatoTrackingBaseUrl;
-  form.target = "_blank";
-
-  [
-    ["number01", normalizedTrackingNo],
-    ["category", "0"],
-  ].forEach(([name, value]) => {
-    const input = document.createElement("input");
-    input.type = "hidden";
-    input.name = name;
-    input.value = value;
-    form.appendChild(input);
-  });
-
-  document.body.appendChild(form);
-  form.submit();
-  form.remove();
 }
 
 function isUrgentUnuploadedOrder(order: TemuOrderRecord, now: Date) {
@@ -1103,7 +1172,7 @@ const OrderTableRow = memo(function OrderTableRow({
     [draft.logistics_method],
   );
   const trackingUrl = useMemo(
-    () => (mergedOrder ? getYamatoTrackingUrl(mergedOrder) : ""),
+    () => (mergedOrder ? getTrackingUrl(mergedOrder) : ""),
     [mergedOrder],
   );
 
@@ -1231,7 +1300,7 @@ const OrderTableRow = memo(function OrderTableRow({
                 <a
                   href={trackingUrl}
                   onClick={(event) =>
-                    openYamatoTracking(event, mergedOrder.logistics_tracking_no)
+                    openTracking(event, mergedOrder)
                   }
                   target="_blank"
                   rel="noreferrer"
@@ -1252,7 +1321,7 @@ const OrderTableRow = memo(function OrderTableRow({
                 <a
                   href={trackingUrl}
                   onClick={(event) =>
-                    openYamatoTracking(event, mergedOrder.logistics_tracking_no)
+                    openTracking(event, mergedOrder)
                   }
                   target="_blank"
                   rel="noreferrer"
@@ -1783,43 +1852,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
     return methods[0] ?? "";
   }
 
-  function getYamatoTrackingUrl(order: TemuOrderRecord) {
-    const trackingNo = order.logistics_tracking_no.trim();
-    if (!trackingNo) return "";
-    return yamatoTrackingBaseUrl;
-  }
-
-  function canQueryYamatoTracking(order: TemuOrderRecord) {
-    return Boolean(getYamatoTrackingUrl(order));
-  }
-
-  function openYamatoTracking(
-    event: MouseEvent<HTMLAnchorElement>,
-    trackingNo: string,
-  ) {
-    const normalizedTrackingNo = trackingNo.trim();
-    if (!normalizedTrackingNo) return;
-
-    event.preventDefault();
-    const form = document.createElement("form");
-    form.method = "post";
-    form.action = yamatoTrackingBaseUrl;
-    form.target = "_blank";
-
-    [
-      ["number01", normalizedTrackingNo],
-      ["category", "0"],
-    ].forEach(([name, value]) => {
-      const input = document.createElement("input");
-      input.type = "hidden";
-      input.name = name;
-      input.value = value;
-      form.appendChild(input);
-    });
-
-    document.body.appendChild(form);
-    form.submit();
-    form.remove();
+  function canQueryTrackingStatus(order: TemuOrderRecord) {
+    return Boolean(getTrackingUrl(order));
   }
 
   function cleanTrackingText(value: string) {
@@ -1865,6 +1899,61 @@ export function OrdersPage({ user }: OrdersPageProps) {
       throw new Error(`Yamato 查询失败：HTTP ${response.status}`);
     }
     return parseYamatoTrackingStatus(await response.text());
+  }
+
+  function parseJapanPostTrackingStatus(html: string) {
+    const document = new DOMParser().parseFromString(html, "text/html");
+    const bodyText = cleanTrackingText(document.body?.textContent ?? "");
+    if (bodyText.includes("お問い合わせ番号が見つかりません")) return "暂无轨迹";
+
+    const resultTable =
+      document.querySelector('table[summary="照会結果"]') ??
+      document.querySelector(".tableType01");
+    const resultRows = Array.from(resultTable?.querySelectorAll("tr") ?? []);
+    for (const row of resultRows) {
+      const cells = Array.from(row.querySelectorAll("td")).map((cell) =>
+        cleanTrackingText(cell.textContent ?? ""),
+      );
+      if (cells.length >= 4 && normalizeDigits(cells[0])) {
+        return getTrackingStatusLabel(cells[3]) || "暂无轨迹";
+      }
+    }
+
+    const fallbackStatus = [
+      "お届け済み",
+      "配達完了",
+      "配達中",
+      "持ち出し中",
+      "到着",
+      "引受",
+      "発送",
+      "通過",
+      "保管",
+      "ご不在",
+    ].find((status) => bodyText.includes(status));
+    return getTrackingStatusLabel(fallbackStatus ?? "") || "暂无轨迹";
+  }
+
+  async function fetchJapanPostTrackingStatus(trackingNo: string) {
+    const params = new URLSearchParams({
+      reqCodeNo1: trackingNo.trim(),
+      searchKind: "S002",
+      locale: "ja",
+    });
+    const response = await fetch(`${japanPostTrackingProxyPath}?${params.toString()}`, {
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      throw new Error(`Japan Post 查询失败：HTTP ${response.status}`);
+    }
+    return parseJapanPostTrackingStatus(await response.text());
+  }
+
+  async function fetchTrackingStatus(order: TemuOrderRecord) {
+    if (getOrderTrackingCarrier(order) === "japan_post") {
+      return fetchJapanPostTrackingStatus(order.logistics_tracking_no);
+    }
+    return fetchYamatoTrackingStatus(order.logistics_tracking_no);
   }
 
   function buildTrackingStatusUpdates(
@@ -1939,6 +2028,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
     const orderAddress = getFullAddress(order);
     let score = 0;
 
+    if (record.orderNo && includesLooseText(record.orderNo, order.order_no)) score += 140;
+    if (record.subOrderNo && includesLooseText(record.subOrderNo, order.sub_order_no)) score += 90;
     if (includesLooseText(record.allText, order.order_no)) score += 100;
     if (record.refNo && includesLooseText(record.refNo, order.order_no)) score += 100;
     if (orderPhone && recordPhone && orderPhone === recordPhone) score += 60;
@@ -1958,8 +2049,12 @@ export function OrdersPage({ user }: OrdersPageProps) {
       normalizePostalCode(order.postal_code) === normalizePostalCode(record.postalCode);
     const nameMatched = includesLooseText(record.recipientName, formatRecipientName(order.recipient_name));
     const addressMatched = includesLooseText(record.address, getFullAddress(order));
+    const orderNoMatched = includesLooseText(record.orderNo, order.order_no);
+    const subOrderNoMatched = includesLooseText(record.subOrderNo, order.sub_order_no);
 
     return (
+      orderNoMatched ||
+      subOrderNoMatched ||
       includesLooseText(record.allText, order.order_no) ||
       (phoneMatched && postalMatched) ||
       (nameMatched && postalMatched) ||
@@ -2272,17 +2367,20 @@ export function OrdersPage({ user }: OrdersPageProps) {
 
     try {
       const rows = await readTabularFileObjects(file);
-      const missingColumns = trackingImportColumns.filter(
-        (column) => !Object.prototype.hasOwnProperty.call(rows[0] ?? {}, column),
+      if (rows.length === 0) {
+        throw new Error("文件里没有可读取的数据。");
+      }
+      const hasTrackingNoColumn = rows.some((row) =>
+        hasAnyColumn(row, trackingNoImportColumnAliases),
       );
-      if (missingColumns.length > 0) {
-        throw new Error(`缺少必要列：${missingColumns.join("、")}`);
+      if (!hasTrackingNoColumn) {
+        throw new Error("缺少物流单号列，请确认表格包含 CWB_NO、跟踪单号或物流单号。");
       }
 
       const trackingRows = rows
         .map((row, index) => parseTrackingImportRecord(row, index))
         .filter((row): row is TrackingImportRecord => Boolean(row));
-      if (trackingRows.length === 0) throw new Error("没有读取到可用的物流单号 CWB_NO");
+      if (trackingRows.length === 0) throw new Error("没有读取到可用的物流单号");
 
       const pendingOrders = orders.filter((order) => getOrderStage(mergeOrderDraft(order)) === "pending_shipping");
       if (pendingOrders.length === 0) {
@@ -2353,9 +2451,9 @@ export function OrdersPage({ user }: OrdersPageProps) {
       return;
     }
 
-    const queryableOrders = targetOrders.filter(canQueryYamatoTracking);
+    const queryableOrders = targetOrders.filter(canQueryTrackingStatus);
     if (queryableOrders.length === 0) {
-      if (showNotice) setNoticeMessage("当前没有可查询的 Yamato 物流单号。");
+      if (showNotice) setNoticeMessage("当前没有可查询的物流单号。");
       return;
     }
 
@@ -2369,9 +2467,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
       const statusResults = await Promise.all(
         queryableOrders.map(async (order) => {
           try {
-            const logisticsStatus = await fetchYamatoTrackingStatus(
-              order.logistics_tracking_no,
-            );
+            const logisticsStatus = await fetchTrackingStatus(order);
             return { order, logisticsStatus };
           } catch {
             return { order, logisticsStatus: "查询失败" };
@@ -3280,7 +3376,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
         子订单号: merged.sub_order_no,
         商品件数: getOrderFulfillmentQuantity(merged),
         跟踪单号: merged.logistics_tracking_no.trim(),
-        物流承运商: temuUploadCarrier,
+        物流承运商: getTemuUploadCarrier(merged),
         发货仓库名称: temuUploadWarehouseName,
       };
     });
