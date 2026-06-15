@@ -299,7 +299,8 @@ export function calculateMultiShipmentProfitRow(
     safeQuantity;
   const packagingCostRmb = settings.packaging_cost_rmb * safeQuantity;
   const totalWeightG = product.package_weight_g * safeQuantity;
-  const inboundSfCostRmb = calculateSfCostRmb(totalWeightG / 1000, settings);
+  const inboundSfCostRmb =
+    mode === "direct" ? calculateSfCostRmb(totalWeightG / 1000, settings) : 0;
   const adFeeRmb = isValid ? calculateAdFeeRmb(input) * safeQuantity : 0;
   const candidates = buildShipmentCandidates(
     mode,

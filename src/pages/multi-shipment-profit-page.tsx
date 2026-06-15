@@ -432,7 +432,9 @@ export function MultiShipmentProfitPage({
                           <th className="px-4 py-3 font-medium">包裹数</th>
                           <th className="px-4 py-3 font-medium">发货运费</th>
                           <th className="px-4 py-3 font-medium">采购成本</th>
-                          <th className="px-4 py-3 font-medium">入仓顺丰</th>
+                          {mode === "direct" && (
+                            <th className="px-4 py-3 font-medium">入仓顺丰</th>
+                          )}
                           <th className="px-4 py-3 font-medium">广告费</th>
                           <th className="px-4 py-3 font-medium">总成本</th>
                           <th className="px-4 py-3 font-medium">利润</th>
@@ -457,7 +459,9 @@ export function MultiShipmentProfitPage({
                             <td className="money">
                               {formatCurrency(row.purchaseCostRmb + row.purchaseShippingRmb)}
                             </td>
-                            <td className="money">{formatCurrency(row.inboundSfCostRmb)}</td>
+                            {mode === "direct" && (
+                              <td className="money">{formatCurrency(row.inboundSfCostRmb)}</td>
+                            )}
                             <td className="money">{formatCurrency(row.adFeeRmb)}</td>
                             <td className="money">{formatCurrency(row.totalCostRmb)}</td>
                             <td className="px-4 py-3">

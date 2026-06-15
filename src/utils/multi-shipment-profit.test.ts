@@ -137,6 +137,28 @@ describe("multi-shipment profit", () => {
     expect(row.logisticsCostRmb).toBe(13);
   });
 
+  it("does not add inbound SF cost to standard shipping", () => {
+    const standardRow = calculateMultiShipmentProfitRow(
+      "standard",
+      buildProduct({ package_weight_g: 500 }),
+      [buildItem()],
+      buildSettings({ sf_first_price_rmb: 8 }),
+      buildInput(),
+      2,
+    );
+    const directRow = calculateMultiShipmentProfitRow(
+      "direct",
+      buildProduct({ package_weight_g: 500 }),
+      [buildItem()],
+      buildSettings({ sf_first_price_rmb: 8 }),
+      buildInput(),
+      2,
+    );
+
+    expect(standardRow.inboundSfCostRmb).toBe(0);
+    expect(directRow.inboundSfCostRmb).toBe(8);
+  });
+
   it("uses OCS small parcel for standard shipping when 3cm is unavailable", () => {
     const row = calculateMultiShipmentProfitRow(
       "standard",

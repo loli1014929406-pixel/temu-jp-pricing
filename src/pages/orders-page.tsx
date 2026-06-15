@@ -66,7 +66,11 @@ type OrderStage =
   | "uploaded_temu"
   | "completed";
 
-type OrderSortKey = "ship_deadline" | "delivery_deadline" | "product";
+type OrderSortKey =
+  | "ship_deadline"
+  | "delivery_deadline"
+  | "product"
+  | "logistics_status";
 type OrderSortDirection = "asc" | "desc";
 type OrderSort = {
   key: OrderSortKey;
@@ -261,7 +265,7 @@ const visibleColumns = [
   { key: "product", label: "商品信息", className: "order-product-col", sortable: true },
   { key: "sales_spec", label: "销售规格", className: "order-attr-col" },
   { key: "logistics_tracking_no", label: "物流单号", className: "order-tracking-col", shippedOnly: true },
-  { key: "logistics_status", label: "物流状态", className: "order-tracking-status-col", shippedOnly: true },
+  { key: "logistics_status", label: "物流状态", className: "order-tracking-status-col", sortable: true, shippedOnly: true },
   { key: "recipient", label: "收件人" },
   { key: "phone", label: "电话", className: "order-phone-col" },
   { key: "address", label: "地址", className: "order-address-col" },
@@ -815,6 +819,61 @@ function getTrackingStatusLabel(status: string) {
     status.replace(/▶/g, " ").replace(/\s+/g, " ").trim().split("/")[0]?.trim() ||
     ""
   );
+}
+
+const trackingStatusSortRanks = [
+  { keyword: "待查询", rank: 0 },
+  { keyword: "暂无轨迹", rank: 1 },
+  { keyword: "伝票番号未登録", rank: 1 },
+  { keyword: "查询失败", rank: 2 },
+  { keyword: "引受", rank: 10 },
+  { keyword: "発送", rank: 20 },
+  { keyword: "通過", rank: 30 },
+  { keyword: "到着", rank: 40 },
+  { keyword: "保管", rank: 45 },
+  { keyword: "ご不在", rank: 50 },
+  { keyword: "持ち出し中", rank: 60 },
+  { keyword: "配達中", rank: 60 },
+  { keyword: "お届け済み", rank: 70 },
+  { keyword: "配達完了", rank: 70 },
+  { keyword: "配達済み", rank: 70 },
+  { keyword: "Delivered", rank: 70 },
+] as const;
+
+const japanPostTrackingStatusKeywords = [
+  "お届け済み",
+  "配達完了",
+  "配達済み",
+  "配達中",
+  "持ち出し中",
+  "ご不在",
+  "保管",
+  "到着",
+  "通過",
+  "発送",
+  "引受",
+  "差出人に返送",
+] as const;
+
+function getComparableTrackingStatus(status: string) {
+  return getTrackingStatusLabel(status) || "待查询";
+}
+
+function getTrackingStatusSortRank(status: string) {
+  const label = getComparableTrackingStatus(status);
+  return trackingStatusSortRanks.find((item) => label.includes(item.keyword))?.rank ?? 80;
+}
+
+function compareTrackingStatus(left: string, right: string) {
+  const leftRank = getTrackingStatusSortRank(left);
+  const rightRank = getTrackingStatusSortRank(right);
+  if (leftRank !== rightRank) return leftRank - rightRank;
+
+  return getComparableTrackingStatus(left).localeCompare(getComparableTrackingStatus(right));
+}
+
+function isJapanPostTrackingStatus(value: string) {
+  return japanPostTrackingStatusKeywords.some((status) => value.includes(status));
 }
 
 function getStageDefinition(stage: OrderStage) {
@@ -1542,6 +1601,11 @@ export function OrdersPage({ user }: OrdersPageProps) {
           getOrderDeadlineTimestamp(left.estimated_delivery_time),
           getOrderDeadlineTimestamp(right.estimated_delivery_time),
         );
+      } else if (orderSort.key === "logistics_status") {
+        comparison = compareTrackingStatus(
+          mergeOrderDraft(left).logistics_status,
+          mergeOrderDraft(right).logistics_status,
+        );
       } else {
         const leftDeclaration = getOrderDeclaration(left);
         const rightDeclaration = getOrderDeclaration(right);
@@ -1860,6 +1924,73 @@ export function OrdersPage({ user }: OrdersPageProps) {
     return value.replace(/▶/g, " ").replace(/\s+/g, " ").trim();
   }
 
+  function parseJapanPostDateTime(value: string) {
+    const match = value.match(
+      /(\d{4})[\/年](\d{1,2})[\/月](\d{1,2})日?\s+(\d{1,2}):(\d{2})/,
+    );
+    if (!match) return null;
+
+    const [, year, month, day, hour, minute] = match;
+    return new Date(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      Number(hour),
+      Number(minute),
+    ).getTime();
+  }
+
+  function getJapanPostHistoryStatus(document: Document) {
+    const historyRows = Array.from(
+      document.querySelectorAll('table[summary="履歴情報"] tr'),
+    );
+    const candidates: Array<{
+      status: string;
+      timestamp: number | null;
+      index: number;
+    }> = [];
+
+    historyRows.forEach((row) => {
+      const cells = Array.from(row.querySelectorAll("td")).map((cell) =>
+        cleanTrackingText(cell.textContent ?? ""),
+      );
+      if (cells.length < 2) return;
+
+      const status = getTrackingStatusLabel(cells[1]);
+      if (!isJapanPostTrackingStatus(status)) return;
+
+      candidates.push({
+        status,
+        timestamp: parseJapanPostDateTime(cells[0]),
+        index: candidates.length,
+      });
+    });
+
+    return (
+      candidates.sort((left, right) => {
+        const timestampComparison =
+          (right.timestamp ?? Number.NEGATIVE_INFINITY) -
+          (left.timestamp ?? Number.NEGATIVE_INFINITY);
+        return timestampComparison || right.index - left.index;
+      })[0]?.status ?? ""
+    );
+  }
+
+  function getJapanPostResultStatus(document: Document) {
+    const resultRows = Array.from(
+      document.querySelectorAll('table[summary="照会結果"] tr'),
+    );
+
+    for (const row of resultRows) {
+      const status = Array.from(row.querySelectorAll("td"))
+        .map((cell) => getTrackingStatusLabel(cleanTrackingText(cell.textContent ?? "")))
+        .find((cellText) => isJapanPostTrackingStatus(cellText));
+      if (status) return status;
+    }
+
+    return "";
+  }
+
   function parseYamatoTrackingStatus(html: string) {
     const document = new DOMParser().parseFromString(html, "text/html");
     const statusTitle = cleanTrackingText(
@@ -1906,32 +2037,11 @@ export function OrdersPage({ user }: OrdersPageProps) {
     const bodyText = cleanTrackingText(document.body?.textContent ?? "");
     if (bodyText.includes("お問い合わせ番号が見つかりません")) return "暂无轨迹";
 
-    const resultTable =
-      document.querySelector('table[summary="照会結果"]') ??
-      document.querySelector(".tableType01");
-    const resultRows = Array.from(resultTable?.querySelectorAll("tr") ?? []);
-    for (const row of resultRows) {
-      const cells = Array.from(row.querySelectorAll("td")).map((cell) =>
-        cleanTrackingText(cell.textContent ?? ""),
-      );
-      if (cells.length >= 4 && normalizeDigits(cells[0])) {
-        return getTrackingStatusLabel(cells[3]) || "暂无轨迹";
-      }
-    }
-
-    const fallbackStatus = [
-      "お届け済み",
-      "配達完了",
-      "配達中",
-      "持ち出し中",
-      "到着",
-      "引受",
-      "発送",
-      "通過",
-      "保管",
-      "ご不在",
-    ].find((status) => bodyText.includes(status));
-    return getTrackingStatusLabel(fallbackStatus ?? "") || "暂无轨迹";
+    return (
+      getTrackingStatusLabel(getJapanPostHistoryStatus(document)) ||
+      getTrackingStatusLabel(getJapanPostResultStatus(document)) ||
+      "暂无轨迹"
+    );
   }
 
   async function fetchJapanPostTrackingStatus(trackingNo: string) {
