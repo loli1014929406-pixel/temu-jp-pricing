@@ -665,6 +665,19 @@ function getOrderLineKey(
   ].join("\u0000");
 }
 
+function getOrderLineSkuKey(
+  order: Pick<TemuOrderRecord, "order_no" | "sku_code" | "product_attributes">,
+) {
+  const orderNo = getOrderNoKey(order.order_no);
+  if (!orderNo) return "";
+
+  return [
+    orderNo,
+    normalizeSkuCode(order.sku_code),
+    normalizeSalesSpec(order.product_attributes),
+  ].join("\u0000");
+}
+
 function getOrderLineLabel(order: Pick<TemuOrderRecord, "order_no" | "sub_order_no" | "id">) {
   const subOrderNo = order.sub_order_no.trim();
   return subOrderNo ? `${order.order_no} / ${subOrderNo}` : `${order.order_no} / ${order.id}`;
@@ -776,27 +789,6 @@ function hasCompleteRecipientInfo(
       getFullAddress(order) &&
       order.postal_code.trim(),
   );
-}
-
-function mergeImportRowWithExistingOrder(
-  row: TemuOrderImportRow,
-  existingOrder: TemuOrderRecord | undefined,
-) {
-  if (!existingOrder) return row;
-
-  const merged: TemuOrderImportRow = {
-    ...row,
-    order_status: existingOrder.order_status || row.order_status,
-    actual_ship_time: existingOrder.actual_ship_time || row.actual_ship_time,
-  };
-
-  recipientImportFields.forEach((field) => {
-    if (!String(merged[field] ?? "").trim()) {
-      merged[field] = existingOrder[field];
-    }
-  });
-
-  return merged;
 }
 
 function getOrderStage(order: TemuOrderRecord): Exclude<OrderStage, "all"> {
@@ -2412,38 +2404,74 @@ export function OrdersPage({ user }: OrdersPageProps) {
       const uniqueImportRows = dedupeImportRowsByOrderLine(importRows);
       const skippedDuplicateCount = importRows.length - uniqueImportRows.length;
       const existingOrders = await fetchLatestOrders();
-      const existingOrdersByLineKey = new Map(
-        existingOrders.flatMap((order) => {
-          const key = getOrderLineKey(order);
-          return key ? [[key, order] as const] : [];
-        }),
+      const existingOrdersByLineKey = new Map<string, TemuOrderRecord>();
+      const existingOrdersBySkuKey = new Map<string, TemuOrderRecord>();
+      const existingOrderNoCounts = existingOrders.reduce<Record<string, number>>(
+        (counts, order) => {
+          const key = getOrderNoKey(order.order_no);
+          if (key) counts[key] = (counts[key] ?? 0) + 1;
+          return counts;
+        },
+        {},
       );
-      const existingLineCount = uniqueImportRows.filter((row) =>
-        existingOrdersByLineKey.has(getOrderLineKey(row)),
-      ).length;
-      const importedRowsMissingRecipientInfo = uniqueImportRows.filter(
-        (row) => !hasAnyRecipientInfo(row),
-      ).length;
-      const importRowsForSave = uniqueImportRows.map((row) =>
-        mergeImportRowWithExistingOrder(row, existingOrdersByLineKey.get(getOrderLineKey(row))),
+      const importOrderNoCounts = uniqueImportRows.reduce<Record<string, number>>(
+        (counts, row) => {
+          const key = getOrderNoKey(row.order_no);
+          if (key) counts[key] = (counts[key] ?? 0) + 1;
+          return counts;
+        },
+        {},
       );
-      const unresolvedRowsMissingRecipientInfo = importRowsForSave.filter(
+
+      existingOrders.forEach((order) => {
+        const lineKey = getOrderLineKey(order);
+        if (lineKey && !existingOrdersByLineKey.has(lineKey)) {
+          existingOrdersByLineKey.set(lineKey, order);
+        }
+
+        const skuKey = getOrderLineSkuKey(order);
+        if (skuKey && !existingOrdersBySkuKey.has(skuKey)) {
+          existingOrdersBySkuKey.set(skuKey, order);
+        }
+      });
+
+      const findExistingImportOrder = (row: TemuOrderImportRow) => {
+        const lineKey = getOrderLineKey(row);
+        const lineMatch = lineKey ? existingOrdersByLineKey.get(lineKey) : undefined;
+        if (lineMatch) return lineMatch;
+
+        const skuKey = getOrderLineSkuKey(row);
+        const skuMatch = skuKey ? existingOrdersBySkuKey.get(skuKey) : undefined;
+        if (skuMatch) return skuMatch;
+
+        const orderNoKey = getOrderNoKey(row.order_no);
+        if (
+          orderNoKey &&
+          (existingOrderNoCounts[orderNoKey] ?? 0) === 1 &&
+          (importOrderNoCounts[orderNoKey] ?? 0) === 1
+        ) {
+          return existingOrders.find((order) => getOrderNoKey(order.order_no) === orderNoKey);
+        }
+
+        return undefined;
+      };
+
+      const newImportRows = uniqueImportRows.filter((row) => !findExistingImportOrder(row));
+      const existingLineCount = uniqueImportRows.length - newImportRows.length;
+      const unresolvedRowsMissingRecipientInfo = newImportRows.filter(
         (row) => !hasAnyRecipientInfo(row),
       ).length;
       const savedOrders =
-        importRowsForSave.length > 0
-          ? await importTemuOrders(importRowsForSave)
+        newImportRows.length > 0
+          ? await importTemuOrders(newImportRows)
           : [] as TemuOrderRecord[];
       const nextOrders =
-        importRowsForSave.length > 0 ? await fetchLatestOrders() : existingOrders;
+        newImportRows.length > 0 ? await fetchLatestOrders() : existingOrders;
       replaceOrders(nextOrders);
       replaceDraftsFromOrders(nextOrders);
       const skipMessages = [
         skippedDuplicateCount > 0 ? `跳过上传表内重复订单明细 ${skippedDuplicateCount} 行` : "",
-        existingLineCount > 0 ? `更新已有订单明细 ${existingLineCount} 条` : "",
-        importedRowsMissingRecipientInfo > unresolvedRowsMissingRecipientInfo
-          ? `保留已有收件信息 ${importedRowsMissingRecipientInfo - unresolvedRowsMissingRecipientInfo} 条`
-          : "",
+        existingLineCount > 0 ? `跳过已有订单明细 ${existingLineCount} 条` : "",
         unresolvedRowsMissingRecipientInfo > 0
           ? `${unresolvedRowsMissingRecipientInfo} 条订单仍缺少收件信息，请重新上传包含收件信息的 Temu 订单表`
           : "",
@@ -2451,7 +2479,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
       setNoticeMessage(
         [
           savedOrders.length > 0
-            ? `已导入/更新 ${savedOrders.length} 条订单明细`
+            ? `已导入 ${savedOrders.length} 条新订单明细`
             : "没有新增订单",
           ...skipMessages,
         ].join("，"),
@@ -2492,7 +2520,9 @@ export function OrdersPage({ user }: OrdersPageProps) {
         .filter((row): row is TrackingImportRecord => Boolean(row));
       if (trackingRows.length === 0) throw new Error("没有读取到可用的物流单号");
 
-      const pendingOrders = orders.filter((order) => getOrderStage(mergeOrderDraft(order)) === "pending_shipping");
+      const pendingOrders = orders.filter(
+        (order) => getOrderStage(order) === "pending_shipping",
+      );
       if (pendingOrders.length === 0) {
         setNoticeMessage("当前没有待发货订单需要匹配物流单号。");
         return;
@@ -2639,24 +2669,39 @@ export function OrdersPage({ user }: OrdersPageProps) {
   ) {
     const nextOrders: TemuOrderRecord[] = [];
     const inventoryChanges: Awaited<ReturnType<typeof deductInventoryForOrders>> = [];
+    const deductedInventoryChanges: Awaited<ReturnType<typeof deductInventoryForOrders>> = [];
+    const restoredInventoryChanges: Awaited<ReturnType<typeof deductInventoryForOrders>> = [];
     const failures: Array<{ order: TemuOrderRecord; error: unknown }> = [];
 
     for (const entry of entries) {
-      const shouldDeductInventory = shouldReserveOrderInventory(
-        getOrderStage(entry.nextOrder),
-      );
-      let entryInventoryChanges: Awaited<ReturnType<typeof deductInventoryForOrders>> = [];
+      const previousStage = getOrderStage(entry.order);
+      const nextStage = getOrderStage(entry.nextOrder);
+      const hadReservedInventory = shouldReserveOrderInventory(previousStage);
+      const shouldReserveInventory = shouldReserveOrderInventory(nextStage);
+      const shouldDeductInventory = !hadReservedInventory && shouldReserveInventory;
+      const shouldRestoreInventory = hadReservedInventory && !shouldReserveInventory;
+      let entryDeductedChanges: Awaited<ReturnType<typeof deductInventoryForOrders>> = [];
+      let entryRestoredChanges: Awaited<ReturnType<typeof deductInventoryForOrders>> = [];
 
       try {
         if (shouldDeductInventory) {
-          entryInventoryChanges = await deductInventoryForOrders([entry.nextOrder]);
+          entryDeductedChanges = await deductInventoryForOrders([entry.nextOrder]);
+        } else if (shouldRestoreInventory) {
+          entryRestoredChanges = await restoreWarehouseItemStockDeductions(
+            buildOrderInventoryRestorationInputs([entry.order]),
+          );
+          applyWarehouseItemStockUpdates(
+            entryRestoredChanges.map((change) => change.item),
+          );
         }
 
         const nextOrder = await updateTemuOrder(entry.order.id, entry.updates);
         nextOrders.push(nextOrder);
-        inventoryChanges.push(...entryInventoryChanges);
+        inventoryChanges.push(...entryDeductedChanges, ...entryRestoredChanges);
+        deductedInventoryChanges.push(...entryDeductedChanges);
+        restoredInventoryChanges.push(...entryRestoredChanges);
       } catch (error) {
-        if (entryInventoryChanges.length > 0) {
+        if (entryDeductedChanges.length > 0) {
           try {
             const restoredInventory = await restoreWarehouseItemStockDeductions(
               buildOrderInventoryRestorationInputs([entry.nextOrder]),
@@ -2673,12 +2718,43 @@ export function OrdersPage({ user }: OrdersPageProps) {
             );
           }
         }
+        if (entryRestoredChanges.length > 0) {
+          try {
+            await deductInventoryForOrders([entry.order]);
+          } catch (rollbackError) {
+            throw new Error(
+              `${getOrdersErrorMessage(error, "保存订单失败")}；库存已回补但订单保存失败，且库存回滚失败：${getOrdersErrorMessage(
+                rollbackError,
+                "库存回滚失败",
+              )}`,
+            );
+          }
+        }
 
         failures.push({ order: entry.order, error });
       }
     }
 
-    return { nextOrders, inventoryChanges, failures };
+    return {
+      nextOrders,
+      inventoryChanges,
+      deductedInventoryChanges,
+      restoredInventoryChanges,
+      failures,
+    };
+  }
+
+  function formatInventoryChangeSummary(
+    changes: Awaited<ReturnType<typeof saveOrderEntriesWithInventory>>,
+  ) {
+    return [
+      changes.deductedInventoryChanges.length > 0
+        ? `扣减 ${changes.deductedInventoryChanges.length} 项配件库存`
+        : "",
+      changes.restoredInventoryChanges.length > 0
+        ? `回补 ${changes.restoredInventoryChanges.length} 项配件库存`
+        : "",
+    ].filter(Boolean).join("，");
   }
 
   async function handleSaveSelectedOrders() {
@@ -2700,8 +2776,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
         const nextOrder = { ...order, ...updates };
         return { order, updates, nextOrder };
       });
-      const { nextOrders, inventoryChanges, failures } =
-        await saveOrderEntriesWithInventory(saveEntries);
+      const saveResult = await saveOrderEntriesWithInventory(saveEntries);
+      const { nextOrders, failures } = saveResult;
       if (nextOrders.length === 0 && failures.length > 0) {
         throw failures[0].error;
       }
@@ -2709,9 +2785,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
       setNoticeMessage(
         [
           `已保存 ${nextOrders.length} 条订单`,
-          inventoryChanges.length > 0
-            ? `扣减 ${inventoryChanges.length} 项配件库存`
-            : "",
+          formatInventoryChangeSummary(saveResult),
           failures.length > 0 ? `${failures.length} 条保存失败` : "",
         ].filter(Boolean).join("，"),
       );

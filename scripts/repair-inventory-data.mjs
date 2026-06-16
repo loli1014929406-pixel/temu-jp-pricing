@@ -507,19 +507,17 @@ const stockRowsForComputation = dryRun
 const stocksByKey = new Map(
   stockRowsForComputation.map((row) => [stockKey(row.warehouse_id, row.item_id), row]),
 );
-const runningStockByKey = new Map(
-  stockRowsForComputation.map((row) => [
-    stockKey(row.warehouse_id, row.item_id),
-    row.stock_quantity,
-  ]),
+const runningLedgerByKey = new Map(
+  stockRowsForComputation.map((row) => [stockKey(row.warehouse_id, row.item_id), 0]),
 );
-const existingInboundKeys = new Set(
-  data.warehouse_item_stock_adjustments.flatMap((adjustment) =>
-    adjustment.purchase_package_id
-      ? [`${adjustment.warehouse_id}:${adjustment.item_id}:${adjustment.purchase_package_id}`]
-      : [],
-  ),
-);
+for (const adjustment of data.warehouse_item_stock_adjustments) {
+  const key = stockKey(adjustment.warehouse_id, adjustment.item_id);
+  runningLedgerByKey.set(
+    key,
+    (runningLedgerByKey.get(key) ?? 0) + Math.trunc(Number(adjustment.change_quantity) || 0),
+  );
+}
+const existingInboundQuantities = new Map();
 const existingInboundLegacyQuantities = new Map();
 const existingOutboundLineKeys = new Set();
 const existingOutboundLegacyCounts = new Map();
@@ -528,6 +526,14 @@ for (const adjustment of data.warehouse_item_stock_adjustments) {
   const purchaseOrderId = adjustment.purchase_order_id ?? "";
   const purchasePackageId = adjustment.purchase_package_id ?? "";
   const changeQuantity = Math.trunc(Number(adjustment.change_quantity) || 0);
+
+  if (purchasePackageId && reason.startsWith("采购入库") && changeQuantity > 0) {
+    const key = `${adjustment.warehouse_id}:${adjustment.item_id}:${purchasePackageId}`;
+    existingInboundQuantities.set(
+      key,
+      (existingInboundQuantities.get(key) ?? 0) + changeQuantity,
+    );
+  }
 
   if (
     purchaseOrderId &&
@@ -566,7 +572,7 @@ function applyStockChange(change) {
     throw new Error(`缺少库存行：${key}`);
   }
 
-  const previous = runningStockByKey.get(key) ?? 0;
+  const previous = runningLedgerByKey.get(key) ?? 0;
   const next = previous + change.change_quantity;
   if (next < 0) {
     const item = itemById.get(change.item_id);
@@ -574,14 +580,7 @@ function applyStockChange(change) {
     throw new Error(`库存不足，无法校准：${item?.item_name ?? change.item_id}${sku}`);
   }
 
-  runningStockByKey.set(key, next);
-  stockUpdateDrafts.set(key, {
-    id: stock.id,
-    warehouse_id: change.warehouse_id,
-    item_id: change.item_id,
-    owner_id: stock.owner_id,
-    stock_quantity: next,
-  });
+  runningLedgerByKey.set(key, next);
   adjustmentRows.push({
     warehouse_id: change.warehouse_id,
     item_id: change.item_id,
@@ -606,19 +605,21 @@ function applyAdjustmentEvent(event) {
 
 for (const event of Array.from(inboundEvents.values())) {
   const key = `${event.warehouse_id}:${event.item_id}:${event.purchase_package_id}`;
-  if (existingInboundKeys.has(key)) continue;
+  const existingQuantity = existingInboundQuantities.get(key) ?? 0;
+  if (existingQuantity >= event.quantity) continue;
 
   const legacyKey = `${event.warehouse_id}:${event.item_id}:${event.purchase_order_id}`;
   const legacyQuantity = existingInboundLegacyQuantities.get(legacyKey) ?? 0;
-  if (legacyQuantity >= event.quantity) {
-    existingInboundLegacyQuantities.set(legacyKey, legacyQuantity - event.quantity);
+  const missingQuantity = event.quantity - existingQuantity;
+  if (legacyQuantity >= missingQuantity) {
+    existingInboundLegacyQuantities.set(legacyKey, legacyQuantity - missingQuantity);
     continue;
   }
 
   existingInboundLegacyQuantities.set(legacyKey, 0);
   applyAdjustmentEvent({
     ...event,
-    quantity: event.quantity - legacyQuantity,
+    quantity: missingQuantity - legacyQuantity,
     direction: "in",
   });
 }

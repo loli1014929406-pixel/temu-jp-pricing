@@ -44,6 +44,11 @@ type PurchaseInventoryReversal = {
   quantity: number;
 };
 
+type PurchaseInventoryReceipt = {
+  orderItem: PurchaseOrderItem & { item_id: string; product_id: string };
+  quantity: number;
+};
+
 function getItemIdentity(item: Pick<PurchaseOrderItem, "item_name" | "item_spec">) {
   return `${item.item_name.trim()}\u0000${item.item_spec.trim()}`;
 }
@@ -592,25 +597,45 @@ async function applyPurchasePackageInventory(
   }
   await persistResolvedPurchaseItemIds(supabase, session.user.id, resolvedItems);
 
-  const receivableItems = resolvedItems.map((entry) => entry.orderItem);
+  const receivableItems = Array.from(
+    resolvedItems.reduce((items, { packageItem, orderItem }) => {
+      const quantity = Math.max(0, Math.trunc(Number(packageItem.quantity) || 0));
+      if (quantity <= 0) return items;
+
+      const current = items.get(orderItem.item_id);
+      if (current) {
+        current.quantity += quantity;
+      } else {
+        items.set(orderItem.item_id, { orderItem, quantity });
+      }
+      return items;
+    }, new Map<string, PurchaseInventoryReceipt>()).values(),
+  );
+
   await ensureWarehouseProductInventory(
     order.warehouse_id,
-    receivableItems.map((item) => item.product_id),
-    receivableItems.map((item) => item.item_id),
+    receivableItems.map(({ orderItem }) => orderItem.product_id),
+    receivableItems.map(({ orderItem }) => orderItem.item_id),
   );
 
   const inventory: Array<{ stock: WarehouseItemStock; adjustment: WarehouseItemStockAdjustment }> = [];
   const adjustmentPackageIds = Array.from(new Set([pkg.id, ...equivalentPackageIds]));
-  for (const { packageItem, orderItem: item } of resolvedItems) {
-    const { data: existingAdjustment, error: existingAdjustmentError } = await supabase
+  for (const { orderItem: item, quantity } of receivableItems) {
+    const { data: existingAdjustments, error: existingAdjustmentError } = await supabase
       .from("warehouse_item_stock_adjustments")
-      .select("id")
+      .select("change_quantity")
       .in("purchase_package_id", adjustmentPackageIds)
       .eq("item_id", item.item_id)
-      .limit(1)
-      .maybeSingle();
+      .gt("change_quantity", 0);
     if (existingAdjustmentError) throw existingAdjustmentError;
-    if (existingAdjustment) continue;
+
+    const receivedQuantity = (existingAdjustments ?? []).reduce(
+      (total, adjustment) =>
+        total + Math.max(0, Math.trunc(Number(adjustment.change_quantity) || 0)),
+      0,
+    );
+    const receiveQuantity = quantity - receivedQuantity;
+    if (receiveQuantity <= 0) continue;
 
     const { data: currentData, error: currentError } = await supabase
       .from("warehouse_item_stocks")
@@ -624,7 +649,7 @@ async function applyPurchasePackageInventory(
       throw new Error(`仓库配件库存不存在：${item.item_name}`);
     }
     const current = currentData as WarehouseItemStock;
-    const nextQuantity = current.stock_quantity + packageItem.quantity;
+    const nextQuantity = current.stock_quantity + receiveQuantity;
     const { data: nextData, error: nextError } = await supabase
       .from("warehouse_item_stocks")
       .update({ stock_quantity: nextQuantity })
@@ -637,9 +662,9 @@ async function applyPurchasePackageInventory(
     const next = nextData as WarehouseItemStock;
     const { data: adjustmentData, error: adjustmentError } = await supabase.from("warehouse_item_stock_adjustments").insert({
       warehouse_id: order.warehouse_id, item_id: item.item_id, previous_quantity: current.stock_quantity,
-      next_quantity: next.stock_quantity, change_quantity: packageItem.quantity, reason: "采购入库",
+      next_quantity: next.stock_quantity, change_quantity: receiveQuantity, reason: "采购入库",
       purchase_order_id: order.id, purchase_package_id: pkg.id,
-    }).select("change_quantity").single();
+    }).select("id, warehouse_id, item_id, owner_id, previous_quantity, next_quantity, change_quantity, reason, purchase_order_id, purchase_package_id, created_at").single();
     if (adjustmentError) throw adjustmentError;
     inventory.push({ stock: next, adjustment: adjustmentData as WarehouseItemStockAdjustment });
   }
@@ -648,12 +673,11 @@ async function applyPurchasePackageInventory(
 }
 
 export async function receivePurchasePackage(order: PurchaseOrder, pkg: PurchasePackage) {
-  if (pkg.status === "received") throw new Error("该包裹已经签收");
   const { supabase, session } = await requireSession();
   let packageToReceive = pkg;
   const { data: persistedPackageData, error: packageLoadError } = await supabase
     .from("purchase_packages")
-    .select("id, status")
+    .select("id, source_id, tracking_no, status")
     .eq("id", pkg.id)
     .eq("owner_id", session.user.id)
     .maybeSingle();
@@ -663,23 +687,29 @@ export async function receivePurchasePackage(order: PurchaseOrder, pkg: Purchase
     packageToReceive = await restoreMissingPurchasePackage(order, pkg);
   }
   const activePackage = persistedPackage ?? packageToReceive;
-  if (activePackage.status === "received") {
-    throw new Error("该包裹已经签收");
-  }
 
   // 先更新包裹状态为 received，再写库存流水
-  // 这样即使库存写入失败，包裹会停在 received（幂等性由 applyPurchasePackageInventory 的去重保证）
+  // 这样即使库存写入失败，包裹会停在 received，之后可按已入库数量补差恢复
   // 比原来「先写库存再更新包裹」更安全：不会出现「有流水但包裹还是 pending」
   const receivedAt = new Date().toISOString();
-  const { data: packageData, error: packageError } = await supabase.from("purchase_packages").update({ status: "received", received_at: receivedAt }).eq("id", packageToReceive.id).eq("owner_id", session.user.id).eq("status", "pending").select("id, source_id, tracking_no, status").maybeSingle();
-  if (packageError) throw packageError;
-  if (!packageData) {
-    throw new Error("快递包裹状态已变化，请刷新页面后查看");
+  let packageData = activePackage;
+  if (activePackage.status !== "received") {
+    const { data: updatedPackageData, error: packageError } = await supabase.from("purchase_packages").update({ status: "received", received_at: receivedAt }).eq("id", packageToReceive.id).eq("owner_id", session.user.id).eq("status", "pending").select("id, source_id, tracking_no, status").maybeSingle();
+    if (packageError) throw packageError;
+    if (!updatedPackageData) {
+      throw new Error("快递包裹状态已变化，请刷新页面后查看");
+    }
+    packageData = updatedPackageData as Omit<PurchasePackage, "items">;
   }
+  const receivedPackage = {
+    ...packageToReceive,
+    ...packageData,
+    items: packageToReceive.items,
+  } as PurchasePackage;
   const inventory = await applyPurchasePackageInventory(
     order,
-    packageToReceive,
-    [pkg.id, packageToReceive.id],
+    receivedPackage,
+    [pkg.id, receivedPackage.id],
   );
   const { data: allPackageData, error: allPackageError } = await supabase
     .from("purchase_packages")

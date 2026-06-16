@@ -63,6 +63,47 @@ function normalizeLogisticsMethod(value: string) {
   return text;
 }
 
+function getOrderNoKey(value: string | null | undefined) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function normalizeSkuCode(value: string | null | undefined) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function normalizeSalesSpec(value: string | null | undefined) {
+  return String(value ?? "").replace(/\s+/g, "").toLowerCase();
+}
+
+function getOrderLineKey(
+  order: Pick<TemuOrderImportRow, "order_no" | "sub_order_no" | "sku_code" | "product_attributes">,
+) {
+  const orderNo = getOrderNoKey(order.order_no);
+  if (!orderNo) return "";
+
+  const subOrderNo = getOrderNoKey(order.sub_order_no);
+  if (subOrderNo) return `${orderNo}\u0000${subOrderNo}`;
+
+  return [
+    orderNo,
+    normalizeSkuCode(order.sku_code),
+    normalizeSalesSpec(order.product_attributes),
+  ].join("\u0000");
+}
+
+function getOrderLineSkuKey(
+  order: Pick<TemuOrderImportRow, "order_no" | "sku_code" | "product_attributes">,
+) {
+  const orderNo = getOrderNoKey(order.order_no);
+  if (!orderNo) return "";
+
+  return [
+    orderNo,
+    normalizeSkuCode(order.sku_code),
+    normalizeSalesSpec(order.product_attributes),
+  ].join("\u0000");
+}
+
 function normalizeTemuOrder(row: Partial<TemuOrderRecord>): TemuOrderRecord {
   const normalized = Object.fromEntries(
     textOrderFields.map((field) => [field, String(row[field] ?? "")]),
@@ -95,7 +136,63 @@ export async function importTemuOrders(rows: TemuOrderImportRow[]) {
   const { supabase, session } = await requireSession();
   if (rows.length === 0) return [] as TemuOrderRecord[];
 
-  const payload = rows.map((row) => ({
+  const { data: existingData, error: existingError } = await withTimeout(
+    supabase
+      .from("temu_orders")
+      .select("order_no, sub_order_no, sku_code, product_attributes")
+      .eq("owner_id", session.user.id),
+    "检查已有订单",
+  );
+  if (existingError) throw existingError;
+
+  const existingRows = (existingData ?? []) as Array<
+    Pick<TemuOrderImportRow, "order_no" | "sub_order_no" | "sku_code" | "product_attributes">
+  >;
+  const existingRowsByLineKey = new Map<string, typeof existingRows[number]>();
+  const existingRowsBySkuKey = new Map<string, typeof existingRows[number]>();
+  const existingOrderNoCounts = existingRows.reduce<Record<string, number>>(
+    (counts, row) => {
+      const key = getOrderNoKey(row.order_no);
+      if (key) counts[key] = (counts[key] ?? 0) + 1;
+      return counts;
+    },
+    {},
+  );
+  const importOrderNoCounts = rows.reduce<Record<string, number>>((counts, row) => {
+    const key = getOrderNoKey(row.order_no);
+    if (key) counts[key] = (counts[key] ?? 0) + 1;
+    return counts;
+  }, {});
+
+  existingRows.forEach((row) => {
+    const lineKey = getOrderLineKey(row);
+    if (lineKey && !existingRowsByLineKey.has(lineKey)) {
+      existingRowsByLineKey.set(lineKey, row);
+    }
+
+    const skuKey = getOrderLineSkuKey(row);
+    if (skuKey && !existingRowsBySkuKey.has(skuKey)) {
+      existingRowsBySkuKey.set(skuKey, row);
+    }
+  });
+
+  const newRows = rows.filter((row) => {
+    const lineKey = getOrderLineKey(row);
+    if (lineKey && existingRowsByLineKey.has(lineKey)) return false;
+
+    const skuKey = getOrderLineSkuKey(row);
+    if (skuKey && existingRowsBySkuKey.has(skuKey)) return false;
+
+    const orderNoKey = getOrderNoKey(row.order_no);
+    return !(
+      orderNoKey &&
+      (existingOrderNoCounts[orderNoKey] ?? 0) === 1 &&
+      (importOrderNoCounts[orderNoKey] ?? 0) === 1
+    );
+  });
+  if (newRows.length === 0) return [] as TemuOrderRecord[];
+
+  const payload = newRows.map((row) => ({
     ...row,
     owner_id: session.user.id,
   }));
@@ -105,7 +202,7 @@ export async function importTemuOrders(rows: TemuOrderImportRow[]) {
       .from("temu_orders")
       .upsert(payload, {
         onConflict: "owner_id,order_no,sub_order_no",
-        ignoreDuplicates: false,
+        ignoreDuplicates: true,
       })
       .select(temuOrderSelectFields),
     "导入订单",
@@ -122,7 +219,7 @@ export async function importTemuOrders(rows: TemuOrderImportRow[]) {
           .from("temu_orders")
           .upsert(legacyPayload, {
             onConflict: "owner_id,order_no,sub_order_no",
-            ignoreDuplicates: false,
+            ignoreDuplicates: true,
           })
           .select(temuOrderSelectFields),
         "导入订单",
