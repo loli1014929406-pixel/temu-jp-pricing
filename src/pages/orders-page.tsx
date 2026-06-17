@@ -50,7 +50,10 @@ import type {
   WarehouseLogisticsMethod,
   WarehouseSku,
 } from "../types";
-import { calculatePurchaseShippingRmb } from "../utils/shipping-costs";
+import {
+  calculatePurchaseShippingRmb,
+  getThreeCmDimensionIssue,
+} from "../utils/shipping-costs";
 import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../utils/sku-code";
 
 type OrdersPageProps = {
@@ -518,9 +521,42 @@ type OrderDeclarationGroup = {
   declaration: OrderDeclaration;
   quantity: number;
 };
+type OrderFulfillmentMatch = {
+  warehouse: Warehouse;
+  logisticsMethod: string;
+  sku: ProductSku;
+  quantity: number;
+};
+type OrderFulfillmentMatchResult =
+  | { status: "matched"; match: OrderFulfillmentMatch }
+  | { status: "blocked"; reason: string }
+  | { status: "unmatched" };
+
+const fukuokaWarehouseAliases = ["福冈", "福岡", "fukuoka", "fugang"];
+const suzhouWarehouseAliases = ["苏州", "suzhou"];
+const fukuokaLastmileMethod = "福冈尾程";
+const ocsThreeCmMethod = "OCS 3cm";
+const ocsSmallParcelMethod = "OCS 小包";
 
 function getOrderFulfillmentQuantity(order: TemuOrderRecord) {
   return Math.max(1, Math.trunc(order.fulfillment_quantity || 0));
+}
+
+function isWarehouseMatchedByAlias(warehouse: Warehouse, aliases: string[]) {
+  const warehouseName = warehouse.name.trim().toLowerCase();
+  return aliases.some((alias) => warehouseName.includes(alias.toLowerCase()));
+}
+
+function getWarehousesByAliases(warehouses: Warehouse[], aliases: string[]) {
+  return warehouses.filter((warehouse) => isWarehouseMatchedByAlias(warehouse, aliases));
+}
+
+function formatAutoMatchBlockedReasons(reasons: string[]) {
+  const uniqueReasons = Array.from(new Set(reasons));
+  const visibleReasons = uniqueReasons.slice(0, 3).join("；");
+  return uniqueReasons.length > 3
+    ? `${visibleReasons}；另有 ${uniqueReasons.length - 3} 条订单未匹配。`
+    : visibleReasons;
 }
 
 function getOrderExactSkuGroupKey(order: TemuOrderRecord) {
@@ -1891,21 +1927,17 @@ export function OrdersPage({ user }: OrdersPageProps) {
     return skuOrderLookup.skuBySalesSpec.get(normalizeSalesSpec(order.product_attributes)) ?? null;
   }
 
-  function getDefaultLogisticsMethod(warehouse: Warehouse, sku: ProductSku | null) {
+  function getAllowedWarehouseLogisticsMethod(
+    warehouse: Warehouse,
+    logisticsMethod: string,
+  ) {
+    const normalizedMethod = normalizeLogisticsMethod(logisticsMethod);
     const methods = getWarehouseLogisticsMethodNames(
       warehouse.id,
       logisticsMethods,
       warehouseLogisticsMethods,
     );
-    if (methods.length === 0) return "";
-
-    if (methods.includes("OCS 3cm") && methods.includes("OCS 小包") && sku?.product_id) {
-      const product = productsById.get(sku.product_id);
-      if (product && product.package_height_cm > 3) return "OCS 小包";
-      return "OCS 3cm";
-    }
-
-    return methods[0] ?? "";
+    return methods.includes(normalizedMethod) ? normalizedMethod : "";
   }
 
   function canQueryTrackingStatus(order: TemuOrderRecord) {
@@ -2249,12 +2281,29 @@ export function OrdersPage({ user }: OrdersPageProps) {
     return true;
   }
 
+  function getWarehouseWithSkuStock(
+    candidateWarehouses: Warehouse[],
+    sku: ProductSku,
+    quantity: number,
+    availableStockByKey?: Map<string, number>,
+  ) {
+    return candidateWarehouses.find(
+      (warehouse) => getSkuAvailableStock(warehouse.id, sku, availableStockByKey) >= quantity,
+    );
+  }
+
+  function getThreeCmDimensionIssueForSku(sku: ProductSku) {
+    const product = sku.product_id ? productsById.get(sku.product_id) ?? null : null;
+    if (!product) return "商品资料缺少包裹尺寸";
+    return getThreeCmDimensionIssue(product);
+  }
+
   function matchOrderFulfillment(
     order: TemuOrderRecord,
     availableStockByKey?: Map<string, number>,
-  ) {
+  ): OrderFulfillmentMatchResult {
     const sku = getOrderSku(order);
-    if (!sku?.id) return null;
+    if (!sku?.id) return { status: "unmatched" };
 
     const quantity = getOrderFulfillmentQuantity(order);
     const warehouseIdsWithSku = new Set(
@@ -2262,17 +2311,59 @@ export function OrdersPage({ user }: OrdersPageProps) {
         .filter((stock) => stock.sku_id === sku.id)
         .map((stock) => stock.warehouse_id),
     );
-    const warehouse = warehouses.find(
-      (item) =>
-        warehouseIdsWithSku.has(item.id) &&
-        getSkuAvailableStock(item.id, sku, availableStockByKey) >= quantity,
+    const warehousesWithSku = warehouses.filter((warehouse) =>
+      warehouseIdsWithSku.has(warehouse.id),
     );
-    if (!warehouse) return null;
+    const fukuokaWarehouse = getWarehouseWithSkuStock(
+      getWarehousesByAliases(warehousesWithSku, fukuokaWarehouseAliases),
+      sku,
+      quantity,
+      availableStockByKey,
+    );
+    if (fukuokaWarehouse) {
+      const dimensionIssue = getThreeCmDimensionIssueForSku(sku);
+      if (dimensionIssue) {
+        return {
+          status: "blocked",
+          reason: `订单 ${getOrderLineLabel(order)}：福冈仓有库存，但${dimensionIssue}，不能发日本邮便 3cm。`,
+        };
+      }
 
-    const logisticsMethod = getDefaultLogisticsMethod(warehouse, sku);
-    if (!logisticsMethod) return null;
+      const logisticsMethod = getAllowedWarehouseLogisticsMethod(
+        fukuokaWarehouse,
+        fukuokaLastmileMethod,
+      );
+      if (!logisticsMethod) {
+        return {
+          status: "blocked",
+          reason: `${fukuokaWarehouse.name} 没有配置“${fukuokaLastmileMethod}”发货方式。`,
+        };
+      }
+      return {
+        status: "matched",
+        match: { warehouse: fukuokaWarehouse, logisticsMethod, sku, quantity },
+      };
+    }
 
-    return { warehouse, logisticsMethod, sku, quantity };
+    const suzhouWarehouse = getWarehouseWithSkuStock(
+      getWarehousesByAliases(warehousesWithSku, suzhouWarehouseAliases),
+      sku,
+      quantity,
+      availableStockByKey,
+    );
+    if (!suzhouWarehouse) return { status: "unmatched" };
+
+    const dimensionIssue = getThreeCmDimensionIssueForSku(sku);
+    const logisticsMethod = getAllowedWarehouseLogisticsMethod(
+      suzhouWarehouse,
+      dimensionIssue ? ocsSmallParcelMethod : ocsThreeCmMethod,
+    );
+    if (!logisticsMethod) return { status: "unmatched" };
+
+    return {
+      status: "matched",
+      match: { warehouse: suzhouWarehouse, logisticsMethod, sku, quantity },
+    };
   }
 
   function getOrderDetailRows(order: TemuOrderRecord) {
@@ -3119,10 +3210,16 @@ export function OrdersPage({ user }: OrdersPageProps) {
         stock.stock_quantity,
       ]),
     );
+    const blockedReasons: string[] = [];
     const matchedOrders = targetOrders.flatMap((order) => {
-      const matched = matchOrderFulfillment(order, availableStockByKey);
-      if (!matched) return [];
+      const matchResult = matchOrderFulfillment(order, availableStockByKey);
+      if (matchResult.status === "blocked") {
+        blockedReasons.push(matchResult.reason);
+        return [];
+      }
+      if (matchResult.status !== "matched") return [];
 
+      const matched = matchResult.match;
       const reserved = reserveOrderInventory(
         matched.warehouse.id,
         matched.sku,
@@ -3132,6 +3229,11 @@ export function OrdersPage({ user }: OrdersPageProps) {
       return reserved ? [{ order, ...matched }] : [];
     });
     if (matchedOrders.length === 0) {
+      if (blockedReasons.length > 0) {
+        setErrorMessage(formatAutoMatchBlockedReasons(blockedReasons));
+        setNoticeMessage("没有自动匹配订单。");
+        return;
+      }
       setNoticeMessage("没有找到 SKU 库存充足且可用发货方式的订单。");
       return;
     }
@@ -3162,13 +3264,16 @@ export function OrdersPage({ user }: OrdersPageProps) {
         current.filter((id) => !nextOrders.some((order) => order.id === id)),
       );
       const skippedCount = targetOrders.length - nextOrders.length;
+      if (blockedReasons.length > 0) {
+        setErrorMessage(formatAutoMatchBlockedReasons(blockedReasons));
+      }
       setNoticeMessage(
         [
           `已自动匹配 ${nextOrders.length} 条订单`,
           inventoryChanges.length > 0
             ? `扣减 ${inventoryChanges.length} 项配件库存`
             : "",
-          skippedCount > 0 ? `${skippedCount} 条因 SKU、库存或保存失败未匹配` : "",
+          skippedCount > 0 ? `${skippedCount} 条因 SKU、库存、尺寸或保存失败未匹配` : "",
         ].filter(Boolean).join("，"),
       );
     } catch (error) {

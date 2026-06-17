@@ -206,6 +206,19 @@ function compareNullableNumbers(
   return first - second;
 }
 
+function selectHighestTotalCostCalculation(
+  calculations: ProductRuntimeCalculation[],
+) {
+  return calculations.reduce<ProductRuntimeCalculation | null>(
+    (selected, calculation) =>
+      selected === null ||
+      calculation.pricing.totalCostRmb > selected.pricing.totalCostRmb
+        ? calculation
+        : selected,
+    null,
+  );
+}
+
 function matchesActivityDiscountFilter(
   summary: DiscountSummary | undefined,
   customMin: string,
@@ -285,17 +298,9 @@ function calculateProductDiscountSummary(
     };
   });
   const validRows = calculatedRows.filter((calculation) => calculation.result.isValid);
-  const lowestTemuPrice =
-    validRows.length > 0
-      ? Math.min(...validRows.map((calculation) => calculation.temuPriceRmb))
-      : null;
-  const lowestPriceCandidates =
-    lowestTemuPrice === null
-      ? []
-      : validRows.filter((calculation) => calculation.temuPriceRmb === lowestTemuPrice);
   const representativeCalculation =
-    lowestPriceCandidates.length > 0
-      ? lowestPriceCandidates.reduce((selected, calculation) => {
+    validRows.length > 0
+      ? validRows.reduce((selected, calculation) => {
           const selectedMaxCost = Math.max(
             ...selected.result.plans.map((plan) => plan.totalCostRmb),
           );
@@ -432,12 +437,6 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
         const savedCalculations = await fetchProfitCalculationsBySkuIds(
           skus.flatMap((sku) => (sku.id ? [sku.id] : [])),
         );
-        const savedPricesBySkuId = Object.fromEntries(
-          savedCalculations.map((calculation) => [
-            calculation.sku_id,
-            calculation.temu_price_rmb,
-          ]),
-        );
         const savedCalculationBySkuId = Object.fromEntries(
           savedCalculations.map((calculation) => [calculation.sku_id, calculation]),
         );
@@ -482,35 +481,31 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
         );
         const nextTemuPrices = Object.fromEntries(
           nextProducts.map((product) => {
-            const productSkus = skusByProductId[product.id] ?? [];
-            const savedTemuPrices = productSkus.flatMap((sku) =>
-              sku.id && typeof savedPricesBySkuId[sku.id] === "number"
-                ? [savedPricesBySkuId[sku.id]]
-                : [],
-            );
-            const productTemuPrices = (nextRuntimeCalculations[product.id] ?? []).map(
-              (calculation) => calculation.pricing.temuDeclarationPriceRmb,
+            const representativeCalculation = selectHighestTotalCostCalculation(
+              nextRuntimeCalculations[product.id] ?? [],
             );
 
             return [
               product.id,
-              savedTemuPrices.length > 0
-                ? Math.min(...savedTemuPrices)
-                : productTemuPrices.length > 0
-                  ? Math.min(...productTemuPrices)
-                  : null,
+              representativeCalculation?.temuPriceRmb ?? null,
             ];
           }),
         );
         const nextDiscountSummaries = Object.fromEntries(
           nextProducts.map((product) => {
             const productSkus = skusByProductId[product.id] ?? [];
+            const representativeCalculation = selectHighestTotalCostCalculation(
+              nextRuntimeCalculations[product.id] ?? [],
+            );
             const savedForProduct = productSkus.flatMap((sku) =>
               sku.id && savedCalculationBySkuId[sku.id]
                 ? [savedCalculationBySkuId[sku.id]]
                 : [],
             );
-            const firstSaved = savedForProduct[0];
+            const firstSaved =
+              (representativeCalculation
+                ? savedCalculationBySkuId[representativeCalculation.skuId]
+                : undefined) ?? savedForProduct[0];
             const savedVersion = getSavedCalculationVersion(firstSaved);
             const usesDiscountFormula = savedVersion >= 4;
             const usesAdFormula = savedVersion >= PROFIT_CALCULATION_VERSION;

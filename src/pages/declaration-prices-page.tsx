@@ -86,12 +86,12 @@ export function DeclarationPricesPage({ user }: DeclarationPricesPageProps) {
                   calculatePricing(product.package_weight_g, skuItems, settings),
               );
 
-            const lowestDeclarationPriceResult = productPricingResults.reduce<
+            const highestTotalCostResult = productPricingResults.reduce<
               PricingSummary | null
             >(
               (selected, result) =>
                 selected === null ||
-                result.temuDeclarationPriceRmb < selected.temuDeclarationPriceRmb
+                result.totalCostRmb > selected.totalCostRmb
                   ? result
                   : selected,
               null,
@@ -99,7 +99,7 @@ export function DeclarationPricesPage({ user }: DeclarationPricesPageProps) {
 
             return [
               product.id,
-              lowestDeclarationPriceResult,
+              highestTotalCostResult,
             ];
           }),
         ) as Record<string, PricingSummary | null>;
