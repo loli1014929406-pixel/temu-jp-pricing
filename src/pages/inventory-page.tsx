@@ -6,9 +6,7 @@ import {
   addWarehouseProductInventory,
   createWarehouse,
   deleteWarehouse,
-  fetchWarehouseItemStockAdjustments,
-  fetchWarehouseItemStocks,
-  fetchWarehouseSkus,
+  fetchWarehouseInventoryPage,
   fetchWarehouses,
   removeWarehouseProduct,
   updateWarehouse,
@@ -22,9 +20,9 @@ import {
   replaceWarehouseLogisticsMethods,
 } from "../lib/logistics-methods";
 import {
+  fetchProductsByIds,
   fetchProductItemsByProductIds,
   fetchProductSkusByProductIds,
-  fetchProducts,
 } from "../lib/products";
 import type {
   Product,
@@ -42,6 +40,7 @@ import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../utils/sku-code";
 import { PageHeader } from "../components/ui";
 import { readDraft, useDraftPersistence } from "../hooks/use-draft-persistence";
 import { usePermissions } from "../hooks/use-permissions";
+import { AsyncProductSelect } from "../components/inventory/AsyncProductSelect";
 
 type InventoryPageProps = {
   user: User;
@@ -130,7 +129,7 @@ function hasInventoryDraft(
       Object.values(draft.itemStockReasonDrafts).some((value) => value.trim()) ||
       Object.values(draft.warehouseNameDrafts).some((value) => value.trim()) ||
       Object.entries(draft.itemStockDrafts).some(
-        ([itemId, value]) => stockValuesById[itemId] !== undefined && value !== stockValuesById[itemId],
+        ([itemId, value]) => stockValuesById[itemId] === undefined || value !== stockValuesById[itemId],
       ),
   );
 }
@@ -262,81 +261,97 @@ export function InventoryPage({ user }: InventoryPageProps) {
     ? `仅显示${routeWarehouseLabel}仓库的 SKU 与配件库存`
     : "显示全部仓库的 SKU 与配件库存";
 
+
+  const [warehousePages, setWarehousePages] = useState<Record<string, number>>({});
+  const [warehouseHasMore, setWarehouseHasMore] = useState<Record<string, boolean>>({});
+
+  const loadWarehousePage = useCallback(async (warehouseId: string, targetPage: number) => {
+    try {
+      const data = await fetchWarehouseInventoryPage(warehouseId, targetPage, 20);
+      setWarehouseSkus(curr => {
+        const newItems = data.warehouseSkus.filter(s => !curr.some(c => c.id === s.id));
+        return [...curr, ...newItems];
+      });
+      setProducts(curr => {
+        const newItems = data.products.filter(s => !curr.some(c => c.id === s.id));
+        return [...curr, ...newItems];
+      });
+      setSkus(curr => {
+        const newItems = data.skus.filter(s => !curr.some(c => c.id === s.id));
+        return [...curr, ...newItems];
+      });
+      setProductItems(curr => {
+        const newItems = data.productItems.filter(s => !curr.some(c => c.id === s.id));
+        return [...curr, ...newItems];
+      });
+      setWarehouseItemStocks(curr => {
+        const newItems = data.warehouseItemStocks.filter(s => !curr.some(c => c.id === s.id));
+        return [...curr, ...newItems];
+      });
+      setWarehouseItemStockAdjustments(curr => {
+        const newItems = data.warehouseItemStockAdjustments.filter(s => !curr.some(c => c.id === s.id));
+        return [...curr, ...newItems];
+      });
+
+      setWarehousePages(curr => ({ ...curr, [warehouseId]: targetPage }));
+      setWarehouseHasMore(curr => ({ ...curr, [warehouseId]: data.hasMore }));
+    } catch (error) {
+      setErrorMessage(getInventoryErrorMessage(error, "加载仓库数据失败"));
+    }
+  }, []);
+
   useEffect(() => {
     let active = true;
 
-    async function load() {
+    async function loadDictionaries() {
       setLoading(true);
       setErrorMessage("");
-
       try {
-        const [nextProducts, nextWarehouses, nextLogisticsMethods] = await Promise.all([
-          fetchProducts(),
+        const [nextWarehouses, nextLogisticsMethods] = await Promise.all([
           fetchWarehouses(),
           fetchLogisticsMethods(),
         ]);
-        const [
-          nextItems,
-          nextSkus,
-          nextWarehouseSkus,
-          nextWarehouseItemStocks,
-          nextWarehouseItemStockAdjustments,
-          nextWarehouseLogisticsMethods,
-        ] =
-          await Promise.all([
-            fetchProductItemsByProductIds(nextProducts.map((product) => product.id)),
-            fetchProductSkusByProductIds(nextProducts.map((product) => product.id)),
-            fetchWarehouseSkus(nextWarehouses.map((warehouse) => warehouse.id)),
-            fetchWarehouseItemStocks(nextWarehouses.map((warehouse) => warehouse.id)),
-            fetchWarehouseItemStockAdjustments(
-              nextWarehouses.map((warehouse) => warehouse.id),
-            ),
-            fetchWarehouseLogisticsMethods(nextWarehouses.map((warehouse) => warehouse.id)),
-          ]);
+        const nextWarehouseLogisticsMethods = await fetchWarehouseLogisticsMethods(
+          nextWarehouses.map((warehouse) => warehouse.id)
+        );
 
         if (active) {
-          setProducts(nextProducts);
-          setProductItems(nextItems);
-          setSkus(nextSkus);
           setWarehouses(nextWarehouses);
           setLogisticsMethods(nextLogisticsMethods);
           setWarehouseLogisticsMethods(nextWarehouseLogisticsMethods);
-          setWarehouseSkus(nextWarehouseSkus);
-          setWarehouseItemStocks(nextWarehouseItemStocks);
-          setWarehouseItemStockAdjustments(nextWarehouseItemStockAdjustments);
+
           const latestDraft = readDraft<InventoryDraft>(draftKey);
-          const serverStockValues = Object.fromEntries(
-            nextWarehouseItemStocks.map((item) => [item.id, String(item.stock_quantity)]),
-          );
-          setItemStockDrafts({
-            ...serverStockValues,
-            ...(latestDraft?.itemStockDrafts ?? {}),
-          });
+          setItemStockDrafts(latestDraft?.itemStockDrafts ?? {});
           setItemStockReasonDrafts(latestDraft?.itemStockReasonDrafts ?? {});
           setSelectedProductIds(latestDraft?.selectedProductIds ?? {});
           setWarehouseNameDrafts(latestDraft?.warehouseNameDrafts ?? {});
           setDraftWarehouseName(latestDraft?.draftWarehouseName ?? "");
           setDraftLogisticsMethodName(latestDraft?.draftLogisticsMethodName ?? "");
-          if (hasInventoryDraft(latestDraft, serverStockValues)) {
+          if (hasInventoryDraft(latestDraft)) {
             setDraftNotice("已恢复上次未保存的库存编辑草稿。");
           }
         }
       } catch (error) {
-        if (active) {
-          setErrorMessage(getInventoryErrorMessage(error, "加载库存失败"));
-        }
+        if (active) setErrorMessage(getInventoryErrorMessage(error, "加载基础数据失败"));
       } finally {
-        if (active) {
-          setLoading(false);
-        }
+        if (active) setLoading(false);
       }
     }
 
-    void load();
-    return () => {
-      active = false;
-    };
+    void loadDictionaries();
+    return () => { active = false; };
   }, [draftKey, user.id]);
+
+  useEffect(() => {
+    if (visibleWarehouses.length === 1) {
+      const warehouse = visibleWarehouses[0];
+      if (warehousePages[warehouse.id] === undefined) {
+        setWarehousePages(curr => ({ ...curr, [warehouse.id]: 1 }));
+        void loadWarehousePage(warehouse.id, 1);
+      }
+    }
+  }, [visibleWarehouses, warehousePages, loadWarehousePage]);
+
 
   const inventoryDraftValue = useMemo<InventoryDraft>(
     () => ({
@@ -685,14 +700,44 @@ export function InventoryPage({ user }: InventoryPageProps) {
 
     const productId = selectedProductIds[warehouseId];
     if (!productId) return;
-    const productSkuIds = (skusByProductId[productId] ?? []).flatMap((sku) =>
-      sku.id ? [sku.id] : [],
-    );
-    const productItemIds = itemIdsByProductId[productId] ?? [];
 
     setBusyKey(`add-product-${warehouseId}`);
     setErrorMessage("");
     try {
+      const [nextProducts, nextSkus, nextItems] = await Promise.all([
+        productsById[productId]
+          ? Promise.resolve([productsById[productId]])
+          : fetchProductsByIds([productId]),
+        fetchProductSkusByProductIds([productId]),
+        fetchProductItemsByProductIds([productId]),
+      ]);
+
+      if (nextProducts.length === 0) {
+        setErrorMessage("未找到所选商品，请重新搜索后再试。");
+        return;
+      }
+
+      const productSkuIds = nextSkus.flatMap((sku) => (sku.id ? [sku.id] : []));
+      if (productSkuIds.length === 0) {
+        setErrorMessage("该商品还没有 SKU，不能加入库存");
+        return;
+      }
+
+      const productItemIds = nextItems.flatMap((item) => (item.id ? [item.id] : []));
+
+      setProducts((current) => [
+        ...current,
+        ...nextProducts.filter((product) => !current.some((item) => item.id === product.id)),
+      ]);
+      setSkus((current) => [
+        ...current,
+        ...nextSkus.filter((sku) => !current.some((item) => item.id === sku.id)),
+      ]);
+      setProductItems((current) => [
+        ...current,
+        ...nextItems.filter((item) => !current.some((currentItem) => currentItem.id === item.id)),
+      ]);
+
       const inventory = await addWarehouseProductInventory(
         warehouseId,
         productId,
@@ -1026,27 +1071,18 @@ export function InventoryPage({ user }: InventoryPageProps) {
 
                 {canEdit && (
                   <div className="grid gap-3 md:grid-cols-[minmax(220px,1fr)_auto]">
-                    <select
-                      value={selectedProductIds[warehouse.id] ?? ""}
-                      onChange={(event) =>
-                        setSelectedProductIds((current) => ({
-                          ...current,
-                          [warehouse.id]: event.target.value,
-                        }))
-                      }
-                      className="h-11 rounded-xl border border-line bg-white px-3 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
-                    >
-                      <option value="">选择商品编号</option>
-                      {sortedProducts.map((product) => {
-                        const isAssigned = assignedProductIds.has(product.id);
-                        return (
-                        <option key={product.id} value={product.id} disabled={isAssigned}>
-                          {product.product_code} · {product.product_name_cn}
-                          {isAssigned ? "（已在仓库）" : ""}
-                        </option>
-                        );
-                      })}
-                    </select>
+
+                    <div className="flex-1">
+                      <AsyncProductSelect
+                        value={selectedProductIds[warehouse.id] ?? ""}
+                        onChange={(value) =>
+                          setSelectedProductIds((current) => ({
+                            ...current,
+                            [warehouse.id]: value,
+                          }))
+                        }
+                      />
+                    </div>
                     <button
                       type="button"
                       onClick={() => void handleAddProduct(warehouse.id)}
@@ -1062,7 +1098,21 @@ export function InventoryPage({ user }: InventoryPageProps) {
                   </div>
                 )}
 
-                <div className="table-card shadow-none">
+                {warehousePages[warehouse.id] === undefined ? (
+                  <div className="flex justify-center p-8">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWarehousePages(curr => ({ ...curr, [warehouse.id]: 1 }));
+                        void loadWarehousePage(warehouse.id, 1);
+                      }}
+                      className="rounded-full border border-line bg-white px-6 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
+                    >
+                      加载此仓库库存
+                    </button>
+                  </div>
+                ) : (
+                  <div className="table-card shadow-none">
                   <div className="overflow-x-auto">
                     <table className="data-table">
                       <thead>
@@ -1311,6 +1361,18 @@ export function InventoryPage({ user }: InventoryPageProps) {
                     </table>
                   </div>
                 </div>
+                )}
+                {warehousePages[warehouse.id] !== undefined && warehouseHasMore[warehouse.id] && (
+                  <div className="mt-4 flex justify-center">
+                    <button
+                      type="button"
+                      onClick={() => void loadWarehousePage(warehouse.id, (warehousePages[warehouse.id] ?? 1) + 1)}
+                      className="rounded-full border border-line bg-white px-6 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
+                    >
+                      加载更多商品
+                    </button>
+                  </div>
+                )}
               </section>
             );
           })}

@@ -1,4 +1,5 @@
 import { withTimeout, requireSession } from "./supabase-helpers";
+import { fetchProductsByIds, fetchProductSkusByProductIds, fetchProductItemsByProductIds } from "./products";
 import type {
   Warehouse,
   WarehouseItemStock,
@@ -118,6 +119,90 @@ export async function fetchWarehouseItemStockAdjustments(warehouseIds: string[])
 
   if (error) throw error;
   return data as WarehouseItemStockAdjustment[];
+}
+
+export async function fetchWarehouseInventoryPage(warehouseId: string, page: number, pageSize: number = 20) {
+  const { supabase } = await requireSession();
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+
+  const { data: skuRows, error, count } = await withTimeout(
+    supabase
+      .from("warehouse_skus")
+      .select("id, warehouse_id, product_id, sku_id, owner_id, stock_quantity, created_at, updated_at", { count: "exact" })
+      .eq("warehouse_id", warehouseId)
+      .order("created_at", { ascending: false })
+      .range(from, to),
+    "加载库存页面"
+  );
+
+  if (error) throw error;
+
+  const warehouseSkus = skuRows as WarehouseSku[];
+  if (warehouseSkus.length === 0) {
+    return {
+      warehouseSkus: [],
+      products: [],
+      skus: [],
+      productItems: [],
+      warehouseItemStocks: [],
+      warehouseItemStockAdjustments: [],
+      total: count ?? 0,
+      hasMore: false
+    };
+  }
+
+  const productIds = Array.from(new Set(warehouseSkus.map(s => s.product_id)));
+
+  const [products, productItems, skus] = await Promise.all([
+    fetchProductsByIds(productIds),
+    fetchProductItemsByProductIds(productIds),
+    fetchProductSkusByProductIds(productIds)
+  ]);
+
+  const itemIds = productItems.map(item => item.id).filter(Boolean) as string[];
+
+  let warehouseItemStocks: WarehouseItemStock[] = [];
+  let warehouseItemStockAdjustments: WarehouseItemStockAdjustment[] = [];
+
+  if (itemIds.length > 0) {
+    const [stocksResult, adjustmentsResult] = await Promise.all([
+      withTimeout(
+        supabase
+          .from("warehouse_item_stocks")
+          .select("id, warehouse_id, item_id, stock_quantity")
+          .eq("warehouse_id", warehouseId)
+          .in("item_id", itemIds),
+        "加载当前页库存"
+      ),
+      withTimeout(
+        supabase
+          .from("warehouse_item_stock_adjustments")
+          .select("id, warehouse_id, item_id, previous_quantity, next_quantity, change_quantity, reason, created_at")
+          .eq("warehouse_id", warehouseId)
+          .in("item_id", itemIds)
+          .order("created_at", { ascending: false }),
+        "加载当前页调整记录"
+      )
+    ]);
+
+    if (stocksResult.error) throw stocksResult.error;
+    if (adjustmentsResult.error) throw adjustmentsResult.error;
+
+    warehouseItemStocks = stocksResult.data as WarehouseItemStock[];
+    warehouseItemStockAdjustments = adjustmentsResult.data as WarehouseItemStockAdjustment[];
+  }
+
+  return {
+    warehouseSkus,
+    products,
+    skus,
+    productItems,
+    warehouseItemStocks,
+    warehouseItemStockAdjustments,
+    total: count ?? 0,
+    hasMore: to + 1 < (count ?? 0)
+  };
 }
 
 export async function addWarehouseProductInventory(

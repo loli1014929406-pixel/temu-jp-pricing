@@ -166,6 +166,43 @@ export async function fetchProducts() {
   return rows;
 }
 
+export async function fetchProductsByIds(productIds: string[]) {
+  if (productIds.length === 0) return [] as Product[];
+
+  const { supabase } = await requireSession();
+  const { data, error } = await supabase
+    .from("products")
+    .select("*")
+    .in("id", productIds)
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return ((data ?? []) as Partial<Product>[]).map(normalizeProductRow);
+}
+
+export async function searchProducts(keyword: string, limit: number = 20) {
+  const trimmed = keyword.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  const escaped = trimmed.replace(/[%_\\]/g, '\\$&');
+
+  const { supabase } = await requireSession();
+  const { data, error } = await withTimeout(
+    supabase
+      .from("products")
+      .select("*")
+      .or(`product_code.ilike."%${escaped.replace(/"/g, '""')}%",product_name_cn.ilike."%${escaped.replace(/"/g, '""')}%"`)
+      .order("created_at", { ascending: false })
+      .limit(limit),
+    "搜索商品",
+  );
+
+  if (error) throw error;
+  return ((data ?? []) as Partial<Product>[]).map(normalizeProductRow);
+}
+
 export function getProductRouteKey(product: Pick<Product, "id" | "product_code">) {
   return encodeURIComponent(product.product_code.trim() || product.id);
 }
