@@ -251,6 +251,42 @@ function hasOrdersDraft(draft: OrdersDraftState | null | undefined) {
 }
 
 export function getOrdersErrorMessage(error: unknown, fallback: string) {
+  if (typeof error === "object" && error !== null && "code" in error && "message" in error) {
+    const code = String(error.code);
+    const message = typeof error.message === "string" ? error.message : "";
+    if (code === "42703") {
+      if (message.includes("sku_code")) {
+        return "订单管理数据库还没有新增 SKU 货号字段，请在 Supabase SQL Editor 执行最新订单迁移以启用精准自动匹配";
+      }
+      if (
+        message.includes("warehouse_id") ||
+        message.includes("logistics_method") ||
+        message.includes("label_printed_at") ||
+        message.includes("logistics_tracking_no") ||
+        message.includes("logistics_status")
+      ) {
+        return "订单管理数据库还没有初始化最新流程字段，请先执行最新的订单表迁移";
+      }
+    }
+    if (code === "42P01") {
+      if (
+        message.includes("logistics_methods") ||
+        message.includes("warehouse_logistics_methods")
+      ) {
+        return "仓库发货方式数据库还没有完整初始化，请完整执行 20260613_add_warehouse_logistics_methods.sql 迁移";
+      }
+      if (message.includes("public.temu_orders")) {
+        return "订单管理数据库还没有初始化，请先执行最新的订单表迁移";
+      }
+      if (
+        message.includes("warehouse_item_stocks") ||
+        message.includes("warehouse_item_stock_adjustments")
+      ) {
+        return "库存数据库还没有初始化最新配件库存字段，请先执行最新的库存表迁移";
+      }
+    }
+  }
+
   const message = getErrorMessage(error, fallback);
   if (message.includes("sku_code")) {
     return "订单管理数据库还没有新增 SKU 货号字段，请在 Supabase SQL Editor 执行最新订单迁移以启用精准自动匹配";

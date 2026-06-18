@@ -1,21 +1,9 @@
 import type { Sheet, SheetData } from "write-excel-file/browser";
+import type { Workbook, Worksheet } from "./tabular-parser";
 
-type SpreadsheetCell = string | number | boolean | Date | null | undefined;
-type SpreadsheetRow = SpreadsheetCell[];
+export type { Workbook, Worksheet };
 
-export type Worksheet = {
-  name: string;
-  data: SpreadsheetRow[];
-  columnWidths?: number[];
-};
-
-export type Workbook = {
-  sheets: Worksheet[];
-  worksheets: Worksheet[];
-  getWorksheet: (sheetName: string) => Worksheet | undefined;
-};
-
-function createWorkbookFromSheets(sheets: Worksheet[]): Workbook {
+export function createWorkbookFromSheets(sheets: Worksheet[]): Workbook {
   return {
     sheets,
     worksheets: sheets,
@@ -29,7 +17,7 @@ function getHeadersFromRows(rows: Record<string, unknown>[], headers?: string[])
   return headers ?? Array.from(new Set(rows.flatMap((row) => Object.keys(row))));
 }
 
-function toSpreadsheetCell(value: unknown): SpreadsheetCell {
+function toSpreadsheetCell(value: unknown) {
   if (value === null || value === undefined) return null;
   if (value instanceof Date) return value;
   if (
@@ -42,7 +30,7 @@ function toSpreadsheetCell(value: unknown): SpreadsheetCell {
   return String(value);
 }
 
-export async function createWorkbook() {
+export async function createWorkbook(): Promise<Workbook> {
   return createWorkbookFromSheets([]);
 }
 
@@ -53,7 +41,7 @@ export function addObjectSheet(
   options: { headers?: string[]; columnWidths?: number[] } = {},
 ) {
   const headers = getHeadersFromRows(rows, options.headers);
-  const data: SpreadsheetRow[] = [
+  const data = [
     headers,
     ...rows.map((row) => headers.map((header) => toSpreadsheetCell(row[header]))),
   ];
@@ -78,106 +66,65 @@ export async function downloadWorkbook(workbook: Workbook, filename: string) {
   await writeXlsxFile(sheets).toFile(filename);
 }
 
-function formatDateCell(value: Date) {
-  const pad = (number: number) => String(number).padStart(2, "0");
-  return (
-    [value.getFullYear(), pad(value.getMonth() + 1), pad(value.getDate())].join("-") +
-    ` ${pad(value.getHours())}:${pad(value.getMinutes())}:${pad(value.getSeconds())}`
-  );
-}
+export async function readTabularFileObjects(file: File): Promise<Record<string, unknown>[]> {
+  if (typeof window !== "undefined" && window.Worker) {
+    return new Promise((resolve, reject) => {
+      let worker: Worker | null = null;
+      let handled = false;
 
-function normalizeCellValue(value: SpreadsheetCell) {
-  if (value === null || value === undefined) return "";
-  if (value instanceof Date) return formatDateCell(value);
-  return value;
-}
+      const cleanup = () => {
+        if (worker) {
+          worker.terminate();
+          worker = null;
+        }
+      };
 
-export function worksheetToObjects(worksheet: Worksheet) {
-  const [headerRow = [], ...dataRows] = worksheet.data;
-  const headers = headerRow.map((cell) =>
-    String(normalizeCellValue(cell) ?? "").trim(),
-  );
+      try {
+        worker = new Worker(new URL("../workers/excel.worker.ts", import.meta.url), { type: "module" });
 
-  return dataRows.flatMap((row) => {
-    const objectRow = Object.fromEntries(
-      headers.flatMap((header, index) =>
-        header ? [[header, normalizeCellValue(row[index])]] : [],
-      ),
-    );
-    return Object.values(objectRow).some((value) => String(value ?? "").trim())
-      ? [objectRow]
-      : [];
-  });
-}
+        worker.onmessage = (e) => {
+          if (handled) return;
+          handled = true;
+          cleanup();
 
-export async function readXlsxWorkbook(file: File) {
-  const { default: readXlsxFile } = await import("read-excel-file/browser");
-  const sheets = await readXlsxFile(file);
-  return createWorkbookFromSheets(
-    sheets.map((sheet) => ({
-      name: sheet.sheet,
-      data: sheet.data as SpreadsheetRow[],
-    })),
-  );
-}
+          if (e.data.error) {
+            reject(new Error(e.data.error));
+          } else {
+            resolve(e.data.result);
+          }
+        };
 
-function parseCsvRows(text: string) {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let value = "";
-  let inQuotes = false;
+        worker.onmessageerror = async (e) => {
+          if (handled) return;
+          handled = true;
+          cleanup();
+          console.warn("Worker message error during execution. Falling back to main thread:", e);
+          const { parseTabularFile } = await import("./tabular-parser");
+          resolve(parseTabularFile(file));
+        };
 
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    const nextChar = text[index + 1];
-    if (char === "\"") {
-      if (inQuotes && nextChar === "\"") {
-        value += "\"";
-        index += 1;
-      } else {
-        inQuotes = !inQuotes;
+        worker.onerror = async (e) => {
+          if (handled) return;
+          handled = true;
+          cleanup();
+          console.warn("Worker error during instantiation/execution. Falling back to main thread:", e.message);
+          const { parseTabularFile } = await import("./tabular-parser");
+          resolve(parseTabularFile(file));
+        };
+
+        worker.postMessage({ file });
+      } catch (err) {
+        if (handled) return;
+        handled = true;
+        cleanup();
+        console.warn("Worker creation failed. Falling back to main thread:", err);
+        import("./tabular-parser").then(({ parseTabularFile }) => {
+          resolve(parseTabularFile(file));
+        }).catch(reject);
       }
-      continue;
-    }
-    if (char === "," && !inQuotes) {
-      row.push(value);
-      value = "";
-      continue;
-    }
-    if ((char === "\n" || char === "\r") && !inQuotes) {
-      if (char === "\r" && nextChar === "\n") index += 1;
-      row.push(value);
-      rows.push(row);
-      row = [];
-      value = "";
-      continue;
-    }
-    value += char;
+    });
   }
 
-  row.push(value);
-  rows.push(row);
-  return rows.filter((csvRow) => csvRow.some((cell) => cell.trim()));
-}
-
-export async function readTabularFileObjects(file: File) {
-  if (file.name.toLowerCase().endsWith(".csv")) {
-    const rows = parseCsvRows(await file.text());
-    const headers =
-      rows[0]?.map((header, index) =>
-        (index === 0 ? header.replace(/^\uFEFF/, "") : header).trim(),
-      ) ?? [];
-    return rows.slice(1).map((row) =>
-      Object.fromEntries(
-        headers.flatMap((header, index) =>
-          header ? [[header, row[index] ?? ""]] : [],
-        ),
-      ),
-    );
-  }
-
-  const workbook = await readXlsxWorkbook(file);
-  const worksheet = workbook.worksheets[0];
-  if (!worksheet) throw new Error("Excel 文件里没有可读取的工作表");
-  return worksheetToObjects(worksheet);
+  const { parseTabularFile } = await import("./tabular-parser");
+  return parseTabularFile(file);
 }

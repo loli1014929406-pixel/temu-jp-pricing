@@ -136,6 +136,27 @@ function hasInventoryDraft(
 }
 
 function getInventoryErrorMessage(error: unknown, fallback: string) {
+  if (typeof error === "object" && error !== null && "code" in error && "message" in error) {
+    const code = String(error.code);
+    const message = typeof error.message === "string" ? error.message : "";
+    if (code === "42P01") {
+      if (
+        message.includes("public.logistics_methods") ||
+        message.includes("public.warehouse_logistics_methods")
+      ) {
+        return "仓库发货方式数据库还没有完整初始化，请完整执行 20260613_add_warehouse_logistics_methods.sql 迁移";
+      }
+      if (
+        message.includes("public.warehouses") ||
+        message.includes("public.warehouse_skus") ||
+        message.includes("public.warehouse_item_stocks") ||
+        message.includes("public.warehouse_item_stock_adjustments")
+      ) {
+        return "库存数据库还没有初始化，请先执行最新的库存表迁移";
+      }
+    }
+  }
+
   const message = getErrorMessage(error, fallback);
   if (
     message.includes("public.logistics_methods") ||

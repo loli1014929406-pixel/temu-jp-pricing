@@ -659,7 +659,15 @@ function getOrderDisplayRowProductCodeSummary(
 
 function SkuImageThumb({ product, sku }: { product: Product; sku: ProductSku }) {
   const imageUrl = sku.temu_image_url.trim();
-  if (!imageUrl) return null;
+  const [hasError, setHasError] = useState(false);
+
+  useEffect(() => {
+    setHasError(false);
+  }, [imageUrl]);
+
+  if (!imageUrl || hasError) {
+    return <div className="h-12 w-12 shrink-0 rounded-md border border-slate-200 bg-slate-50" role="img" aria-label="暂无图片" title="暂无图片" />;
+  }
 
   return (
     <img
@@ -667,9 +675,7 @@ function SkuImageThumb({ product, sku }: { product: Product; sku: ProductSku }) 
       alt={`${product.product_name_cn} ${formatSkuSalesSpec(sku)}`.trim()}
       loading="lazy"
       referrerPolicy="no-referrer"
-      onError={(event) => {
-        event.currentTarget.style.display = "none";
-      }}
+      onError={() => setHasError(true)}
       className="h-12 w-12 shrink-0 rounded-md border border-slate-200 object-cover"
     />
   );
@@ -4194,7 +4200,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
               <table className="data-table orders-table min-w-[1900px]">
                 <thead>
                   <tr>
-                    <th className="w-12 text-center">
+                    <th className="w-12 text-center" scope="col">
                       <input
                         type="checkbox"
                         checked={allFilteredSelected}
@@ -4205,7 +4211,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
                       />
                     </th>
                     {tableColumns.map((column) => (
-                      <th key={column.key} className={column.className ?? ""}>
+                      <th key={column.key} className={column.className ?? ""} scope="col">
                         {column.sortable ? (
                           <button
                             type="button"

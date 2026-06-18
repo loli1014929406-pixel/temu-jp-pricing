@@ -1,10 +1,5 @@
 import type { ProductTransferRecord } from "../types";
-import {
-  addObjectSheet,
-  createWorkbook,
-  readXlsxWorkbook,
-  worksheetToObjects,
-} from "./excel";
+import { addObjectSheet, createWorkbook } from "./excel";
 
 type ValidationResult = {
   valid: boolean;
@@ -218,6 +213,8 @@ export async function parseTransferFile(file: File) {
     return JSON.parse(await file.text()) as unknown;
   }
 
+  const { readXlsxWorkbook, worksheetToObjects } = await import("./tabular-parser");
+
   const workbook = await readXlsxWorkbook(file);
   const productsSheet = workbook.getWorksheet("Products");
   const itemsSheet = workbook.getWorksheet("Items");
@@ -231,7 +228,8 @@ export async function parseTransferFile(file: File) {
   const skus = worksheetToObjects(skusSheet);
   const links = worksheetToObjects(linksSheet);
 
-  return products.map((product) => {
+  return products.map((productRec) => {
+    const product = productRec as Record<string, any>;
     const productIndex = Number(product.product_index);
     const { product_index, ...productFields } = product;
     void product_index;
@@ -250,15 +248,18 @@ export async function parseTransferFile(file: File) {
       material_cn: String(productFields.material_cn ?? ""),
       max_units_per_parcel: Number(productFields.max_units_per_parcel ?? 1),
       items: items
-        .filter((item) => Number(item.product_index) === productIndex)
-        .map(({ product_index: itemProductIndex, item_index, ...item }) => {
+        .filter((itemRec) => Number((itemRec as Record<string, any>).product_index) === productIndex)
+        .map((itemRec) => {
+          const item = itemRec as Record<string, any>;
+          const { product_index: itemProductIndex, item_index, ...itemFields } = item;
           void itemProductIndex;
           void item_index;
-          return item;
+          return itemFields;
         }),
       skus: skus
-        .filter((sku) => Number(sku.product_index) === productIndex)
-        .map((sku) => {
+        .filter((skuRec) => Number((skuRec as Record<string, any>).product_index) === productIndex)
+        .map((skuRec) => {
+          const sku = skuRec as Record<string, any>;
           const skuIndex = Number(sku.sku_index);
           return {
             sku_code: String(sku.sku_code ?? ""),
@@ -272,14 +273,19 @@ export async function parseTransferFile(file: File) {
             notes: String(sku.notes ?? ""),
             component_links: links
               .filter(
-                (link) =>
-                  Number(link.product_index) === productIndex &&
-                  Number(link.sku_index) === skuIndex,
+                (linkRec) => {
+                  const link = linkRec as Record<string, any>;
+                  return Number(link.product_index) === productIndex &&
+                  Number(link.sku_index) === skuIndex;
+                }
               )
-              .map((link) => ({
-                item_index: Number(link.item_index),
-                quantity: Number(link.quantity),
-              })),
+              .map((linkRec) => {
+                const link = linkRec as Record<string, any>;
+                return {
+                  item_index: Number(link.item_index),
+                  quantity: Number(link.quantity),
+                };
+              }),
           };
         }),
     };
