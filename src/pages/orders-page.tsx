@@ -24,7 +24,9 @@ import {
   readTabularFileObjects,
 } from "../lib/excel";
 import {
-  deductWarehouseItemStocks,
+  deductWarehouseItemStocksLegacy,
+  deductWarehouseItemStocksAtomic,
+  type AtomicDeductionGroup,
   restoreWarehouseItemStockDeductions,
   type WarehouseItemStockRestorationInput,
 } from "../lib/inventory";
@@ -2764,52 +2766,113 @@ export function OrdersPage({ user }: OrdersPageProps) {
     const restoredInventoryChanges: Awaited<ReturnType<typeof deductInventoryForOrders>> = [];
     const failures: Array<{ order: TemuOrderRecord; error: unknown }> = [];
 
-    for (const entry of entries) {
+    // 第一阶段：收集需要扣减库存的订单，并发起批量原子扣减
+    const deductionEntries = entries.filter((entry) => {
       const previousStage = getOrderStage(entry.order);
       const nextStage = getOrderStage(entry.nextOrder);
       const hadReservedInventory = shouldReserveOrderInventory(previousStage);
       const shouldReserveInventory = shouldReserveOrderInventory(nextStage);
-      const shouldDeductInventory = !hadReservedInventory && shouldReserveInventory;
+      return !hadReservedInventory && shouldReserveInventory;
+    });
+
+    const atomicGroups: AtomicDeductionGroup[] = [];
+    for (const entry of deductionEntries) {
+      const stockResult = buildOrderStockDeductions([entry.nextOrder]);
+      if (stockResult.errorMessage) {
+        failures.push({ order: entry.order, error: new Error(stockResult.errorMessage) });
+      } else if (stockResult.deductions.length > 0) {
+        atomicGroups.push({
+          groupId: entry.order.id,
+          dedupeKey: entry.order.order_no,
+          deductions: stockResult.deductions.map((d) => ({
+            stockId: d.stock.id,
+            quantity: d.quantity,
+            reason: `出库：${d.orderLineLabel}`,
+            dedupeKey: d.orderLineLabel,
+            reversalReason: `删除订单冲回：${d.orderLineLabel}`,
+          })),
+        });
+      }
+    }
+
+    const failedGroupIds = new Set<string>();
+    if (atomicGroups.length > 0) {
+      try {
+        const atomicResults = await deductWarehouseItemStocksAtomic(atomicGroups);
+        
+        // 记录明确失败的记录
+        for (const failure of atomicResults.failures) {
+          failedGroupIds.add(failure.groupId);
+          const entry = entries.find((e) => e.order.id === failure.groupId);
+          if (entry) {
+            failures.push({ order: entry.order, error: new Error(failure.detail.message || "库存不足") });
+          }
+        }
+
+        // 记录成功的记录
+        if (atomicResults.results.length > 0) {
+          const successfulChanges = atomicResults.results.map((r) => ({
+            item: {
+              id: r.id,
+              warehouse_id: r.warehouse_id,
+              item_id: r.item_id,
+              stock_quantity: r.stock_quantity,
+            } as any,
+            adjustment: {
+              id: r.adjustment_id,
+              warehouse_id: r.warehouse_id,
+              item_id: r.item_id,
+              previous_quantity: r.previous_quantity,
+              change_quantity: r.change_quantity,
+              next_quantity: r.stock_quantity,
+              reason: r.reason,
+            } as any,
+          }));
+          applyWarehouseItemStockUpdates(successfulChanges.map((c) => c.item));
+          inventoryChanges.push(...successfulChanges);
+          deductedInventoryChanges.push(...successfulChanges);
+        }
+      } catch (error) {
+        // 如果外层网络报错或严重异常，整个批次都算失败
+        for (const entry of deductionEntries) {
+          if (!failedGroupIds.has(entry.order.id) && !failures.some((f) => f.order.id === entry.order.id)) {
+            failedGroupIds.add(entry.order.id);
+            failures.push({ order: entry.order, error });
+          }
+        }
+      }
+    }
+
+    // 第二阶段：逐个处理订单的状态更新、冲回逻辑及异常回滚
+    for (const entry of entries) {
+      if (failedGroupIds.has(entry.order.id) || failures.some((f) => f.order.id === entry.order.id)) {
+        continue;
+      }
+
+      const previousStage = getOrderStage(entry.order);
+      const nextStage = getOrderStage(entry.nextOrder);
+      const hadReservedInventory = shouldReserveOrderInventory(previousStage);
+      const shouldReserveInventory = shouldReserveOrderInventory(nextStage);
       const shouldRestoreInventory = hadReservedInventory && !shouldReserveInventory;
-      let entryDeductedChanges: Awaited<ReturnType<typeof deductInventoryForOrders>> = [];
       let entryRestoredChanges: Awaited<ReturnType<typeof deductInventoryForOrders>> = [];
 
       try {
-        if (shouldDeductInventory) {
-          entryDeductedChanges = await deductInventoryForOrders([entry.nextOrder]);
-        } else if (shouldRestoreInventory) {
+        if (shouldRestoreInventory) {
           entryRestoredChanges = await restoreWarehouseItemStockDeductions(
             buildOrderInventoryRestorationInputs([entry.order]),
           );
           applyWarehouseItemStockUpdates(
-            entryRestoredChanges.map((change) => change.item),
+            entryRestoredChanges.map((change: any) => change.item),
           );
         }
 
         const nextOrder = await updateTemuOrder(entry.order.id, entry.updates);
         nextOrders.push(nextOrder);
-        inventoryChanges.push(...entryDeductedChanges, ...entryRestoredChanges);
-        deductedInventoryChanges.push(...entryDeductedChanges);
+        inventoryChanges.push(...entryRestoredChanges);
         restoredInventoryChanges.push(...entryRestoredChanges);
       } catch (error) {
-        if (entryDeductedChanges.length > 0) {
-          try {
-            const restoredInventory = await restoreWarehouseItemStockDeductions(
-              buildOrderInventoryRestorationInputs([entry.nextOrder]),
-            );
-            applyWarehouseItemStockUpdates(
-              restoredInventory.map((change) => change.item),
-            );
-          } catch (restoreError) {
-            throw new Error(
-              `${getOrdersErrorMessage(error, "保存订单失败")}；库存回补失败：${getOrdersErrorMessage(
-                restoreError,
-                "库存回补失败",
-              )}`,
-            );
-          }
-        }
-        if (entryRestoredChanges.length > 0) {
+        // 如果是因为我们刚刚执行了冲回，需要撤销冲回（再次扣减）
+        if (shouldRestoreInventory && entryRestoredChanges.length > 0) {
           try {
             await deductInventoryForOrders([entry.order]);
           } catch (rollbackError) {
@@ -2817,6 +2880,22 @@ export function OrdersPage({ user }: OrdersPageProps) {
               `${getOrdersErrorMessage(error, "保存订单失败")}；库存已回补但订单保存失败，且库存回滚失败：${getOrdersErrorMessage(
                 rollbackError,
                 "库存回滚失败",
+              )}`,
+            );
+          }
+        } 
+        // 如果我们刚才在这个批次里对它执行了扣减，因为保存订单失败了，所以必须将其冲回！
+        else if (!hadReservedInventory && shouldReserveInventory) {
+          try {
+            const rollbackRestored = await restoreWarehouseItemStockDeductions(
+              buildOrderInventoryRestorationInputs([entry.nextOrder]),
+            );
+            applyWarehouseItemStockUpdates(rollbackRestored.map((change) => change.item));
+          } catch (restoreError) {
+            throw new Error(
+              `${getOrdersErrorMessage(error, "保存订单失败")}；由于保存失败尝试冲回刚才扣除的库存也失败了：${getOrdersErrorMessage(
+                restoreError,
+                "库存冲回回滚失败",
               )}`,
             );
           }
@@ -3033,37 +3112,40 @@ export function OrdersPage({ user }: OrdersPageProps) {
     setBusyKey("delete-selected");
     setErrorMessage("");
     setNoticeMessage("");
-    let ordersDeleted = false;
 
     try {
       const ordersToRestoreInventory = selectedOrdersInView.filter((order) => {
         const stage = getOrderStage(order);
         return shouldReserveOrderInventory(stage);
       });
-      const inventoryRestorations =
-        buildOrderInventoryRestorationInputs(ordersToRestoreInventory);
-      await Promise.all(selectedOrdersInView.map((order) => deleteTemuOrder(order.id)));
-      ordersDeleted = true;
-      removeOrders(Array.from(targetIds));
-      setSelectedOrderIds((current) => current.filter((id) => !targetIds.has(id)));
-      clearDrafts(Array.from(targetIds));
+      // 为每条冲回输入标记"预期有库存扣减"，确保匹配失败时报错而非静默跳过
+      const inventoryRestorations = buildOrderInventoryRestorationInputs(
+        ordersToRestoreInventory,
+      ).map((restoration) => ({
+        ...restoration,
+        expectedDeductionCount: 1,
+      }));
 
+      // 第一步：先回补库存，失败则阻止删除
       const inventoryChanges = await restoreWarehouseItemStockDeductions(
         inventoryRestorations,
       );
+
+      // 第二步：库存回补成功后再删除订单
+      await Promise.all(selectedOrdersInView.map((order) => deleteTemuOrder(order.id)));
+
+      // 第三步：所有数据库操作成功后再更新 UI
       applyWarehouseItemStockUpdates(inventoryChanges.map((change) => change.item));
+      removeOrders(Array.from(targetIds));
+      setSelectedOrderIds((current) => current.filter((id) => !targetIds.has(id)));
+      clearDrafts(Array.from(targetIds));
       setNoticeMessage(
         inventoryChanges.length > 0
           ? `已删除 ${targetIds.size} 条订单，并回补 ${inventoryChanges.length} 项配件库存`
           : `已删除 ${targetIds.size} 条订单`,
       );
     } catch (error) {
-      if (ordersDeleted) {
-        setNoticeMessage(`已删除 ${targetIds.size} 条订单，但库存回补失败`);
-        setErrorMessage(getOrdersErrorMessage(error, "库存回补失败"));
-      } else {
-        setErrorMessage(getOrdersErrorMessage(error, "批量删除订单失败"));
-      }
+      setErrorMessage(getOrdersErrorMessage(error, "删除订单失败，请重试"));
     } finally {
       setBusyKey("");
     }
@@ -3541,7 +3623,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
       throw new Error(stockDeductionResult.errorMessage);
     }
 
-    const inventoryChanges = await deductWarehouseItemStocks(
+    const inventoryChanges = await deductWarehouseItemStocksLegacy(
       stockDeductionResult.deductions.map((deduction) => ({
         stockId: deduction.stock.id,
         quantity: deduction.quantity,
@@ -3550,7 +3632,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
         reversalReason: `删除订单冲回：${deduction.orderLineLabel}`,
       })),
     );
-    applyWarehouseItemStockUpdates(inventoryChanges.map((change) => change.item));
+    applyWarehouseItemStockUpdates(inventoryChanges.map((change: any) => change.item));
     return inventoryChanges;
   }
 

@@ -810,7 +810,57 @@ type WarehouseItemStockInventoryChange = {
   adjustment: WarehouseItemStockAdjustment;
 };
 
-export async function deductWarehouseItemStocks(
+export type AtomicDeductionGroup = {
+  groupId: string;
+  dedupeKey?: string;
+  deductions: WarehouseItemStockDeductionInput[];
+};
+
+export type AtomicDeductionResult = {
+  results: {
+    id: string;
+    warehouse_id: string;
+    item_id: string;
+    stock_quantity: number;
+    adjustment_id: string;
+    previous_quantity: number;
+    change_quantity: number;
+    reason: string;
+  }[];
+  failures: {
+    groupId: string;
+    detail: {
+      message: string;
+      stockId: string;
+      itemId?: string;
+      requiredQuantity: number;
+      currentQuantity: number;
+    };
+  }[];
+};
+
+export async function deductWarehouseItemStocksAtomic(
+  groups: AtomicDeductionGroup[],
+) {
+  if (groups.length === 0) {
+    return { results: [], failures: [] } as AtomicDeductionResult;
+  }
+
+  const { supabase } = await requireSession();
+  const { data, error } = await withTimeout(
+    supabase.rpc("deduct_inventory_atomic", { order_groups: groups }),
+    "执行库存原子扣减",
+  );
+
+  if (error) {
+    throw new Error(`批量库存扣减失败: ${error.message}`);
+  }
+
+  return data as unknown as AtomicDeductionResult;
+}
+
+
+export async function deductWarehouseItemStocksLegacy(
   deductions: WarehouseItemStockDeductionInput[],
 ) {
   const normalizedDeductions = deductions
@@ -953,6 +1003,12 @@ export async function deductWarehouseItemStocks(
 export type WarehouseItemStockRestorationInput = {
   outboundReason: string;
   reversalReason: string;
+  /**
+   * 预期至少应找到并冲回的扣减记录数量（以涉及的唯一 item 数计）。
+   * 传入正整数时，若实际匹配到的净扣减记录为 0，则抛出异常阻止后续操作。
+   * 不传（或传 0）时，匹配不到记录视为正常（该订单本就没有库存扣减）。
+   */
+  expectedDeductionCount?: number;
 };
 
 export async function restoreWarehouseItemStockDeductions(
@@ -964,6 +1020,7 @@ export async function restoreWarehouseItemStockDeductions(
         .map((restoration) => ({
           outboundReason: restoration.outboundReason.trim(),
           reversalReason: restoration.reversalReason.trim(),
+          expectedDeductionCount: restoration.expectedDeductionCount,
         }))
         .filter((restoration) => restoration.outboundReason && restoration.reversalReason)
         .map((restoration) => [
@@ -1030,6 +1087,18 @@ export async function restoreWarehouseItemStockDeductions(
       current.netChange += changeQuantity;
       netChangesByStock.set(key, current);
     });
+
+    // 若调用方声明预期有库存扣减记录，但实际未匹配到任何净扣减，则报错阻止继续
+    if (
+      restoration.expectedDeductionCount !== undefined &&
+      restoration.expectedDeductionCount > 0 &&
+      !Array.from(netChangesByStock.values()).some((s) => s.netChange < 0)
+    ) {
+      console.error(
+        `[库存冲回] 未找到匹配的扣减记录。出库原因："${restoration.outboundReason}"，冲回原因："${restoration.reversalReason}"`,
+      );
+      throw new Error("库存回补失败，订单未删除，请联系管理员处理");
+    }
 
     for (const stockChange of netChangesByStock.values()) {
       if (stockChange.netChange >= 0) continue;
