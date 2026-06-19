@@ -900,7 +900,8 @@ export function FinancePage({ user, view }: FinancePageProps) {
   function renderOverview() {
     const totalOtherExpenses = otherExpenses.reduce((sum, e) => sum + e.amount, 0);
     const netProfit = totals.actualRevenueAmount - totals.orderProductCost - totals.orderShippingFee - totalOtherExpenses;
-    const marginRate = totals.actualRevenueAmount > 0 ? (netProfit / totals.actualRevenueAmount) * 100 : 0;
+    const marginRate = totals.actualRevenueAmount !== 0 ? (netProfit / Math.abs(totals.actualRevenueAmount)) * 100 : (netProfit < 0 ? -100 : 0);
+    const isLoss = netProfit < 0;
 
     return (
       <>
@@ -914,15 +915,19 @@ export function FinancePage({ user, view }: FinancePageProps) {
 
         {/* Net Profit and Margin overview */}
         <div className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-2xl border border-slate-100 bg-gradient-to-br from-violet-650 to-indigo-700 p-6 text-white shadow-lg shadow-violet-600/15" style={{ background: "linear-gradient(135deg, #6d28d9 0%, #4338ca 100%)" }}>
-            <div className="text-xs font-bold text-violet-200 uppercase tracking-wider">实际纯利润 (已核算)</div>
+          <div className={`rounded-2xl border border-slate-100 p-6 text-white shadow-lg ${
+            isLoss ? "bg-gradient-to-br from-rose-500 to-red-600 shadow-rose-500/20" : "bg-gradient-to-br from-emerald-500 to-teal-600 shadow-emerald-500/20"
+          }`}>
+            <div className={`text-xs font-bold uppercase tracking-wider ${isLoss ? "text-rose-100" : "text-emerald-100"}`}>实际纯利润 (已核算)</div>
             <div className="mt-2 text-3xl font-black tabular-nums">{formatCurrency(netProfit)}</div>
-            <p className="mt-2 text-[11px] text-violet-100/75">计算公式：实际回款 - 采购成本 - 运费 - 其他费用</p>
+            <p className={`mt-2 text-[11px] ${isLoss ? "text-rose-100/75" : "text-emerald-100/75"}`}>计算公式：实际回款 - 采购成本 - 运费 - 其他费用</p>
           </div>
-          <div className="rounded-2xl border border-slate-100 bg-gradient-to-br from-emerald-500 to-teal-600 p-6 text-white shadow-lg shadow-emerald-500/15">
-            <div className="text-xs font-bold text-emerald-200 uppercase tracking-wider">实际销售利润率</div>
+          <div className={`rounded-2xl border border-slate-100 p-6 text-white shadow-lg ${
+            isLoss ? "bg-gradient-to-br from-rose-400 to-red-500 shadow-rose-500/15" : "bg-gradient-to-br from-emerald-400 to-teal-500 shadow-emerald-500/15"
+          }`}>
+            <div className={`text-xs font-bold uppercase tracking-wider ${isLoss ? "text-rose-100" : "text-emerald-100"}`}>实际销售利润率</div>
             <div className="mt-2 text-3xl font-black tabular-nums">{marginRate.toFixed(2)}%</div>
-            <p className="mt-2 text-[11px] text-emerald-100/75">计算公式：实际纯利润 / 实际结算总回款</p>
+            <p className={`mt-2 text-[11px] ${isLoss ? "text-rose-100/75" : "text-emerald-100/75"}`}>计算公式：实际纯利润 / 实际结算总回款</p>
           </div>
           <div className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm flex flex-col justify-between">
             <div>
@@ -1286,7 +1291,7 @@ export function FinancePage({ user, view }: FinancePageProps) {
                 </td>
                 <td className="font-bold text-slate-800">{row.subject}</td>
                 <td className={`money ${row.amountRmb < 0 ? "text-rose-600" : "text-emerald-600"}`}>
-                  {formatCurrency(row.amountRmb)}
+                  {row.direction === "支出" ? formatCurrency(Math.abs(row.amountRmb)) : formatCurrency(row.amountRmb)}
                 </td>
                 <td className="text-slate-500 text-xs font-medium">{row.remark || "--"}</td>
               </tr>
@@ -1337,10 +1342,16 @@ export function FinancePage({ user, view }: FinancePageProps) {
     const chartData = [...monthlyRows].reverse().slice(-6); // last 6 months
     if (chartData.length === 0) return null;
 
-    const maxVal = Math.max(...chartData.map((d) => Math.max(d.income, d.balance, 1000)));
+    const rawMax = Math.max(...chartData.map((d) => Math.max(d.income, d.balance)));
+    const maxVal = Math.max(1000, rawMax);
+    const minVal = Math.min(0, ...chartData.map((d) => Math.min(d.income, d.balance)));
+    const totalRange = maxVal - minVal;
+    
     const height = 180;
     const width = 500;
     const padding = { top: 20, right: 20, bottom: 30, left: 50 };
+    const chartHeight = height - padding.top - padding.bottom;
+    const y0 = padding.top + chartHeight * (maxVal / totalRange);
 
     return (
       <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
@@ -1352,8 +1363,8 @@ export function FinancePage({ user, view }: FinancePageProps) {
           <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[450px]">
             {/* Grid lines */}
             {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
-              const y = padding.top + (height - padding.top - padding.bottom) * (1 - ratio);
-              const val = (maxVal * ratio).toFixed(0);
+              const y = padding.top + chartHeight * (1 - ratio);
+              const val = (minVal + totalRange * ratio).toFixed(0);
               return (
                 <g key={ratio} className="opacity-40">
                   <line x1={padding.left} y1={y} x2={width - padding.right} y2={y} stroke="#e2e8f0" strokeDasharray="3 3" />
@@ -1361,19 +1372,25 @@ export function FinancePage({ user, view }: FinancePageProps) {
                 </g>
               );
             })}
+            
+            {/* Zero Line */}
+            {minVal < 0 && (
+               <line x1={padding.left} y1={y0} x2={width - padding.right} y2={y0} stroke="#94a3b8" strokeWidth={1} strokeDasharray="4 2" />
+            )}
 
             {/* Bars */}
             {chartData.map((d, index) => {
               const xRange = width - padding.left - padding.right;
               const step = xRange / chartData.length;
               const x = padding.left + step * index + step / 2;
-              const chartHeight = height - padding.top - padding.bottom;
 
-              const incomeY = padding.top + chartHeight * (1 - d.income / maxVal);
-              const incomeBarH = chartHeight * (d.income / maxVal);
+              const incomeBarH = chartHeight * (Math.abs(d.income) / totalRange);
+              const incomeY = d.income >= 0 ? y0 - incomeBarH : y0;
 
-              const balanceY = padding.top + chartHeight * (1 - Math.max(0, d.balance) / maxVal);
-              const balanceBarH = chartHeight * (Math.max(0, d.balance) / maxVal);
+              const balanceBarH = chartHeight * (Math.abs(d.balance) / totalRange);
+              const balanceY = d.balance >= 0 ? y0 - balanceBarH : y0;
+              const balanceFill = d.balance >= 0 ? "#34d399" : "#fb7185";
+              const balanceHover = d.balance >= 0 ? "hover:fill-emerald-500" : "hover:fill-rose-500";
 
               return (
                 <g key={d.month} className="group">
@@ -1387,15 +1404,15 @@ export function FinancePage({ user, view }: FinancePageProps) {
                     rx={2}
                     className="transition-all duration-300 hover:fill-indigo-500"
                   />
-                  {/* Net Profit Bar (emerald) */}
+                  {/* Net Profit Bar (emerald or rose) */}
                   <rect
                     x={x + 4}
                     y={balanceY}
                     width={10}
                     height={Math.max(2, balanceBarH)}
-                    fill="#34d399"
+                    fill={balanceFill}
                     rx={2}
-                    className="transition-all duration-300 hover:fill-emerald-500"
+                    className={`transition-all duration-300 ${balanceHover}`}
                   />
                   {/* Month Label */}
                   <text
@@ -1731,8 +1748,10 @@ export function FinancePage({ user, view }: FinancePageProps) {
                         关联商品 SKU
                       </button>
                     )
+                  ) : row.shippingFeeRmb <= 0 ? (
+                    <span className="text-rose-600 font-bold text-xs bg-rose-50 px-2 py-1 rounded border border-rose-100">待处理(缺运费)</span>
                   ) : (
-                    <span className="text-emerald-600 font-bold text-xs">对账成功</span>
+                    <span className="text-emerald-600 font-bold text-xs bg-emerald-50 px-2 py-1 rounded border border-emerald-100">对账成功</span>
                   )}
                 </td>
               </tr>
