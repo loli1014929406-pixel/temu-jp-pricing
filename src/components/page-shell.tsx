@@ -26,6 +26,7 @@ const navItems = [
   { to: "/finance/monthly-profit", label: "月度利润表", module: "财务管理", icon: Calculator },
   { to: "/finance/product-profit", label: "商品利润报表", module: "财务管理", icon: Calculator },
   { to: "/finance/reconciliation", label: "对账中心", module: "财务管理", icon: ClipboardList },
+  { to: "/finance/settlement", label: "结算管理", module: "财务管理", icon: ClipboardList },
   { to: "/products", label: "商品管理", module: "商品资料", icon: PackageSearch },
   { to: "/declaration-prices", label: "核算定价", module: "定价中心", icon: ClipboardList },
   { to: "/profit-calculation", label: "利润分析", module: "经营分析", icon: Calculator },
@@ -53,7 +54,8 @@ const navSections = [
       { to: "/finance/expenses", label: "费用管理", icon: ClipboardList },
       { to: "/finance/monthly-profit", label: "月度利润表", icon: Calculator },
       { to: "/finance/product-profit", label: "商品利润报表", icon: Calculator },
-      { to: "/finance/reconciliation", label: "对账中心", icon: ClipboardList }
+      { to: "/finance/reconciliation", label: "对账中心", icon: ClipboardList },
+      { to: "/finance/settlement", label: "结算管理", icon: ClipboardList }
     ]
   },
   {

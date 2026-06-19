@@ -18,6 +18,7 @@ import {
   normalizeLogisticsMethodName,
 } from "../lib/logistics-methods";
 import { fetchTemuOrders } from "../lib/orders";
+import { fetchSettings } from "../lib/settings";
 import {
   fetchProducts,
   fetchProductItemsByProductIds,
@@ -33,6 +34,7 @@ import type {
   WarehouseItemStock,
   WarehouseLogisticsMethod,
   WarehouseSku,
+  PricingSettings,
 } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { isSameDraft, readDraft, useDraftPersistence } from "./use-draft-persistence";
@@ -99,6 +101,7 @@ type UseOrdersResult = {
   warehouseLogisticsMethods: WarehouseLogisticsMethod[];
   warehouseSkus: WarehouseSku[];
   warehouseItemStocks: WarehouseItemStock[];
+  settings: PricingSettings | null;
   drafts: Record<string, OrderDraft>;
   selectedOrderIds: string[];
   bulkWarehouseId: string;
@@ -421,6 +424,7 @@ export function useOrders(user: User) {
   >([]);
   const [warehouseSkus, setWarehouseSkus] = useState<WarehouseSku[]>([]);
   const [warehouseItemStocks, setWarehouseItemStocks] = useState<WarehouseItemStock[]>([]);
+  const [settings, setSettings] = useState<PricingSettings | null>(null);
   const [drafts, setDrafts] = useState<Record<string, OrderDraft>>(restoredDraft?.drafts ?? {});
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>(
     restoredDraft?.selectedOrderIds ?? [],
@@ -445,12 +449,13 @@ export function useOrders(user: User) {
       setLoading(true);
       setErrorMessage("");
       try {
-        const [nextOrders, nextWarehouses, nextProducts, nextLogisticsMethods] =
+        const [nextOrders, nextWarehouses, nextProducts, nextLogisticsMethods, fetchedSettings] =
           await Promise.all([
             loadLatestOrders(),
             fetchWarehouses(),
             fetchProducts({ includeNotSelling: true }),
             fetchLogisticsMethods(),
+            fetchSettings(user.id).catch(() => null),
           ]);
         const productIds = nextProducts.map((product) => product.id);
         const warehouseIds = nextWarehouses.map((warehouse) => warehouse.id);
@@ -479,6 +484,7 @@ export function useOrders(user: User) {
         setWarehouseLogisticsMethods(nextWarehouseLogisticsMethods);
         setWarehouseSkus(nextWarehouseSkus);
         setWarehouseItemStocks(nextWarehouseItemStocks);
+        setSettings(fetchedSettings);
 
         const latestDraft = readDraft<OrdersDraftState>(draftKey);
         setDrafts(restoreDraftMapFromOrders(nextOrders, latestDraft?.drafts));
@@ -646,6 +652,7 @@ export function useOrders(user: User) {
     warehouseLogisticsMethods,
     warehouseSkus,
     warehouseItemStocks,
+    settings,
     drafts,
     selectedOrderIds,
     bulkWarehouseId,

@@ -894,3 +894,19 @@ export async function importProductsData(records: ProductTransferRecord[]) {
     );
   }
 }
+
+export async function updateSkuCode(skuId: string, skuCode: string) {
+  const { supabase } = await requireSession();
+  const { data, error } = await withTimeout(
+    supabase
+      .from("product_skus")
+      .update({ sku_code: skuCode.trim() })
+      .eq("id", skuId)
+      .select("id, product_id, owner_id, sku_code, attributes, notes")
+      .single(),
+    "更新 SKU 货号",
+  );
+  if (error) throw error;
+  return data;
+}
+

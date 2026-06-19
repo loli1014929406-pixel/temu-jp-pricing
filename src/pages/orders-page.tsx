@@ -54,9 +54,13 @@ import type {
 } from "../types";
 import {
   calculatePurchaseShippingRmb,
+  calculateDynamicMethodCost,
   getThreeCmDimensionIssue,
 } from "../utils/shipping-costs";
+import { formatCurrency } from "../utils/pricing";
 import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../utils/sku-code";
+import type { PricingSettings } from "../types";
+import { defaultLastLegMethods } from "../lib/defaults";
 
 type OrdersPageProps = {
   user: User;
@@ -1143,6 +1147,7 @@ type OrderTableRowProps = {
   skuOrderLookup: SkuOrderLookup;
   warehouseLogisticsMethods: WarehouseLogisticsMethod[];
   warehouses: Warehouse[];
+  settings: PricingSettings | null;
 };
 
 const OrderTableRow = memo(function OrderTableRow({
@@ -1165,6 +1170,7 @@ const OrderTableRow = memo(function OrderTableRow({
   skuOrderLookup,
   warehouseLogisticsMethods,
   warehouses,
+  settings,
 }: OrderTableRowProps) {
   const rowOrders = useMemo(
     () =>
@@ -1370,32 +1376,6 @@ const OrderTableRow = memo(function OrderTableRow({
           </span>
         )}
       </td>
-      <td className="order-fee-col">
-        {canEdit ? (
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            value={draft.actual_shipping_fee_rmb ?? 0}
-            onChange={(event) =>
-              onUpdateDraftForOrders(
-                rowOrderIds,
-                "actual_shipping_fee_rmb",
-                normalizeRmbAmount(Number(event.target.value || 0)),
-              )
-            }
-            onBlur={() => void onSaveActualShippingFeeForOrders(rowOrders)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.currentTarget.blur();
-              }
-            }}
-            className="h-9 w-28 rounded-md border border-line bg-white px-2 text-sm tabular-nums outline-none focus:border-accent"
-          />
-        ) : (
-          <span className="money">{formatRmbAmount(mergedOrder.actual_shipping_fee_rmb)}</span>
-        )}
-      </td>
       <td className="number-cell">{rowQuantity}</td>
       <td className="order-product-col">
         {primaryDeclaration ? (
@@ -1520,6 +1500,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
     warehouseLogisticsMethods,
     warehouseSkus,
     warehouseItemStocks,
+    settings,
     drafts,
     selectedOrderIds,
     bulkWarehouseId,
@@ -4438,6 +4419,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
                       skuOrderLookup={skuOrderLookup}
                       warehouseLogisticsMethods={warehouseLogisticsMethods}
                       warehouses={warehouses}
+                      settings={settings}
                     />
                   ))}
                 </tbody>

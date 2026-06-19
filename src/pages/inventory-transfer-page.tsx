@@ -1,6 +1,14 @@
 import {
+  ArrowRight,
+  Calendar,
+  Check,
   CheckCircle2,
+  ClipboardList,
+  Copy,
   ExternalLink,
+  Home,
+  Info,
+  Minus,
   PackageCheck,
   PackageOpen,
   Plus,
@@ -496,6 +504,12 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
     (record) => record.status === "in_transit",
   ).length;
 
+  const [recordFilter, setRecordFilter] = useState<"all" | "in_transit" | "received">("all");
+  const filteredRecords = useMemo(() => {
+    if (recordFilter === "all") return transferRecords;
+    return transferRecords.filter((r) => r.status === recordFilter);
+  }, [transferRecords, recordFilter]);
+
   function handleAddTransferSkuLine() {
     const sku = skusById[transferSkuId];
     const quantity = Math.trunc(Number(transferQuantity) || 0);
@@ -767,184 +781,263 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
         </div>
       )}
 
-      <section className="surface-card grid gap-5 p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      <section className="surface-card grid gap-6 p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
           <div>
-            <h2 className="text-base font-semibold text-ink">新增调拨</h2>
-            <p className="mt-1 text-xs font-medium text-slate-500">
-              {transferSourceWarehouse?.name ?? "调出仓库"} →{" "}
-              {transferDestinationWarehouse?.name ?? "调入仓库"}
+            <h2 className="text-base font-bold text-slate-800">新建库存调拨</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              选择调出和调入仓库，填写物流单号并添加调拨商品。
             </p>
           </div>
-          <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-500">
-            已选 {transferSkuLineDetails.length} 个 SKU
+          <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-bold text-violet-700">
+            已选择 {transferSkuLineDetails.length} 个 SKU
           </span>
         </div>
 
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(300px,380px)]">
-          <div className="grid min-w-0 gap-4">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="grid gap-1 text-sm font-medium text-slate-700">
-                <span>调出仓库</span>
-                <select
-                  value={transferSourceWarehouseId}
-                  onChange={(event) => handleTransferSourceWarehouseChange(event.target.value)}
-                  disabled={!canEdit || loading}
-                  className="h-11 rounded-xl border border-line bg-white px-3 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20 disabled:bg-slate-100"
-                >
-                  <option value="">选择仓库</option>
-                  {warehouses.map((warehouse) => (
-                    <option key={warehouse.id} value={warehouse.id}>
-                      {warehouse.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="grid gap-1 text-sm font-medium text-slate-700">
-                <span>调入仓库</span>
-                <select
-                  value={transferDestinationWarehouseId}
-                  onChange={(event) => setTransferDestinationWarehouseId(event.target.value)}
-                  disabled={!canEdit || loading}
-                  className="h-11 rounded-xl border border-line bg-white px-3 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20 disabled:bg-slate-100"
-                >
-                  <option value="">选择仓库</option>
-                  {warehouses.map((warehouse) => (
-                    <option
-                      key={warehouse.id}
-                      value={warehouse.id}
-                      disabled={warehouse.id === transferSourceWarehouseId}
-                    >
-                      {warehouse.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="grid gap-1 text-sm font-medium text-slate-700">
-                <span>调拨日期</span>
-                <input
-                  type="date"
-                  value={transferDate}
-                  onChange={(event) => setTransferDate(event.target.value)}
-                  disabled={!canEdit || loading}
-                  className="h-11 rounded-xl border border-line bg-white px-3 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20 disabled:bg-slate-100"
-                />
-              </label>
-              <label className="grid gap-1 text-sm font-medium text-slate-700">
-                <span>快递单号</span>
-                <input
-                  value={transferTrackingNo}
-                  onChange={(event) => setTransferTrackingNo(event.target.value)}
-                  disabled={!canEdit || loading}
-                  placeholder="调拨快递单号"
-                  className="h-11 rounded-xl border border-line bg-white px-3 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20 disabled:bg-slate-100"
-                />
-              </label>
+        {/* Visual Warehouse Flow Connector Diagram */}
+        <div className="flex flex-col items-center justify-between gap-6 rounded-2xl border border-slate-100 bg-slate-50/50 p-6 md:flex-row md:gap-12">
+          {/* Source Warehouse Card */}
+          <div className="flex flex-1 flex-col items-center gap-3 rounded-2xl border border-dashed border-slate-200 bg-white p-5 text-center shadow-sm w-full md:w-auto">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
+              <Home size={24} />
+            </div>
+            <div className="w-full">
+              <div className="text-xs font-semibold text-slate-400">调出仓库 (源仓)</div>
+              <select
+                value={transferSourceWarehouseId}
+                onChange={(event) => handleTransferSourceWarehouseChange(event.target.value)}
+                disabled={!canEdit || loading}
+                className="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-center text-sm font-bold text-slate-800 outline-none transition focus:border-violet-600 focus:bg-white focus:ring-2 focus:ring-violet-600/10"
+              >
+                <option value="">选择仓库</option>
+                {warehouses.map((warehouse) => (
+                  <option key={warehouse.id} value={warehouse.id}>
+                    {warehouse.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Connector Graphic */}
+          <div className="flex flex-col items-center gap-2 text-slate-400 shrink-0">
+            <div className="flex items-center gap-1.5 font-mono text-[11px] font-bold text-violet-700 bg-violet-50 px-3 py-1.5 rounded-full border border-violet-100 shadow-sm animate-pulse">
+              <Truck size={14} />
+              <span>在途调拨运输</span>
+            </div>
+            <div className="hidden h-0.5 w-24 bg-gradient-to-r from-violet-200 via-indigo-300 to-indigo-200 md:block" />
+            <div className="block h-8 w-0.5 bg-gradient-to-b from-violet-200 via-indigo-300 to-indigo-200 md:hidden" />
+          </div>
+
+          {/* Destination Warehouse Card */}
+          <div className="flex flex-1 flex-col items-center gap-3 rounded-2xl border border-dashed border-slate-200 bg-white p-5 text-center shadow-sm w-full md:w-auto">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
+              <Home size={24} />
+            </div>
+            <div className="w-full">
+              <div className="text-xs font-semibold text-slate-400">调入仓库 (目的仓)</div>
+              <select
+                value={transferDestinationWarehouseId}
+                onChange={(event) => setTransferDestinationWarehouseId(event.target.value)}
+                disabled={!canEdit || loading}
+                className="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-center text-sm font-bold text-slate-800 outline-none transition focus:border-indigo-600 focus:bg-white focus:ring-2 focus:ring-indigo-600/10"
+              >
+                <option value="">选择仓库</option>
+                {warehouses.map((warehouse) => (
+                  <option
+                    key={warehouse.id}
+                    value={warehouse.id}
+                    disabled={warehouse.id === transferSourceWarehouseId}
+                  >
+                    {warehouse.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+          <div className="flex flex-col gap-6">
+            {/* Logistics and Date Card */}
+            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h3 className="mb-4 text-sm font-bold text-slate-800 flex items-center gap-2">
+                <ClipboardList size={16} className="text-slate-400" />
+                <span>物流与时间</span>
+              </h3>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="grid gap-1.5 text-sm font-medium text-slate-700">
+                  <span>调拨日期</span>
+                  <div className="relative flex items-center">
+                    <Calendar size={16} className="absolute left-3 text-slate-400" />
+                    <input
+                      type="date"
+                      value={transferDate}
+                      onChange={(event) => setTransferDate(event.target.value)}
+                      disabled={!canEdit || loading}
+                      className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm outline-none transition focus:border-violet-600 focus:bg-white focus:ring-2 focus:ring-violet-600/10 disabled:opacity-60"
+                    />
+                  </div>
+                </label>
+                <label className="grid gap-1.5 text-sm font-medium text-slate-700">
+                  <span>快递单号</span>
+                  <div className="relative flex items-center">
+                    <Truck size={16} className="absolute left-3 text-slate-400" />
+                    <input
+                      value={transferTrackingNo}
+                      onChange={(event) => setTransferTrackingNo(event.target.value)}
+                      disabled={!canEdit || loading}
+                      placeholder="调拨快递单号"
+                      className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm outline-none transition focus:border-violet-600 focus:bg-white focus:ring-2 focus:ring-violet-600/10 disabled:opacity-60"
+                    />
+                  </div>
+                </label>
+              </div>
             </div>
 
-            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_120px_auto]">
-              <label className="grid gap-1 text-sm font-medium text-slate-700">
-                <span>SKU</span>
-                <select
-                  value={transferSkuId}
-                  onChange={(event) => setTransferSkuId(event.target.value)}
-                  disabled={!canEdit || !transferSourceWarehouseId || loading}
-                  className="h-11 rounded-xl border border-line bg-white px-3 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20 disabled:bg-slate-100"
-                >
-                  <option value="">选择 SKU</option>
-                  {transferSkuOptions.map((item) => {
-                    const product = productsById[item.product_id];
-                    const sku = skusById[item.sku_id];
-                    const availableQuantity = getSkuAvailableStock(
-                      transferSourceWarehouseId,
-                      sku,
-                    );
-                    return (
-                      <option key={item.id} value={item.sku_id}>
-                        {product?.product_code ?? "--"} · {getSkuDisplayCode(sku)}
-                        {" · 库存 "}
-                        {availableQuantity}
-                      </option>
-                    );
-                  })}
-                </select>
-              </label>
-              <label className="grid gap-1 text-sm font-medium text-slate-700">
-                <span>数量</span>
-                <input
-                  min="1"
-                  max={selectedTransferAvailableQuantity || undefined}
-                  step="1"
-                  type="number"
-                  value={transferQuantity}
-                  onChange={(event) => setTransferQuantity(event.target.value)}
-                  disabled={!canEdit || loading}
-                  className="h-11 rounded-xl border border-line bg-white px-3 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20 disabled:bg-slate-100"
-                />
-              </label>
-              <div className="flex items-end">
-                <button
-                  type="button"
-                  onClick={handleAddTransferSkuLine}
-                  disabled={!canAddTransferLine || busyKey === "transfer-inventory"}
-                  className="btn-primary h-11 w-full"
-                >
-                  <Plus size={18} />
-                  添加SKU
-                </button>
+            {/* Add Item Form */}
+            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h3 className="mb-4 text-sm font-bold text-slate-800 flex items-center gap-2">
+                <Plus size={16} className="text-slate-400" />
+                <span>添加调拨商品</span>
+              </h3>
+              <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_120px_auto]">
+                <label className="grid gap-1.5 text-sm font-medium text-slate-700">
+                  <span>选择 SKU</span>
+                  <select
+                    value={transferSkuId}
+                    onChange={(event) => setTransferSkuId(event.target.value)}
+                    disabled={!canEdit || !transferSourceWarehouseId || loading}
+                    className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm outline-none transition focus:border-violet-600 focus:bg-white focus:ring-2 focus:ring-violet-600/10 disabled:opacity-60"
+                  >
+                    <option value="">选择 SKU</option>
+                    {transferSkuOptions.map((item) => {
+                      const product = productsById[item.product_id];
+                      const sku = skusById[item.sku_id];
+                      const availableQuantity = getSkuAvailableStock(
+                        transferSourceWarehouseId,
+                        sku,
+                      );
+                      return (
+                        <option key={item.id} value={item.sku_id}>
+                          {product?.product_code ?? "--"} · {getSkuDisplayCode(sku)}
+                          {" · 库存: "}
+                          {availableQuantity}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </label>
+                <label className="grid gap-1.5 text-sm font-medium text-slate-700">
+                  <span>数量</span>
+                  <input
+                    min="1"
+                    max={selectedTransferAvailableQuantity || undefined}
+                    step="1"
+                    type="number"
+                    value={transferQuantity}
+                    onChange={(event) => setTransferQuantity(event.target.value)}
+                    disabled={!canEdit || loading}
+                    className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm outline-none transition focus:border-violet-600 focus:bg-white focus:ring-2 focus:ring-violet-600/10 disabled:opacity-60"
+                  />
+                </label>
+                <div className="flex items-end">
+                  <button
+                    type="button"
+                    onClick={handleAddTransferSkuLine}
+                    disabled={!canAddTransferLine || busyKey === "transfer-inventory"}
+                    className="btn-primary h-11 w-full sm:w-auto"
+                  >
+                    <Plus size={18} />
+                    添加SKU
+                  </button>
+                </div>
               </div>
             </div>
 
             {!loading && warehouses.length < 2 && (
-              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-700">
                 请先新增目标仓库后再调拨库存。
               </div>
             )}
           </div>
 
-          <div className="flex min-w-0 flex-col rounded-xl border border-slate-200 bg-slate-50/70 p-3">
-            <div className="flex items-center justify-between gap-3 px-1">
-              <h3 className="text-sm font-semibold text-ink">调拨明细</h3>
-              <span className="text-xs font-semibold text-slate-500">
+          {/* Transfer List Panel */}
+          <div className="flex min-w-0 flex-col rounded-2xl border border-slate-100 bg-slate-50/50 p-5 shadow-inner">
+            <div className="flex items-center justify-between gap-3 border-b border-slate-200 pb-3">
+              <h3 className="text-sm font-bold text-slate-800">调拨清单</h3>
+              <span className="rounded-full bg-slate-200 px-2.5 py-0.5 text-xs font-bold text-slate-600">
                 {transferSkuLineDetails.length} 项
               </span>
             </div>
 
-            <div className="mt-3 grid min-h-[158px] gap-2">
+            <div className="mt-4 grid min-h-[158px] gap-3 overflow-y-auto max-h-[380px] pr-1">
               {transferSkuLineDetails.length > 0 ? (
                 transferSkuLineDetails.map((line) => (
                   <div
                     key={line.draft.skuId}
-                    className="grid gap-2 rounded-lg border border-slate-200 bg-white p-3 shadow-sm sm:grid-cols-[minmax(0,1fr)_92px_40px] sm:items-center"
+                    className="grid gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition-all hover:border-slate-300 sm:grid-cols-[minmax(0,1fr)_120px_36px] sm:items-center"
                   >
                     <div className="min-w-0">
-                      <div className="break-words text-sm font-semibold text-ink">
+                      <div className="break-words text-sm font-bold text-slate-800">
                         {line.skuLabel}
                       </div>
-                      <div className="mt-1 text-xs font-medium text-slate-500">
-                        可调拨 {line.availableQuantity}
+                      <div className="mt-1 flex items-center gap-2">
+                        <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-semibold text-slate-500">
+                          可调拨 {line.availableQuantity}
+                        </span>
+                        {line.quantity > line.availableQuantity && (
+                          <span className="rounded bg-rose-50 px-1.5 py-0.5 text-xs font-semibold text-rose-600">
+                            库存不足
+                          </span>
+                        )}
                       </div>
                     </div>
-                    <input
-                      min="1"
-                      max={line.availableQuantity || undefined}
-                      step="1"
-                      type="number"
-                      value={line.draft.quantity}
-                      onChange={(event) =>
-                        handleTransferLineQuantityChange(
-                          line.draft.skuId,
-                          event.target.value,
-                        )
-                      }
-                      disabled={!canEdit || loading}
-                      className="h-10 w-full rounded-xl border border-line bg-white px-3 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20 disabled:bg-slate-100"
-                    />
+                    {/* Custom quantity adjuster */}
+                    <div className="flex items-center rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const val = Math.max(1, line.quantity - 1);
+                          handleTransferLineQuantityChange(line.draft.skuId, String(val));
+                        }}
+                        disabled={!canEdit || loading || line.quantity <= 1}
+                        className="flex h-7 w-7 items-center justify-center rounded text-slate-500 hover:bg-white hover:text-slate-800 disabled:opacity-30"
+                      >
+                        <Minus size={12} />
+                      </button>
+                      <input
+                        min="1"
+                        max={line.availableQuantity || undefined}
+                        step="1"
+                        type="number"
+                        value={line.draft.quantity}
+                        onChange={(event) =>
+                          handleTransferLineQuantityChange(
+                            line.draft.skuId,
+                            event.target.value,
+                          )
+                        }
+                        disabled={!canEdit || loading}
+                        className="h-7 w-12 border-0 bg-transparent text-center text-xs font-bold text-slate-800 outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const val = Math.min(line.availableQuantity, line.quantity + 1);
+                          handleTransferLineQuantityChange(line.draft.skuId, String(val));
+                        }}
+                        disabled={!canEdit || loading || line.quantity >= line.availableQuantity}
+                        className="flex h-7 w-7 items-center justify-center rounded text-slate-500 hover:bg-white hover:text-slate-800 disabled:opacity-30"
+                      >
+                        <Plus size={12} />
+                      </button>
+                    </div>
                     <button
                       type="button"
                       onClick={() => handleRemoveTransferSkuLine(line.draft.skuId)}
                       disabled={!canEdit || loading}
-                      className="inline-flex h-10 w-full items-center justify-center rounded-md border border-rose-200 bg-white text-rose-600 transition hover:bg-rose-50 disabled:opacity-60 sm:w-10"
+                      className="inline-flex h-9 w-full items-center justify-center rounded-lg border border-rose-100 bg-rose-50/50 text-rose-600 transition hover:bg-rose-100 disabled:opacity-60 sm:w-9"
                       title="移除SKU"
                       aria-label={`移除 ${line.skuLabel}`}
                     >
@@ -953,8 +1046,9 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
                   </div>
                 ))
               ) : (
-                <div className="flex min-h-[158px] items-center justify-center rounded-lg border border-dashed border-slate-200 bg-white px-4 py-6 text-center text-sm text-slate-500">
-                  暂无调拨 SKU
+                <div className="flex min-h-[158px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white/50 px-4 py-8 text-center text-slate-500">
+                  <PackageOpen size={32} className="text-slate-300" />
+                  <span className="text-sm font-medium">暂无调拨 SKU，请在左侧添加</span>
                 </div>
               )}
             </div>
@@ -963,7 +1057,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
               type="button"
               onClick={() => void handleTransferInventory()}
               disabled={!canSubmitTransfer || busyKey === "transfer-inventory"}
-              className="btn-primary mt-3 h-11 w-full"
+              className="btn-primary mt-6 h-12 w-full text-base"
             >
               调拨出库
             </button>
@@ -972,27 +1066,63 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
       </section>
 
       <section className="grid gap-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-base font-semibold text-ink">调拨记录</h2>
-          <div className="flex flex-wrap items-center gap-2">
-            {inTransitTransferRecordCount > 0 && (
-              <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700">
-                <PackageOpen size={14} />
-                运输中 {inTransitTransferRecordCount}
-              </span>
-            )}
-            <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-500">
-              {transferRecords.length} 条记录
+        {/* Sub-tab filter for records */}
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-3">
+          <div className="flex items-center gap-2">
+            <h2 className="text-base font-bold text-slate-900">调拨记录</h2>
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-500">
+              {transferRecords.length}
             </span>
           </div>
+          <div className="flex items-center gap-1 rounded-xl bg-slate-100 p-1">
+            <button
+              type="button"
+              onClick={() => setRecordFilter("all")}
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                recordFilter === "all"
+                  ? "bg-white text-slate-900 shadow-sm"
+                  : "text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              全部
+            </button>
+            <button
+              type="button"
+              onClick={() => setRecordFilter("in_transit")}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                recordFilter === "in_transit"
+                  ? "bg-white text-slate-900 shadow-sm"
+                  : "text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              <span>运输中</span>
+              {inTransitTransferRecordCount > 0 && (
+                <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white leading-none">
+                  {inTransitTransferRecordCount}
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setRecordFilter("received")}
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                recordFilter === "received"
+                  ? "bg-white text-slate-900 shadow-sm"
+                  : "text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              已签收
+            </button>
+          </div>
         </div>
+
         {loading ? (
           <div className="text-sm text-slate-500">加载中...</div>
-        ) : transferRecords.length === 0 ? (
+        ) : filteredRecords.length === 0 ? (
           <div className="empty-state">暂无调拨记录</div>
         ) : (
-          <div className="grid gap-3">
-            {transferRecords.map((record) => {
+          <div className="grid gap-4">
+            {filteredRecords.map((record) => {
               const trackingUrl = buildOcsTrackingUrl(record.trackingNo);
               const receiveBusyKey = getTransferRecordBusyKey(record);
               const isReceived = record.status === "received";
@@ -1010,106 +1140,148 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
               return (
                 <article
                   key={record.key}
-                  className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+                  className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow-md"
                 >
-                  <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
-                    <div className="min-w-0 space-y-2">
-                      <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span
+                        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${
+                          isReceived
+                            ? "bg-emerald-50 text-emerald-700"
+                            : "bg-amber-50 text-amber-700"
+                        }`}
+                      >
+                        {isReceived ? <PackageCheck size={14} /> : <PackageOpen size={14} />}
+                        {isReceived ? "已签收" : "运输中"}
+                      </span>
+                      <span className="text-xs text-slate-500 font-medium">
+                        创建时间：{formatDateTime(record.createdAt)}
+                      </span>
+                    </div>
+
+                    <div className="flex max-w-md flex-1 flex-wrap gap-1.5 sm:justify-end">
+                      {record.skuSummary.split("；").map((skuLabel) => (
                         <span
-                          className={
-                            isReceived
-                              ? "inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700"
-                              : "inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700"
-                          }
+                          key={skuLabel}
+                          className="rounded-lg bg-slate-50 border border-slate-150 px-2 py-0.5 text-xs font-semibold text-slate-700"
                         >
-                          {isReceived ? (
-                            <PackageCheck size={14} />
-                          ) : (
-                            <PackageOpen size={14} />
-                          )}
-                          {isReceived ? "已签收" : "运输中"}
+                          {skuLabel}
                         </span>
-                        <span className="text-sm font-semibold text-ink">
-                          {record.transferDate}
-                        </span>
-                        <span className="text-xs text-slate-500">
-                          创建：{formatDateTime(record.createdAt)}
-                        </span>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-ink">
-                        <Truck size={16} className="text-slate-500" />
-                        <span>{record.sourceWarehouseName}</span>
-                        <span className="text-slate-400">→</span>
-                        <span>{record.destinationWarehouseName}</span>
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      {trackingUrl && (
-                        <a
-                          href={trackingUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="btn-secondary h-9 px-3 text-xs"
-                          title="打开 OCS 物流查询"
-                        >
-                          <Search size={15} />
-                          查询物流
-                          <ExternalLink size={13} />
-                        </a>
-                      )}
-                      {canEdit && !isReceived && (
-                        <button
-                          type="button"
-                          onClick={() => void handleReceiveTransferRecord(record)}
-                          disabled={busyKey === receiveBusyKey}
-                          className="btn-primary h-9 px-3 text-xs"
-                        >
-                          <CheckCircle2 size={15} />
-                          {busyKey === receiveBusyKey ? "签收中" : "签收"}
-                        </button>
-                      )}
+                      ))}
                     </div>
                   </div>
 
-                  <div className="mt-4 grid gap-3 md:grid-cols-[minmax(160px,220px)_minmax(130px,170px)_minmax(0,1fr)]">
-                    <div className="rounded-lg bg-slate-50 px-3 py-2">
-                      <div className="text-xs font-semibold text-slate-500">快递单号</div>
-                      <div className="mt-1 break-all font-mono text-sm font-semibold text-sky-700">
-                        {record.trackingNo}
+                  {/* Visual Stepper Timeline */}
+                  <div className="mt-6 grid gap-6 md:grid-cols-3 md:gap-4">
+                    {/* Step 1: Outbound */}
+                    <div className="relative flex gap-3.5 md:flex-col md:items-start">
+                      <div className="flex flex-col items-center">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-violet-50 text-violet-600 ring-4 ring-white">
+                          <PackageCheck size={18} />
+                        </div>
+                        <div className="h-full w-0.5 bg-slate-150 md:hidden" />
+                      </div>
+                      <div className="pt-1.5 md:pt-0">
+                        <div className="text-xs font-bold text-slate-800">已从调出仓扣减</div>
+                        <div className="mt-0.5 text-xs text-slate-500">{record.sourceWarehouseName}</div>
+                        <div className="mt-1 text-[11px] text-slate-400 font-mono">{record.transferDate}</div>
                       </div>
                     </div>
-                    <div className="rounded-lg bg-slate-50 px-3 py-2">
-                      <div className="text-xs font-semibold text-slate-500">入库进度</div>
-                      <div className="mt-1 text-sm font-semibold text-ink">
-                        {totalReceivedQuantity} / {totalTransferQuantity}
+
+                    {/* Step 2: Logistics / In Transit */}
+                    <div className="relative flex gap-3.5 md:flex-col md:items-start">
+                      <div className="flex flex-col items-center">
+                        <div
+                          className={`flex h-9 w-9 items-center justify-center rounded-full ring-4 ring-white ${
+                            isReceived ? "bg-indigo-50 text-indigo-600" : "bg-amber-50 text-amber-600 animate-pulse"
+                          }`}
+                        >
+                          <Truck size={18} />
+                        </div>
+                        <div className="h-full w-0.5 bg-slate-150 md:hidden" />
                       </div>
-                      <div className="mt-1 text-xs text-slate-500">
-                        {isReceived ? "库存已加入调入仓库" : "等待签收后加入调入仓库"}
-                      </div>
-                    </div>
-                    <div className="min-w-0 rounded-lg bg-slate-50 px-3 py-2">
-                      <div className="text-xs font-semibold text-slate-500">SKU</div>
-                      <div className="mt-2 flex max-h-20 flex-wrap gap-2 overflow-y-auto pr-1">
-                        {record.skuSummary.split("；").map((skuLabel) => (
-                          <span
-                            key={skuLabel}
-                            className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200"
-                          >
-                            {skuLabel}
+                      <div className="pt-1.5 md:pt-0">
+                        <div className="text-xs font-bold text-slate-800">物流运输中</div>
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                          <span className="font-mono text-xs font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                            {record.trackingNo}
                           </span>
-                        ))}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void navigator.clipboard.writeText(record.trackingNo);
+                              alert("已复制快递单号：" + record.trackingNo);
+                            }}
+                            className="text-slate-400 hover:text-slate-700 transition"
+                            title="复制单号"
+                          >
+                            <Copy size={14} />
+                          </button>
+                        </div>
+                        {trackingUrl && (
+                          <a
+                            href={trackingUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-bold text-violet-600 hover:underline"
+                          >
+                            <span>查询物流轨迹</span>
+                            <ExternalLink size={10} />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Step 3: Destination Inbound / Sign */}
+                    <div className="relative flex gap-3.5 md:flex-col md:items-start">
+                      <div className="flex flex-col items-center">
+                        <div
+                          className={`flex h-9 w-9 items-center justify-center rounded-full ring-4 ring-white ${
+                            isReceived ? "bg-emerald-600 text-white shadow-sm" : "bg-slate-100 text-slate-400"
+                          }`}
+                        >
+                          <CheckCircle2 size={18} />
+                        </div>
+                      </div>
+                      <div className="pt-1.5 flex-1 md:pt-0">
+                        <div className="text-xs font-bold text-slate-800">
+                          {isReceived ? "已签收入库" : "等待签收入库"}
+                        </div>
+                        <div className="mt-0.5 text-xs text-slate-500">{record.destinationWarehouseName}</div>
+                        <div className="mt-2.5">
+                          {canEdit && !isReceived ? (
+                            <button
+                              type="button"
+                              onClick={() => void handleReceiveTransferRecord(record)}
+                              disabled={busyKey === receiveBusyKey}
+                              className="btn-primary h-8 px-4 text-xs font-bold"
+                            >
+                              {busyKey === receiveBusyKey ? "签收中..." : "确认签收"}
+                            </button>
+                          ) : isReceived ? (
+                            <div className="text-[11px] text-emerald-600 font-semibold flex items-center gap-1">
+                              <Check size={13} />
+                              <span>入库进度：{totalReceivedQuantity} / {totalTransferQuantity} 签收完毕</span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-slate-400 flex items-center gap-1">
+                              <Info size={13} />
+                              暂无操作权限
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
 
-                  <details className="mt-4 border-t border-slate-100 pt-3 [&>summary::-webkit-details-marker]:hidden">
-                    <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs font-semibold text-slate-500">
-                      <span>库存流水 · {record.adjustments.length} 条</span>
-                      <span className="rounded-md bg-slate-100 px-2 py-1 text-slate-600">
+                  <details className="mt-5 border-t border-slate-100 pt-3 [&>summary::-webkit-details-marker]:hidden">
+                    <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs font-bold text-slate-500">
+                      <span>库存流动流水 · 共 {record.adjustments.length} 条流水</span>
+                      <span className="rounded-lg bg-slate-100 hover:bg-slate-200 px-2.5 py-1 text-slate-600 transition">
                         展开明细
                       </span>
                     </summary>
-                    <div className="mt-3 grid max-h-64 gap-2 overflow-y-auto rounded-lg bg-slate-50/80 p-2">
+                    <div className="mt-3 grid max-h-64 gap-2 overflow-y-auto rounded-xl bg-slate-50/50 p-3 shadow-inner">
                       {record.adjustments.map(({ adjustment, direction }) => {
                         const warehouse = warehousesById[adjustment.warehouse_id];
                         const item = productItemsById[adjustment.item_id];
@@ -1126,37 +1298,37 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
                         return (
                           <div
                             key={adjustment.id}
-                            className="grid gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 sm:grid-cols-[64px_minmax(0,1fr)_auto] sm:items-center"
+                            className="grid gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-700 sm:grid-cols-[64px_minmax(0,1fr)_auto] sm:items-center shadow-sm"
                           >
                             <span
-                              className={
+                              className={`inline-flex w-fit rounded-lg px-2 py-0.5 text-[10px] font-bold ${
                                 direction === "out"
-                                  ? "inline-flex w-fit rounded-md bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-600"
-                                  : "inline-flex w-fit rounded-md bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-600"
-                              }
+                                  ? "bg-rose-50 text-rose-600"
+                                  : "bg-emerald-50 text-emerald-600"
+                              }`}
                             >
                               {flowLabel}
                             </span>
                             <div className="min-w-0">
-                              <div className="font-medium text-ink">
+                              <div className="font-bold text-slate-800">
                                 {warehouse?.name ?? "--"}
                               </div>
-                              <div className="break-words text-xs text-slate-500">
+                              <div className="break-words mt-0.5 text-slate-500 font-medium">
                                 {item?.item_name ?? "--"}
                                 {item?.item_spec ? `（${item.item_spec}）` : ""}
                               </div>
                             </div>
-                            <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                            <div className="flex flex-wrap items-center gap-3 sm:justify-end">
                               <span
-                                className={
+                                className={`font-bold ${
                                   adjustment.change_quantity < 0
-                                    ? "font-semibold text-rose-600"
-                                    : "font-semibold text-emerald-600"
-                                }
+                                    ? "text-rose-600"
+                                    : "text-emerald-600"
+                                }`}
                               >
                                 {changeLabel}
                               </span>
-                              <span className="text-xs text-slate-500">
+                              <span className="font-mono text-slate-400">
                                 {adjustment.previous_quantity} → {adjustment.next_quantity}
                               </span>
                             </div>

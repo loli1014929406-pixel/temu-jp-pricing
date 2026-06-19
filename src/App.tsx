@@ -44,6 +44,7 @@ const financeRoutes: Array<{ path: string; view: FinanceView }> = [
   { path: "/finance/monthly-profit", view: "monthly-profit" },
   { path: "/finance/product-profit", view: "product-profit" },
   { path: "/finance/reconciliation", view: "reconciliation" },
+  { path: "/finance/settlement", view: "settlement" },
 ];
 
 export default function App() {
