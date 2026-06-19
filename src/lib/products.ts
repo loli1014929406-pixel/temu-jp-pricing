@@ -17,6 +17,10 @@ const requestTimeoutMs = 45000;
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+type FetchProductsOptions = {
+  includeNotSelling?: boolean;
+};
+
 async function withTimeout<T>(promise: PromiseLike<T>, label: string) {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
@@ -66,6 +70,7 @@ function normalizeProductDraft(product: ProductDraft): ProductDraft {
     combo_name: comboName,
     combo_description: comboDescription,
     title_jp: titleJp,
+    is_selling: product.is_selling !== false,
     max_units_per_parcel: maxUnitsPerParcel,
   };
 }
@@ -90,10 +95,21 @@ function normalizeProductRow(row: Partial<Product>): Product {
       1,
       Math.trunc(Number(row.max_units_per_parcel) || 1),
     ),
+    is_selling: row.is_selling !== false,
     notes: row.notes ?? "",
     created_at: String(row.created_at ?? ""),
     updated_at: String(row.updated_at ?? ""),
   };
+}
+
+function isMissingProductSellingColumnError(error: unknown) {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "object" && error !== null && "message" in error
+        ? String((error as { message?: unknown }).message ?? "")
+        : String(error ?? "");
+  return message.includes("is_selling");
 }
 
 function isMissingTemuImageColumnError(error: unknown) {
@@ -135,25 +151,69 @@ function withoutProductParcelCapacity<T extends Partial<ProductDraft>>(product: 
   return legacyProduct;
 }
 
+function withoutProductSellingStatus<T extends Partial<ProductDraft>>(product: T) {
+  const { is_selling, ...legacyProduct } = product;
+  void is_selling;
+  return legacyProduct;
+}
+
+function getCompatibleProductPayload(
+  product: ProductDraft,
+  options: { omitParcelCapacity?: boolean; omitSellingStatus?: boolean },
+) {
+  let payload: Partial<ProductDraft> = product;
+
+  if (options.omitParcelCapacity) {
+    payload = withoutProductParcelCapacity(payload);
+  }
+  if (options.omitSellingStatus) {
+    payload = withoutProductSellingStatus(payload);
+  }
+
+  return payload;
+}
+
 function getMissingProductParcelCapacityColumnMessage() {
   return "商品数据库还没有新增“3cm快递可发几个”字段，请先执行最新商品迁移。";
 }
 
-export async function fetchProducts() {
+function getMissingProductSellingColumnMessage() {
+  return "商品数据库还没有新增“是否售卖”字段，请先执行最新商品迁移。";
+}
+
+export async function fetchProducts(options: FetchProductsOptions = {}) {
   const { supabase } = await requireSession();
   const pageSize = 1000;
   const rows: Product[] = [];
   let from = 0;
 
   while (true) {
-    const { data, error } = await withTimeout(
-      supabase
+    const buildRequest = (filterSelling: boolean) => {
+      let request = supabase
         .from("products")
         .select("*")
         .order("created_at", { ascending: false })
-        .range(from, from + pageSize - 1),
+        .range(from, from + pageSize - 1);
+
+      if (filterSelling) {
+        request = request.eq("is_selling", true);
+      }
+
+      return request;
+    };
+
+    let result = await withTimeout(
+      buildRequest(!options.includeNotSelling),
       "加载商品",
     );
+    if (
+      result.error &&
+      !options.includeNotSelling &&
+      isMissingProductSellingColumnError(result.error)
+    ) {
+      result = await withTimeout(buildRequest(false), "加载商品");
+    }
+    const { data, error } = result;
 
     if (error) throw error;
 
@@ -165,6 +225,14 @@ export async function fetchProducts() {
   }
 
   return rows;
+}
+
+export async function fetchSellingProducts() {
+  return fetchProducts();
+}
+
+export async function fetchAllProducts() {
+  return fetchProducts({ includeNotSelling: true });
 }
 
 export async function fetchProductsByIds(productIds: string[]) {
@@ -190,18 +258,48 @@ export async function searchProducts(keyword: string, limit: number = 20) {
   const escaped = trimmed.replace(/[%_\\]/g, '\\$&');
 
   const { supabase } = await requireSession();
-  const { data, error } = await withTimeout(
-    supabase
+  const buildRequest = (filterSelling: boolean) => {
+    let request = supabase
       .from("products")
       .select("*")
       .or(`product_code.ilike."%${escaped.replace(/"/g, '""')}%",product_name_cn.ilike."%${escaped.replace(/"/g, '""')}%"`)
       .order("created_at", { ascending: false })
-      .limit(limit),
-    "搜索商品",
-  );
+      .limit(limit);
+
+    if (filterSelling) {
+      request = request.eq("is_selling", true);
+    }
+
+    return request;
+  };
+
+  let result = await withTimeout(buildRequest(true), "搜索商品");
+  if (result.error && isMissingProductSellingColumnError(result.error)) {
+    result = await withTimeout(buildRequest(false), "搜索商品");
+  }
+  const { data, error } = result;
 
   if (error) throw error;
   return ((data ?? []) as Partial<Product>[]).map(normalizeProductRow);
+}
+
+export async function updateProductSellingStatus(productId: string, isSelling: boolean) {
+  const { supabase } = await requireSession();
+  const { data, error } = await withTimeout(
+    supabase
+      .from("products")
+      .update({ is_selling: isSelling })
+      .eq("id", productId)
+      .select("*")
+      .single(),
+    "更新商品售卖状态",
+  );
+
+  if (error && isMissingProductSellingColumnError(error)) {
+    throw new Error(getMissingProductSellingColumnMessage());
+  }
+  if (error) throw error;
+  return normalizeProductRow(data as Partial<Product>);
 }
 
 export function getProductRouteKey(product: Pick<Product, "id" | "product_code">) {
@@ -502,28 +600,54 @@ export async function createProduct(
   await assertProductCodeAvailable(normalizedProduct.product_code);
 
   const { supabase } = await requireSession();
-  let { data, error } = await withTimeout(
-    supabase.from("products").insert(normalizedProduct).select("id").single<{ id: string }>(),
-    "保存商品",
-  );
-  if (
-    error &&
-    isMissingProductParcelCapacityColumnError(error) &&
-    normalizedProduct.max_units_per_parcel === 1
-  ) {
-    const legacyResult = await withTimeout(
+  let data: { id: string } | null = null;
+  let error: unknown = null;
+  let omitParcelCapacity = false;
+  let omitSellingStatus = false;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const result = await withTimeout(
       supabase
         .from("products")
-        .insert(withoutProductParcelCapacity(normalizedProduct))
+        .insert(
+          getCompatibleProductPayload(normalizedProduct, {
+            omitParcelCapacity,
+            omitSellingStatus,
+          }),
+        )
         .select("id")
         .single<{ id: string }>(),
       "保存商品",
     );
-    data = legacyResult.data;
-    error = legacyResult.error;
+    data = result.data;
+    error = result.error;
+
+    if (
+      error &&
+      isMissingProductParcelCapacityColumnError(error) &&
+      normalizedProduct.max_units_per_parcel === 1 &&
+      !omitParcelCapacity
+    ) {
+      omitParcelCapacity = true;
+      continue;
+    }
+    if (
+      error &&
+      isMissingProductSellingColumnError(error) &&
+      normalizedProduct.is_selling &&
+      !omitSellingStatus
+    ) {
+      omitSellingStatus = true;
+      continue;
+    }
+
+    break;
   }
   if (error && isMissingProductParcelCapacityColumnError(error)) {
     throw new Error(getMissingProductParcelCapacityColumnMessage());
+  }
+  if (error && isMissingProductSellingColumnError(error)) {
+    throw new Error(getMissingProductSellingColumnMessage());
   }
   if (error) throw error;
 
@@ -574,26 +698,51 @@ export async function updateProduct(
     }
   });
 
-  let { error } = await withTimeout(
-    supabase.from("products").update(normalizedProduct).eq("id", productId),
-    "更新商品",
-  );
-  if (
-    error &&
-    isMissingProductParcelCapacityColumnError(error) &&
-    normalizedProduct.max_units_per_parcel === 1
-  ) {
-    const legacyResult = await withTimeout(
+  let error: unknown = null;
+  let omitParcelCapacity = false;
+  let omitSellingStatus = false;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const result = await withTimeout(
       supabase
         .from("products")
-        .update(withoutProductParcelCapacity(normalizedProduct))
+        .update(
+          getCompatibleProductPayload(normalizedProduct, {
+            omitParcelCapacity,
+            omitSellingStatus,
+          }),
+        )
         .eq("id", productId),
       "更新商品",
     );
-    error = legacyResult.error;
+    error = result.error;
+
+    if (
+      error &&
+      isMissingProductParcelCapacityColumnError(error) &&
+      normalizedProduct.max_units_per_parcel === 1 &&
+      !omitParcelCapacity
+    ) {
+      omitParcelCapacity = true;
+      continue;
+    }
+    if (
+      error &&
+      isMissingProductSellingColumnError(error) &&
+      normalizedProduct.is_selling &&
+      !omitSellingStatus
+    ) {
+      omitSellingStatus = true;
+      continue;
+    }
+
+    break;
   }
   if (error && isMissingProductParcelCapacityColumnError(error)) {
     throw new Error(getMissingProductParcelCapacityColumnMessage());
+  }
+  if (error && isMissingProductSellingColumnError(error)) {
+    throw new Error(getMissingProductSellingColumnMessage());
   }
   if (error) throw error;
 
@@ -654,7 +803,7 @@ export async function deleteProduct(productId: string) {
 export async function exportProductsData(
   productIds?: string[],
 ): Promise<ProductTransferRecord[]> {
-  const allProducts = await fetchProducts();
+  const allProducts = await fetchProducts({ includeNotSelling: true });
   const products =
     productIds && productIds.length > 0
       ? allProducts.filter((product) => productIds.includes(product.id))

@@ -4,9 +4,10 @@ import { Link, useLocation } from "react-router-dom";
 import {
   deleteProduct,
   exportProductsData,
-  fetchProducts,
+  fetchAllProducts,
   getProductRoutePath,
   importProductsData,
+  updateProductSellingStatus,
 } from "../lib/products";
 import {
   buildWorkbook,
@@ -24,12 +25,15 @@ type ProductsPageProps = {
   user: User;
 };
 
+type ProductSellingFilter = "selling" | "not_selling" | "all";
+
 export function ProductsPage({ user }: ProductsPageProps) {
   const { canEdit, canDelete } = usePermissions();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [deletingProductId, setDeletingProductId] = useState("");
+  const [updatingSellingProductId, setUpdatingSellingProductId] = useState("");
   const [transferring, setTransferring] = useState(false);
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
   const [pendingImport, setPendingImport] = useState<{
@@ -43,6 +47,7 @@ export function ProductsPage({ user }: ProductsPageProps) {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedMaterial, setSelectedMaterial] = useState("");
+  const [sellingFilter, setSellingFilter] = useState<ProductSellingFilter>("selling");
 
   const filteredProducts = useMemo(() => {
     return products.filter((product) => {
@@ -59,9 +64,24 @@ export function ProductsPage({ user }: ProductsPageProps) {
         product.material_cn === selectedMaterial ||
         product.material_en === selectedMaterial;
 
-      return matchesSearch && matchesMaterial;
+      const matchesSelling =
+        sellingFilter === "all" ||
+        (sellingFilter === "selling" && product.is_selling) ||
+        (sellingFilter === "not_selling" && !product.is_selling);
+
+      return matchesSearch && matchesMaterial && matchesSelling;
     });
-  }, [products, searchQuery, selectedMaterial]);
+  }, [products, searchQuery, selectedMaterial, sellingFilter]);
+
+  const sellingProductCount = useMemo(
+    () => products.filter((product) => product.is_selling).length,
+    [products],
+  );
+  const notSellingProductCount = products.length - sellingProductCount;
+  const filteredProductIdSet = useMemo(
+    () => new Set(filteredProducts.map((product) => product.id)),
+    [filteredProducts],
+  );
 
   const uniqueMaterials = useMemo(() => {
     const set = new Set<string>();
@@ -79,7 +99,7 @@ export function ProductsPage({ user }: ProductsPageProps) {
       setErrorMessage("");
 
       try {
-        const baseProducts = await fetchProducts();
+        const baseProducts = await fetchAllProducts();
 
         if (active) {
           setProducts(baseProducts);
@@ -123,11 +143,37 @@ export function ProductsPage({ user }: ProductsPageProps) {
     }
   }
 
+  async function handleSellingStatusChange(product: Product, isSelling: boolean) {
+    if (!canEdit) {
+      setErrorMessage("当前账号没有编辑权限，不能更新商品售卖状态。");
+      return;
+    }
+
+    setUpdatingSellingProductId(product.id);
+    setErrorMessage("");
+
+    try {
+      const nextProduct = await updateProductSellingStatus(product.id, isSelling);
+      setProducts((current) =>
+        current.map((item) => (item.id === product.id ? nextProduct : item)),
+      );
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, "更新商品售卖状态失败"));
+    } finally {
+      setUpdatingSellingProductId("");
+    }
+  }
+
   const allSelected =
-    filteredProducts.length > 0 && selectedProductIds.length === filteredProducts.length;
+    filteredProducts.length > 0 &&
+    filteredProducts.every((product) => selectedProductIds.includes(product.id));
 
   function toggleSelectAll() {
-    setSelectedProductIds(allSelected ? [] : filteredProducts.map((product) => product.id));
+    setSelectedProductIds((current) =>
+      allSelected
+        ? current.filter((productId) => !filteredProductIdSet.has(productId))
+        : Array.from(new Set([...current, ...filteredProducts.map((product) => product.id)])),
+    );
   }
 
   function toggleProduct(productId: string) {
@@ -288,17 +334,17 @@ export function ProductsPage({ user }: ProductsPageProps) {
 
       {/* 统计指标卡片 */}
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-3">
-        <StatCard label="商品总数" value={String(products.length)} />
+        <StatCard label="售卖商品" value={String(sellingProductCount)} />
+        <StatCard label="不售卖" value={String(notSellingProductCount)} />
         <StatCard
           label="已选商品"
           value={`${selectedProductIds.length} / ${products.length}`}
           tone={selectedProductIds.length > 0 ? "success" : "default"}
         />
-        <StatCard label="材质组合数" value={String(uniqueMaterials.length)} />
       </div>
 
       {/* 搜索与过滤工具栏 */}
-      <div className="surface-card p-4 grid gap-4 sm:grid-cols-[1fr_200px] items-center">
+      <div className="surface-card p-4 grid gap-4 sm:grid-cols-[1fr_180px_180px] items-center">
         <div className="relative">
           <input
             type="text"
@@ -320,6 +366,17 @@ export function ProductsPage({ user }: ProductsPageProps) {
                 {mat}
               </option>
             ))}
+          </select>
+        </div>
+        <div>
+          <select
+            value={sellingFilter}
+            onChange={(e) => setSellingFilter(e.target.value as ProductSellingFilter)}
+            className="w-full h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10 text-slate-750 font-medium"
+          >
+            <option value="selling">售卖中</option>
+            <option value="not_selling">不售卖</option>
+            <option value="all">全部状态</option>
           </select>
         </div>
       </div>
@@ -406,6 +463,9 @@ export function ProductsPage({ user }: ProductsPageProps) {
                 <div className="mobile-summary-cell">宽：{product.package_width_cm} cm</div>
                 <div className="mobile-summary-cell">高：{product.package_height_cm} cm</div>
                 <div className="mobile-summary-cell">重：{product.package_weight_g} g</div>
+                <div className="mobile-summary-cell">
+                  状态：{product.is_selling ? "售卖中" : "不售卖"}
+                </div>
               </div>
               <p className="mt-2 text-xs text-slate-500">
                 创建时间：
@@ -418,6 +478,16 @@ export function ProductsPage({ user }: ProductsPageProps) {
                 })}
               </p>
               <div className="mobile-summary-actions">
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => void handleSellingStatusChange(product, !product.is_selling)}
+                    disabled={updatingSellingProductId === product.id}
+                    className="btn-secondary h-9 px-3"
+                  >
+                    {product.is_selling ? "设为不售卖" : "恢复售卖"}
+                  </button>
+                )}
                 {canEdit && (
                   <Link className="btn-secondary h-9 px-3" to={getProductRoutePath(product, "/edit")}>
                     编辑
@@ -462,6 +532,7 @@ export function ProductsPage({ user }: ProductsPageProps) {
                 <th className="px-4 py-3 font-medium">包装宽</th>
                 <th className="px-4 py-3 font-medium">包装高</th>
                 <th className="px-4 py-3 font-medium">包装重量</th>
+                <th className="px-4 py-3 font-medium">是否售卖</th>
                 <th className="px-4 py-3 font-medium">创建时间</th>
                 <th className="px-4 py-3 font-medium">操作</th>
               </tr>
@@ -469,13 +540,13 @@ export function ProductsPage({ user }: ProductsPageProps) {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={11} className="px-4 py-10 text-center text-slate-500">
+                  <td colSpan={12} className="px-4 py-10 text-center text-slate-500">
                     加载中...
                   </td>
                 </tr>
               ) : filteredProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="px-4 py-10 text-center text-slate-500">
+                  <td colSpan={12} className="px-4 py-10 text-center text-slate-500">
                     暂无商品
                   </td>
                 </tr>
@@ -501,6 +572,24 @@ export function ProductsPage({ user }: ProductsPageProps) {
                     <td className="number-cell">{product.package_width_cm} cm</td>
                     <td className="number-cell">{product.package_height_cm} cm</td>
                     <td className="number-cell">{product.package_weight_g} g</td>
+                    <td className="px-4 py-3">
+                      {canEdit ? (
+                        <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
+                          <input
+                            type="checkbox"
+                            checked={product.is_selling}
+                            disabled={updatingSellingProductId === product.id}
+                            onChange={(event) =>
+                              void handleSellingStatusChange(product, event.target.checked)
+                            }
+                            aria-label={`${product.product_code} 是否售卖`}
+                          />
+                          {product.is_selling ? "售卖" : "不售卖"}
+                        </label>
+                      ) : (
+                        product.is_selling ? "售卖" : "不售卖"
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       {new Date(product.created_at).toLocaleString("zh-CN", {
                         year: "numeric",

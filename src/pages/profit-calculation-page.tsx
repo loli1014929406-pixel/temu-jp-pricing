@@ -249,6 +249,42 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
     };
   }, [draftKey, productKey, user.id]);
 
+  const productPrice = useMemo(() => {
+    const prices = Object.values(calculations).map(
+      (calculation) => calculation.input.temuPriceRmb,
+    );
+    const firstPrice = prices[0] ?? 0;
+    const isConsistent =
+      prices.length > 0 && prices.every((price) => price === firstPrice);
+
+    return {
+      hasPrices: prices.length > 0,
+      isConsistent,
+      value: isConsistent ? firstPrice : "",
+    };
+  }, [calculations]);
+
+  function updateProductPrice(value: number) {
+    if (!settings) return;
+
+    setCalculations((state) =>
+      Object.fromEntries(
+        Object.entries(state).map(([skuId, current]) => {
+          const input = { ...current.input, temuPriceRmb: value };
+
+          return [
+            skuId,
+            {
+              ...current,
+              input,
+              result: calculateProfitProjection(current.pricing, settings, input),
+            },
+          ];
+        }),
+      ),
+    );
+  }
+
   function updateSkuPrice(skuId: string, value: number) {
     const current = calculations[skuId];
     if (!current || !settings) return;
@@ -362,7 +398,21 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
       )}
 
       <section className="grid gap-4 rounded-lg bg-white p-5 shadow-panel">
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-5">
+          <Field label="核价">
+            <TextInput
+              min="0"
+              disabled={!canEdit || !productPrice.isConsistent}
+              placeholder={productPrice.hasPrices ? "各 SKU 不同" : "暂无 SKU"}
+              step="0.01"
+              title={productPrice.isConsistent ? "修改全部 SKU 核价" : "SKU 核价不一致时不可批量修改"}
+              type="number"
+              value={productPrice.value}
+              onChange={(event) =>
+                updateProductPrice(Number(event.target.value || 0))
+              }
+            />
+          </Field>
           <Field label="流量加速">
             <TextInput
               min="0"

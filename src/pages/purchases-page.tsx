@@ -316,6 +316,34 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
     );
   }, [orders, search]);
 
+  const recordStats = useMemo(() => {
+    const packageCount = filteredOrders.reduce(
+      (sum, order) => sum + order.packages.length,
+      0,
+    );
+    const receivedPackageCount = filteredOrders.reduce(
+      (sum, order) =>
+        sum + order.packages.filter((pkg) => pkg.status === "received").length,
+      0,
+    );
+
+    return {
+      pendingOrderCount: filteredOrders.filter((order) => order.status === "pending")
+        .length,
+      partiallyReceivedOrderCount: filteredOrders.filter(
+        (order) => order.status === "partially_received",
+      ).length,
+      receivedOrderCount: filteredOrders.filter((order) => order.status === "received")
+        .length,
+      totalCostRmb: filteredOrders.reduce(
+        (sum, order) => sum + order.total_cost_rmb,
+        0,
+      ),
+      packageCount,
+      receivedPackageCount,
+    };
+  }, [filteredOrders]);
+
   const draftItemsTotal = useMemo(
     () =>
       draftProducts.reduce(
@@ -1222,278 +1250,608 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
         <div className="flex justify-end"><button type="button" disabled={busyKey === "create-order" || !warehouseId || activePurchaseUrls.some((url) => !linkMetaDrafts[url]?.alibabaOrderNo.trim())} onClick={() => void handleCreateOrder()} className="btn-primary"><Plus size={18} />保存采购管理单</button></div>
       </section>}
 
-      {view === "records" && <section className="grid gap-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-base font-semibold text-ink">采购管理记录</h2>
-          <div className="relative w-full sm:min-w-[280px] sm:w-auto">
-            <Search size={16} className="absolute left-3 top-3 text-slate-400" />
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索采购管理单号 / 订单号 / 商品编号 / 商品名称" className="h-10 w-full rounded-xl border border-line bg-white pl-9 pr-3 text-sm" />
-          </div>
-        </div>
-        {loading ? <div className="text-sm text-slate-500">加载中...</div> : filteredOrders.length === 0 ? <div className="empty-state">暂无采购管理单</div> : (
-          <div className="grid gap-4">
-            {filteredOrders.map((order) => (
-              <section key={order.id} className="mobile-summary-card grid gap-4 sm:p-5">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-base font-semibold text-ink">采购管理单 {order.order_code}</h3>
-                      <Badge tone={order.status === "received" ? "success" : order.status === "partially_received" ? "warning" : "neutral"}>
-                      {order.status === "received" ? "已签收" : order.status === "partially_received" ? "部分签收" : "待签收"}
-                      </Badge>
-                    </div>
-                    <p className="page-description mt-1">{order.warehouse_name} · {order.purchased_at}</p>
-                  </div>
-                  <div className="flex w-full items-center gap-2 sm:w-auto">
-                    {canEdit && order.status === "partially_received" && (
-                      <button
-                        type="button"
-                        disabled={busyKey === `receive-order-${order.id}`}
-                        onClick={() => void handleReceiveRemainingOrder(order)}
-                        className="btn-primary h-10 flex-1 px-3 sm:flex-none"
-                      >
-                        <CheckCircle2 size={16} />
-                        签收剩余
-                      </button>
-                    )}
-                    <button type="button" onClick={() => setExpandedOrderIds((current) => ({ ...current, [order.id]: !current[order.id] }))} className="btn-secondary h-10 flex-1 px-3 sm:flex-none">
-                      {expandedOrderIds[order.id] ? "收起" : "查看"}
-                    </button>
-                    {canDelete && (
-                      <button
-                        type="button"
-                        disabled={busyKey === `delete-order-${order.id}`}
-                        onClick={() => void handleDeleteOrder(order)}
-                        className="icon-btn-danger h-10 w-10 shrink-0"
-                        aria-label="删除采购管理单"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    )}
-                  </div>
+      {view === "records" && (
+        <section className="grid gap-4">
+          <section className="surface-card grid gap-4 p-4 sm:p-5">
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(280px,380px)] lg:items-end">
+              <div>
+                <h2 className="text-base font-semibold text-ink">采购管理记录</h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  共 {filteredOrders.length} 张记录，待签收{" "}
+                  {recordStats.pendingOrderCount + recordStats.partiallyReceivedOrderCount} 张
+                </p>
+              </div>
+              <div className="relative w-full">
+                <Search size={16} className="absolute left-3 top-3 text-slate-400" />
+                <input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="搜索采购单 / 1688 订单 / 商品"
+                  className="h-10 w-full rounded-xl border border-line bg-white pl-9 pr-3 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
+              <div className="rounded-lg bg-slate-50 px-3 py-2">
+                <div className="text-xs font-semibold text-slate-500">待处理单据</div>
+                <div className="mt-1 text-lg font-semibold text-ink">
+                  {recordStats.pendingOrderCount + recordStats.partiallyReceivedOrderCount}
                 </div>
-                <div className="mobile-summary-grid sm:grid-cols-3">
-                  <div className="mobile-summary-cell text-sm">明细金额 <span className="font-semibold">¥{order.items_total_rmb.toFixed(2)}</span></div>
-                  <div className="mobile-summary-cell text-sm">运费 <span className="font-semibold">¥{order.sources.reduce((sum, source) => sum + source.freight_rmb, 0).toFixed(2)}</span></div>
-                  <div className="mobile-summary-cell text-sm">总费用 <span className="font-semibold">¥{order.total_cost_rmb.toFixed(2)}</span></div>
+              </div>
+              <div className="rounded-lg bg-slate-50 px-3 py-2">
+                <div className="text-xs font-semibold text-slate-500">已签收单据</div>
+                <div className="mt-1 text-lg font-semibold text-ink">
+                  {recordStats.receivedOrderCount}
                 </div>
-                {expandedOrderIds[order.id] && (
-                  <div className="grid gap-4">
-                    {order.items.length === 0 ? (
-                      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                        这张采购管理单没有保存到商品明细，属于早期异常记录。
-                      </div>
-                    ) : (
-                      <>
-                        <div className="grid gap-2 md:hidden">
-                          {order.items.map((item) => (
-                            <article key={item.id} className="mobile-summary-card">
-                              <div className="grid gap-1">
-                                <p className="mobile-summary-title">{item.product_code} · {item.product_name_cn}</p>
-                                <p className="text-xs text-slate-500">{item.item_name}</p>
-                                <p className="text-xs text-slate-500">规格：{item.item_spec || "--"}</p>
-                              </div>
-                              <div className="mobile-summary-grid text-sm">
-                                <div className="mobile-summary-cell">数量：{item.quantity}</div>
-                                <div className="mobile-summary-cell">单价：¥{item.unit_price_rmb.toFixed(2)}</div>
-                              </div>
-                            </article>
-                          ))}
-                        </div>
-                        <div className="table-card hidden shadow-none md:block">
-                          <div className="overflow-x-auto">
-                            <table className="data-table">
-                              <thead><tr><th>商品编号</th><th className="product-name-col">产品名称</th><th>配件</th><th>规格</th><th className="number-cell">数量</th><th className="number-cell">单价</th></tr></thead>
-                              <tbody>{order.items.map((item) => <tr key={item.id}><td>{item.product_code}</td><td className="product-name-col">{item.product_name_cn}</td><td>{item.item_name}</td><td>{item.item_spec || "--"}</td><td className="number-cell">{item.quantity}</td><td className="number-cell">¥{item.unit_price_rmb.toFixed(2)}</td></tr>)}</tbody>
-                            </table>
-                          </div>
-                        </div>
-                      </>
-                    )}
-                    <div className="grid gap-3">
-                      <h4 className="text-sm font-semibold text-ink">1688 订单与快递包裹</h4>
-                      {Object.values(
-                        order.sources.reduce<
-                          Record<
-                            string,
-                            {
-                              key: string;
-                              orderNo: string;
-                              sources: typeof order.sources;
-                              urls: string[];
+              </div>
+              <div className="rounded-lg bg-slate-50 px-3 py-2">
+                <div className="text-xs font-semibold text-slate-500">包裹签收</div>
+                <div className="mt-1 text-lg font-semibold text-ink">
+                  {recordStats.receivedPackageCount} / {recordStats.packageCount}
+                </div>
+              </div>
+              <div className="rounded-lg bg-slate-50 px-3 py-2">
+                <div className="text-xs font-semibold text-slate-500">筛选总费用</div>
+                <div className="mt-1 text-lg font-semibold text-ink">
+                  ¥{recordStats.totalCostRmb.toFixed(2)}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {loading ? (
+            <div className="text-sm text-slate-500">加载中...</div>
+          ) : filteredOrders.length === 0 ? (
+            <div className="empty-state">暂无采购管理单</div>
+          ) : (
+            <div className="grid gap-3">
+              {filteredOrders.map((order) => {
+                const orderFreightTotal = order.sources.reduce(
+                  (sum, source) => sum + source.freight_rmb,
+                  0,
+                );
+                const receivedQuantityByOrderItem = getReceivedQuantityByOrderItem(order);
+                const totalItemQuantity = order.items.reduce(
+                  (sum, item) => sum + item.quantity,
+                  0,
+                );
+                const receivedItemQuantity = order.items.reduce(
+                  (sum, item) =>
+                    sum + Math.min(item.quantity, receivedQuantityByOrderItem[item.id] ?? 0),
+                  0,
+                );
+                const sourceGroups = Object.values(
+                  order.sources.reduce<
+                    Record<
+                      string,
+                      {
+                        key: string;
+                        orderNo: string;
+                        sources: typeof order.sources;
+                        urls: string[];
+                      }
+                    >
+                  >((groups, source) => {
+                    const orderNo = source.alibaba_order_no.trim();
+                    const key = orderNo || `__source_${source.id}`;
+                    if (!groups[key]) {
+                      groups[key] = { key, orderNo, sources: [], urls: [] };
+                    }
+                    groups[key].sources.push(source);
+                    if (source.purchase_url && !groups[key].urls.includes(source.purchase_url)) {
+                      groups[key].urls.push(source.purchase_url);
+                    }
+                    return groups;
+                  }, {}),
+                );
+
+                return (
+                  <article
+                    key={order.id}
+                    className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4"
+                  >
+                    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(420px,520px)_auto] lg:items-center">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-base font-semibold text-ink">
+                            采购管理单 {order.order_code}
+                          </h3>
+                          <Badge
+                            tone={
+                              order.status === "received"
+                                ? "success"
+                                : order.status === "partially_received"
+                                  ? "warning"
+                                  : "neutral"
                             }
                           >
-                        >((groups, source) => {
-                          const orderNo = source.alibaba_order_no.trim();
-                          const key = orderNo || `__source_${source.id}`;
-                          if (!groups[key]) {
-                            groups[key] = { key, orderNo, sources: [], urls: [] };
-                          }
-                          groups[key].sources.push(source);
-                          if (source.purchase_url && !groups[key].urls.includes(source.purchase_url)) {
-                            groups[key].urls.push(source.purchase_url);
-                          }
-                          return groups;
-                        }, {}),
-                      ).map((group) => {
-                        const primarySource = group.sources[0];
-                        if (!primarySource) return null;
-                        const sourceIdSet = new Set(group.sources.map((entry) => entry.id));
-                        const sourceUrlSet = new Set(group.urls);
-                        const packageKey = `${order.id}:${group.key}`;
-                        const sourceItems = order.items.filter((item) =>
-                          sourceIdSet.has(item.source_id) ||
-                          (!item.source_id && sourceUrlSet.has(item.purchase_url)),
-                        );
-                        const receivedQuantityByOrderItem = getReceivedQuantityByOrderItem(order);
-                        const remainingSourceItems = getRemainingSourceItems(
-                          sourceItems,
-                          receivedQuantityByOrderItem,
-                        );
-                        const sourcePackages = order.packages.filter((pkg) => sourceIdSet.has(pkg.source_id));
-                        const pendingSourcePackages = sourcePackages.filter((pkg) => pkg.status === "pending");
-                        const receivedSourcePackages = sourcePackages.filter((pkg) => pkg.status === "received");
-                        const canAddPackage = canEdit && order.status !== "received" && remainingSourceItems.length > 0;
-                        return (
-                      <div key={group.key} className="grid gap-4 rounded-2xl border border-line bg-slate-50/60 p-4">
-                        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_430px]">
-                          <div className="grid gap-2">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="text-sm font-semibold text-ink">1688 订单号</span>
-                              <span className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-accent ring-1 ring-line">
-                                {group.orderNo || "未填写"}
-                              </span>
-                            </div>
-                            {group.urls.map((url) => (
-                              <div key={url} className="break-all text-xs text-slate-500">{url}</div>
-                            ))}
-                            <div className="text-xs text-slate-500">
-                              关联明细：{sourceItems.length} 条
-                            </div>
+                            {order.status === "received"
+                              ? "已签收"
+                              : order.status === "partially_received"
+                                ? "部分签收"
+                                : "待签收"}
+                          </Badge>
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs font-medium text-slate-500">
+                          <span>{order.warehouse_name}</span>
+                          <span>{order.purchased_at}</span>
+                          <span>{order.items.length} 条明细</span>
+                          <span>
+                            包裹 {order.packages.filter((pkg) => pkg.status === "received").length} /{" "}
+                            {order.packages.length}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+                        <div className="rounded-lg bg-slate-50 px-3 py-2">
+                          <div className="text-[11px] font-semibold text-slate-500">
+                            明细金额
                           </div>
-                          <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_150px_72px]">
-                            <Field label="1688 订单号"><TextInput disabled={!canEdit} value={sourceDrafts[primarySource.id]?.alibabaOrderNo ?? primarySource.alibaba_order_no} onChange={(event) => setSourceDrafts((current) => ({ ...current, [primarySource.id]: { alibabaOrderNo: event.target.value, freightRmb: current[primarySource.id]?.freightRmb ?? String(primarySource.freight_rmb) } }))} /></Field>
-                            <Field label="运费"><TextInput disabled={!canEdit} type="number" min="0" step="0.01" value={sourceDrafts[primarySource.id]?.freightRmb ?? String(primarySource.freight_rmb)} onChange={(event) => setSourceDrafts((current) => ({ ...current, [primarySource.id]: { alibabaOrderNo: current[primarySource.id]?.alibabaOrderNo ?? primarySource.alibaba_order_no, freightRmb: event.target.value } }))} /></Field>
-                            <Field label="操作">
-                              <button type="button" disabled={!canEdit} onClick={() => void handleSaveSource(order, primarySource.id)} className="btn-secondary w-full">保存</button>
-                            </Field>
+                          <div className="mt-0.5 text-sm font-semibold text-ink">
+                            ¥{order.items_total_rmb.toFixed(2)}
                           </div>
                         </div>
-
-                        <div className="rounded-xl border border-line bg-white p-3">
-                          <p className="mb-2 text-sm font-medium text-slate-700">该订单包含</p>
-                          <div className="flex flex-wrap gap-2">
-                            {sourceItems.map((item) => (
-                              <span key={item.id} className="rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-700">
-                                {item.product_code} · {item.product_name_cn} · {item.item_name} x {item.quantity}
-                              </span>
-                            ))}
+                        <div className="rounded-lg bg-slate-50 px-3 py-2">
+                          <div className="text-[11px] font-semibold text-slate-500">运费</div>
+                          <div className="mt-0.5 text-sm font-semibold text-ink">
+                            ¥{orderFreightTotal.toFixed(2)}
                           </div>
                         </div>
+                        <div className="rounded-lg bg-slate-50 px-3 py-2">
+                          <div className="text-[11px] font-semibold text-slate-500">
+                            总费用
+                          </div>
+                          <div className="mt-0.5 text-sm font-semibold text-ink">
+                            ¥{order.total_cost_rmb.toFixed(2)}
+                          </div>
+                        </div>
+                        <div className="rounded-lg bg-slate-50 px-3 py-2">
+                          <div className="text-[11px] font-semibold text-slate-500">
+                            入库数量
+                          </div>
+                          <div className="mt-0.5 text-sm font-semibold text-ink">
+                            {receivedItemQuantity} / {totalItemQuantity}
+                          </div>
+                        </div>
+                      </div>
 
-                        {pendingSourcePackages.length > 0 && (
-                          <div className="grid gap-3">
-                            <p className="text-sm font-medium text-slate-700">已录入快递包裹</p>
-                            <div className="grid gap-3 rounded-xl border border-line bg-white p-4">
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-medium text-slate-500">快递单号</span>
-                                <Badge tone="neutral">待签收</Badge>
-                              </div>
-                              <div className="grid gap-2">
-                                {pendingSourcePackages.map((pkg) => (
-                                  <div key={pkg.id} className="grid gap-2">
-                                    <div className="package-action-row grid gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_96px_96px_96px_96px]">
-                                      <TextInput
-                                        disabled={!canEdit}
-                                        value={existingPackageTrackingDrafts[pkg.id] ?? pkg.tracking_no}
-                                        onChange={(event) =>
-                                          setExistingPackageTrackingDrafts((current) => ({
-                                            ...current,
-                                            [pkg.id]: event.target.value,
-                                          }))
-                                        }
-                                      />
-                                      <button
-                                        type="button"
-                                        onClick={() => openTrackingLookup(existingPackageTrackingDrafts[pkg.id] ?? pkg.tracking_no)}
-                                        className="btn-primary h-10 w-24 px-3"
-                                      >
-                                        快递查询
-                                      </button>
-                                      {canEdit && <button type="button" onClick={() => void handleSavePackageTracking(order, pkg)} className="btn-primary h-10 w-24 px-3">保存</button>}
-                                      {canDelete && <button type="button" onClick={() => void handleDeletePackage(order, pkg)} className="btn-primary h-10 w-24 px-3" aria-label="删除快递包裹"><Trash2 size={16} />删除</button>}
-                                      {canEdit && <button type="button" onClick={() => void handleReceivePackage(order, pkg)} className="btn-primary h-10 w-24 px-3"><CheckCircle2 size={16} />签收</button>}
+                      <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
+                        {canEdit && order.status === "partially_received" && (
+                          <button
+                            type="button"
+                            disabled={busyKey === `receive-order-${order.id}`}
+                            onClick={() => void handleReceiveRemainingOrder(order)}
+                            className="btn-primary h-10 flex-1 px-3 sm:flex-none"
+                          >
+                            <CheckCircle2 size={16} />
+                            签收剩余
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpandedOrderIds((current) => ({
+                              ...current,
+                              [order.id]: !current[order.id],
+                            }))
+                          }
+                          className="btn-secondary h-10 flex-1 px-3 sm:flex-none"
+                        >
+                          {expandedOrderIds[order.id] ? "收起" : "查看"}
+                        </button>
+                        {canDelete && (
+                          <button
+                            type="button"
+                            disabled={busyKey === `delete-order-${order.id}`}
+                            onClick={() => void handleDeleteOrder(order)}
+                            className="icon-btn-danger h-10 w-10 shrink-0"
+                            aria-label="删除采购管理单"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {expandedOrderIds[order.id] && (
+                      <div className="mt-4 grid gap-4 border-t border-slate-100 pt-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(360px,1.05fr)]">
+                        <div className="grid min-w-0 content-start gap-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <h4 className="text-sm font-semibold text-ink">商品明细</h4>
+                            <span className="text-xs font-semibold text-slate-500">
+                              {order.items.length} 条
+                            </span>
+                          </div>
+
+                          {order.items.length === 0 ? (
+                            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                              这张采购管理单没有保存到商品明细，属于早期异常记录。
+                            </div>
+                          ) : (
+                            <>
+                              <div className="grid gap-2 md:hidden">
+                                {order.items.map((item) => (
+                                  <article key={item.id} className="mobile-summary-card">
+                                    <div className="grid gap-1">
+                                      <p className="mobile-summary-title">
+                                        {item.product_code} · {item.product_name_cn}
+                                      </p>
+                                      <p className="text-xs text-slate-500">{item.item_name}</p>
+                                      <p className="text-xs text-slate-500">
+                                        规格：{item.item_spec || "--"}
+                                      </p>
                                     </div>
-                                    <div className="text-sm text-slate-600">
-                                      {pkg.items.map((packageItem) => {
-                                        const item = order.items.find((entry) => entry.id === packageItem.order_item_id);
-                                        return item
-                                          ? `${item.product_code} · ${item.item_name} x ${packageItem.quantity}`
-                                          : `未知明细 x ${packageItem.quantity}`;
-                                      }).join("，")}
+                                    <div className="mobile-summary-grid text-sm">
+                                      <div className="mobile-summary-cell">
+                                        数量：{item.quantity}
+                                      </div>
+                                      <div className="mobile-summary-cell">
+                                        单价：¥{item.unit_price_rmb.toFixed(2)}
+                                      </div>
                                     </div>
-                                  </div>
+                                  </article>
                                 ))}
                               </div>
-                            </div>
-                          </div>
-                        )}
-
-                        {receivedSourcePackages.length > 0 && (
-                          <div className="grid gap-3">
-                            <p className="text-sm font-medium text-slate-700">已签收快递包裹</p>
-                            <div className="grid gap-2 rounded-xl border border-line bg-white p-4">
-                              {receivedSourcePackages.map((pkg) => (
-                                <div key={pkg.id} className="flex flex-wrap items-center gap-2 text-sm">
-                                  <Badge tone="success">已签收</Badge>
-                                  <span className="font-medium text-ink">{pkg.tracking_no}</span>
+                              <div className="table-card hidden shadow-none md:block">
+                                <div className="overflow-x-auto">
+                                  <table className="data-table">
+                                    <thead>
+                                      <tr>
+                                        <th>商品</th>
+                                        <th>配件</th>
+                                        <th>规格</th>
+                                        <th className="number-cell">数量</th>
+                                        <th className="number-cell">单价</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {order.items.map((item) => (
+                                        <tr key={item.id}>
+                                          <td>
+                                            <div className="font-semibold text-ink">
+                                              {item.product_code}
+                                            </div>
+                                            <div className="mt-0.5 text-xs text-slate-500">
+                                              {item.product_name_cn}
+                                            </div>
+                                          </td>
+                                          <td>{item.item_name}</td>
+                                          <td>{item.item_spec || "--"}</td>
+                                          <td className="number-cell">{item.quantity}</td>
+                                          <td className="number-cell">
+                                            ¥{item.unit_price_rmb.toFixed(2)}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
                                 </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {canAddPackage ? (
-                          <div className="grid gap-3 rounded-xl border border-dashed border-line bg-white p-4">
-                            <div>
-                              <div className="text-sm font-medium text-ink">为这个订单添加快递包裹</div>
-                              <div className="mt-1 text-xs text-slate-500">
-                                将按当前剩余未签收数量入包：
-                                {remainingSourceItems.map((item) => `${item.product_code} · ${item.item_name} x ${item.quantity}`).join("，")}
                               </div>
-                            </div>
-                            <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-                              <Field label="新增快递单号">
-                                <TextInput
-                                  value={packageTrackingDrafts[packageKey] ?? ""}
-                                  onChange={(event) =>
-                                    setPackageTrackingDrafts((current) => ({
-                                      ...current,
-                                      [packageKey]: event.target.value,
-                                    }))
-                                  }
-                                  placeholder="填写一个快递单号"
-                                />
-                              </Field>
-                              <button type="button" onClick={() => void handleAddPackage(order, primarySource.id, packageKey, remainingSourceItems)} className="btn-primary h-10 px-3"><Plus size={16} />保存包裹</button>
-                            </div>
+                            </>
+                          )}
+                        </div>
+
+                        <div className="grid min-w-0 content-start gap-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <h4 className="text-sm font-semibold text-ink">
+                              1688 订单与快递包裹
+                            </h4>
+                            <span className="text-xs font-semibold text-slate-500">
+                              {sourceGroups.length} 个订单
+                            </span>
                           </div>
-                        ) : sourcePackages.length === 0 ? (
-                          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                            该订单已签收，历史快递单号记录缺失；不能继续新增快递单号。
-                          </div>
-                        ) : null}
+
+                          {sourceGroups.length === 0 ? (
+                            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                              这张采购管理单没有关联 1688 订单。
+                            </div>
+                          ) : (
+                            sourceGroups.map((group) => {
+                              const primarySource = group.sources[0];
+                              if (!primarySource) return null;
+                              const sourceIdSet = new Set(group.sources.map((entry) => entry.id));
+                              const sourceUrlSet = new Set(group.urls);
+                              const packageKey = `${order.id}:${group.key}`;
+                              const sourceItems = order.items.filter((item) =>
+                                sourceIdSet.has(item.source_id) ||
+                                (!item.source_id && sourceUrlSet.has(item.purchase_url)),
+                              );
+                              const remainingSourceItems = getRemainingSourceItems(
+                                sourceItems,
+                                receivedQuantityByOrderItem,
+                              );
+                              const sourcePackages = order.packages.filter((pkg) =>
+                                sourceIdSet.has(pkg.source_id),
+                              );
+                              const pendingSourcePackages = sourcePackages.filter(
+                                (pkg) => pkg.status === "pending",
+                              );
+                              const receivedSourcePackages = sourcePackages.filter(
+                                (pkg) => pkg.status === "received",
+                              );
+                              const canAddPackage =
+                                canEdit &&
+                                order.status !== "received" &&
+                                remainingSourceItems.length > 0;
+
+                              return (
+                                <div
+                                  key={group.key}
+                                  className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3"
+                                >
+                                  <div className="grid gap-3">
+                                    <div className="min-w-0">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <span className="text-sm font-semibold text-ink">
+                                          1688 订单号
+                                        </span>
+                                        <span className="rounded-md bg-white px-2 py-1 text-sm font-semibold text-accent ring-1 ring-line">
+                                          {group.orderNo || "未填写"}
+                                        </span>
+                                      </div>
+                                      <div className="mt-2 grid gap-1">
+                                        {group.urls.map((url) => (
+                                          <div
+                                            key={url}
+                                            className="break-all text-xs text-slate-500"
+                                          >
+                                            {url}
+                                          </div>
+                                        ))}
+                                      </div>
+                                      <div className="mt-2 text-xs text-slate-500">
+                                        关联明细：{sourceItems.length} 条
+                                      </div>
+                                    </div>
+
+                                    <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_110px_auto] sm:items-end">
+                                      <Field label="1688 订单号">
+                                        <TextInput
+                                          disabled={!canEdit}
+                                          value={
+                                            sourceDrafts[primarySource.id]?.alibabaOrderNo ??
+                                            primarySource.alibaba_order_no
+                                          }
+                                          onChange={(event) =>
+                                            setSourceDrafts((current) => ({
+                                              ...current,
+                                              [primarySource.id]: {
+                                                alibabaOrderNo: event.target.value,
+                                                freightRmb:
+                                                  current[primarySource.id]?.freightRmb ??
+                                                  String(primarySource.freight_rmb),
+                                              },
+                                            }))
+                                          }
+                                        />
+                                      </Field>
+                                      <Field label="运费">
+                                        <TextInput
+                                          disabled={!canEdit}
+                                          type="number"
+                                          min="0"
+                                          step="0.01"
+                                          value={
+                                            sourceDrafts[primarySource.id]?.freightRmb ??
+                                            String(primarySource.freight_rmb)
+                                          }
+                                          onChange={(event) =>
+                                            setSourceDrafts((current) => ({
+                                              ...current,
+                                              [primarySource.id]: {
+                                                alibabaOrderNo:
+                                                  current[primarySource.id]?.alibabaOrderNo ??
+                                                  primarySource.alibaba_order_no,
+                                                freightRmb: event.target.value,
+                                              },
+                                            }))
+                                          }
+                                        />
+                                      </Field>
+                                      <button
+                                        type="button"
+                                        disabled={!canEdit}
+                                        onClick={() => void handleSaveSource(order, primarySource.id)}
+                                        className="btn-secondary h-10 px-3"
+                                      >
+                                        保存
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  <div className="rounded-lg border border-line bg-white p-3">
+                                    <div className="mb-2 text-sm font-medium text-slate-700">
+                                      该订单包含
+                                    </div>
+                                    <div className="flex max-h-24 flex-wrap gap-2 overflow-y-auto pr-1">
+                                      {sourceItems.map((item) => (
+                                        <span
+                                          key={item.id}
+                                          className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700"
+                                        >
+                                          {item.product_code} · {item.item_name} x {item.quantity}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+
+                                  {pendingSourcePackages.length > 0 && (
+                                    <div className="grid gap-2 rounded-lg border border-line bg-white p-3">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-sm font-medium text-slate-700">
+                                          已录入快递包裹
+                                        </span>
+                                        <Badge tone="neutral">待签收</Badge>
+                                      </div>
+                                      {pendingSourcePackages.map((pkg) => (
+                                        <div
+                                          key={pkg.id}
+                                          className="grid gap-2 rounded-lg border border-slate-100 bg-slate-50/80 p-2"
+                                        >
+                                          <div className="grid gap-2 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
+                                            <TextInput
+                                              disabled={!canEdit}
+                                              value={
+                                                existingPackageTrackingDrafts[pkg.id] ??
+                                                pkg.tracking_no
+                                              }
+                                              onChange={(event) =>
+                                                setExistingPackageTrackingDrafts((current) => ({
+                                                  ...current,
+                                                  [pkg.id]: event.target.value,
+                                                }))
+                                              }
+                                            />
+                                            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  openTrackingLookup(
+                                                    existingPackageTrackingDrafts[pkg.id] ??
+                                                      pkg.tracking_no,
+                                                  )
+                                                }
+                                                className="btn-secondary h-10 px-3"
+                                              >
+                                                <Search size={16} />
+                                                查询
+                                              </button>
+                                              {canEdit && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() =>
+                                                    void handleSavePackageTracking(order, pkg)
+                                                  }
+                                                  className="btn-secondary h-10 px-3"
+                                                >
+                                                  保存
+                                                </button>
+                                              )}
+                                              {canDelete && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => void handleDeletePackage(order, pkg)}
+                                                  className="btn-danger h-10 px-3"
+                                                  aria-label="删除快递包裹"
+                                                >
+                                                  <Trash2 size={16} />
+                                                  删除
+                                                </button>
+                                              )}
+                                              {canEdit && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => void handleReceivePackage(order, pkg)}
+                                                  className="btn-primary h-10 px-3"
+                                                >
+                                                  <CheckCircle2 size={16} />
+                                                  签收
+                                                </button>
+                                              )}
+                                            </div>
+                                          </div>
+                                          <div className="break-words text-xs text-slate-500">
+                                            {pkg.items
+                                              .map((packageItem) => {
+                                                const item = order.items.find(
+                                                  (entry) => entry.id === packageItem.order_item_id,
+                                                );
+                                                return item
+                                                  ? `${item.product_code} · ${item.item_name} x ${packageItem.quantity}`
+                                                  : `未知明细 x ${packageItem.quantity}`;
+                                              })
+                                              .join("，")}
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+
+                                  {receivedSourcePackages.length > 0 && (
+                                    <div className="grid gap-2 rounded-lg border border-line bg-white p-3">
+                                      <div className="text-sm font-medium text-slate-700">
+                                        已签收快递包裹
+                                      </div>
+                                      <div className="flex flex-wrap gap-2">
+                                        {receivedSourcePackages.map((pkg) => (
+                                          <span
+                                            key={pkg.id}
+                                            className="inline-flex items-center gap-2 rounded-md bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100"
+                                          >
+                                            已签收 {pkg.tracking_no}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {canAddPackage ? (
+                                    <div className="grid gap-3 rounded-lg border border-dashed border-line bg-white p-3">
+                                      <div>
+                                        <div className="text-sm font-medium text-ink">
+                                          添加快递包裹
+                                        </div>
+                                        <div className="mt-1 max-h-12 overflow-y-auto text-xs text-slate-500">
+                                          剩余入包：
+                                          {remainingSourceItems
+                                            .map(
+                                              (item) =>
+                                                `${item.product_code} · ${item.item_name} x ${item.quantity}`,
+                                            )
+                                            .join("，")}
+                                        </div>
+                                      </div>
+                                      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                                        <Field label="新增快递单号">
+                                          <TextInput
+                                            value={packageTrackingDrafts[packageKey] ?? ""}
+                                            onChange={(event) =>
+                                              setPackageTrackingDrafts((current) => ({
+                                                ...current,
+                                                [packageKey]: event.target.value,
+                                              }))
+                                            }
+                                            placeholder="填写一个快递单号"
+                                          />
+                                        </Field>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            void handleAddPackage(
+                                              order,
+                                              primarySource.id,
+                                              packageKey,
+                                              remainingSourceItems,
+                                            )
+                                          }
+                                          className="btn-primary h-10 px-3"
+                                        >
+                                          <Plus size={16} />
+                                          保存包裹
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ) : sourcePackages.length === 0 ? (
+                                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                                      该订单已签收，历史快递单号记录缺失；不能继续新增快递单号。
+                                    </div>
+                                  ) : null}
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
                       </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </section>
-            ))}
-          </div>
-        )}
-      </section>}
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      )}
     </section>
   );
 }

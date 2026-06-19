@@ -16,6 +16,7 @@ create table if not exists public.products (
   package_height_cm numeric not null default 0,
   package_weight_g numeric not null default 0,
   max_units_per_parcel integer not null default 1 check (max_units_per_parcel >= 1),
+  is_selling boolean not null default true,
   notes text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -1300,6 +1301,7 @@ create table if not exists public.temu_orders (
   actual_ship_time text not null default '',
   estimated_delivery_time text not null default '',
   actual_signed_time text not null default '',
+  actual_shipping_fee_rmb numeric not null default 0,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (owner_id, order_no, sub_order_no)

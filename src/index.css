@@ -228,6 +228,13 @@ a {
     overflow-wrap: anywhere;
   }
 
+  .data-table.orders-table th.order-fee-col,
+  .data-table.orders-table td.order-fee-col {
+    width: calc(8.5em + 1rem);
+    min-width: calc(8.5em + 1rem);
+    max-width: calc(8.5em + 1rem);
+  }
+
   .data-table.orders-table th.order-tracking-status-col,
   .data-table.orders-table td.order-tracking-status-col {
     width: calc(9em + 1rem);

@@ -48,6 +48,7 @@ export type OrderDraft = Pick<
   | "logistics_status"
   | "actual_ship_time"
   | "actual_signed_time"
+  | "actual_shipping_fee_rmb"
 >;
 
 export type OrdersDraftState = {
@@ -67,6 +68,7 @@ const orderDraftFields = [
   "logistics_status",
   "actual_ship_time",
   "actual_signed_time",
+  "actual_shipping_fee_rmb",
 ] as const satisfies readonly (keyof OrderDraft)[];
 
 const serverManagedDraftFields = [
@@ -84,6 +86,7 @@ const restoredEditableDraftFields = [
   "warehouse_id",
   "warehouse_name",
   "logistics_method",
+  "actual_shipping_fee_rmb",
 ] as const satisfies readonly (keyof OrderDraft)[];
 
 type UseOrdersResult = {
@@ -223,6 +226,7 @@ export function toDraft(order: TemuOrderRecord): OrderDraft {
     logistics_status: order.logistics_status,
     actual_ship_time: order.actual_ship_time,
     actual_signed_time: order.actual_signed_time,
+    actual_shipping_fee_rmb: order.actual_shipping_fee_rmb,
   };
 }
 
@@ -237,6 +241,7 @@ export function createEmptyDraft(): OrderDraft {
     logistics_status: "",
     actual_ship_time: "",
     actual_signed_time: "",
+    actual_shipping_fee_rmb: 0,
   };
 }
 
@@ -255,6 +260,9 @@ export function getOrdersErrorMessage(error: unknown, fallback: string) {
     const code = String(error.code);
     const message = typeof error.message === "string" ? error.message : "";
     if (code === "42703") {
+      if (message.includes("actual_shipping_fee_rmb")) {
+        return "订单管理数据库还没有新增实际运费字段，请先执行最新订单运费迁移";
+      }
       if (message.includes("sku_code")) {
         return "订单管理数据库还没有新增 SKU 货号字段，请在 Supabase SQL Editor 执行最新订单迁移以启用精准自动匹配";
       }
@@ -288,6 +296,9 @@ export function getOrdersErrorMessage(error: unknown, fallback: string) {
   }
 
   const message = getErrorMessage(error, fallback);
+  if (message.includes("actual_shipping_fee_rmb") || message.includes("实际运费")) {
+    return "订单管理数据库还没有新增实际运费字段，请先执行最新订单运费迁移";
+  }
   if (message.includes("sku_code")) {
     return "订单管理数据库还没有新增 SKU 货号字段，请在 Supabase SQL Editor 执行最新订单迁移以启用精准自动匹配";
   }
@@ -364,6 +375,7 @@ function restoreDraftForOrder(
   if (!restoredDraft) return draft;
 
   restoredEditableDraftFields.forEach((field) => {
+    if (!Object.prototype.hasOwnProperty.call(restoredDraft, field)) return;
     setDraftField(draft, field, restoredDraft[field]);
   });
   return draft;
@@ -386,7 +398,7 @@ async function loadLatestOrders() {
 }
 
 async function loadLatestProductsAndSkus() {
-  const products = await fetchProducts();
+  const products = await fetchProducts({ includeNotSelling: true });
   const productSkus = await fetchProductSkusByProductIds(
     products.map((product) => product.id),
   );
@@ -437,7 +449,7 @@ export function useOrders(user: User) {
           await Promise.all([
             loadLatestOrders(),
             fetchWarehouses(),
-            fetchProducts(),
+            fetchProducts({ includeNotSelling: true }),
             fetchLogisticsMethods(),
           ]);
         const productIds = nextProducts.map((product) => product.id);

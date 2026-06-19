@@ -32,7 +32,7 @@ import {
   type ProfitCalculationsDraft,
   type ProfitDiscountFields,
 } from "../utils/profit-discount-drafts";
-import { Badge, PageHeader, StatCard } from "../components/ui";
+import { Badge, PageHeader } from "../components/ui";
 import { isSameDraft, readDraft, useDraftPersistence } from "../hooks/use-draft-persistence";
 import { usePermissions } from "../hooks/use-permissions";
 import { addObjectSheet, createWorkbook, downloadWorkbook } from "../lib/excel";
@@ -367,6 +367,30 @@ function DiscountInput({
       value={value}
       onChange={(event) => onChange(Number(event.target.value || 0))}
     />
+  );
+}
+
+type MetricTileProps = {
+  label: string;
+  value: string;
+  tone?: "default" | "success" | "warning" | "danger";
+};
+
+function MetricTile({ label, value, tone = "default" }: MetricTileProps) {
+  const valueClass =
+    tone === "success"
+      ? "text-emerald-700"
+      : tone === "warning"
+        ? "text-amber-700"
+        : tone === "danger"
+          ? "text-rose-700"
+          : "text-slate-950";
+
+  return (
+    <div className="rounded-lg bg-slate-50 px-3 py-2">
+      <p className="text-xs font-semibold text-slate-500">{label}</p>
+      <p className={`mt-1 text-xl font-semibold tabular-nums ${valueClass}`}>{value}</p>
+    </div>
   );
 }
 
@@ -876,34 +900,78 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
         </div>
       )}
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard label="在售商品数" value={String(products.length)} />
-          <StatCard label="平均广告后利润率" value={averageProfitRate} tone="success" />
-          <StatCard label="广告后亏损商品数" value={String(negativeProfitCount)} tone={negativeProfitCount > 0 ? "danger" : "default"} />
-          <StatCard label="平均广告费" value={averageAdFee} />
+      <section className="surface-card grid gap-4 p-5">
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-base font-semibold text-slate-950">利润总览</h2>
+              <Badge tone={negativeProfitCount > 0 ? "danger" : "success"}>
+                {negativeProfitCount > 0 ? "需复核" : "稳定"}
+              </Badge>
+            </div>
+            <p className="mt-1 text-sm text-slate-500">
+              已测算商品 {reviewedProductCount} / {products.length}，基于当前折扣、ROAS 与保存的利润测算实时汇总
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:flex lg:flex-wrap lg:justify-end">
+            <button
+              type="button"
+              className="btn-secondary h-10 px-3"
+              disabled={loading || exporting || products.length === 0}
+              onClick={() => void handleExcelExport()}
+            >
+              <Download size={18} />
+              {exporting ? "下载中" : "下载表格"}
+            </button>
+            <Link to="/profit-calculation/recommendations" className="btn-secondary h-10 px-3">
+              <Megaphone size={18} />
+              促销投放推荐
+            </Link>
+            <Link to="/profit-calculation/standard-shipping" className="btn-secondary h-10 px-3">
+              <Calculator size={18} />
+              多件发货测算
+            </Link>
+          </div>
         </div>
 
-        <div className="erp-dashboard-panel grid gap-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h2 className="text-base font-semibold text-slate-950">利润健康度</h2>
-              <p className="mt-1 text-sm text-slate-500">
-                已测算商品 {reviewedProductCount} / {products.length}
-              </p>
-            </div>
-            <Badge tone={negativeProfitCount > 0 ? "danger" : "success"}>
-              {negativeProfitCount > 0 ? "需复核" : "稳定"}
-            </Badge>
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(260px,320px)]">
+          <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+            <MetricTile label="在售商品" value={String(products.length)} />
+            <MetricTile label="平均利润率" value={averageProfitRate} tone="success" />
+            <MetricTile
+              label="广告后亏损"
+              value={String(negativeProfitCount)}
+              tone={negativeProfitCount > 0 ? "danger" : "default"}
+            />
+            <MetricTile label="平均广告费" value={averageAdFee} />
+            <MetricTile label="平均最终售价" value={averageFinalPrice} />
+            <MetricTile
+              label="测算覆盖率"
+              value={
+                products.length > 0
+                  ? `${((reviewedProductCount / products.length) * 100).toFixed(1)}%`
+                  : "--"
+              }
+            />
+            <MetricTile label="低利润观察" value={String(warningProfitCount)} tone="warning" />
+            <MetricTile label="健康商品" value={String(healthyProfitCount)} tone="success" />
           </div>
-          <div className="grid gap-3">
+
+          <div className="grid content-start gap-3 rounded-lg bg-slate-50 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold text-slate-950">利润健康度</h3>
+              <span className="text-xs font-semibold text-slate-500">
+                {reviewedProductCount} / {products.length}
+              </span>
+            </div>
             {riskRows.map((row) => (
               <div key={row.label} className="grid gap-1">
                 <div className="flex items-center justify-between text-xs font-semibold text-slate-600">
                   <span>{row.label}</span>
                   <span>{row.value}</span>
                 </div>
-                <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                <div className="h-2 overflow-hidden rounded-full bg-white">
                   <div
                     className={`h-full rounded-full ${row.className}`}
                     style={{ width: `${Math.max(4, (row.value / maxRiskValue) * 100)}%` }}
@@ -912,65 +980,6 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
               </div>
             ))}
           </div>
-        </div>
-      </section>
-
-      <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="erp-dashboard-panel">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="text-base font-semibold text-slate-950">经营指标总览</h2>
-              <p className="mt-1 text-sm text-slate-500">
-                基于当前商品、折扣、ROAS 与保存的利润测算实时汇总
-              </p>
-            </div>
-            <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-right">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">平均最终售价</p>
-              <p className="mt-1 text-lg font-semibold text-slate-950">{averageFinalPrice}</p>
-            </div>
-          </div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-3">
-            <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-              <p className="text-xs font-semibold text-slate-500">测算覆盖率</p>
-              <p className="mt-2 text-xl font-semibold text-slate-950">
-                {products.length > 0 ? `${((reviewedProductCount / products.length) * 100).toFixed(1)}%` : "--"}
-              </p>
-            </div>
-            <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-              <p className="text-xs font-semibold text-slate-500">低利润观察</p>
-              <p className="mt-2 text-xl font-semibold text-amber-700">{warningProfitCount}</p>
-            </div>
-            <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-              <p className="text-xs font-semibold text-slate-500">健康商品</p>
-              <p className="mt-2 text-xl font-semibold text-emerald-700">{healthyProfitCount}</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="erp-dashboard-panel">
-          <h2 className="text-base font-semibold text-slate-950">操作中心</h2>
-          <div className="mt-3 grid gap-2">
-            <button
-              type="button"
-              className="btn-secondary w-full justify-start"
-              disabled={loading || exporting || products.length === 0}
-              onClick={() => void handleExcelExport()}
-            >
-              <Download size={18} />
-              {exporting ? "下载中" : "下载表格"}
-            </button>
-            <Link to="/profit-calculation/recommendations" className="btn-secondary w-full justify-start">
-              <Megaphone size={18} />
-              促销投放推荐
-            </Link>
-            <Link to="/profit-calculation/standard-shipping" className="btn-secondary w-full justify-start">
-              <Calculator size={18} />
-              多件正常发货测算
-            </Link>
-          </div>
-          <p className="mt-3 text-xs leading-5 text-slate-500">
-            表格中的折扣、ROAS 与保存操作保持原功能。多件正常发货测算会先选择商品，再进入 SKU 明细。
-          </p>
         </div>
       </section>
 
@@ -1161,66 +1170,70 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
         )}
       </div>
 
-      <div className="erp-toolbar hidden items-center justify-between gap-3 md:flex">
-        <div>
-          <h2 className="text-base font-semibold text-slate-950">商品利润明细</h2>
-          <p className="mt-1 text-sm text-slate-500">
-            高密度 ERP 数据表，可排序、筛选并直接编辑折扣参数
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <input
-            aria-label="商品编号或商品名筛选"
-            className="h-9 w-56 rounded-md border border-slate-300 bg-white px-2 text-sm font-medium text-slate-700 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15"
-            type="search"
-            placeholder="输入商品编号或商品名"
-            value={productSearchTerm}
-            onChange={(event) => setProductSearchTerm(event.target.value)}
-          />
-          <span className="text-xs font-semibold text-slate-600">活动折扣筛选</span>
-          <div className="flex items-center gap-1 text-xs font-semibold text-slate-600">
-            <input
-              aria-label="活动折扣最小值"
-              className="h-9 w-20 rounded-md border border-slate-300 bg-white px-2 text-sm font-medium text-slate-700 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15"
-              min="0"
-              max="10"
-              step="0.01"
-              type="number"
-              placeholder="最小"
-              value={customActivityDiscountMin}
-              onChange={(event) => setCustomActivityDiscountMin(event.target.value)}
-            />
-            <span>-</span>
-            <input
-              aria-label="活动折扣最大值"
-              className="h-9 w-20 rounded-md border border-slate-300 bg-white px-2 text-sm font-medium text-slate-700 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15"
-              min="0"
-              max="10"
-              step="0.01"
-              type="number"
-              placeholder="最大"
-              value={customActivityDiscountMax}
-              onChange={(event) => setCustomActivityDiscountMax(event.target.value)}
-            />
+      <section className="surface-card hidden gap-3 p-4 md:grid">
+        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
+          <div>
+            <h2 className="text-base font-semibold text-slate-950">商品利润明细</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              可排序、筛选并直接编辑折扣参数，当前显示 {sortedProducts.length} / {products.length}
+            </p>
           </div>
-          {(productSearchTerm || customActivityDiscountMin || customActivityDiscountMax) && (
-            <button
-              type="button"
-              className="btn-secondary h-9 px-3"
-              onClick={() => {
-                setProductSearchTerm("");
-                setCustomActivityDiscountMin("");
-                setCustomActivityDiscountMax("");
-              }}
-            >
-              清除筛选
-            </button>
-          )}
-          <span className="text-xs font-semibold text-slate-500">
-            显示 {sortedProducts.length} / {products.length}
-          </span>
+          <div className="grid gap-2 lg:grid-cols-[minmax(240px,320px)_auto_auto] lg:items-end">
+            <label className="grid gap-1 text-xs font-semibold text-slate-600">
+              <span>商品筛选</span>
+              <input
+                aria-label="商品编号或商品名筛选"
+                className="h-10 rounded-xl border border-line bg-white px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
+                type="search"
+                placeholder="商品编号或商品名"
+                value={productSearchTerm}
+                onChange={(event) => setProductSearchTerm(event.target.value)}
+              />
+            </label>
+            <div className="grid gap-1">
+              <span className="text-xs font-semibold text-slate-600">活动折扣</span>
+              <div className="grid grid-cols-[88px_auto_88px] items-center gap-2">
+                <input
+                  aria-label="活动折扣最小值"
+                  className="h-10 rounded-xl border border-line bg-white px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
+                  min="0"
+                  max="10"
+                  step="0.01"
+                  type="number"
+                  placeholder="最小"
+                  value={customActivityDiscountMin}
+                  onChange={(event) => setCustomActivityDiscountMin(event.target.value)}
+                />
+                <span className="text-xs font-semibold text-slate-500">到</span>
+                <input
+                  aria-label="活动折扣最大值"
+                  className="h-10 rounded-xl border border-line bg-white px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
+                  min="0"
+                  max="10"
+                  step="0.01"
+                  type="number"
+                  placeholder="最大"
+                  value={customActivityDiscountMax}
+                  onChange={(event) => setCustomActivityDiscountMax(event.target.value)}
+                />
+              </div>
+            </div>
+            {(productSearchTerm || customActivityDiscountMin || customActivityDiscountMax) && (
+              <button
+                type="button"
+                className="btn-secondary h-10 px-3"
+                onClick={() => {
+                  setProductSearchTerm("");
+                  setCustomActivityDiscountMin("");
+                  setCustomActivityDiscountMax("");
+                }}
+              >
+                清除筛选
+              </button>
+            )}
+          </div>
         </div>
-      </div>
+      </section>
 
       <div className="table-card hidden md:block">
         <div className="overflow-x-auto">

@@ -50,6 +50,7 @@ function buildProduct(overrides: Partial<Product> = {}): Product {
     package_height_cm: 2,
     package_weight_g: 50,
     max_units_per_parcel: 5,
+    is_selling: true,
     notes: "",
     created_at: "",
     updated_at: "",

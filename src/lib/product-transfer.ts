@@ -6,6 +6,16 @@ type ValidationResult = {
   errors: string[];
 };
 
+function parseSellingStatus(value: unknown) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+
+  const text = String(value ?? "").trim().toLowerCase();
+  if (!text) return true;
+
+  return !["0", "false", "no", "n", "否", "不售卖", "停售", "下架"].includes(text);
+}
+
 export function validateTransferRecords(data: unknown): data is ProductTransferRecord[] {
   if (!Array.isArray(data)) return false;
 
@@ -88,6 +98,7 @@ export async function buildWorkbook(records: ProductTransferRecord[]) {
     package_height_cm: record.package_height_cm,
     package_weight_g: record.package_weight_g,
     max_units_per_parcel: record.max_units_per_parcel,
+    is_selling: record.is_selling,
     notes: record.notes,
   }));
   const itemRows = records.flatMap((record, product_index) =>
@@ -247,6 +258,7 @@ export async function parseTransferFile(file: File) {
       material_en: String(productFields.material_en ?? ""),
       material_cn: String(productFields.material_cn ?? ""),
       max_units_per_parcel: Number(productFields.max_units_per_parcel ?? 1),
+      is_selling: parseSellingStatus(productFields.is_selling),
       items: items
         .filter((itemRec) => Number((itemRec as Record<string, any>).product_index) === productIndex)
         .map((itemRec) => {

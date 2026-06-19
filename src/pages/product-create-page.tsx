@@ -41,6 +41,7 @@ function createInitialProductDraft(): ProductCreateDraft {
 function isProductCreateDraftEmpty(draft: ProductCreateDraft) {
   const productIsEmpty = Object.entries(draft.product).every(([key, value]) => {
     if (key === "max_units_per_parcel") return Number(value) === 1;
+    if (key === "is_selling") return value !== false;
     if (typeof value === "number") return value === 0;
     return !String(value ?? "").trim();
   });

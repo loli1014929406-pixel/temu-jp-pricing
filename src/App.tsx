@@ -6,6 +6,7 @@ import { useAuth } from "./hooks/use-auth";
 import { PermissionGate, PermissionProvider } from "./hooks/use-permissions";
 import { AuthPage } from "./pages/auth-page";
 import { DeclarationPricesPage } from "./pages/declaration-prices-page";
+import { FinancePage, type FinanceView } from "./pages/finance-page";
 import { InventoryPage } from "./pages/inventory-page";
 import { InventoryTransferPage } from "./pages/inventory-transfer-page";
 import { OrdersPage } from "./pages/orders-page";
@@ -33,6 +34,17 @@ function NotFoundPage() {
     </section>
   );
 }
+
+const financeRoutes: Array<{ path: string; view: FinanceView }> = [
+  { path: "/finance", view: "overview" },
+  { path: "/finance/cashflow", view: "cashflow" },
+  { path: "/finance/orders", view: "orders" },
+  { path: "/finance/purchases", view: "purchases" },
+  { path: "/finance/expenses", view: "expenses" },
+  { path: "/finance/monthly-profit", view: "monthly-profit" },
+  { path: "/finance/product-profit", view: "product-profit" },
+  { path: "/finance/reconciliation", view: "reconciliation" },
+];
 
 export default function App() {
   const { user, loading } = useAuth();
@@ -64,6 +76,13 @@ export default function App() {
               ) : null
             }
           />
+          {financeRoutes.map((route) => (
+            <Route
+              key={route.path}
+              path={route.path}
+              element={user ? <FinancePage user={user} view={route.view} /> : null}
+            />
+          ))}
           <Route
             path="/products/new"
             element={

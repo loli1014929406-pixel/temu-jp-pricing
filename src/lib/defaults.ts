@@ -123,6 +123,7 @@ export const emptyProductDraft: ProductDraft = {
   package_height_cm: 0,
   package_weight_g: 0,
   max_units_per_parcel: 1,
+  is_selling: true,
   notes: "",
 };
 

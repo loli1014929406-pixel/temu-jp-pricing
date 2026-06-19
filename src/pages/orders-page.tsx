@@ -266,6 +266,7 @@ const visibleColumns = [
   { key: "delivery_deadline", label: "签收时效", className: "order-time-col", sortable: true },
   { key: "warehouse", label: "仓库" },
   { key: "logistics", label: "发货方式" },
+  { key: "actual_shipping_fee_rmb", label: "实际运费", className: "order-fee-col" },
   { key: "quantity", label: "数量" },
   { key: "product", label: "商品信息", className: "order-product-col", sortable: true },
   { key: "sales_spec", label: "销售规格", className: "order-attr-col" },
@@ -1109,12 +1110,22 @@ function compareOptionalNumber(left: number | null, right: number | null) {
   return left - right;
 }
 
+function normalizeRmbAmount(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Number(value.toFixed(2)));
+}
+
+function formatRmbAmount(value: number) {
+  return `¥${normalizeRmbAmount(value).toFixed(2)}`;
+}
+
 type OrderTableRowProps = {
   activeStage: OrderStage;
   canEdit: boolean;
   currentTime: Date;
   logisticsMethods: LogisticsMethod[];
   onHandleWarehouseChangeForOrders: (orderIds: string[], warehouseId: string) => void;
+  onSaveActualShippingFeeForOrders: (targetOrders: TemuOrderRecord[]) => Promise<void>;
   onSaveActualShipTimeForOrders: (targetOrders: TemuOrderRecord[]) => Promise<void>;
   onToggleOrderRowSelection: (rowOrderIds: string[], checked: boolean) => void;
   onUpdateDraftForOrders: <K extends keyof OrderDraft>(
@@ -1140,6 +1151,7 @@ const OrderTableRow = memo(function OrderTableRow({
   currentTime,
   logisticsMethods,
   onHandleWarehouseChangeForOrders,
+  onSaveActualShippingFeeForOrders,
   onSaveActualShipTimeForOrders,
   onToggleOrderRowSelection,
   onUpdateDraftForOrders,
@@ -1356,6 +1368,32 @@ const OrderTableRow = memo(function OrderTableRow({
           <span className="text-sm font-medium text-slate-700">
             {normalizedDraftLogisticsMethod || "未分配"}
           </span>
+        )}
+      </td>
+      <td className="order-fee-col">
+        {canEdit ? (
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={draft.actual_shipping_fee_rmb ?? 0}
+            onChange={(event) =>
+              onUpdateDraftForOrders(
+                rowOrderIds,
+                "actual_shipping_fee_rmb",
+                normalizeRmbAmount(Number(event.target.value || 0)),
+              )
+            }
+            onBlur={() => void onSaveActualShippingFeeForOrders(rowOrders)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.currentTarget.blur();
+              }
+            }}
+            className="h-9 w-28 rounded-md border border-line bg-white px-2 text-sm tabular-nums outline-none focus:border-accent"
+          />
+        ) : (
+          <span className="money">{formatRmbAmount(mergedOrder.actual_shipping_fee_rmb)}</span>
         )}
       </td>
       <td className="number-cell">{rowQuantity}</td>
@@ -2396,6 +2434,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
       ["实际发货时间", merged.actual_ship_time],
       ["预计送达时间", merged.estimated_delivery_time],
       ["实际签收时间", merged.actual_signed_time],
+      ["实际运费", formatRmbAmount(merged.actual_shipping_fee_rmb)],
       ["发货仓库", merged.warehouse_name || "未分配"],
       ["发货方式", normalizeLogisticsMethod(merged.logistics_method) || "未分配"],
       ["物流单号", merged.logistics_tracking_no],
@@ -2759,6 +2798,29 @@ export function OrdersPage({ user }: OrdersPageProps) {
     };
   }
 
+  function sanitizeOrderUpdatesForSave(
+    order: TemuOrderRecord,
+    updates: Parameters<typeof updateTemuOrder>[1],
+  ) {
+    const sanitizedUpdates = { ...updates };
+    if (
+      Object.prototype.hasOwnProperty.call(
+        sanitizedUpdates,
+        "actual_shipping_fee_rmb",
+      )
+    ) {
+      const nextFee = normalizeRmbAmount(
+        Number(sanitizedUpdates.actual_shipping_fee_rmb ?? 0),
+      );
+      if (nextFee === normalizeRmbAmount(order.actual_shipping_fee_rmb)) {
+        delete sanitizedUpdates.actual_shipping_fee_rmb;
+      } else {
+        sanitizedUpdates.actual_shipping_fee_rmb = nextFee;
+      }
+    }
+    return sanitizedUpdates;
+  }
+
   async function saveOrderEntriesWithInventory(
     entries: Array<{
       order: TemuOrderRecord;
@@ -2872,7 +2934,10 @@ export function OrdersPage({ user }: OrdersPageProps) {
           );
         }
 
-        const nextOrder = await updateTemuOrder(entry.order.id, entry.updates);
+        const nextOrder = await updateTemuOrder(
+          entry.order.id,
+          sanitizeOrderUpdatesForSave(entry.order, entry.updates),
+        );
         nextOrders.push(nextOrder);
         inventoryChanges.push(...entryRestoredChanges);
         restoredInventoryChanges.push(...entryRestoredChanges);
@@ -3049,8 +3114,108 @@ export function OrdersPage({ user }: OrdersPageProps) {
     }
   }
 
+  async function handleMoveSelectedPendingShippingOrdersToNewOrder() {
+    if (!canEdit) {
+      setErrorMessage("当前账号没有编辑权限，不能退回订单。");
+      return;
+    }
+    if (selectedPendingShippingOrdersInView.length === 0) {
+      setNoticeMessage("请先勾选要退回新订单的待发货订单。");
+      return;
+    }
+
+    const targetOrders = selectedPendingShippingOrdersInView.map((order) => mergeOrderDraft(order));
+    const targetIds = new Set(targetOrders.map((order) => order.id));
+
+    setBusyKey("pending-shipping-to-new-order");
+    setErrorMessage("");
+    setNoticeMessage("");
+
+    try {
+      const saveEntries = targetOrders.map((order) => {
+        const updates = {
+          order_status: "新订单",
+          warehouse_id: order.warehouse_id,
+          warehouse_name: order.warehouse_name,
+          logistics_method: order.logistics_method,
+          label_printed_at: "",
+          logistics_tracking_no: "",
+          logistics_status: "",
+          actual_ship_time: "",
+          actual_signed_time: "",
+        };
+
+        return {
+          order,
+          updates,
+          nextOrder: { ...order, ...updates },
+        };
+      });
+      const { nextOrders, failures } = await saveOrderEntriesWithInventory(saveEntries);
+      if (nextOrders.length === 0 && failures.length > 0) {
+        throw failures[0].error;
+      }
+
+      updateOrdersState(nextOrders);
+      clearDrafts(Array.from(targetIds));
+      setSelectedOrderIds((current) => current.filter((id) => !targetIds.has(id)));
+      setActiveStage("new_order");
+      setNoticeMessage(
+        [
+          `已退回新订单 ${buildOrderDisplayRows(nextOrders).length} 行订单`,
+          failures.length > 0 ? `${failures.length} 条退回失败` : "",
+        ].filter(Boolean).join("，"),
+      );
+    } catch (error) {
+      setErrorMessage(getOrdersErrorMessage(error, "退回新订单失败"));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
   async function handleSaveActualShipTime(order: TemuOrderRecord) {
     await handleSaveActualShipTimeForOrders([order]);
+  }
+
+  async function handleSaveActualShippingFeeForOrders(targetOrders: TemuOrderRecord[]) {
+    if (!canEdit) return;
+
+    const changedOrders = targetOrders.filter((order) => {
+      const nextFee = normalizeRmbAmount(
+        (drafts[order.id] ?? toDraft(order)).actual_shipping_fee_rmb ?? 0,
+      );
+      return nextFee !== normalizeRmbAmount(order.actual_shipping_fee_rmb);
+    });
+    if (changedOrders.length === 0) return;
+
+    setBusyKey(`actual-shipping-fee-${changedOrders.map((order) => order.id).join("|")}`);
+    setErrorMessage("");
+
+    try {
+      const saveEntries = changedOrders.map((order) => {
+        const updates = {
+          actual_shipping_fee_rmb: normalizeRmbAmount(
+            (drafts[order.id] ?? toDraft(order)).actual_shipping_fee_rmb ?? 0,
+          ),
+        };
+        return { order, updates, nextOrder: { ...order, ...updates } };
+      });
+      const { nextOrders, failures } = await saveOrderEntriesWithInventory(saveEntries);
+      if (nextOrders.length === 0 && failures.length > 0) {
+        throw failures[0].error;
+      }
+      updateOrdersState(nextOrders);
+      setNoticeMessage(
+        [
+          `已保存 ${nextOrders.length} 条订单的实际运费`,
+          failures.length > 0 ? `${failures.length} 条保存失败` : "",
+        ].filter(Boolean).join("，"),
+      );
+    } catch (error) {
+      setErrorMessage(getOrdersErrorMessage(error, "保存实际运费失败"));
+    } finally {
+      setBusyKey("");
+    }
   }
 
   async function handleSaveActualShipTimeForOrders(targetOrders: TemuOrderRecord[]) {
@@ -4003,6 +4168,12 @@ export function OrdersPage({ user }: OrdersPageProps) {
     }
   }
 
+  const activeStageMeta = getStageDefinition(activeStage);
+  const activeOrderViewLabel = showUrgentUnuploadedOnly
+    ? "即将逾期未发货"
+    : activeStageMeta.label;
+  const activeOrderViewTone = showUrgentUnuploadedOnly ? "danger" : activeStageMeta.tone;
+
   return (
     <section className="grid gap-5">
       <PageHeader
@@ -4087,19 +4258,23 @@ export function OrdersPage({ user }: OrdersPageProps) {
       />
 
       <section className="surface-card grid gap-4 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-sm font-semibold text-ink">
-            <FileSpreadsheet size={18} />
-            Temu 订单数据
-            <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-500">
-              {showUrgentUnuploadedOnly
-                ? "即将逾期未发货"
-                : getStageDefinition(activeStage).label}{" "}
-              {filteredOrderRows.length}
+        <div className="grid gap-3 border-b border-slate-100 pb-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
+          <div className="flex min-w-0 flex-wrap items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600">
+              <FileSpreadsheet size={18} />
             </span>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-base font-semibold text-slate-900">Temu 订单数据</h2>
+                <Badge tone={activeOrderViewTone}>{activeOrderViewLabel}</Badge>
+              </div>
+              <p className="mt-1 text-sm font-medium text-slate-500">
+                当前显示 {filteredOrderRows.length} 行，覆盖 {filteredOrders.length} 个订单
+              </p>
+            </div>
           </div>
-          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-            {canEdit && isShippingTrackingStage(activeStage) && shippedOrdersWithTrackingInView.length > 0 && (
+          {canEdit && isShippingTrackingStage(activeStage) && shippedOrdersWithTrackingInView.length > 0 && (
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto xl:justify-end">
               <button
                 type="button"
                 disabled={busyKey === "tracking-status-refresh" || busyKey === "tracking-status-auto"}
@@ -4114,8 +4289,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
                 <RefreshCw size={18} />
                 查询物流状态
               </button>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
         <OrderBulkActions
@@ -4146,6 +4321,9 @@ export function OrdersPage({ user }: OrdersPageProps) {
           }}
           onMoveNewOrdersToPendingAssignment={() =>
             void handleMoveSelectedNewOrdersToPendingAssignment()
+          }
+          onMovePendingShippingOrdersToNewOrder={() =>
+            void handleMoveSelectedPendingShippingOrdersToNewOrder()
           }
           onMoveNewOrdersToPendingShipping={() =>
             void handleMoveNewOrdersToPendingShipping(
@@ -4191,13 +4369,17 @@ export function OrdersPage({ user }: OrdersPageProps) {
         />
 
         {loading ? (
-          <div className="text-sm text-slate-500">加载中...</div>
+          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-8 text-center text-sm text-slate-500">
+            加载中...
+          </div>
         ) : filteredOrderRows.length === 0 ? (
-          <div className="empty-state">暂无订单数据</div>
+          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-8 text-center text-sm font-medium text-slate-500">
+            暂无订单数据
+          </div>
         ) : (
           <div className="table-card shadow-none">
             <div className="overflow-x-auto">
-              <table className="data-table orders-table min-w-[1900px]">
+              <table className="data-table orders-table min-w-[2020px]">
                 <thead>
                   <tr>
                     <th className="w-12 text-center" scope="col">
@@ -4242,6 +4424,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
                       currentTime={currentTime}
                       logisticsMethods={logisticsMethods}
                       onHandleWarehouseChangeForOrders={handleWarehouseChangeForOrders}
+                      onSaveActualShippingFeeForOrders={handleSaveActualShippingFeeForOrders}
                       onSaveActualShipTimeForOrders={handleSaveActualShipTimeForOrders}
                       onToggleOrderRowSelection={toggleOrderRowSelection}
                       onUpdateDraftForOrders={updateDraftForOrders}

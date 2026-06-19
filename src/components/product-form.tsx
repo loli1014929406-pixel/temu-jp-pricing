@@ -307,6 +307,15 @@ export function ProductForm({
               onChange={(event) => updateProduct("material_cn", event.target.value)}
             />
           </Field>
+          <label className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm font-semibold text-slate-700">
+            <input
+              type="checkbox"
+              checked={product.is_selling}
+              onChange={(event) => updateProduct("is_selling", event.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+            />
+            售卖中
+          </label>
         </div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Field label="包装长 cm">

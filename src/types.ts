@@ -14,6 +14,7 @@ export type Product = {
   package_height_cm: number;
   package_weight_g: number;
   max_units_per_parcel: number;
+  is_selling: boolean;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -376,6 +377,7 @@ export type TemuOrderRecord = {
   actual_ship_time: string;
   estimated_delivery_time: string;
   actual_signed_time: string;
+  actual_shipping_fee_rmb: number;
   created_at: string;
   updated_at: string;
 };

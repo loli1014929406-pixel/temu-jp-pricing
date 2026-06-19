@@ -53,8 +53,18 @@ const textOrderFields = [
   "updated_at",
 ] as const;
 
-const temuOrderSelectFields =
+const temuOrderLegacySelectFields =
   "id, owner_id, order_no, sub_order_no, order_status, sku_code, warehouse_name, logistics_method, label_printed_at, logistics_tracking_no, logistics_status, product_attributes, recipient_name, recipient_phone, email, province, city, district, address_line1, address_line2, postal_code, latest_ship_time, actual_ship_time, estimated_delivery_time, actual_signed_time, created_at, updated_at, warehouse_id, fulfillment_quantity";
+
+const temuOrderSelectFields = `${temuOrderLegacySelectFields}, actual_shipping_fee_rmb`;
+
+function isMissingActualShippingFeeColumnError(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const maybeError = error as { code?: unknown; message?: unknown };
+  const code = String(maybeError.code ?? "");
+  const message = String(maybeError.message ?? "");
+  return code === "42703" && message.includes("actual_shipping_fee_rmb");
+}
 
 function normalizeLogisticsMethod(value: string) {
   const text = value.trim();
@@ -116,13 +126,17 @@ function getOrderLineSkuKey(
 function normalizeTemuOrder(row: Partial<TemuOrderRecord>): TemuOrderRecord {
   const normalized = Object.fromEntries(
     textOrderFields.map((field) => [field, String(row[field] ?? "")]),
-  ) as Omit<TemuOrderRecord, "fulfillment_quantity" | "warehouse_id">;
+  ) as Omit<
+    TemuOrderRecord,
+    "fulfillment_quantity" | "warehouse_id" | "actual_shipping_fee_rmb"
+  >;
 
   return {
     ...normalized,
     logistics_method: normalizeLogisticsMethod(normalized.logistics_method),
     warehouse_id: row.warehouse_id ?? null,
     fulfillment_quantity: Number(row.fulfillment_quantity ?? 0),
+    actual_shipping_fee_rmb: Number(row.actual_shipping_fee_rmb ?? 0),
   };
 }
 
@@ -137,6 +151,19 @@ export async function fetchTemuOrders() {
       .order("created_at", { ascending: false }),
     "加载订单",
   );
+  if (error && isMissingActualShippingFeeColumnError(error)) {
+    const { data: legacyData, error: legacyError } = await withTimeout(
+      supabase
+        .from("temu_orders")
+        .select(temuOrderLegacySelectFields)
+        .eq("owner_id", session.user.id)
+        .order("latest_ship_time", { ascending: true })
+        .order("created_at", { ascending: false }),
+      "加载订单",
+    );
+    if (legacyError) throw legacyError;
+    return ((legacyData ?? []) as Partial<TemuOrderRecord>[]).map(normalizeTemuOrder);
+  }
   if (error) throw error;
   return ((data ?? []) as Partial<TemuOrderRecord>[]).map(normalizeTemuOrder);
 }
@@ -218,6 +245,20 @@ export async function importTemuOrders(rows: TemuOrderImportRow[]) {
   );
   if (error) {
     const message = String(error.message ?? "");
+    if (isMissingActualShippingFeeColumnError(error)) {
+      const { data: legacyData, error: legacyError } = await withTimeout(
+        supabase
+          .from("temu_orders")
+          .upsert(payload, {
+            onConflict: "owner_id,order_no,sub_order_no",
+            ignoreDuplicates: true,
+          })
+          .select(temuOrderLegacySelectFields),
+        "导入订单",
+      );
+      if (legacyError) throw legacyError;
+      return ((legacyData ?? []) as Partial<TemuOrderRecord>[]).map(normalizeTemuOrder);
+    }
     if (message.includes("sku_code")) {
       const legacyPayload = payload.map(({ sku_code, ...row }) => {
         void sku_code;
@@ -230,7 +271,7 @@ export async function importTemuOrders(rows: TemuOrderImportRow[]) {
             onConflict: "owner_id,order_no,sub_order_no",
             ignoreDuplicates: true,
           })
-          .select(temuOrderSelectFields),
+          .select(temuOrderLegacySelectFields),
         "导入订单",
       );
       if (legacyError) throw legacyError;
@@ -255,6 +296,7 @@ export async function updateTemuOrder(
       | "logistics_status"
       | "actual_ship_time"
       | "actual_signed_time"
+      | "actual_shipping_fee_rmb"
     >
   >,
 ) {
@@ -276,6 +318,23 @@ export async function updateTemuOrder(
       .single(),
     "更新订单",
   );
+  if (error && isMissingActualShippingFeeColumnError(error)) {
+    if (Object.prototype.hasOwnProperty.call(updates, "actual_shipping_fee_rmb")) {
+      throw new Error("订单数据库还没有新增“实际运费”字段，请先执行最新订单迁移。");
+    }
+    const { data: legacyData, error: legacyError } = await withTimeout(
+      supabase
+        .from("temu_orders")
+        .update(normalizedUpdates)
+        .eq("id", orderId)
+        .eq("owner_id", session.user.id)
+        .select(temuOrderLegacySelectFields)
+        .single(),
+      "更新订单",
+    );
+    if (legacyError) throw legacyError;
+    return normalizeTemuOrder(legacyData as Partial<TemuOrderRecord>);
+  }
   if (error) throw error;
   return normalizeTemuOrder(data as Partial<TemuOrderRecord>);
 }

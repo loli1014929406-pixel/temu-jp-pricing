@@ -36,6 +36,7 @@ type OrderBulkActionsProps = {
   onClearSelection: () => void;
   onShowSelectedDetail: () => void;
   onMoveNewOrdersToPendingAssignment: () => void;
+  onMovePendingShippingOrdersToNewOrder: () => void;
   onMoveNewOrdersToPendingShipping: () => void;
   onSaveSelectedOrders: () => void;
   onDownloadShippingTable: () => void;
@@ -74,6 +75,7 @@ export function OrderBulkActions({
   onClearSelection,
   onShowSelectedDetail,
   onMoveNewOrdersToPendingAssignment,
+  onMovePendingShippingOrdersToNewOrder,
   onMoveNewOrdersToPendingShipping,
   onSaveSelectedOrders,
   onDownloadShippingTable,
@@ -89,15 +91,15 @@ export function OrderBulkActions({
   return (
     <>
       {selectedOrderLineInViewCount > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3">
-          <span className="text-sm font-semibold text-slate-900">
+        <div className="grid gap-3 rounded-xl border border-violet-100 bg-violet-50/50 p-3 lg:grid-cols-[auto_minmax(0,1fr)] lg:items-center">
+          <span className="inline-flex h-9 w-fit items-center rounded-lg bg-white px-3 text-sm font-semibold text-slate-900 ring-1 ring-violet-100">
             已选 {selectedInViewCount || selectedOrderLineInViewCount}
             {selectedInViewCount > 0 ? " 行" : " 条明细"}
             {selectedInViewCount > 0 && selectedOrderLineInViewCount !== selectedInViewCount
               ? `（${selectedOrderLineInViewCount} 条明细）`
               : ""}
           </span>
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2 lg:justify-end">
             <button
               type="button"
               disabled={Boolean(busyKey)}
@@ -152,15 +154,26 @@ export function OrderBulkActions({
             {canEdit &&
               activeStage === "pending_shipping" &&
               selectedPendingShippingOrdersInViewCount > 0 && (
-                <button
-                  type="button"
-                  disabled={busyKey === "download-shipping-table"}
-                  onClick={onDownloadShippingTable}
-                  className="btn-secondary h-9 px-3"
-                >
-                  <Download size={16} />
-                  下载发货表格（{selectedPendingShippingRowCount}）
-                </button>
+                <>
+                  <button
+                    type="button"
+                    disabled={busyKey === "pending-shipping-to-new-order"}
+                    onClick={onMovePendingShippingOrdersToNewOrder}
+                    className="btn-secondary h-9 px-3"
+                  >
+                    <ArrowLeft size={16} />
+                    退回新订单（{selectedPendingShippingRowCount}）
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busyKey === "download-shipping-table"}
+                    onClick={onDownloadShippingTable}
+                    className="btn-secondary h-9 px-3"
+                  >
+                    <Download size={16} />
+                    下载发货表格（{selectedPendingShippingRowCount}）
+                  </button>
+                </>
               )}
             {canEdit && canManageSelectedShippedOrders && (
               <>
@@ -214,18 +227,18 @@ export function OrderBulkActions({
       )}
 
       {canEdit && activeStage === "pending_assignment" && (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3 lg:grid-cols-[auto_auto_minmax(160px,220px)_minmax(200px,260px)_auto_auto] lg:items-center">
           <span className="text-sm font-semibold text-slate-700">批量分配</span>
           <span className="rounded-md bg-white px-2.5 py-1 text-xs font-semibold text-slate-500 ring-1 ring-slate-200">
             已选 {selectedInViewCount}
           </span>
-          <label className="flex items-center gap-2 text-sm font-medium text-slate-600">
+          <label className="flex min-w-0 items-center gap-2 text-sm font-medium text-slate-600">
             <span>仓库</span>
             <select
               value={bulkWarehouseId}
               disabled={busyKey === "bulk-assign"}
               onChange={(event) => onBulkWarehouseChange(event.target.value)}
-              className="h-10 min-w-40 rounded-md border border-line bg-white px-2 text-sm outline-none focus:border-accent"
+              className="h-10 min-w-0 flex-1 rounded-md border border-line bg-white px-2 text-sm outline-none focus:border-accent"
             >
               <option value="">不修改仓库</option>
               {warehouses.map((warehouse) => (
@@ -235,13 +248,13 @@ export function OrderBulkActions({
               ))}
             </select>
           </label>
-          <label className="flex items-center gap-2 text-sm font-medium text-slate-600">
-            <span>发货方式</span>
+          <label className="flex min-w-0 items-center gap-2 text-sm font-medium text-slate-600">
+            <span className="shrink-0">发货方式</span>
             <select
               value={bulkLogisticsMethod}
               disabled={busyKey === "bulk-assign"}
               onChange={(event) => onBulkLogisticsMethodChange(event.target.value)}
-              className="h-10 min-w-44 rounded-md border border-line bg-white px-3 text-sm outline-none focus:border-accent"
+              className="h-10 min-w-0 flex-1 rounded-md border border-line bg-white px-3 text-sm outline-none focus:border-accent"
             >
               <option value="">不修改发货方式</option>
               {bulkLogisticsMethodOptions.map((method) => (
