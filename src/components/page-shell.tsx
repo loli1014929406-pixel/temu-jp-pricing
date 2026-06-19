@@ -4,7 +4,6 @@ import {
   ClipboardList,
   LogOut,
   PackageSearch,
-  ReceiptText,
   Settings,
   ShoppingCart,
   Truck,
@@ -19,14 +18,9 @@ import { useAuth } from "../hooks/use-auth";
 const navItems = [
   { to: "/orders", label: "订单管理", module: "销售履约", icon: ListOrdered },
   { to: "/finance", label: "财务总览", module: "财务管理", icon: CircleDollarSign },
-  { to: "/finance/cashflow", label: "收支流水", module: "财务管理", icon: WalletCards },
-  { to: "/finance/orders", label: "订单收入", module: "财务管理", icon: ReceiptText },
-  { to: "/finance/purchases", label: "采购付款", module: "财务管理", icon: ShoppingCart },
-  { to: "/finance/expenses", label: "费用管理", module: "财务管理", icon: ClipboardList },
-  { to: "/finance/monthly-profit", label: "月度利润表", module: "财务管理", icon: Calculator },
-  { to: "/finance/product-profit", label: "商品利润报表", module: "财务管理", icon: Calculator },
-  { to: "/finance/reconciliation", label: "对账中心", module: "财务管理", icon: ClipboardList },
-  { to: "/finance/settlement", label: "结算管理", module: "财务管理", icon: ClipboardList },
+  { to: "/finance/books", label: "流水账本", module: "财务管理", icon: WalletCards },
+  { to: "/finance/profit", label: "利润报表", module: "财务管理", icon: Calculator },
+  { to: "/finance/settlement", label: "结算对账", module: "财务管理", icon: ClipboardList },
   { to: "/products", label: "商品管理", module: "商品资料", icon: PackageSearch },
   { to: "/declaration-prices", label: "核算定价", module: "定价中心", icon: ClipboardList },
   { to: "/profit-calculation", label: "利润分析", module: "经营分析", icon: Calculator },
@@ -48,14 +42,9 @@ const navSections = [
     title: "财务管理",
     items: [
       { to: "/finance", label: "财务总览", icon: CircleDollarSign },
-      { to: "/finance/cashflow", label: "收支流水", icon: WalletCards },
-      { to: "/finance/orders", label: "订单收入", icon: ReceiptText },
-      { to: "/finance/purchases", label: "采购付款", icon: ShoppingCart },
-      { to: "/finance/expenses", label: "费用管理", icon: ClipboardList },
-      { to: "/finance/monthly-profit", label: "月度利润表", icon: Calculator },
-      { to: "/finance/product-profit", label: "商品利润报表", icon: Calculator },
-      { to: "/finance/reconciliation", label: "对账中心", icon: ClipboardList },
-      { to: "/finance/settlement", label: "结算管理", icon: ClipboardList }
+      { to: "/finance/books", label: "流水账本", icon: WalletCards },
+      { to: "/finance/profit", label: "利润报表", icon: Calculator },
+      { to: "/finance/settlement", label: "结算对账", icon: ClipboardList }
     ]
   },
   {
@@ -83,16 +72,40 @@ const navSections = [
   }
 ] as const;
 
+const legacyFinanceNavGroups = [
+  {
+    canonicalTo: "/finance/books",
+    paths: ["/finance/cashflow", "/finance/purchases", "/finance/expenses"],
+  },
+  {
+    canonicalTo: "/finance/profit",
+    paths: ["/finance/monthly-profit", "/finance/product-profit"],
+  },
+  {
+    canonicalTo: "/finance/settlement",
+    paths: ["/finance/orders", "/finance/reconciliation"],
+  },
+] as const;
+
+function getCanonicalNavPath(pathname: string) {
+  const legacyGroup = legacyFinanceNavGroups.find((group) =>
+    group.paths.some((path) => pathname === path || pathname.startsWith(`${path}/`)),
+  );
+  return legacyGroup?.canonicalTo ?? pathname;
+}
+
 function getActiveModule(pathname: string) {
+  const canonicalPathname = getCanonicalNavPath(pathname);
   return (
     [...navItems]
       .sort((left, right) => right.to.length - left.to.length)
-      .find((item) => pathname === item.to || pathname.startsWith(`${item.to}/`)) ??
+      .find((item) => canonicalPathname === item.to || canonicalPathname.startsWith(`${item.to}/`)) ??
     navItems[0]
   );
 }
 
 function isNavItemActive(pathname: string, itemTo: string, isActive: boolean) {
+  const canonicalPathname = getCanonicalNavPath(pathname);
   if (itemTo === "/inventory") {
     return (
       pathname === "/inventory" ||
@@ -100,9 +113,9 @@ function isNavItemActive(pathname: string, itemTo: string, isActive: boolean) {
     );
   }
   if (itemTo === "/finance") {
-    return pathname === "/finance";
+    return canonicalPathname === "/finance";
   }
-  return isActive;
+  return canonicalPathname === itemTo || canonicalPathname.startsWith(`${itemTo}/`) || isActive;
 }
 
 export function PageShell() {

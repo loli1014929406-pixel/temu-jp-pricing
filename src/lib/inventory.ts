@@ -13,6 +13,30 @@ import type {
   WarehouseSku,
 } from "../types";
 
+function isTransientFetchError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    error instanceof TypeError ||
+    message.includes("Failed to fetch") ||
+    message.includes("NetworkError") ||
+    message.includes("fetch failed")
+  );
+}
+
+async function retryInventoryRequest<T>(operation: () => PromiseLike<T>, attempts = 2): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (attempt >= attempts || !isTransientFetchError(error)) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+    }
+  }
+  throw lastError;
+}
+
 export async function fetchWarehouses() {
   const { supabase } = await requireSession();
   const { data, error } = await withTimeout(
@@ -127,24 +151,108 @@ export async function fetchWarehouseItemStockAdjustments(warehouseIds: string[])
   return data as WarehouseItemStockAdjustment[];
 }
 
-export async function fetchWarehouseInventoryPage(warehouseId: string, page: number, pageSize: number = 20) {
+export async function fetchWarehouseItemStockAdjustmentsForItems(
+  warehouseId: string,
+  itemIds: string[],
+) {
+  const uniqueItemIds = Array.from(new Set(itemIds.filter(Boolean)));
+  if (uniqueItemIds.length === 0) return [] as WarehouseItemStockAdjustment[];
+
+  const { supabase } = await requireSession();
+  const { data, error } = await withTimeout(
+    retryInventoryRequest(() =>
+      supabase
+        .from("warehouse_item_stock_adjustments")
+        .select("id, warehouse_id, item_id, previous_quantity, next_quantity, change_quantity, reason, created_at")
+        .eq("warehouse_id", warehouseId)
+        .in("item_id", uniqueItemIds)
+        .order("created_at", { ascending: false })
+        .limit(uniqueItemIds.length * 20),
+    ),
+    "加载配件编辑记录",
+  );
+
+  if (error) throw error;
+  return data as WarehouseItemStockAdjustment[];
+}
+
+export async function fetchWarehouseInventoryPage(
+  warehouseId: string,
+  page: number,
+  pageSize: number = 20,
+  searchQuery: string = "",
+) {
   const { supabase } = await requireSession();
 
   return withTimeout(
-    (async () => {
+    retryInventoryRequest(async () => {
       const from = (page - 1) * pageSize;
       const to = from + pageSize - 1;
+      const query = searchQuery.trim();
+
+      let productIdMatches: string[] = [];
+      let skuIdMatches: string[] = [];
+      if (query) {
+        const pattern = `%${query.replace(/[%_]/g, "\\$&")}%`;
+        const [productsResult, skusResult] = await Promise.all([
+          supabase
+            .from("products")
+            .select("id")
+            .or(`product_code.ilike.${pattern},product_name_cn.ilike.${pattern}`)
+            .limit(1000),
+          supabase
+            .from("product_skus")
+            .select("id, product_id")
+            .ilike("sku_code", pattern)
+            .limit(1000),
+        ]);
+
+        if (productsResult.error) throw productsResult.error;
+        if (skusResult.error) throw skusResult.error;
+
+        productIdMatches = Array.from(
+          new Set([
+            ...((productsResult.data ?? []) as Array<{ id: string }>).map((item) => item.id),
+            ...((skusResult.data ?? []) as Array<{ product_id: string }>).map((item) => item.product_id),
+          ].filter(Boolean)),
+        );
+        skuIdMatches = Array.from(
+          new Set(((skusResult.data ?? []) as Array<{ id: string }>).map((item) => item.id).filter(Boolean)),
+        );
+
+        if (productIdMatches.length === 0 && skuIdMatches.length === 0) {
+          return {
+            warehouseSkus: [],
+            products: [] as Product[],
+            skus: [] as ProductSku[],
+            productItems: [] as ProductItem[],
+            warehouseItemStocks: [] as WarehouseItemStock[],
+            warehouseItemStockAdjustments: [] as WarehouseItemStockAdjustment[],
+            total: 0,
+            hasMore: false,
+          };
+        }
+      }
 
       // ── Round 1: page of warehouse_skus ──────────────────────────────────
-      const { data: skuRows, error: skuError, count } = await supabase
+      let warehouseSkuQuery = supabase
         .from("warehouse_skus")
         .select(
           "id, warehouse_id, product_id, sku_id, owner_id, stock_quantity, created_at, updated_at",
           { count: "exact" },
         )
         .eq("warehouse_id", warehouseId)
-        .order("created_at", { ascending: false })
-        .range(from, to);
+        .order("created_at", { ascending: false });
+
+      if (query) {
+        const filters = [
+          productIdMatches.length > 0 ? `product_id.in.(${productIdMatches.join(",")})` : "",
+          skuIdMatches.length > 0 ? `sku_id.in.(${skuIdMatches.join(",")})` : "",
+        ].filter(Boolean);
+        warehouseSkuQuery = warehouseSkuQuery.or(filters.join(","));
+      }
+
+      const { data: skuRows, error: skuError, count } = await warehouseSkuQuery.range(from, to);
 
       if (skuError) throw skuError;
 
@@ -194,8 +302,9 @@ export async function fetchWarehouseInventoryPage(warehouseId: string, page: num
       const itemIds = productItems.map(item => item.id).filter(Boolean) as string[];
       const skuIds = baseSkus.map(sku => sku.id).filter(Boolean) as string[];
 
-      // ── Round 3: sku_links + item_stocks + adjustments (all parallel) ────
-      const [linksResult, stocksResult, adjustmentsResult] = await Promise.all([
+      // ── Round 3: sku_links + item_stocks. Adjustment history is lazy-loaded
+      // when a row is expanded; fetching it here makes inventory page loads fragile.
+      const [linksResult, stocksResult] = await Promise.all([
         skuIds.length > 0
           ? supabase
               .from("product_sku_items")
@@ -209,19 +318,10 @@ export async function fetchWarehouseInventoryPage(warehouseId: string, page: num
               .eq("warehouse_id", warehouseId)
               .in("item_id", itemIds)
           : Promise.resolve({ data: [] as WarehouseItemStock[], error: null }),
-        itemIds.length > 0
-          ? supabase
-              .from("warehouse_item_stock_adjustments")
-              .select("id, warehouse_id, item_id, previous_quantity, next_quantity, change_quantity, reason, created_at")
-              .eq("warehouse_id", warehouseId)
-              .in("item_id", itemIds)
-              .order("created_at", { ascending: false })
-          : Promise.resolve({ data: [] as WarehouseItemStockAdjustment[], error: null }),
       ]);
 
       if (linksResult.error) throw linksResult.error;
       if (stocksResult.error) throw stocksResult.error;
-      if (adjustmentsResult.error) throw adjustmentsResult.error;
 
       // Build SKUs with component_links
       const links = (linksResult.data ?? []) as ProductSkuItemLink[];
@@ -244,11 +344,11 @@ export async function fetchWarehouseInventoryPage(warehouseId: string, page: num
         skus,
         productItems,
         warehouseItemStocks: (stocksResult.data ?? []) as WarehouseItemStock[],
-        warehouseItemStockAdjustments: (adjustmentsResult.data ?? []) as WarehouseItemStockAdjustment[],
+        warehouseItemStockAdjustments: [] as WarehouseItemStockAdjustment[],
         total: count ?? 0,
         hasMore: to + 1 < (count ?? 0),
       };
-    })(),
+    }),
     "加载仓库库存页面",
   );
 }

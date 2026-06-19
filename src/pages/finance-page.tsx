@@ -1,26 +1,20 @@
 import type { User } from "@supabase/supabase-js";
 import {
   AlertTriangle,
-  Calculator,
   Check,
   CircleDollarSign,
   ClipboardCheck,
-  ClipboardList,
   Download,
   Edit2,
   LineChart,
   Plus,
-  Receipt,
   RefreshCw,
   Search,
-  ShoppingCart,
   Trash2,
   TrendingUp,
   Wallet,
   X,
-  FileSpreadsheet,
 } from "lucide-react";
-import { NavLink } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { Badge, PageHeader, StatCard } from "../components/ui";
@@ -85,16 +79,37 @@ function getTodayInputValue() {
 
 
 const financeViews = [
-  { key: "overview", label: "财务总览", path: "/finance", icon: CircleDollarSign },
-  { key: "cashflow", label: "收支流水", path: "/finance/cashflow", icon: Wallet },
-  { key: "orders", label: "订单收入", path: "/finance/orders", icon: Receipt },
-  { key: "purchases", label: "采购付款", path: "/finance/purchases", icon: ShoppingCart },
-  { key: "expenses", label: "费用管理", path: "/finance/expenses", icon: ClipboardList },
-  { key: "monthly-profit", label: "月度利润表", path: "/finance/monthly-profit", icon: LineChart },
-  { key: "product-profit", label: "商品利润报表", path: "/finance/product-profit", icon: Calculator },
-  { key: "reconciliation", label: "对账中心", path: "/finance/reconciliation", icon: ClipboardCheck },
-  { key: "settlement", label: "结算管理", path: "/finance/settlement", icon: FileSpreadsheet },
+  {
+    key: "overview",
+    label: "财务总览",
+    path: "/finance",
+    icon: CircleDollarSign,
+    description: "集中查看回款、成本、费用、利润和待处理对账风险",
+  },
+  {
+    key: "ledger",
+    label: "流水账本",
+    path: "/finance/books",
+    icon: Wallet,
+    description: "整合收支流水、采购付款和其他费用录入",
+  },
+  {
+    key: "profit",
+    label: "利润报表",
+    path: "/finance/profit",
+    icon: LineChart,
+    description: "整合月度利润和商品利润核算",
+  },
+  {
+    key: "settlement",
+    label: "结算对账",
+    path: "/finance/settlement",
+    icon: ClipboardCheck,
+    description: "整合结算文件、异常对账和订单收入明细",
+  },
 ] as const;
+
+const financePageSizeOptions = [20, 50, 100] as const;
 
 export type FinanceView = typeof financeViews[number]["key"];
 
@@ -137,6 +152,57 @@ type LedgerRow = {
   amountRmb: number;
   remark: string;
 };
+
+type FinanceBadgeTone = "success" | "warning" | "danger" | "neutral" | "info";
+type ReconciliationIssue = "unmatched" | "shipping-estimated" | "shipping-missing";
+
+function getSignedAmountClass(value: number, neutralClass = "text-slate-700") {
+  if (value < 0) return "text-rose-700";
+  if (value > 0) return "text-emerald-700";
+  return neutralClass;
+}
+
+function calculateMarginRate(profit: number, revenue: number) {
+  if (!Number.isFinite(profit) || !Number.isFinite(revenue)) return 0;
+  if (revenue !== 0) return (profit / Math.abs(revenue)) * 100;
+  return profit < 0 ? -100 : 0;
+}
+
+function hasActualShippingFee(row: FinanceOrderRow) {
+  return Number(row.order.actual_shipping_fee_rmb || 0) > 0;
+}
+
+function hasShippingActivity(row: FinanceOrderRow) {
+  return Boolean(
+    row.order.actual_ship_time ||
+    row.order.label_printed_at ||
+    row.order.logistics_tracking_no ||
+    row.order.logistics_method,
+  );
+}
+
+function needsShippingFeeAttention(row: FinanceOrderRow) {
+  return !hasActualShippingFee(row) && (row.isShippingFeeEstimated || hasShippingActivity(row));
+}
+
+function getReconciliationIssues(row: FinanceOrderRow): ReconciliationIssue[] {
+  const issues: ReconciliationIssue[] = [];
+  if (!row.matched) issues.push("unmatched");
+  if (row.isShippingFeeEstimated) {
+    issues.push("shipping-estimated");
+  } else if (needsShippingFeeAttention(row)) {
+    issues.push("shipping-missing");
+  }
+  return issues;
+}
+
+function getAccountingStatus(row: FinanceOrderRow): { label: string; tone: FinanceBadgeTone } {
+  const issues = getReconciliationIssues(row);
+  if (issues.includes("unmatched")) return { label: "异常(未匹配)", tone: "danger" };
+  if (issues.includes("shipping-missing")) return { label: "待处理(缺运费)", tone: "danger" };
+  if (issues.includes("shipping-estimated")) return { label: "待确认(预估运费)", tone: "warning" };
+  return { label: "对账成功", tone: "success" };
+}
 
 const emptyData: FinanceData = {
   orders: [],
@@ -324,9 +390,9 @@ function getPurchaseTotalRmb(purchase: PurchaseOrder) {
   return Number(purchase.total_cost_rmb || 0);
 }
 
-function EmptyPanel({ label }: { label: string }) {
+function EmptyPanel({ label, compact = false }: { label: string; compact?: boolean }) {
   return (
-    <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/70 p-8 text-center text-sm font-medium text-slate-500">
+    <div className={`rounded-lg border border-dashed border-slate-200 bg-slate-50/70 text-center text-sm font-medium text-slate-500 ${compact ? "p-4" : "p-8"}`}>
       {label}
     </div>
   );
@@ -335,14 +401,16 @@ function EmptyPanel({ label }: { label: string }) {
 function FinanceTable({
   children,
   minWidth = "min-w-[1100px]",
+  tableClassName = "",
 }: {
   children: ReactNode;
   minWidth?: string;
+  tableClassName?: string;
 }) {
   return (
     <div className="table-card shadow-none">
       <div className="overflow-x-auto">
-        <table className={`data-table ${minWidth}`}>{children}</table>
+        <table className={`data-table ${minWidth} ${tableClassName}`}>{children}</table>
       </div>
     </div>
   );
@@ -369,11 +437,14 @@ export function FinancePage({ user, view }: FinancePageProps) {
   const [expenseCategory, setExpenseCategory] = useState<OtherExpense["category"]>("ad");
   const [expenseAmount, setExpenseAmount] = useState("");
   const [expenseRemark, setExpenseRemark] = useState("");
+  const [expenseFormOpen, setExpenseFormOpen] = useState(false);
 
   // Cashflow filter states
   const [cashflowDirection, setCashflowDirection] = useState<"all" | "收入" | "支出">("all");
   const [cashflowType, setCashflowType] = useState<string>("all");
   const [cashflowMonth, setCashflowMonth] = useState<string>("all");
+  const [financePageSize, setFinancePageSize] = useState<number>(20);
+  const [financePages, setFinancePages] = useState<Record<string, number>>({});
 
   // Order income filter states
   const [orderStatusFilter, setOrderStatusFilter] = useState<string>("all");
@@ -621,9 +692,7 @@ export function FinancePage({ user, view }: FinancePageProps) {
       (sum, purchase) => sum + getPurchaseTotalRmb(purchase),
       0,
     );
-    const missingShippingFeeCount = orderRows.filter(
-      (row) => row.shippingFeeRmb <= 0 && (row.order.label_printed_at || row.order.actual_ship_time),
-    ).length;
+    const missingShippingFeeCount = orderRows.filter(needsShippingFeeAttention).length;
     const unmatchedCount = orderRows.filter((row) => !row.matched).length;
     const unsettledCount = orderRows.filter((row) => !row.isSettled).length;
     return {
@@ -735,7 +804,7 @@ export function FinancePage({ user, view }: FinancePageProps) {
 
     return Array.from(groups.values()).map((row) => {
       const profit = roundMoney(row.billAmount - row.productCost - row.shipping);
-      const margin = row.billAmount > 0 ? roundMoney((profit / row.billAmount) * 100) : 0;
+      const margin = roundMoney(calculateMarginRate(profit, row.billAmount));
       return {
         ...row,
         productCost: roundMoney(row.productCost),
@@ -849,6 +918,7 @@ export function FinancePage({ user, view }: FinancePageProps) {
     saveOtherExpenses(next);
     setExpenseAmount("");
     setExpenseRemark("");
+    setExpenseFormOpen(false);
   };
 
   const handleDeleteExpense = (id: string) => {
@@ -897,10 +967,78 @@ export function FinancePage({ user, view }: FinancePageProps) {
     await downloadWorkbook(workbook, `订单账单-${new Date().toISOString().slice(0, 10)}.xlsx`);
   }
 
+  function getPaginatedRows<T>(key: string, rows: T[]) {
+    const total = rows.length;
+    const totalPages = Math.max(1, Math.ceil(total / financePageSize));
+    const page = Math.min(Math.max(financePages[key] ?? 1, 1), totalPages);
+    const startIndex = (page - 1) * financePageSize;
+    return {
+      page,
+      total,
+      totalPages,
+      startIndex,
+      rows: rows.slice(startIndex, startIndex + financePageSize),
+    };
+  }
+
+  function setFinanceTablePage(key: string, page: number) {
+    setFinancePages((current) => ({ ...current, [key]: page }));
+  }
+
+  function renderPaginationControls(key: string, page: number, totalPages: number, total: number) {
+    if (total <= financePageSize && page === 1) return null;
+
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-3 px-1 pt-3 text-xs text-slate-500">
+        <div className="flex flex-wrap items-center gap-3">
+          <span>
+            共 <span className="font-semibold text-slate-700">{total}</span> 条，
+            第 <span className="font-semibold text-slate-700">{page}</span> / {totalPages} 页
+          </span>
+          <label className="inline-flex items-center gap-1.5">
+            <span className="text-slate-400">每页</span>
+            <select
+              value={financePageSize}
+              onChange={(event) => {
+                setFinancePageSize(Number(event.target.value));
+                setFinancePages({});
+              }}
+              className="h-7 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none transition hover:border-slate-300 focus:border-violet-500"
+            >
+              {financePageSizeOptions.map((size) => (
+                <option key={size} value={size}>
+                  {size} 条
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            disabled={page <= 1}
+            onClick={() => setFinanceTablePage(key, page - 1)}
+            className="inline-flex h-8 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            上一页
+          </button>
+          <button
+            type="button"
+            disabled={page >= totalPages}
+            onClick={() => setFinanceTablePage(key, page + 1)}
+            className="inline-flex h-8 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            下一页
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   function renderOverview() {
     const totalOtherExpenses = otherExpenses.reduce((sum, e) => sum + e.amount, 0);
     const netProfit = totals.actualRevenueAmount - totals.orderProductCost - totals.orderShippingFee - totalOtherExpenses;
-    const marginRate = totals.actualRevenueAmount !== 0 ? (netProfit / Math.abs(totals.actualRevenueAmount)) * 100 : (netProfit < 0 ? -100 : 0);
+    const marginRate = calculateMarginRate(netProfit, totals.actualRevenueAmount);
     const isLoss = netProfit < 0;
 
     return (
@@ -998,8 +1136,10 @@ export function FinancePage({ user, view }: FinancePageProps) {
                   <span>其他杂项费用 ({((totalOtherExpenses / totals.actualRevenueAmount) * 100).toFixed(1)}%)</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="h-3 w-3 rounded-full bg-emerald-500 block" />
-                  <span className="text-emerald-700">实际纯利润 ({marginRate.toFixed(1)}%)</span>
+                  <span className={`h-3 w-3 rounded-full block ${isLoss ? "bg-rose-500" : "bg-emerald-500"}`} />
+                  <span className={isLoss ? "text-rose-700" : "text-emerald-700"}>
+                    {isLoss ? "实际纯亏损" : "实际纯利润"} ({marginRate.toFixed(1)}%)
+                  </span>
                 </div>
               </div>
             )}
@@ -1019,7 +1159,7 @@ export function FinancePage({ user, view }: FinancePageProps) {
               </Badge>
             </div>
           </div>
-          {renderReconciliationTable(orderRows.filter((row) => !row.matched || row.shippingFeeRmb <= 0).slice(0, 5))}
+          {renderReconciliationTable(orderRows.filter((row) => getReconciliationIssues(row).length > 0).slice(0, 5))}
         </section>
       </>
     );
@@ -1090,143 +1230,151 @@ export function FinancePage({ user, view }: FinancePageProps) {
 
   function renderOrderTable(rows: FinanceOrderRow[]) {
     if (rows.length === 0) return <EmptyPanel label="暂无匹配筛选条件的订单数据" />;
+    const paginated = getPaginatedRows("finance-orders", rows);
     return (
-      <FinanceTable minWidth="min-w-[1380px]">
-        <thead>
-          <tr>
-            <th>日期</th>
-            <th>订单号</th>
-            <th>状态</th>
-            <th>Temu SKU</th>
-            <th>系统商品 SKU</th>
-            <th>数量</th>
-            <th className="number-cell">采购商品成本</th>
-            <th className="number-cell">实际运费</th>
-            <th className="number-cell">预估账单金额</th>
-            <th className="number-cell">实际结算回款</th>
-            <th>发货物流方式</th>
-            <th>结算状态</th>
-            <th>匹配状态</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.order.id} className="hover:bg-slate-50/50">
-              <td className="text-slate-500 font-mono">{formatDate(getOrderDate(row.order))}</td>
-              <td className="font-bold text-slate-900">{row.order.order_no}</td>
-              <td>
-                <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-600 font-semibold">{row.order.order_status || "--"}</span>
-              </td>
-              <td className="font-mono text-slate-600">{row.order.sku_code || "--"}</td>
-              <td className="font-medium">
-                {row.product ? (
-                  <span className="text-slate-800">{row.product.product_name_cn}</span>
-                ) : (
-                  <span className="text-slate-400 italic">{row.order.product_attributes || "--"}</span>
-                )}
-              </td>
-              <td className="number-cell font-bold">{row.quantity}</td>
-              <td className="money">{formatCurrency(row.productCostRmb)}</td>
-              <td className="money">
-                {editingOrderId === row.order.id ? (
-                  <div className="flex items-center gap-1">
-                    <input
-                      type="number"
-                      value={editingFeeValue}
-                      onChange={(e) => setEditingFeeValue(e.target.value)}
-                      onKeyDown={async (e) => {
-                        if (e.key === "Enter") {
-                          await handleSaveShippingFee(row.order.id, editingFeeValue);
-                        } else if (e.key === "Escape") {
-                          setEditingOrderId(null);
-                        }
-                      }}
-                      disabled={savingOrderId === row.order.id}
-                      className="h-8 w-20 rounded-xl border border-slate-350 bg-white px-2.5 text-xs outline-none text-right"
-                      autoFocus
-                    />
-                    <button
-                      type="button"
-                      onClick={() => handleSaveShippingFee(row.order.id, editingFeeValue)}
-                      disabled={savingOrderId === row.order.id}
-                      className="rounded-lg bg-emerald-500 p-1.5 text-white hover:bg-emerald-600 transition"
-                    >
-                      <Check size={12} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setEditingOrderId(null)}
-                      disabled={savingOrderId === row.order.id}
-                      className="rounded-lg bg-slate-200 p-1.5 text-slate-600 hover:bg-slate-300 transition"
-                    >
-                      <X size={12} />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-1.5 group justify-end">
-                    {row.shippingFeeRmb <= 0 ? (
-                      <span className="text-rose-600 font-bold" title="商品未匹配或发货方式未知，无法自动计算">
-                        缺失
-                      </span>
-                    ) : (
-                      <>
-                        <span className={row.isShippingFeeEstimated ? "text-violet-600 font-semibold" : "font-bold text-slate-900"}>
-                          {formatCurrency(row.shippingFeeRmb)}
-                        </span>
-                        {row.isShippingFeeEstimated && (
-                          <span className="rounded bg-violet-50 border border-violet-100 px-1 py-0.2 text-[9px] font-black text-violet-600 cursor-help" title="已基于发货物流公式与商品重量自动估算">
-                            自动
-                          </span>
-                        )}
-                      </>
-                    )}
-                    {canEdit && (
+      <>
+        <FinanceTable minWidth="min-w-[1480px]" tableClassName="finance-freeze-order">
+          <thead>
+            <tr>
+              <th>订单号</th>
+              <th>Temu SKU</th>
+              <th>日期</th>
+              <th>状态</th>
+              <th>系统商品 SKU</th>
+              <th>数量</th>
+              <th className="number-cell">采购商品成本</th>
+              <th className="number-cell">实际运费</th>
+              <th className="number-cell">预估账单金额</th>
+              <th className="number-cell">实际结算回款</th>
+              <th>发货物流方式</th>
+              <th>结算状态</th>
+              <th>匹配状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            {paginated.rows.map((row) => {
+              const accountingStatus = getAccountingStatus(row);
+              return (
+              <tr key={row.order.id} className="hover:bg-slate-50/50">
+                <td className="font-bold text-slate-900">{row.order.order_no}</td>
+                <td className="font-mono text-slate-600">{row.order.sku_code || "--"}</td>
+                <td className="text-slate-500 font-mono">{formatDate(getOrderDate(row.order))}</td>
+                <td>
+                  <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-600 font-semibold">{row.order.order_status || "--"}</span>
+                </td>
+                <td className="font-medium">
+                  {row.product ? (
+                    <span className="text-slate-800">{row.product.product_name_cn}</span>
+                  ) : (
+                    <span className="text-slate-400 italic">{row.order.product_attributes || "--"}</span>
+                  )}
+                </td>
+                <td className="number-cell font-bold">{row.quantity}</td>
+                <td className="money">{formatCurrency(row.productCostRmb)}</td>
+                <td className="money">
+                  {editingOrderId === row.order.id ? (
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        value={editingFeeValue}
+                        onChange={(e) => setEditingFeeValue(e.target.value)}
+                        onKeyDown={async (e) => {
+                          if (e.key === "Enter") {
+                            await handleSaveShippingFee(row.order.id, editingFeeValue);
+                          } else if (e.key === "Escape") {
+                            setEditingOrderId(null);
+                          }
+                        }}
+                        disabled={savingOrderId === row.order.id}
+                        className="h-8 w-20 rounded-xl border border-slate-350 bg-white px-2.5 text-xs outline-none text-right"
+                        autoFocus
+                      />
                       <button
                         type="button"
-                        onClick={() => {
-                          setEditingOrderId(row.order.id);
-                          setEditingFeeValue(row.shippingFeeRmb > 0 ? String(row.shippingFeeRmb) : "");
-                        }}
-                        className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-700 p-1 transition"
-                        title="修改运费"
+                        onClick={() => handleSaveShippingFee(row.order.id, editingFeeValue)}
+                        disabled={savingOrderId === row.order.id}
+                        className="rounded-lg bg-emerald-500 p-1.5 text-white hover:bg-emerald-600 transition"
                       >
-                        <Edit2 size={12} />
+                        <Check size={12} />
                       </button>
-                    )}
+                      <button
+                        type="button"
+                        onClick={() => setEditingOrderId(null)}
+                        disabled={savingOrderId === row.order.id}
+                        className="rounded-lg bg-slate-200 p-1.5 text-slate-600 hover:bg-slate-300 transition"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 group justify-end">
+                      {row.shippingFeeRmb <= 0 ? (
+                        <span className="text-rose-600 font-bold" title="商品未匹配或发货方式未知，无法自动计算">
+                          缺失
+                        </span>
+                      ) : (
+                        <>
+                          <span className={row.isShippingFeeEstimated ? "text-violet-600 font-semibold" : "font-bold text-slate-900"}>
+                            {formatCurrency(row.shippingFeeRmb)}
+                          </span>
+                          {row.isShippingFeeEstimated && (
+                            <span className="rounded bg-violet-50 border border-violet-100 px-1 py-0.2 text-[9px] font-black text-violet-600 cursor-help" title="已基于发货物流公式与商品重量自动估算">
+                              自动
+                            </span>
+                          )}
+                        </>
+                      )}
+                      {canEdit && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingOrderId(row.order.id);
+                            setEditingFeeValue(row.shippingFeeRmb > 0 ? String(row.shippingFeeRmb) : "");
+                          }}
+                          className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-700 p-1 transition"
+                          title="修改运费"
+                        >
+                          <Edit2 size={12} />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </td>
+                <td className="money text-slate-500">{formatCurrency(row.billAmountRmb)}</td>
+                <td className="money">
+                  {row.isSettled ? (
+                    <span className="font-bold text-indigo-700">{formatCurrency(row.actualRevenueRmb)}</span>
+                  ) : (
+                    <span className="text-slate-400 font-medium">未结算</span>
+                  )}
+                </td>
+                <td>
+                  <div className="flex flex-col">
+                    <span className="font-semibold text-slate-700">{row.order.logistics_method || "--"}</span>
+                    <span className="text-[10px] text-slate-400 font-mono mt-0.5">{row.order.logistics_tracking_no}</span>
                   </div>
-                )}
-              </td>
-              <td className="money text-slate-500">{formatCurrency(row.billAmountRmb)}</td>
-              <td className="money">
-                {row.isSettled ? (
-                  <span className="font-bold text-indigo-700">{formatCurrency(row.actualRevenueRmb)}</span>
-                ) : (
-                  <span className="text-slate-400 font-medium">未结算</span>
-                )}
-              </td>
-              <td>
-                <div className="flex flex-col">
-                  <span className="font-semibold text-slate-700">{row.order.logistics_method || "--"}</span>
-                  <span className="text-[10px] text-slate-400 font-mono mt-0.5">{row.order.logistics_tracking_no}</span>
-                </div>
-              </td>
-              <td>
-                <Badge tone={row.isSettled ? "success" : "neutral"}>
-                  {row.isSettled ? "已结算" : "未结算"}
-                </Badge>
-              </td>
-              <td>
-                <Badge tone={row.matched ? "success" : "warning"}>{row.matchLabel}</Badge>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </FinanceTable>
+                </td>
+                <td>
+                  <Badge tone={row.isSettled ? "success" : "neutral"}>
+                    {row.isSettled ? "已结算" : "未结算"}
+                  </Badge>
+                </td>
+                <td>
+                  <Badge tone={accountingStatus.tone}>{accountingStatus.label}</Badge>
+                </td>
+              </tr>
+              );
+            })}
+          </tbody>
+        </FinanceTable>
+        {renderPaginationControls("finance-orders", paginated.page, paginated.totalPages, paginated.total)}
+      </>
     );
   }
 
   function renderCashflow() {
     if (ledgerRows.length === 0) return <EmptyPanel label="暂无收支流水数据" />;
+    const paginated = getPaginatedRows("finance-cashflow", filteredLedgerRows);
     return (
       <section className="surface-card grid gap-4 p-5">
         {/* Filters */}
@@ -1280,7 +1428,7 @@ export function FinancePage({ user, view }: FinancePageProps) {
             </tr>
           </thead>
           <tbody>
-            {filteredLedgerRows.map((row, index) => (
+            {paginated.rows.map((row, index) => (
               <tr key={`${row.date}-${row.subject}-${index}`} className="hover:bg-slate-50/50">
                 <td className="text-slate-500 font-mono">{row.date}</td>
                 <td className="font-semibold text-slate-700">{row.type}</td>
@@ -1290,20 +1438,22 @@ export function FinancePage({ user, view }: FinancePageProps) {
                   </Badge>
                 </td>
                 <td className="font-bold text-slate-800">{row.subject}</td>
-                <td className={`money ${row.amountRmb < 0 ? "text-rose-600" : "text-emerald-600"}`}>
-                  {row.direction === "支出" ? formatCurrency(Math.abs(row.amountRmb)) : formatCurrency(row.amountRmb)}
+                <td className={`money ${row.direction === "支出" ? "text-rose-700" : "text-emerald-700"}`}>
+                  {formatCurrency(Math.abs(row.amountRmb))}
                 </td>
                 <td className="text-slate-500 text-xs font-medium">{row.remark || "--"}</td>
               </tr>
             ))}
           </tbody>
         </FinanceTable>
+        {renderPaginationControls("finance-cashflow", paginated.page, paginated.totalPages, paginated.total)}
       </section>
     );
   }
 
   function renderPurchases() {
     if (data.purchases.length === 0) return <EmptyPanel label="暂无采购付款记录" />;
+    const paginated = getPaginatedRows("finance-purchases", data.purchases);
     return (
       <section className="surface-card grid gap-4 p-5">
         <FinanceTable>
@@ -1318,7 +1468,7 @@ export function FinancePage({ user, view }: FinancePageProps) {
             </tr>
           </thead>
           <tbody>
-            {data.purchases.map((purchase) => (
+            {paginated.rows.map((purchase) => (
               <tr key={purchase.id} className="hover:bg-slate-50/50">
                 <td className="font-bold text-slate-900">{purchase.order_code}</td>
                 <td className="text-slate-500 font-mono">{formatDate(purchase.purchased_at)}</td>
@@ -1334,6 +1484,7 @@ export function FinancePage({ user, view }: FinancePageProps) {
             ))}
           </tbody>
         </FinanceTable>
+        {renderPaginationControls("finance-purchases", paginated.page, paginated.totalPages, paginated.total)}
       </section>
     );
   }
@@ -1342,16 +1493,18 @@ export function FinancePage({ user, view }: FinancePageProps) {
     const chartData = [...monthlyRows].reverse().slice(-6); // last 6 months
     if (chartData.length === 0) return null;
 
-    const rawMax = Math.max(...chartData.map((d) => Math.max(d.income, d.balance)));
-    const maxVal = Math.max(1000, rawMax);
-    const minVal = Math.min(0, ...chartData.map((d) => Math.min(d.income, d.balance)));
-    const totalRange = maxVal - minVal;
-    
     const height = 180;
     const width = 500;
     const padding = { top: 20, right: 20, bottom: 30, left: 50 };
     const chartHeight = height - padding.top - padding.bottom;
-    const y0 = padding.top + chartHeight * (maxVal / totalRange);
+    const values = chartData.flatMap((d) => [d.income, d.balance]);
+    const rawMax = Math.max(0, ...values);
+    const rawMin = Math.min(0, ...values);
+    const maxVal = rawMax > 0 ? rawMax * 1.1 : 1000;
+    const minVal = rawMin < 0 ? rawMin * 1.1 : 0;
+    const totalRange = maxVal - minVal || 1;
+    const yForValue = (value: number) => padding.top + chartHeight * ((maxVal - value) / totalRange);
+    const y0 = yForValue(0);
 
     return (
       <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
@@ -1363,12 +1516,12 @@ export function FinancePage({ user, view }: FinancePageProps) {
           <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[450px]">
             {/* Grid lines */}
             {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
-              const y = padding.top + chartHeight * (1 - ratio);
-              const val = (minVal + totalRange * ratio).toFixed(0);
+              const val = maxVal - totalRange * ratio;
+              const y = yForValue(val);
               return (
                 <g key={ratio} className="opacity-40">
                   <line x1={padding.left} y1={y} x2={width - padding.right} y2={y} stroke="#e2e8f0" strokeDasharray="3 3" />
-                  <text x={padding.left - 8} y={y + 4} textAnchor="end" className="fill-slate-400 text-[10px] font-medium font-mono">{val}</text>
+                  <text x={padding.left - 8} y={y + 4} textAnchor="end" className="fill-slate-400 text-[10px] font-medium font-mono">{val.toFixed(0)}</text>
                 </g>
               );
             })}
@@ -1384,11 +1537,13 @@ export function FinancePage({ user, view }: FinancePageProps) {
               const step = xRange / chartData.length;
               const x = padding.left + step * index + step / 2;
 
-              const incomeBarH = chartHeight * (Math.abs(d.income) / totalRange);
-              const incomeY = d.income >= 0 ? y0 - incomeBarH : y0;
+              const incomeValueY = yForValue(d.income);
+              const incomeBarH = Math.abs(incomeValueY - y0);
+              const incomeY = Math.min(incomeValueY, y0);
 
-              const balanceBarH = chartHeight * (Math.abs(d.balance) / totalRange);
-              const balanceY = d.balance >= 0 ? y0 - balanceBarH : y0;
+              const balanceValueY = yForValue(d.balance);
+              const balanceBarH = Math.abs(balanceValueY - y0);
+              const balanceY = Math.min(balanceValueY, y0);
               const balanceFill = d.balance >= 0 ? "#34d399" : "#fb7185";
               const balanceHover = d.balance >= 0 ? "hover:fill-emerald-500" : "hover:fill-rose-500";
 
@@ -1464,7 +1619,8 @@ export function FinancePage({ user, view }: FinancePageProps) {
             </thead>
             <tbody>
               {monthlyRows.map((row) => {
-                const margin = row.income > 0 ? (row.balance / row.income) * 100 : 0;
+                const margin = calculateMarginRate(row.balance, row.income);
+                const balanceClass = getSignedAmountClass(row.balance);
                 return (
                   <tr key={row.month} className="hover:bg-slate-50/50">
                     <td className="font-bold text-slate-900">{row.month}</td>
@@ -1472,10 +1628,10 @@ export function FinancePage({ user, view }: FinancePageProps) {
                     <td className="money text-slate-700">{formatCurrency(row.productCost)}</td>
                     <td className="money text-slate-700">{formatCurrency(row.shipping)}</td>
                     <td className="money text-slate-700">{formatCurrency(row.otherExpense)}</td>
-                    <td className={`money ${row.balance < 0 ? "text-rose-600" : "text-emerald-600"}`}>
+                    <td className={`money ${balanceClass}`}>
                       {formatCurrency(row.balance)}
                     </td>
-                    <td className={`number-cell font-bold ${row.balance < 0 ? "text-rose-600" : "text-emerald-600"}`}>
+                    <td className={`number-cell font-bold ${balanceClass}`}>
                       {margin.toFixed(2)}%
                     </td>
                   </tr>
@@ -1490,6 +1646,7 @@ export function FinancePage({ user, view }: FinancePageProps) {
 
   function renderProductProfit() {
     if (productRows.length === 0) return <EmptyPanel label="暂无商品销售利润数据" />;
+    const paginated = getPaginatedRows("finance-product-profit", filteredProductRows);
 
     const renderSortIcon = (field: typeof productSortField) => {
       if (productSortField !== field) return <span className="text-slate-300 ml-1">⇅</span>;
@@ -1522,7 +1679,7 @@ export function FinancePage({ user, view }: FinancePageProps) {
           </span>
         </div>
 
-        <FinanceTable minWidth="min-w-[1150px]">
+        <FinanceTable minWidth="min-w-[1250px]" tableClassName="finance-freeze-product">
           <thead>
             <tr>
               <th>商品编码</th>
@@ -1551,71 +1708,80 @@ export function FinancePage({ user, view }: FinancePageProps) {
             </tr>
           </thead>
           <tbody>
-            {filteredProductRows.map((row) => (
-              <tr key={`${row.productCode}-${row.productName}`} className="hover:bg-slate-50/50">
-                <td className="font-bold text-slate-900">{row.productCode}</td>
-                <td className="text-slate-700 max-w-xs truncate font-medium" title={row.productName}>{row.productName}</td>
-                <td className="number-cell font-semibold">{row.orderCount}</td>
-                <td className="number-cell font-semibold">{row.quantity}</td>
-                <td className="money">{formatCurrency(row.productCost)}</td>
-                <td className="money">{formatCurrency(row.shipping)}</td>
-                <td className="money text-slate-900">{formatCurrency(row.billAmount)}</td>
-                <td className={`money ${row.profit < 0 ? "text-rose-600" : "text-emerald-600"}`}>
-                  {formatCurrency(row.profit)}
-                </td>
-                <td className={`number-cell font-bold ${row.profit < 0 ? "text-rose-600" : "text-emerald-600"}`}>
-                  {row.margin.toFixed(2)}%
-                </td>
-              </tr>
-            ))}
+            {paginated.rows.map((row) => {
+              const profitClass = getSignedAmountClass(row.profit);
+              return (
+                <tr key={`${row.productCode}-${row.productName}`} className="hover:bg-slate-50/50">
+                  <td className="font-bold text-slate-900">{row.productCode}</td>
+                  <td className="text-slate-700 max-w-xs truncate font-medium" title={row.productName}>{row.productName}</td>
+                  <td className="number-cell font-semibold">{row.orderCount}</td>
+                  <td className="number-cell font-semibold">{row.quantity}</td>
+                  <td className="money">{formatCurrency(row.productCost)}</td>
+                  <td className="money">{formatCurrency(row.shipping)}</td>
+                  <td className="money text-slate-900">{formatCurrency(row.billAmount)}</td>
+                  <td className={`money ${profitClass}`}>
+                    {formatCurrency(row.profit)}
+                  </td>
+                  <td className={`number-cell font-bold ${profitClass}`}>
+                    {row.margin.toFixed(2)}%
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </FinanceTable>
+        {renderPaginationControls("finance-product-profit", paginated.page, paginated.totalPages, paginated.total)}
       </section>
     );
   }
 
   function renderReconciliationTable(rows: FinanceOrderRow[]) {
     if (rows.length === 0) return <EmptyPanel label="暂无需要人工对账的订单数据" />;
+    const paginated = getPaginatedRows("finance-reconciliation", rows);
     return (
-      <FinanceTable minWidth="min-w-[1000px]">
-        <thead>
-          <tr>
-            <th>订单编号</th>
-            <th>Temu SKU Code</th>
-            <th>系统商品 SKU</th>
-            <th>待处理问题</th>
-            <th className="number-cell">实际运费</th>
-            <th className="text-center">操作对账</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => {
-            const issues: ReactNode[] = [];
-            if (!row.matched) {
-              issues.push(
-                <span key="unmatched" className="inline-flex items-center gap-1 rounded bg-rose-50 px-2 py-0.5 text-xs font-bold text-rose-600">
-                  <AlertTriangle size={12} />
-                  SKU 货号未匹配
-                </span>
-              );
-            }
-            if (row.isShippingFeeEstimated) {
-              issues.push(
-                <span key="shipping-est" className="inline-flex items-center gap-1 rounded bg-violet-50 px-2 py-0.5 text-xs font-bold text-violet-600">
-                  自动估算运费 ({row.order.logistics_method || "未知"})
-                </span>
-              );
-            } else if (row.shippingFeeRmb <= 0 && (row.order.label_printed_at || row.order.actual_ship_time)) {
-              issues.push(
-                <span key="shipping-missing" className="inline-flex items-center gap-1 rounded bg-amber-50 px-2 py-0.5 text-xs font-bold text-amber-600">
-                  <AlertTriangle size={12} />
-                  运费未填写 (无法估算)
-                </span>
-              );
-            }
+      <>
+        <FinanceTable minWidth="min-w-[1080px]" tableClassName="finance-freeze-reconciliation">
+          <thead>
+            <tr>
+              <th>订单编号</th>
+              <th>Temu SKU Code</th>
+              <th>系统商品 SKU</th>
+              <th>待处理问题</th>
+              <th className="number-cell">实际运费</th>
+              <th className="text-center">操作对账</th>
+            </tr>
+          </thead>
+          <tbody>
+            {paginated.rows.map((row) => {
+              const issueTypes = getReconciliationIssues(row);
+              const accountingStatus = getAccountingStatus(row);
+              const issues = issueTypes.map((issue) => {
+                if (issue === "unmatched") {
+                  return (
+                    <span key="unmatched" className="inline-flex items-center gap-1 rounded bg-rose-50 px-2 py-0.5 text-xs font-bold text-rose-600">
+                      <AlertTriangle size={12} />
+                      SKU 货号未匹配
+                    </span>
+                  );
+                }
+                if (issue === "shipping-estimated") {
+                  return (
+                    <span key="shipping-estimated" className="inline-flex items-center gap-1 rounded bg-amber-50 px-2 py-0.5 text-xs font-bold text-amber-700">
+                      <AlertTriangle size={12} />
+                      运费未填写 (当前为估算)
+                    </span>
+                  );
+                }
+                return (
+                  <span key="shipping-missing" className="inline-flex items-center gap-1 rounded bg-rose-50 px-2 py-0.5 text-xs font-bold text-rose-600">
+                    <AlertTriangle size={12} />
+                    运费未填写 (无法估算)
+                  </span>
+                );
+              });
 
-            return (
-              <tr key={row.order.id} className="hover:bg-slate-50/50">
+              return (
+                <tr key={row.order.id} className="hover:bg-slate-50/50">
                 <td className="font-semibold text-slate-800">{row.order.order_no}</td>
                 <td className="font-mono text-slate-600 text-xs font-bold">{row.order.sku_code || "--"}</td>
                 <td className="text-slate-700 font-medium">
@@ -1748,22 +1914,26 @@ export function FinancePage({ user, view }: FinancePageProps) {
                         关联商品 SKU
                       </button>
                     )
-                  ) : row.shippingFeeRmb <= 0 ? (
-                    <span className="text-rose-600 font-bold text-xs bg-rose-50 px-2 py-1 rounded border border-rose-100">待处理(缺运费)</span>
+                  ) : accountingStatus.tone === "danger" ? (
+                    <span className="text-rose-700 font-bold text-xs bg-rose-50 px-2 py-1 rounded border border-rose-100">{accountingStatus.label}</span>
+                  ) : accountingStatus.tone === "warning" ? (
+                    <span className="text-amber-700 font-bold text-xs bg-amber-50 px-2 py-1 rounded border border-amber-100">{accountingStatus.label}</span>
                   ) : (
                     <span className="text-emerald-600 font-bold text-xs bg-emerald-50 px-2 py-1 rounded border border-emerald-100">对账成功</span>
                   )}
                 </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </FinanceTable>
+                </tr>
+              );
+            })}
+          </tbody>
+        </FinanceTable>
+        {renderPaginationControls("finance-reconciliation", paginated.page, paginated.totalPages, paginated.total)}
+      </>
     );
   }
 
   function renderReconciliation() {
-    const unmatched = orderRows.filter((row) => !row.matched || row.shippingFeeRmb <= 0);
+    const unmatched = orderRows.filter((row) => getReconciliationIssues(row).length > 0);
     return (
       <section className="surface-card grid gap-4 p-5">
         <div className="flex items-center gap-3 border-b border-slate-100 pb-3">
@@ -1790,118 +1960,144 @@ export function FinancePage({ user, view }: FinancePageProps) {
           <StatCard label="其他扣减费用" value={formatCurrency(totalOtherExpenses)} />
         </div>
 
-        {/* Expenses List & Form */}
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
-          {/* List Card */}
-          <section className="surface-card p-5">
-            <h3 className="text-sm font-bold text-slate-800 border-b border-slate-100 pb-3 mb-4">其他核算杂费记录</h3>
-            {otherExpenses.length === 0 ? (
-              <EmptyPanel label="暂无其他核算杂费记录，可在右侧添加" />
-            ) : (
-              <FinanceTable minWidth="min-w-[600px]">
-                <thead>
-                  <tr>
-                    <th>交易日期</th>
-                    <th>费用类别</th>
-                    <th className="number-cell">扣减金额</th>
-                    <th>备注详情说明</th>
-                    <th className="text-center">操作</th>
+        <section className="surface-card p-5">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+            <h3 className="text-sm font-bold text-slate-800">其他核算杂费记录</h3>
+            <button
+              type="button"
+              onClick={() => setExpenseFormOpen(true)}
+              disabled={!canEdit}
+              className="btn-primary h-9 px-3 text-xs font-bold"
+            >
+              <Plus size={15} />
+              新增费用
+            </button>
+          </div>
+          {otherExpenses.length === 0 ? (
+            <EmptyPanel compact label="暂无其他核算杂费记录" />
+          ) : (
+            <FinanceTable minWidth="min-w-[720px]">
+              <thead>
+                <tr>
+                  <th>交易日期</th>
+                  <th>费用类别</th>
+                  <th className="number-cell">扣减金额</th>
+                  <th>备注详情说明</th>
+                  <th className="text-center">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {otherExpenses.map((expense) => (
+                  <tr key={expense.id} className="hover:bg-slate-50/50">
+                    <td className="text-slate-500 font-mono">{expense.date}</td>
+                    <td>
+                      <Badge tone={expense.category === "ad" ? "info" : expense.category === "customs" ? "warning" : expense.category === "packaging" ? "success" : "neutral"}>
+                        {categoryLabels[expense.category] || "其他"}
+                      </Badge>
+                    </td>
+                    <td className="money text-rose-700">{formatCurrency(expense.amount)}</td>
+                    <td className="text-slate-600 font-medium max-w-xs truncate" title={expense.remark}>{expense.remark || "--"}</td>
+                    <td className="text-center">
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteExpense(expense.id)}
+                        className="text-rose-600 hover:text-rose-800 font-semibold text-xs inline-flex items-center gap-1 transition"
+                      >
+                        <Trash2 size={12} />
+                        <span>删除</span>
+                      </button>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {otherExpenses.map((expense) => (
-                    <tr key={expense.id} className="hover:bg-slate-50/50">
-                      <td className="text-slate-500 font-mono">{expense.date}</td>
-                      <td>
-                        <Badge tone={expense.category === "ad" ? "info" : expense.category === "customs" ? "warning" : expense.category === "packaging" ? "success" : "neutral"}>
-                          {categoryLabels[expense.category] || "其他"}
-                        </Badge>
-                      </td>
-                      <td className="money text-rose-700">{formatCurrency(expense.amount)}</td>
-                      <td className="text-slate-600 font-medium max-w-xs truncate" title={expense.remark}>{expense.remark || "--"}</td>
-                      <td className="text-center">
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteExpense(expense.id)}
-                          className="text-rose-600 hover:text-rose-800 font-semibold text-xs inline-flex items-center gap-1 transition"
-                        >
-                          <Trash2 size={12} />
-                          <span>删除</span>
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </FinanceTable>
-            )}
-          </section>
+                ))}
+              </tbody>
+            </FinanceTable>
+          )}
+        </section>
 
-          {/* Record Card */}
-          <section className="surface-card p-5">
-            <h3 className="text-sm font-bold text-slate-800 border-b border-slate-100 pb-3 mb-4 flex items-center gap-1">
-              <Plus size={16} className="text-slate-400" />
-              <span>录入费用账单</span>
-            </h3>
-            <form onSubmit={handleAddExpense} className="grid gap-4">
-              <label className="grid gap-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                <span>交易日期</span>
-                <input
-                  type="date"
-                  required
-                  value={expenseDate}
-                  onChange={(e) => setExpenseDate(e.target.value)}
-                  className="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-750 outline-none transition focus:border-violet-600 focus:bg-white"
-                />
-              </label>
-
-              <label className="grid gap-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                <span>费用类别</span>
-                <select
-                  value={expenseCategory}
-                  onChange={(e) => setExpenseCategory(e.target.value as any)}
-                  className="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-750 outline-none transition focus:border-violet-600 focus:bg-white"
+        {expenseFormOpen && (
+          <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/30">
+            <button
+              type="button"
+              aria-label="关闭录入费用账单"
+              className="absolute inset-0 h-full w-full cursor-default"
+              onClick={() => setExpenseFormOpen(false)}
+            />
+            <section className="relative z-10 h-full w-full max-w-md overflow-y-auto bg-white p-5 shadow-2xl sm:m-4 sm:h-[calc(100%-2rem)] sm:rounded-2xl">
+              <div className="mb-5 flex items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                <h3 className="flex items-center gap-2 text-sm font-bold text-slate-800">
+                  <Plus size={16} className="text-slate-400" />
+                  <span>录入费用账单</span>
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setExpenseFormOpen(false)}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-800"
+                  aria-label="关闭"
                 >
-                  <option value="ad">广告推广 (Ad Spend)</option>
-                  <option value="customs">关税头程 (Customs/Freight)</option>
-                  <option value="packaging">包装耗材 (Packaging)</option>
-                  <option value="other">其他杂费 (Other Misc)</option>
-                </select>
-              </label>
+                  <X size={16} />
+                </button>
+              </div>
+              <form onSubmit={handleAddExpense} className="grid gap-4">
+                <label className="grid gap-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                  <span>交易日期</span>
+                  <input
+                    type="date"
+                    required
+                    value={expenseDate}
+                    onChange={(e) => setExpenseDate(e.target.value)}
+                    className="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-750 outline-none transition focus:border-violet-600 focus:bg-white"
+                  />
+                </label>
 
-              <label className="grid gap-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                <span>扣减金额 (元)</span>
-                <input
-                  type="number"
-                  step="0.01"
-                  required
-                  min="0.01"
-                  value={expenseAmount}
-                  onChange={(e) => setExpenseAmount(e.target.value)}
-                  placeholder="请输入扣减金额"
-                  className="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-750 outline-none transition focus:border-violet-600 focus:bg-white"
-                />
-              </label>
+                <label className="grid gap-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                  <span>费用类别</span>
+                  <select
+                    value={expenseCategory}
+                    onChange={(e) => setExpenseCategory(e.target.value as any)}
+                    className="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-750 outline-none transition focus:border-violet-600 focus:bg-white"
+                  >
+                    <option value="ad">广告推广 (Ad Spend)</option>
+                    <option value="customs">关税头程 (Customs/Freight)</option>
+                    <option value="packaging">包装耗材 (Packaging)</option>
+                    <option value="other">其他杂费 (Other Misc)</option>
+                  </select>
+                </label>
 
-              <label className="grid gap-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                <span>费用说明 / 备注</span>
-                <textarea
-                  value={expenseRemark}
-                  onChange={(e) => setExpenseRemark(e.target.value)}
-                  placeholder="录入费用详情备注..."
-                  className="h-20 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-bold text-slate-750 outline-none transition focus:border-violet-600 focus:bg-white resize-none"
-                />
-              </label>
+                <label className="grid gap-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                  <span>扣减金额 (元)</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    min="0.01"
+                    value={expenseAmount}
+                    onChange={(e) => setExpenseAmount(e.target.value)}
+                    placeholder="请输入扣减金额"
+                    className="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-750 outline-none transition focus:border-violet-600 focus:bg-white"
+                  />
+                </label>
 
-              <button
-                type="submit"
-                disabled={!canEdit}
-                className="btn-primary h-10 w-full font-bold mt-2"
-              >
-                录入该笔账单
-              </button>
-            </form>
-          </section>
-        </div>
+                <label className="grid gap-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                  <span>费用说明 / 备注</span>
+                  <textarea
+                    value={expenseRemark}
+                    onChange={(e) => setExpenseRemark(e.target.value)}
+                    placeholder="录入费用详情备注..."
+                    className="h-24 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-bold text-slate-750 outline-none transition focus:border-violet-600 focus:bg-white resize-none"
+                  />
+                </label>
+
+                <button
+                  type="submit"
+                  disabled={!canEdit}
+                  className="btn-primary h-10 w-full font-bold mt-2"
+                >
+                  录入该笔账单
+                </button>
+              </form>
+            </section>
+          </div>
+        )}
       </div>
     );
   }
@@ -1999,6 +2195,35 @@ export function FinancePage({ user, view }: FinancePageProps) {
     );
   }
 
+  function renderLedgerWorkbench() {
+    return (
+      <div className="grid gap-5">
+        {renderCashflow()}
+        {renderPurchases()}
+        {renderExpenses()}
+      </div>
+    );
+  }
+
+  function renderProfitWorkbench() {
+    return (
+      <div className="grid gap-5">
+        {renderMonthlyProfit()}
+        {renderProductProfit()}
+      </div>
+    );
+  }
+
+  function renderSettlementWorkbench() {
+    return (
+      <div className="grid gap-5">
+        {renderSettlement()}
+        {renderReconciliation()}
+        {renderOrderIncome()}
+      </div>
+    );
+  }
+
   function renderCurrentView() {
     if (loading) {
       return (
@@ -2009,22 +2234,12 @@ export function FinancePage({ user, view }: FinancePageProps) {
     }
 
     switch (view) {
-      case "cashflow":
-        return renderCashflow();
-      case "orders":
-        return renderOrderIncome();
-      case "purchases":
-        return renderPurchases();
-      case "expenses":
-        return renderExpenses();
-      case "monthly-profit":
-        return renderMonthlyProfit();
-      case "product-profit":
-        return renderProductProfit();
-      case "reconciliation":
-        return renderReconciliation();
+      case "ledger":
+        return renderLedgerWorkbench();
+      case "profit":
+        return renderProfitWorkbench();
       case "settlement":
-        return renderSettlement();
+        return renderSettlementWorkbench();
       case "overview":
       default:
         return renderOverview();
@@ -2035,7 +2250,7 @@ export function FinancePage({ user, view }: FinancePageProps) {
     <section className="grid gap-5">
       <PageHeader
         title={currentView.label}
-        description="按订单实际运费、商品成本和采购付款汇总财务数据"
+        description={currentView.description}
         actions={
           <button
             type="button"

@@ -175,6 +175,74 @@ a {
     text-align: left;
   }
 
+  .data-table.finance-freeze-order th:nth-child(1),
+  .data-table.finance-freeze-order td:nth-child(1),
+  .data-table.finance-freeze-reconciliation th:nth-child(1),
+  .data-table.finance-freeze-reconciliation td:nth-child(1) {
+    position: sticky;
+    left: 0;
+    z-index: 12;
+    width: 11rem;
+    min-width: 11rem;
+    max-width: 11rem;
+    overflow-wrap: anywhere;
+    background: #ffffff;
+    box-shadow: 1px 0 0 #e2e8f0;
+  }
+
+  .data-table.finance-freeze-order th:nth-child(2),
+  .data-table.finance-freeze-order td:nth-child(2),
+  .data-table.finance-freeze-reconciliation th:nth-child(2),
+  .data-table.finance-freeze-reconciliation td:nth-child(2) {
+    position: sticky;
+    left: 11rem;
+    z-index: 12;
+    width: 10rem;
+    min-width: 10rem;
+    max-width: 10rem;
+    overflow-wrap: anywhere;
+    background: #ffffff;
+    box-shadow: 1px 0 0 #e2e8f0;
+  }
+
+  .data-table.finance-freeze-product th:nth-child(1),
+  .data-table.finance-freeze-product td:nth-child(1) {
+    position: sticky;
+    left: 0;
+    z-index: 12;
+    width: 9rem;
+    min-width: 9rem;
+    max-width: 9rem;
+    overflow-wrap: anywhere;
+    background: #ffffff;
+    box-shadow: 1px 0 0 #e2e8f0;
+  }
+
+  .data-table.finance-freeze-product th:nth-child(2),
+  .data-table.finance-freeze-product td:nth-child(2) {
+    position: sticky;
+    left: 9rem;
+    z-index: 12;
+    width: 17rem;
+    min-width: 17rem;
+    max-width: 17rem;
+    background: #ffffff;
+    box-shadow: 1px 0 0 #e2e8f0;
+  }
+
+  .data-table.finance-freeze-order thead th:nth-child(-n + 2),
+  .data-table.finance-freeze-reconciliation thead th:nth-child(-n + 2),
+  .data-table.finance-freeze-product thead th:nth-child(-n + 2) {
+    z-index: 32;
+    background: #f8fafc;
+  }
+
+  .data-table.finance-freeze-order tbody tr:hover > td:nth-child(-n + 2),
+  .data-table.finance-freeze-reconciliation tbody tr:hover > td:nth-child(-n + 2),
+  .data-table.finance-freeze-product tbody tr:hover > td:nth-child(-n + 2) {
+    background: #f8fafc;
+  }
+
   .data-table th.product-name-col,
   .data-table td.product-name-col {
     width: calc(11em + 1rem);

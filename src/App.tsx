@@ -37,14 +37,16 @@ function NotFoundPage() {
 
 const financeRoutes: Array<{ path: string; view: FinanceView }> = [
   { path: "/finance", view: "overview" },
-  { path: "/finance/cashflow", view: "cashflow" },
-  { path: "/finance/orders", view: "orders" },
-  { path: "/finance/purchases", view: "purchases" },
-  { path: "/finance/expenses", view: "expenses" },
-  { path: "/finance/monthly-profit", view: "monthly-profit" },
-  { path: "/finance/product-profit", view: "product-profit" },
-  { path: "/finance/reconciliation", view: "reconciliation" },
+  { path: "/finance/books", view: "ledger" },
+  { path: "/finance/profit", view: "profit" },
   { path: "/finance/settlement", view: "settlement" },
+  { path: "/finance/cashflow", view: "ledger" },
+  { path: "/finance/purchases", view: "ledger" },
+  { path: "/finance/expenses", view: "ledger" },
+  { path: "/finance/monthly-profit", view: "profit" },
+  { path: "/finance/product-profit", view: "profit" },
+  { path: "/finance/orders", view: "settlement" },
+  { path: "/finance/reconciliation", view: "settlement" },
 ];
 
 export default function App() {

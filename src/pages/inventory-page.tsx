@@ -6,6 +6,7 @@ import {
   addWarehouseProductInventory,
   createWarehouse,
   deleteWarehouse,
+  fetchWarehouseItemStockAdjustmentsForItems,
   fetchWarehouseInventoryPage,
   fetchWarehouses,
   removeWarehouseProduct,
@@ -256,11 +257,15 @@ export function InventoryPage({ user }: InventoryPageProps) {
         : null,
     [warehouseSlug, warehouses],
   );
-  const visibleWarehouses = warehouseSlug
-    ? routeWarehouse
-      ? [routeWarehouse]
-      : []
-    : warehouses;
+  const visibleWarehouses = useMemo(
+    () =>
+      warehouseSlug
+        ? routeWarehouse
+          ? [routeWarehouse]
+          : []
+        : warehouses,
+    [routeWarehouse, warehouseSlug, warehouses],
+  );
   const routeWarehouseLabel = warehouseSlug
     ? routeWarehouse?.name ?? getWarehouseRouteLabel(warehouseSlug)
     : "";
@@ -274,13 +279,17 @@ export function InventoryPage({ user }: InventoryPageProps) {
   const [pageSize, setPageSize] = useState<number>(20);
   const [warehousePages, setWarehousePages] = useState<Record<string, number>>({});
   const [warehouseTotals, setWarehouseTotals] = useState<Record<string, number>>({});
+  const [warehouseLoadedSearches, setWarehouseLoadedSearches] = useState<Record<string, string>>({});
   const [warehousePageLoading, setWarehousePageLoading] = useState<Record<string, boolean>>({});
+  const [adjustmentsLoadingKeys, setAdjustmentsLoadingKeys] = useState<Record<string, boolean>>({});
+  const [loadedAdjustmentKeys, setLoadedAdjustmentKeys] = useState<Record<string, boolean>>({});
 
   const loadWarehousePage = useCallback(async (warehouseId: string, targetPage: number, size?: number) => {
     const effectiveSize = size ?? pageSize;
     setWarehousePageLoading(curr => ({ ...curr, [warehouseId]: true }));
+    setErrorMessage("");
     try {
-      const data = await fetchWarehouseInventoryPage(warehouseId, targetPage, effectiveSize);
+      const data = await fetchWarehouseInventoryPage(warehouseId, targetPage, effectiveSize, searchQuery);
 
       // Replace SKUs for this warehouse with the new page's data
       setWarehouseSkus(curr => [
@@ -312,12 +321,13 @@ export function InventoryPage({ user }: InventoryPageProps) {
 
       setWarehousePages(curr => ({ ...curr, [warehouseId]: targetPage }));
       setWarehouseTotals(curr => ({ ...curr, [warehouseId]: data.total }));
+      setWarehouseLoadedSearches(curr => ({ ...curr, [warehouseId]: searchQuery.trim() }));
     } catch (error) {
       setErrorMessage(getInventoryErrorMessage(error, "加载仓库数据失败"));
     } finally {
       setWarehousePageLoading(curr => ({ ...curr, [warehouseId]: false }));
     }
-  }, [pageSize]);
+  }, [pageSize, searchQuery]);
 
   useEffect(() => {
     let active = true;
@@ -411,6 +421,14 @@ export function InventoryPage({ user }: InventoryPageProps) {
       }
     }
   }, [visibleWarehouses, warehouseTotals, loadWarehousePage]);
+
+  useEffect(() => {
+    if (visibleWarehouses.length !== 1) return;
+    const warehouse = visibleWarehouses[0];
+    if (warehouseTotals[warehouse.id] === undefined) return;
+    if ((warehouseLoadedSearches[warehouse.id] ?? "") === searchQuery.trim()) return;
+    void loadWarehousePage(warehouse.id, 1);
+  }, [searchQuery, visibleWarehouses, warehouseLoadedSearches, warehouseTotals, loadWarehousePage]);
 
 
 
@@ -895,6 +913,37 @@ export function InventoryPage({ user }: InventoryPageProps) {
     }
   }
 
+  async function handleToggleSkuDetails(warehouseId: string, item: WarehouseSku, sku?: ProductSku) {
+    const willExpand = !expandedSkuIds[item.id];
+    setExpandedSkuIds((current) => ({
+      ...current,
+      [item.id]: willExpand,
+    }));
+
+    if (!willExpand || !sku?.component_links.length || loadedAdjustmentKeys[item.id]) return;
+
+    const itemIds = sku.component_links.map((link) => link.item_id).filter(Boolean);
+    setAdjustmentsLoadingKeys((current) => ({ ...current, [item.id]: true }));
+    try {
+      const adjustments = await fetchWarehouseItemStockAdjustmentsForItems(warehouseId, itemIds);
+      setWarehouseItemStockAdjustments((current) => {
+        const loadedItemIds = new Set(itemIds);
+        return [
+          ...current.filter(
+            (adjustment) =>
+              adjustment.warehouse_id !== warehouseId || !loadedItemIds.has(adjustment.item_id),
+          ),
+          ...adjustments,
+        ];
+      });
+      setLoadedAdjustmentKeys((current) => ({ ...current, [item.id]: true }));
+    } catch (error) {
+      setErrorMessage(getInventoryErrorMessage(error, "加载配件编辑记录失败"));
+    } finally {
+      setAdjustmentsLoadingKeys((current) => ({ ...current, [item.id]: false }));
+    }
+  }
+
   function getSkuAvailableStock(warehouseId: string, sku?: ProductSku) {
     if (!sku || sku.component_links.length === 0) return 0;
 
@@ -955,26 +1004,10 @@ export function InventoryPage({ user }: InventoryPageProps) {
   const filteredWarehouseSkusByWarehouseId = useMemo(() => {
     const result: Record<string, WarehouseSku[]> = {};
     Object.entries(sortedWarehouseSkusByWarehouseId).forEach(([warehouseId, sortedItems]) => {
-      if (!searchQuery.trim()) {
-        result[warehouseId] = sortedItems;
-        return;
-      }
-      const query = searchQuery.trim().toLowerCase();
-      result[warehouseId] = sortedItems.filter((item) => {
-        const product = productsById[item.product_id];
-        const sku = skusById[item.sku_id];
-        const skuCode = getSkuDisplayCode(sku).toLowerCase();
-        const productCode = (product?.product_code ?? "").toLowerCase();
-        const productName = (product?.product_name_cn ?? "").toLowerCase();
-        return (
-          productCode.includes(query) ||
-          productName.includes(query) ||
-          skuCode.includes(query)
-        );
-      });
+      result[warehouseId] = sortedItems;
     });
     return result;
-  }, [sortedWarehouseSkusByWarehouseId, searchQuery, productsById, skusById, getSkuDisplayCode]);
+  }, [sortedWarehouseSkusByWarehouseId]);
 
   return (
     <section className="grid gap-5">
@@ -1331,6 +1364,8 @@ export function InventoryPage({ user }: InventoryPageProps) {
             visibleWarehouses.map((warehouse) => {
               const { firstLegs, lastLegs } = getWarehouseAssignedLegs(warehouse.id);
               const filteredItems = filteredWarehouseSkusByWarehouseId[warehouse.id] ?? [];
+              const warehouseTotal = warehouseTotals[warehouse.id] ?? (warehouseSkusByWarehouseId[warehouse.id] ?? []).length;
+              const hasSearch = Boolean(searchQuery.trim());
 
               return (
                 <div key={warehouse.id} className="grid gap-5">
@@ -1338,9 +1373,9 @@ export function InventoryPage({ user }: InventoryPageProps) {
                   <div className="grid gap-5 sm:grid-cols-3">
                     <div className="surface-card p-5 flex items-center justify-between shadow-sm rounded-xl">
                       <div>
-                        <div className="text-sm font-medium text-slate-500">已分配商品 SKU 数</div>
+                        <div className="text-sm font-medium text-slate-500">{hasSearch ? "筛选匹配 SKU 数" : "已分配商品 SKU 数"}</div>
                         <div className="mt-1 text-2xl font-bold text-ink">
-                          {(warehouseSkusByWarehouseId[warehouse.id] ?? []).length} 个
+                          {warehouseTotal} 个
                         </div>
                       </div>
                       <div className="rounded-full bg-blue-50 p-3 text-blue-600">
@@ -1637,12 +1672,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                       <td className="px-4 py-3">
                                         <button
                                           type="button"
-                                          onClick={() =>
-                                            setExpandedSkuIds((current) => ({
-                                              ...current,
-                                              [item.id]: !current[item.id],
-                                            }))
-                                          }
+                                          onClick={() => void handleToggleSkuDetails(warehouse.id, item, sku)}
                                           className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition ${
                                             expandedSkuIds[item.id]
                                               ? "border-violet-200 bg-violet-50 text-violet-700"
@@ -1654,7 +1684,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                           ) : (
                                             <ChevronDown size={14} />
                                           )}
-                                          查看配件
+                                          {adjustmentsLoadingKeys[item.id] ? "加载中" : "查看配件"}
                                         </button>
                                       </td>
                                       <td className="px-4 py-3">
@@ -1699,6 +1729,12 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                                       warehouseItemStocksByKey[
                                                         `${warehouse.id}:${link.item_id}`
                                                       ];
+                                                    const itemAdjustments =
+                                                      warehouseItemStockAdjustmentsByKey[
+                                                        `${warehouse.id}:${link.item_id}`
+                                                      ] ?? [];
+                                                    const isLoadingAdjustments =
+                                                      adjustmentsLoadingKeys[item.id] && !loadedAdjustmentKeys[item.id];
                                                     return (
                                                       <tr key={link.item_id} className="border-t border-line hover:bg-slate-50/50">
                                                         <td className="px-4 py-3 text-sm text-ink font-medium">
@@ -1774,11 +1810,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                                         <td className="px-4 py-3 align-top">
                                                           {itemStock ? (
                                                             <div className="grid min-w-56 gap-2 text-[11px] text-slate-600">
-                                                              {(
-                                                                warehouseItemStockAdjustmentsByKey[
-                                                                  `${warehouse.id}:${link.item_id}`
-                                                                ] ?? []
-                                                              )
+                                                              {itemAdjustments
                                                                 .slice(0, 3)
                                                                 .map((adjustment) => (
                                                                   <div
@@ -1799,11 +1831,12 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                                                     </div>
                                                                   </div>
                                                                 ))}
-                                                              {(
-                                                                warehouseItemStockAdjustmentsByKey[
-                                                                  `${warehouse.id}:${link.item_id}`
-                                                                ] ?? []
-                                                              ).length === 0 && (
+                                                              {isLoadingAdjustments && (
+                                                                <span className="text-slate-400">
+                                                                  正在加载编辑记录...
+                                                                </span>
+                                                              )}
+                                                              {!isLoadingAdjustments && itemAdjustments.length === 0 && (
                                                                 <span className="text-slate-400">
                                                                   暂无编辑记录
                                                                 </span>
@@ -1869,7 +1902,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                           {/* Left: total info + page size selector */}
                           <div className="flex items-center gap-3">
                             <span className="text-xs text-slate-500">
-                              共 <span className="font-semibold text-slate-700">{total}</span> 条，
+                              {hasSearch ? "筛选后共" : "共"} <span className="font-semibold text-slate-700">{total}</span> 条，
                               第 <span className="font-semibold text-slate-700">{currentPage}</span> / {totalPages} 页
                             </span>
                             <div className="flex items-center gap-1.5">
