@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import { Navigate } from "react-router-dom";
 import type { User } from "@supabase/supabase-js";
 import { getSupabaseClient, supabaseConfigError } from "../lib/supabase";
@@ -16,6 +16,17 @@ export function AuthPage({ user }: AuthPageProps) {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    const autoEmail = import.meta.env.VITE_AUTO_LOGIN_EMAIL;
+    const autoPassword = import.meta.env.VITE_AUTO_LOGIN_PASSWORD;
+    const noAuto = new URLSearchParams(window.location.search).get("no_auto") === "true";
+    if (autoEmail && autoPassword && !user && !busy && !noAuto) {
+      setEmail(autoEmail);
+      setPassword(autoPassword);
+      void authenticate(autoEmail, autoPassword);
+    }
+  }, [user]);
 
   async function authenticate(
     nextEmail: string,
@@ -58,89 +69,98 @@ export function AuthPage({ user }: AuthPageProps) {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 px-4 py-8 text-slate-900">
-      <div className="mx-auto grid min-h-[calc(100vh-4rem)] w-full max-w-5xl items-center gap-8 lg:grid-cols-[minmax(0,1fr)_420px]">
+    <div className="min-h-screen bg-slate-950 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-indigo-950 via-slate-900 to-slate-950 px-4 py-8 text-slate-100 flex items-center justify-center relative overflow-hidden">
+      {/* Background ambient glows */}
+      <div className="absolute top-0 right-1/4 w-96 h-96 bg-violet-500/10 rounded-full blur-[100px] pointer-events-none" />
+      <div className="absolute bottom-0 left-1/4 w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none" />
+
+      <div className="mx-auto grid min-h-[calc(100vh-4rem)] w-full max-w-5xl items-center gap-12 lg:grid-cols-[minmax(0,1fr)_440px] relative z-10">
         <section className="grid gap-6">
-          <div className="inline-flex w-fit rounded-md border border-slate-200 bg-white px-3 py-1 text-xs font-bold uppercase tracking-wide text-sky-700 shadow-soft">
+          <div className="inline-flex w-fit rounded-xl border border-white/10 bg-white/5 px-3.5 py-1 text-xs font-bold uppercase tracking-wider text-violet-400 backdrop-blur-md shadow-inner">
             ERP Operations Console
           </div>
           <div>
-            <h1 className="max-w-3xl text-4xl font-semibold leading-tight tracking-normal text-slate-950 sm:text-5xl">
-              Temu日本站运营核算系统
+            <h1 className="max-w-3xl text-4xl font-extrabold leading-tight tracking-tight text-white sm:text-5xl">
+              Temu 日本站 <span className="bg-gradient-to-r from-violet-400 to-indigo-400 bg-clip-text text-transparent">运营核算系统</span>
             </h1>
-            <p className="mt-4 max-w-2xl text-base font-medium leading-7 text-slate-600">
-              商品、订单、采购、库存与利润数据集中管理。
+            <p className="mt-4 max-w-2xl text-base font-medium leading-7 text-slate-400">
+              一站式集中管理商品、订单、采购、库存与利润数据，助力决策优化。
             </p>
           </div>
-          <div className="grid max-w-2xl gap-3 sm:grid-cols-3">
-            {["商品", "订单", "利润"].map((item) => (
+          <div className="grid max-w-2xl gap-4 sm:grid-cols-3">
+            {[
+              { title: "商品管理", desc: "主参数与申报材质" },
+              { title: "订单分配", desc: "仓储物流最优解" },
+              { title: "利润分析", desc: "实销实退利润模型" }
+            ].map((item) => (
               <div
-                key={item}
-                className="erp-kpi-card px-4 py-3 text-sm font-semibold text-slate-700"
+                key={item.title}
+                className="bg-white/5 border border-white/10 rounded-2xl p-4 backdrop-blur-md transition hover:bg-white/10 hover:border-white/20"
               >
-                {item}
+                <p className="text-sm font-bold text-white">{item.title}</p>
+                <p className="text-xs text-slate-400 mt-1">{item.desc}</p>
               </div>
             ))}
           </div>
         </section>
 
-        <div className="surface-card w-full p-6">
+        <div className="bg-white/90 backdrop-blur-xl border border-white/20 p-8 rounded-3xl shadow-2xl shadow-black/30 w-full text-slate-800">
           <div className="mb-6">
-            <p className="text-2xl font-semibold text-ink">账号登录</p>
-            <p className="mt-2 text-sm font-medium text-slate-500">
-              {mode === "login" ? "登录后继续" : "创建账号"}
+            <p className="text-2xl font-bold text-slate-900">账号登录</p>
+            <p className="mt-2 text-sm text-slate-500 font-medium">
+              {mode === "login" ? "登录后继续访问管理控制台" : "新建运营系统账号"}
             </p>
           </div>
-          <div className="mb-5 grid grid-cols-2 rounded-md border border-slate-200 bg-slate-100 p-1 text-sm font-semibold">
-          <button
-            type="button"
-            onClick={() => setMode("login")}
-            className={`h-10 rounded-md transition ${mode === "login" ? "bg-white text-sky-700 shadow-soft" : "text-slate-500"} ${signUpEnabled ? "" : "col-span-2"}`}
-          >
-            登录
-          </button>
-          {signUpEnabled && (
+          <div className="mb-5 grid grid-cols-2 rounded-xl border border-slate-200 bg-slate-100/60 p-1 text-sm font-semibold">
             <button
               type="button"
-              onClick={() => setMode("register")}
-              className={`h-10 rounded-md transition ${mode === "register" ? "bg-white text-sky-700 shadow-soft" : "text-slate-500"}`}
+              onClick={() => setMode("login")}
+              className={`h-10 rounded-lg transition ${mode === "login" ? "bg-white text-violet-700 shadow-sm font-bold" : "text-slate-500 hover:text-slate-855"} ${signUpEnabled ? "" : "col-span-2"}`}
             >
-              注册
+              登录
             </button>
-          )}
-        </div>
-        {supabaseConfigError && (
-          <div className="mb-5 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-            {supabaseConfigError}
+            {signUpEnabled && (
+              <button
+                type="button"
+                onClick={() => setMode("register")}
+                className={`h-10 rounded-lg transition ${mode === "register" ? "bg-white text-violet-700 shadow-sm font-bold" : "text-slate-500 hover:text-slate-855"}`}
+              >
+                注册
+              </button>
+            )}
           </div>
-        )}
-        <form onSubmit={handleSubmit} className="grid gap-4">
-          <Field label="邮箱">
-            <TextInput
-              required
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-            />
-          </Field>
-          <Field label="密码">
-            <TextInput
-              required
-              minLength={6}
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-            />
-          </Field>
-          {message && <p className="text-sm text-warning">{message}</p>}
-          <button
-            type="submit"
-            disabled={busy || Boolean(supabaseConfigError)}
-            className="btn-primary mt-2 w-full"
-          >
-            {busy ? "处理中..." : mode === "login" ? "登录" : "注册"}
-          </button>
-        </form>
+          {supabaseConfigError && (
+            <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 font-medium">
+              {supabaseConfigError}
+            </div>
+          )}
+          <form onSubmit={handleSubmit} className="grid gap-4">
+            <Field label="邮箱">
+              <TextInput
+                required
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+              />
+            </Field>
+            <Field label="密码">
+              <TextInput
+                required
+                minLength={6}
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+              />
+            </Field>
+            {message && <p className="text-sm text-warning font-semibold">{message}</p>}
+            <button
+              type="submit"
+              disabled={busy || Boolean(supabaseConfigError)}
+              className="btn-primary mt-2 w-full text-base py-3"
+            >
+              {busy ? "处理中..." : mode === "login" ? "安全登录" : "注册账号"}
+            </button>
+          </form>
         </div>
       </div>
     </div>

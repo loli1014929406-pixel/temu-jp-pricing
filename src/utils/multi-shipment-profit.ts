@@ -14,9 +14,96 @@ import {
   getThreeCmDimensionIssue as getSharedThreeCmDimensionIssue,
   getThreeCmUnavailableReason,
   THREE_CM_WEIGHT_LIMIT_G,
+  calculateDynamicMethodCost,
 } from "./shipping-costs";
+import { defaultFirstLegMethods, defaultLastLegMethods } from "../lib/defaults";
 
 export type MultiShipmentMode = "direct" | "standard";
+
+function getFirstLegs(settings: PricingSettings) {
+  return settings.first_leg_methods || [
+    {
+      id: "sf-first-leg",
+      name: "顺丰",
+      type: "first_leg",
+      formula: "sf",
+      params: {
+        firstWeight: settings.sf_first_weight_kg,
+        firstPrice: settings.sf_first_price_rmb,
+        extraPrice: settings.sf_extra_price_per_kg_rmb,
+      },
+      isActive: true,
+    },
+    {
+      id: "huaian-air-first-leg",
+      name: "淮安空运 RMB/kg",
+      type: "first_leg",
+      formula: "flat_rmb",
+      params: {
+        price: settings.huaian_air_price_per_kg_rmb,
+      },
+      isActive: true,
+    },
+    {
+      id: "ocs-first-leg",
+      name: "OCS RMB/kg",
+      type: "first_leg",
+      formula: "flat_rmb_tariff",
+      params: {
+        price: settings.ocs_price_per_kg_rmb,
+        tariffRate: settings.ocs_tariff_rate ?? 0,
+      },
+      isActive: true,
+    },
+  ];
+}
+
+function getLastLegs(settings: PricingSettings) {
+  return settings.last_leg_methods || [
+    {
+      id: "ocs-yamato-last-leg",
+      name: "OCS Yamato",
+      type: "last_leg",
+      formula: "ocs_3cm",
+      params: {
+        firstPrice: settings.test_ocs_3cm_first_price_rmb,
+        extraPrice: settings.test_ocs_3cm_extra_price_per_100g_rmb,
+      },
+      isActive: true,
+    },
+    {
+      id: "ocs-small-last-leg",
+      name: "OCS 小包",
+      type: "last_leg",
+      formula: "ocs_small",
+      params: {
+        firstPrice: settings.test_ocs_small_parcel_first_price_rmb,
+        extraPrice: settings.test_ocs_small_parcel_extra_price_per_500g_rmb,
+      },
+      isActive: true,
+    },
+    {
+      id: "osaka-jp-last-leg",
+      name: "大阪Japan Post",
+      type: "last_leg",
+      formula: "flat_jpy",
+      params: {
+        price: settings.osaka_lastmile_jpy,
+      },
+      isActive: true,
+    },
+    {
+      id: "fukuoka-jp-last-leg",
+      name: "福冈Japan Post",
+      type: "last_leg",
+      formula: "flat_jpy",
+      params: {
+        price: settings.fukuoka_lastmile_jpy,
+      },
+      isActive: true,
+    },
+  ];
+}
 
 export type ShipmentMethodCandidate = {
   key: string;
@@ -102,11 +189,28 @@ function buildDirectThreeCmCandidate(
   quantity: number,
   settings: PricingSettings,
 ): ShipmentMethodCandidate {
+  const lastLegs = getLastLegs(settings);
+  const ocs3cmMethod = lastLegs.find((m) => m.formula === "ocs_3cm");
+
+  const name = ocs3cmMethod?.name || "OCS Yamato";
+  const isActive = ocs3cmMethod ? ocs3cmMethod.isActive : true;
+
+  if (!isActive) {
+    return {
+      key: "direct_ocs_3cm",
+      name,
+      available: false,
+      logisticsCostRmb: null,
+      packageCount: null,
+      unavailableReason: "发货方式未启用",
+    };
+  }
+
   const dimensionIssue = getThreeCmDimensionIssue(product);
   if (dimensionIssue) {
     return {
       key: "direct_ocs_3cm",
-      name: "OCS 3cm",
+      name,
       available: false,
       logisticsCostRmb: null,
       packageCount: null,
@@ -118,7 +222,7 @@ function buildDirectThreeCmCandidate(
   if (parcelUnitCounts.length === 0) {
     return {
       key: "direct_ocs_3cm",
-      name: "OCS 3cm",
+      name,
       available: false,
       logisticsCostRmb: null,
       packageCount: null,
@@ -126,15 +230,17 @@ function buildDirectThreeCmCandidate(
     };
   }
 
-  const logisticsCostRmb = parcelUnitCounts.reduce(
-    (sum, parcelQuantity) =>
-      sum + calculateOcsThreeCmCostRmb(product.package_weight_g * parcelQuantity, settings),
-    0,
-  );
+  const logisticsCostRmb = parcelUnitCounts.reduce((sum, parcelQuantity) => {
+    const weightG = product.package_weight_g * parcelQuantity;
+    const cost = ocs3cmMethod
+      ? calculateDynamicMethodCost(ocs3cmMethod, weightG, settings.exchange_rate_rmb_per_jpy)
+      : calculateOcsThreeCmCostRmb(weightG, settings);
+    return sum + cost;
+  }, 0);
 
   return {
     key: "direct_ocs_3cm",
-    name: "OCS 3cm",
+    name,
     available: true,
     logisticsCostRmb: round(logisticsCostRmb),
     packageCount: parcelUnitCounts.length,
@@ -199,14 +305,34 @@ function buildOcsSmallParcelCandidate(
   product: Product,
   quantity: number,
   settings: PricingSettings,
-) {
+): ShipmentMethodCandidate {
+  const lastLegs = getLastLegs(settings);
+  const ocsSmallMethod = lastLegs.find((m) => m.formula === "ocs_small");
+
+  const name = ocsSmallMethod?.name || "OCS 小包";
+  const isActive = ocsSmallMethod ? ocsSmallMethod.isActive : true;
+
+  if (!isActive) {
+    return {
+      key: "ocs_small_parcel",
+      name,
+      available: false,
+      logisticsCostRmb: null,
+      packageCount: null,
+      unavailableReason: "发货方式未启用",
+    };
+  }
+
+  const weightG = product.package_weight_g * quantity;
+  const cost = ocsSmallMethod
+    ? calculateDynamicMethodCost(ocsSmallMethod, weightG, settings.exchange_rate_rmb_per_jpy)
+    : calculateOcsSmallParcelCostRmb(weightG, settings);
+
   return {
     key: "ocs_small_parcel",
-    name: "OCS 小包",
+    name,
     available: true,
-    logisticsCostRmb: round(
-      calculateOcsSmallParcelCostRmb(product.package_weight_g * quantity, settings),
-    ),
+    logisticsCostRmb: round(cost),
     packageCount: 1,
   };
 }
@@ -299,8 +425,16 @@ export function calculateMultiShipmentProfitRow(
     safeQuantity;
   const packagingCostRmb = settings.packaging_cost_rmb * safeQuantity;
   const totalWeightG = product.package_weight_g * safeQuantity;
+  const firstLegs = getFirstLegs(settings);
+  const activeFirstLegs = firstLegs.filter((m) => m.isActive);
+  const sfMethod = activeFirstLegs.find((m) => m.formula === "sf" || m.name.includes("顺丰"));
+
   const inboundSfCostRmb =
-    mode === "direct" ? calculateSfCostRmb(totalWeightG / 1000, settings) : 0;
+    mode === "direct"
+      ? sfMethod
+        ? calculateDynamicMethodCost(sfMethod, totalWeightG, settings.exchange_rate_rmb_per_jpy)
+        : calculateSfCostRmb(totalWeightG / 1000, settings)
+      : 0;
   const adFeeRmb = isValid ? calculateAdFeeRmb(input) * safeQuantity : 0;
   const candidates = buildShipmentCandidates(
     mode,

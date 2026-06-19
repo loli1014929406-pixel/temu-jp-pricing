@@ -6,6 +6,8 @@ import type {
   ProfitLogisticsPlanKey,
   SavedProfitCalculation,
 } from "../types";
+import { calculateDynamicMethodCost } from "./shipping-costs";
+import { defaultFirstLegMethods, defaultLastLegMethods } from "../lib/defaults";
 
 const round = (value: number, digits = 2) => Number(value.toFixed(digits));
 
@@ -69,33 +71,6 @@ export function calculateAdFeeRmb(input: ProfitCalculationInput) {
   return Math.max(0, input.temuPriceRmb - input.trafficDiscountRate) / adRoas;
 }
 
-const logisticsPlans: Array<{
-  key: ProfitLogisticsPlanKey;
-  name: string;
-  getCost: (pricing: PricingResult) => number;
-}> = [
-  {
-    key: "huaian_osaka",
-    name: "淮安空运 + 大阪海外仓",
-    getCost: (pricing) => pricing.planA,
-  },
-  {
-    key: "huaian_fukuoka",
-    name: "淮安空运 + 福冈海外仓",
-    getCost: (pricing) => pricing.planB,
-  },
-  {
-    key: "ocs_osaka",
-    name: "OCS + 大阪海外仓",
-    getCost: (pricing) => pricing.planC,
-  },
-  {
-    key: "ocs_fukuoka",
-    name: "OCS + 福冈海外仓",
-    getCost: (pricing) => pricing.planD,
-  },
-];
-
 export function calculateProfitProjection(
   pricing: PricingResult,
   settings: PricingSettings,
@@ -139,6 +114,140 @@ export function calculateProfitProjection(
     pricing.packagingCostRmb +
     pricing.sfCostRmb;
 
+  const firstLegs = settings.first_leg_methods || [
+    {
+      id: "sf-first-leg",
+      name: "顺丰",
+      type: "first_leg",
+      formula: "sf",
+      params: {
+        firstWeight: settings.sf_first_weight_kg,
+        firstPrice: settings.sf_first_price_rmb,
+        extraPrice: settings.sf_extra_price_per_kg_rmb,
+      },
+      isActive: true,
+    },
+    {
+      id: "huaian-air-first-leg",
+      name: "淮安空运 RMB/kg",
+      type: "first_leg",
+      formula: "flat_rmb",
+      params: {
+        price: settings.huaian_air_price_per_kg_rmb,
+      },
+      isActive: true,
+    },
+    {
+      id: "ocs-first-leg",
+      name: "OCS RMB/kg",
+      type: "first_leg",
+      formula: "flat_rmb_tariff",
+      params: {
+        price: settings.ocs_price_per_kg_rmb,
+        tariffRate: settings.ocs_tariff_rate ?? 0,
+      },
+      isActive: true,
+    },
+  ];
+
+  const lastLegs = settings.last_leg_methods || [
+    {
+      id: "ocs-yamato-last-leg",
+      name: "OCS Yamato",
+      type: "last_leg",
+      formula: "ocs_3cm",
+      params: {
+        firstPrice: settings.test_ocs_3cm_first_price_rmb,
+        extraPrice: settings.test_ocs_3cm_extra_price_per_100g_rmb,
+      },
+      isActive: true,
+    },
+    {
+      id: "ocs-small-last-leg",
+      name: "OCS 小包",
+      type: "last_leg",
+      formula: "ocs_small",
+      params: {
+        firstPrice: settings.test_ocs_small_parcel_first_price_rmb,
+        extraPrice: settings.test_ocs_small_parcel_extra_price_per_500g_rmb,
+      },
+      isActive: true,
+    },
+    {
+      id: "osaka-jp-last-leg",
+      name: "大阪Japan Post",
+      type: "last_leg",
+      formula: "flat_jpy",
+      params: {
+        price: settings.osaka_lastmile_jpy,
+      },
+      isActive: true,
+    },
+    {
+      id: "fukuoka-jp-last-leg",
+      name: "福冈Japan Post",
+      type: "last_leg",
+      formula: "flat_jpy",
+      params: {
+        price: settings.fukuoka_lastmile_jpy,
+      },
+      isActive: true,
+    },
+  ];
+
+  const activeFirstLegs = firstLegs.filter(
+    (m) => m.isActive && (m.formula === "flat_rmb" || m.formula === "flat_rmb_tariff"),
+  );
+  const activeLastLegs = lastLegs.filter((m) => m.isActive && m.formula === "flat_jpy");
+
+  const plansList = [];
+  if (activeFirstLegs.length > 0 && activeLastLegs.length > 0) {
+    for (const fl of activeFirstLegs) {
+      for (const ll of activeLastLegs) {
+        plansList.push({
+          key: `${fl.id}_${ll.id}`,
+          name: `${fl.name} + ${ll.name}`,
+          getCost: () => {
+            const flCost = calculateDynamicMethodCost(
+              fl,
+              pricing.packageWeightKg * 1000,
+              settings.exchange_rate_rmb_per_jpy,
+            );
+            const llCost = calculateDynamicMethodCost(
+              ll,
+              pricing.packageWeightKg * 1000,
+              settings.exchange_rate_rmb_per_jpy,
+            );
+            return flCost + llCost;
+          },
+        });
+      }
+    }
+  } else {
+    plansList.push(
+      {
+        key: "huaian_osaka",
+        name: "淮安空运 + 大阪海外仓",
+        getCost: () => pricing.planA,
+      },
+      {
+        key: "huaian_fukuoka",
+        name: "淮安空运 + 福冈海外仓",
+        getCost: () => pricing.planB,
+      },
+      {
+        key: "ocs_osaka",
+        name: "OCS + 大阪海外仓",
+        getCost: () => pricing.planC,
+      },
+      {
+        key: "ocs_fukuoka",
+        name: "OCS + 福冈海外仓",
+        getCost: () => pricing.planD,
+      },
+    );
+  }
+
   return {
     calculationVersion: PROFIT_CALCULATION_VERSION,
     isValid,
@@ -150,8 +259,8 @@ export function calculateProfitProjection(
       discountedUnitPriceJpy === null ? null : round(discountedUnitPriceJpy),
     singleUnitLosesShippingSubsidy,
     freeShippingThresholdQty,
-    plans: logisticsPlans.map((plan) => {
-      const logisticsCostRmb = plan.getCost(pricing);
+    plans: plansList.map((plan) => {
+      const logisticsCostRmb = plan.getCost();
       const totalCostRmb = sharedBaseCostRmb + logisticsCostRmb;
       const realizedRevenueRmb = isValid
         ? discountedSalePriceRmb + effectiveSubsidyRmb

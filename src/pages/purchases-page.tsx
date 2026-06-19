@@ -22,10 +22,15 @@ import {
   updatePurchasePackageTrackingNo,
   updatePurchaseSource,
 } from "../lib/purchases";
-import { fetchProductItemsByProductIds, fetchProducts } from "../lib/products";
+import {
+  fetchProductItemsByProductIds,
+  fetchProducts,
+  fetchProductSkusByProductIds,
+} from "../lib/products";
 import type {
   Product,
   ProductItem,
+  ProductSku,
   PurchaseOrder,
   PurchasePackage,
   Warehouse,
@@ -34,7 +39,15 @@ import { getErrorMessage } from "../utils/errors";
 
 type PurchasesPageProps = { user: User; view: "create" | "records" };
 type DraftItem = { id: string; itemId: string; quantity: string; unitPriceRmb: string };
-type DraftProduct = { id: string; productId: string; items: DraftItem[] };
+type DraftSkuSelection = { id: string; skuId: string; quantity: string };
+type DraftProduct = {
+  id: string;
+  productId: string;
+  skuId?: string;
+  skuQuantity?: string;
+  skuSelections?: DraftSkuSelection[];
+  items: DraftItem[];
+};
 type DraftPurchaseUrlItem = { component: ProductItem; draftItem: DraftItem };
 type DraftPurchaseUrlSummary = {
   urls: string[];
@@ -67,6 +80,12 @@ function hasPurchaseCreateDraft(draft: PurchaseCreateDraft | null | undefined) {
       draft.draftProducts.some(
         (product) =>
           product.productId ||
+          product.skuId ||
+          (product.skuQuantity ?? "1").trim() !== "1" ||
+          (product.skuSelections ?? []).some(
+            (selection) =>
+              selection.skuId || (selection.quantity ?? "1").trim() !== "1",
+          ) ||
           product.items.some(
             (item) =>
               item.itemId ||
@@ -120,8 +139,38 @@ function createDraftItem(): DraftItem {
   return { id: crypto.randomUUID(), itemId: "", quantity: "1", unitPriceRmb: "" };
 }
 
+function createDraftSkuSelection(): DraftSkuSelection {
+  return { id: crypto.randomUUID(), skuId: "", quantity: "1" };
+}
+
 function createDraftProduct(): DraftProduct {
-  return { id: crypto.randomUUID(), productId: "", items: [createDraftItem()] };
+  return {
+    id: crypto.randomUUID(),
+    productId: "",
+    skuId: "",
+    skuQuantity: "1",
+    skuSelections: [createDraftSkuSelection()],
+    items: [createDraftItem()],
+  };
+}
+
+function formatSkuLabel(sku: ProductSku) {
+  const attributes = Object.entries(sku.attributes ?? {})
+    .filter(([, value]) => String(value).trim())
+    .map(([name, value]) => `${name}: ${value}`);
+
+  return attributes.length > 0
+    ? `${sku.sku_code} · ${attributes.join(" / ")}`
+    : sku.sku_code;
+}
+
+function formatQuantity(value: number) {
+  return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(4)));
+}
+
+function normalizePositiveIntegerInput(value: string | undefined) {
+  const quantity = Math.trunc(Number(value));
+  return Number.isFinite(quantity) && quantity > 0 ? String(quantity) : "1";
 }
 
 export function PurchasesPage({ user, view }: PurchasesPageProps) {
@@ -136,6 +185,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [items, setItems] = useState<ProductItem[]>([]);
+  const [skus, setSkus] = useState<ProductSku[]>([]);
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
   const [warehouseId, setWarehouseId] = useState(restoredCreateDraft?.warehouseId ?? "");
   const [purchasedAt, setPurchasedAt] = useState(restoredCreateDraft?.purchasedAt ?? localDate());
@@ -174,11 +224,15 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
           fetchProducts(),
           fetchPurchaseOrders(),
         ]);
-        const nextItems = await fetchProductItemsByProductIds(nextProducts.map((item) => item.id));
+        const [nextItems, nextSkus] = await Promise.all([
+          fetchProductItemsByProductIds(nextProducts.map((item) => item.id)),
+          fetchProductSkusByProductIds(nextProducts.map((item) => item.id)),
+        ]);
         if (!active) return;
         setWarehouses(nextWarehouses);
         setProducts(nextProducts);
         setItems(nextItems);
+        setSkus(nextSkus);
         setOrders(nextOrders);
         const serverPackageTrackingDrafts = Object.fromEntries(
             nextOrders.flatMap((order) =>
@@ -232,6 +286,20 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
   const itemsById = useMemo(
     () => Object.fromEntries(items.flatMap((item) => (item.id ? [[item.id, item]] : []))),
     [items],
+  );
+  const skusById = useMemo(
+    () => Object.fromEntries(skus.flatMap((sku) => (sku.id ? [[sku.id, sku]] : []))),
+    [skus],
+  );
+  const skusByProductId = useMemo(
+    () =>
+      skus.reduce<Record<string, ProductSku[]>>((groups, sku) => {
+        if (!sku.product_id) return groups;
+        groups[sku.product_id] ??= [];
+        groups[sku.product_id].push(sku);
+        return groups;
+      }, {}),
+    [skus],
   );
   const filteredOrders = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -394,6 +462,68 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
     setDraftProducts((current) => [...current, createDraftProduct()]);
   }
 
+  function getDraftSkuSelections(draftProduct: DraftProduct): DraftSkuSelection[] {
+    if (draftProduct.skuSelections?.length) return draftProduct.skuSelections;
+    if (draftProduct.skuId) {
+      return [{
+        id: `${draftProduct.id}-legacy-sku`,
+        skuId: draftProduct.skuId,
+        quantity: draftProduct.skuQuantity || "1",
+      }];
+    }
+
+    return [{
+      id: `${draftProduct.id}-empty-sku`,
+      skuId: "",
+      quantity: "1",
+    }];
+  }
+
+  function createDraftItemsFromSkuSelections(
+    skuSelections: DraftSkuSelection[],
+    existingItems: DraftItem[],
+    fallbackItems: DraftItem[] = existingItems,
+  ) {
+    const existingByItemId = new Map(existingItems.map((item) => [item.itemId, item]));
+    const quantityByItemId = new Map<string, number>();
+
+    for (const selection of skuSelections) {
+      if (!selection.skuId) continue;
+
+      const sku = skusById[selection.skuId];
+      if (!sku) continue;
+
+      const skuPurchaseQuantity = Number(normalizePositiveIntegerInput(selection.quantity));
+      sku.component_links.forEach((link) => {
+        if (!link.item_id) return;
+        quantityByItemId.set(
+          link.item_id,
+          (quantityByItemId.get(link.item_id) ?? 0) +
+            Number(link.quantity || 0) * skuPurchaseQuantity,
+        );
+      });
+    }
+
+    if (quantityByItemId.size === 0) {
+      return fallbackItems.length > 0 ? fallbackItems : [createDraftItem()];
+    }
+
+    const nextItems = Array.from(quantityByItemId.entries()).flatMap(([itemId, bomQuantity]) => {
+      const component = itemsById[itemId];
+      if (!component?.id) return [];
+
+      const existing = existingByItemId.get(itemId);
+      return [{
+        id: existing?.id ?? crypto.randomUUID(),
+        itemId,
+        quantity: formatQuantity(bomQuantity),
+        unitPriceRmb: existing?.unitPriceRmb || String(component.purchase_price_rmb),
+      }];
+    });
+
+    return nextItems.length > 0 ? nextItems : [createDraftItem()];
+  }
+
   function updateDraftProduct(productId: string, nextProductId: string) {
     setDraftProducts((current) =>
       current.map((product) =>
@@ -401,10 +531,104 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
           ? {
               ...product,
               productId: nextProductId,
+              skuId: "",
+              skuQuantity: "1",
+              skuSelections: [createDraftSkuSelection()],
               items: product.items.map((item) => ({ ...item, itemId: "", unitPriceRmb: "" })),
             }
           : product,
       ),
+    );
+  }
+
+  function addDraftProductSkuSelection(productId: string) {
+    setDraftProducts((current) =>
+      current.map((product) =>
+        product.id === productId
+          ? {
+              ...product,
+              skuId: "",
+              skuQuantity: "1",
+              skuSelections: [...getDraftSkuSelections(product), createDraftSkuSelection()],
+            }
+          : product,
+      ),
+    );
+  }
+
+  function updateDraftProductSku(productId: string, selectionId: string, nextSkuId: string) {
+    setDraftProducts((current) =>
+      current.map((product) => {
+        if (product.id !== productId) return product;
+
+        const skuSelections = getDraftSkuSelections(product).map((selection) =>
+          selection.id === selectionId
+            ? {
+                ...selection,
+                skuId: nextSkuId,
+                quantity: normalizePositiveIntegerInput(selection.quantity),
+              }
+            : selection,
+        );
+        return {
+          ...product,
+          skuId: "",
+          skuQuantity: "1",
+          skuSelections,
+          items: createDraftItemsFromSkuSelections(skuSelections, product.items),
+        };
+      }),
+    );
+  }
+
+  function updateDraftProductSkuQuantity(
+    productId: string,
+    selectionId: string,
+    nextSkuQuantity: string,
+  ) {
+    setDraftProducts((current) =>
+      current.map((product) => {
+        if (product.id !== productId) return product;
+
+        const skuSelections = getDraftSkuSelections(product).map((selection) =>
+          selection.id === selectionId
+            ? { ...selection, quantity: nextSkuQuantity }
+            : selection,
+        );
+        return {
+          ...product,
+          skuId: "",
+          skuQuantity: "1",
+          skuSelections,
+          items: createDraftItemsFromSkuSelections(skuSelections, product.items),
+        };
+      }),
+    );
+  }
+
+  function removeDraftProductSkuSelection(productId: string, selectionId: string) {
+    setDraftProducts((current) =>
+      current.map((product) => {
+        if (product.id !== productId) return product;
+
+        const remainingSelections = getDraftSkuSelections(product).filter(
+          (selection) => selection.id !== selectionId,
+        );
+        const skuSelections =
+          remainingSelections.length > 0 ? remainingSelections : [createDraftSkuSelection()];
+
+        return {
+          ...product,
+          skuId: "",
+          skuQuantity: "1",
+          skuSelections,
+          items: createDraftItemsFromSkuSelections(
+            skuSelections,
+            product.items,
+            [createDraftItem()],
+          ),
+        };
+      }),
     );
   }
 
@@ -765,7 +989,11 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
             <h3 className="text-sm font-semibold text-ink">采购明细</h3>
             <button type="button" onClick={addDraftProduct} className="btn-secondary h-10 px-3"><Plus size={16} />增加商品</button>
           </div>
-          {draftProducts.map((draftProduct, productIndex) => (
+          {draftProducts.map((draftProduct, productIndex) => {
+            const draftSkuSelections = getDraftSkuSelections(draftProduct);
+            const productSkus = skusByProductId[draftProduct.productId] ?? [];
+
+            return (
             <div key={draftProduct.id} className="grid gap-3 rounded-2xl border border-line bg-slate-50/60 p-4">
               <div className="flex flex-wrap items-end gap-2">
                 <div className="min-w-0 flex-1">
@@ -779,6 +1007,93 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                 <button type="button" onClick={() => setDraftProducts((current) => current.map((item) => item.id === draftProduct.id ? { ...item, items: [...item.items, createDraftItem()] } : item))} className="btn-secondary h-10 shrink-0 px-3"><Plus size={16} />增加配件</button>
                 <button type="button" disabled={draftProducts.length === 1} onClick={() => setDraftProducts((current) => current.filter((item) => item.id !== draftProduct.id))} className="icon-btn-danger h-10 w-10"><Trash2 size={16} /></button>
               </div>
+              {draftProduct.productId && (
+                <div className="grid gap-3 rounded-xl border border-line bg-white p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-sm font-semibold text-slate-700">按 SKU 采购</span>
+                    <button
+                      type="button"
+                      onClick={() => addDraftProductSkuSelection(draftProduct.id)}
+                      className="btn-secondary h-9 px-3"
+                    >
+                      <Plus size={16} />
+                      增加 SKU
+                    </button>
+                  </div>
+                  {draftSkuSelections.map((selection, selectionIndex) => (
+                    <div
+                      key={selection.id}
+                      className="grid gap-3 rounded-xl border border-line bg-slate-50/60 p-3 md:grid-cols-[minmax(0,1fr)_160px_44px]"
+                    >
+                      <Field label={`SKU ${selectionIndex + 1}`}>
+                        <select
+                          value={selection.skuId}
+                          onChange={(event) =>
+                            updateDraftProductSku(
+                              draftProduct.id,
+                              selection.id,
+                              event.target.value,
+                            )
+                          }
+                          className="h-11 w-full rounded-xl border border-line bg-white px-3 text-sm"
+                        >
+                          <option value="">
+                            {productSkus.length === 0 ? "该商品暂无 SKU" : "选择 SKU"}
+                          </option>
+                          {productSkus.map((sku) => (
+                            <option key={sku.id} value={sku.id}>
+                              {formatSkuLabel(sku)}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                      <Field label="采购数量">
+                        <TextInput
+                          type="number"
+                          min="1"
+                          step="1"
+                          disabled={!selection.skuId}
+                          value={selection.quantity}
+                          onChange={(event) =>
+                            updateDraftProductSkuQuantity(
+                              draftProduct.id,
+                              selection.id,
+                              event.target.value,
+                            )
+                          }
+                          onBlur={(event) =>
+                            updateDraftProductSkuQuantity(
+                              draftProduct.id,
+                              selection.id,
+                              normalizePositiveIntegerInput(event.target.value),
+                            )
+                          }
+                        />
+                      </Field>
+                      <div className="flex items-end justify-end">
+                        <button
+                          type="button"
+                          disabled={draftSkuSelections.length === 1}
+                          onClick={() =>
+                            removeDraftProductSkuSelection(draftProduct.id, selection.id)
+                          }
+                          className="icon-btn-danger h-11 w-11"
+                          aria-label={`删除 SKU ${selectionIndex + 1}`}
+                          title="删除 SKU"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                      {selection.skuId &&
+                        (skusById[selection.skuId]?.component_links.length ?? 0) === 0 && (
+                          <p className="text-sm text-amber-700 md:col-span-3">
+                            该 SKU 未维护配件映射。
+                          </p>
+                        )}
+                    </div>
+                  ))}
+                </div>
+              )}
               {draftProduct.items.map((draftItem, itemIndex) => (
                 <div key={draftItem.id} className="grid gap-3 rounded-xl border border-line bg-white p-3 md:grid-cols-[minmax(0,1fr)_110px_130px_44px]">
                   <Field label={`配件 ${itemIndex + 1}`}>
@@ -886,7 +1201,8 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                 </div>
               )}
             </div>
-          ))}
+            );
+          })}
           <div className="flex justify-end border-t border-dashed border-line pt-3">
             <button
               type="button"

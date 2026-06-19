@@ -1,5 +1,11 @@
 import { withTimeout, requireSession } from "./supabase-helpers";
-import { fetchProductsByIds, fetchProductSkusByProductIds, fetchProductItemsByProductIds } from "./products";
+import type {
+  Product,
+  ProductItem,
+  ProductSku,
+  ProductSkuItemLink,
+} from "../types";
+
 import type {
   Warehouse,
   WarehouseItemStock,
@@ -123,87 +129,130 @@ export async function fetchWarehouseItemStockAdjustments(warehouseIds: string[])
 
 export async function fetchWarehouseInventoryPage(warehouseId: string, page: number, pageSize: number = 20) {
   const { supabase } = await requireSession();
-  const from = (page - 1) * pageSize;
-  const to = from + pageSize - 1;
 
-  const { data: skuRows, error, count } = await withTimeout(
-    supabase
-      .from("warehouse_skus")
-      .select("id, warehouse_id, product_id, sku_id, owner_id, stock_quantity, created_at, updated_at", { count: "exact" })
-      .eq("warehouse_id", warehouseId)
-      .order("created_at", { ascending: false })
-      .range(from, to),
-    "加载库存页面"
-  );
+  return withTimeout(
+    (async () => {
+      const from = (page - 1) * pageSize;
+      const to = from + pageSize - 1;
 
-  if (error) throw error;
+      // ── Round 1: page of warehouse_skus ──────────────────────────────────
+      const { data: skuRows, error: skuError, count } = await supabase
+        .from("warehouse_skus")
+        .select(
+          "id, warehouse_id, product_id, sku_id, owner_id, stock_quantity, created_at, updated_at",
+          { count: "exact" },
+        )
+        .eq("warehouse_id", warehouseId)
+        .order("created_at", { ascending: false })
+        .range(from, to);
 
-  const warehouseSkus = skuRows as WarehouseSku[];
-  if (warehouseSkus.length === 0) {
-    return {
-      warehouseSkus: [],
-      products: [],
-      skus: [],
-      productItems: [],
-      warehouseItemStocks: [],
-      warehouseItemStockAdjustments: [],
-      total: count ?? 0,
-      hasMore: false
-    };
-  }
+      if (skuError) throw skuError;
 
-  const productIds = Array.from(new Set(warehouseSkus.map(s => s.product_id)));
+      const warehouseSkus = (skuRows ?? []) as WarehouseSku[];
+      if (warehouseSkus.length === 0) {
+        return {
+          warehouseSkus: [],
+          products: [] as Product[],
+          skus: [] as ProductSku[],
+          productItems: [] as ProductItem[],
+          warehouseItemStocks: [] as WarehouseItemStock[],
+          warehouseItemStockAdjustments: [] as WarehouseItemStockAdjustment[],
+          total: count ?? 0,
+          hasMore: false,
+        };
+      }
 
-  const [products, productItems, skus] = await Promise.all([
-    fetchProductsByIds(productIds),
-    fetchProductItemsByProductIds(productIds),
-    fetchProductSkusByProductIds(productIds)
-  ]);
+      const productIds = Array.from(new Set(warehouseSkus.map(s => s.product_id)));
 
-  const itemIds = productItems.map(item => item.id).filter(Boolean) as string[];
-
-  let warehouseItemStocks: WarehouseItemStock[] = [];
-  let warehouseItemStockAdjustments: WarehouseItemStockAdjustment[] = [];
-
-  if (itemIds.length > 0) {
-    const [stocksResult, adjustmentsResult] = await Promise.all([
-      withTimeout(
+      // ── Round 2: products + product_items + product_skus (all parallel) ──
+      const [productsResult, productItemsResult, baseSkusResult] = await Promise.all([
         supabase
-          .from("warehouse_item_stocks")
-          .select("id, warehouse_id, item_id, stock_quantity")
-          .eq("warehouse_id", warehouseId)
-          .in("item_id", itemIds),
-        "加载当前页库存"
-      ),
-      withTimeout(
-        supabase
-          .from("warehouse_item_stock_adjustments")
-          .select("id, warehouse_id, item_id, previous_quantity, next_quantity, change_quantity, reason, created_at")
-          .eq("warehouse_id", warehouseId)
-          .in("item_id", itemIds)
+          .from("products")
+          .select("*")
+          .in("id", productIds)
           .order("created_at", { ascending: false }),
-        "加载当前页调整记录"
-      )
-    ]);
+        supabase
+          .from("product_items")
+          .select("*")
+          .in("product_id", productIds)
+          .order("created_at", { ascending: true }),
+        supabase
+          .from("product_skus")
+          .select("id, product_id, owner_id, sku_code, temu_image_url, attributes, notes")
+          .in("product_id", productIds)
+          .order("created_at", { ascending: true }),
+      ]);
 
-    if (stocksResult.error) throw stocksResult.error;
-    if (adjustmentsResult.error) throw adjustmentsResult.error;
+      if (productsResult.error) throw productsResult.error;
+      if (productItemsResult.error) throw productItemsResult.error;
+      if (baseSkusResult.error) throw baseSkusResult.error;
 
-    warehouseItemStocks = stocksResult.data as WarehouseItemStock[];
-    warehouseItemStockAdjustments = adjustmentsResult.data as WarehouseItemStockAdjustment[];
-  }
+      const products = (productsResult.data ?? []) as Product[];
+      const productItems = (productItemsResult.data ?? []) as ProductItem[];
+      const baseSkus = (baseSkusResult.data ?? []) as Omit<ProductSku, "component_links">[];
 
-  return {
-    warehouseSkus,
-    products,
-    skus,
-    productItems,
-    warehouseItemStocks,
-    warehouseItemStockAdjustments,
-    total: count ?? 0,
-    hasMore: to + 1 < (count ?? 0)
-  };
+      const itemIds = productItems.map(item => item.id).filter(Boolean) as string[];
+      const skuIds = baseSkus.map(sku => sku.id).filter(Boolean) as string[];
+
+      // ── Round 3: sku_links + item_stocks + adjustments (all parallel) ────
+      const [linksResult, stocksResult, adjustmentsResult] = await Promise.all([
+        skuIds.length > 0
+          ? supabase
+              .from("product_sku_items")
+              .select("sku_id, item_id, quantity")
+              .in("sku_id", skuIds)
+          : Promise.resolve({ data: [] as ProductSkuItemLink[], error: null }),
+        itemIds.length > 0
+          ? supabase
+              .from("warehouse_item_stocks")
+              .select("id, warehouse_id, item_id, stock_quantity")
+              .eq("warehouse_id", warehouseId)
+              .in("item_id", itemIds)
+          : Promise.resolve({ data: [] as WarehouseItemStock[], error: null }),
+        itemIds.length > 0
+          ? supabase
+              .from("warehouse_item_stock_adjustments")
+              .select("id, warehouse_id, item_id, previous_quantity, next_quantity, change_quantity, reason, created_at")
+              .eq("warehouse_id", warehouseId)
+              .in("item_id", itemIds)
+              .order("created_at", { ascending: false })
+          : Promise.resolve({ data: [] as WarehouseItemStockAdjustment[], error: null }),
+      ]);
+
+      if (linksResult.error) throw linksResult.error;
+      if (stocksResult.error) throw stocksResult.error;
+      if (adjustmentsResult.error) throw adjustmentsResult.error;
+
+      // Build SKUs with component_links
+      const links = (linksResult.data ?? []) as ProductSkuItemLink[];
+      const linksBySkuId = links.reduce<Record<string, ProductSkuItemLink[]>>((groups, link) => {
+        if (!link.sku_id) return groups;
+        groups[link.sku_id] ??= [];
+        groups[link.sku_id].push(link);
+        return groups;
+      }, {});
+
+      const skus: ProductSku[] = baseSkus.map(sku => ({
+        ...sku,
+        temu_image_url: String(sku.temu_image_url ?? ""),
+        component_links: sku.id ? (linksBySkuId[sku.id] ?? []) : [],
+      }));
+
+      return {
+        warehouseSkus,
+        products,
+        skus,
+        productItems,
+        warehouseItemStocks: (stocksResult.data ?? []) as WarehouseItemStock[],
+        warehouseItemStockAdjustments: (adjustmentsResult.data ?? []) as WarehouseItemStockAdjustment[],
+        total: count ?? 0,
+        hasMore: to + 1 < (count ?? 0),
+      };
+    })(),
+    "加载仓库库存页面",
+  );
 }
+
 
 export async function addWarehouseProductInventory(
   warehouseId: string,

@@ -91,7 +91,7 @@ export function AsyncProductSelect({ value, onChange, disabled }: AsyncProductSe
         <div className="absolute right-3 top-3 text-xs text-slate-400">搜索中...</div>
       )}
       {open && keyword.trim() && !loading && (
-        <ul className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-md border border-line bg-white py-1 shadow-lg">
+        <ul className="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-md border border-line bg-white py-1 shadow-lg">
           {options.length === 0 ? (
             <li className="px-3 py-2 text-sm text-slate-500">无匹配商品</li>
           ) : (

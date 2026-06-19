@@ -50,7 +50,7 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
         temuShippingSubsidyRmb: number | null;
         sfCostRmb: number | null;
         canUseOcsKunshan3cm: boolean | null;
-        logisticsMethod: "OCS 3cm" | "OCS 小包" | null;
+        logisticsMethod: "OCS Yamato" | "OCS 小包" | null;
         logisticsCostRmb: number | null;
         adFeeRmb: number | null;
         profitRmb: number | null;
@@ -103,7 +103,7 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                 ? productTestShipping.ocsKunshan3cmCostRmb
                 : productTestShipping.ocsKunshanSmallParcelCostRmb;
             const selectedLogisticsMethod = productTestShipping.canUseOcsKunshan3cm
-              ? "OCS 3cm"
+              ? "OCS Yamato"
               : "OCS 小包";
             const productSkus = skusByProductId[product.id] ?? [];
             const draftDiscounts = draftDiscountsByProductId[product.id];
@@ -205,7 +205,7 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                     : Number(representativeSummary.temuShippingSubsidyRmb.toFixed(2)),
                 sfCostRmb: representativeSummary?.sfCostRmb ?? null,
                 canUseOcsKunshan3cm: productTestShipping.canUseOcsKunshan3cm,
-                logisticsMethod: selectedLogisticsMethod as "OCS 3cm" | "OCS 小包",
+                logisticsMethod: selectedLogisticsMethod as "OCS Yamato" | "OCS 小包",
                 logisticsCostRmb: Number(selectedLogisticsCostRmb.toFixed(2)),
                 adFeeRmb:
                   representativeSummary === null

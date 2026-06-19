@@ -536,8 +536,8 @@ type OrderFulfillmentMatchResult =
 
 const fukuokaWarehouseAliases = ["福冈", "福岡", "fukuoka", "fugang"];
 const suzhouWarehouseAliases = ["苏州", "suzhou"];
-const fukuokaLastmileMethod = "福冈尾程";
-const ocsThreeCmMethod = "OCS 3cm";
+const fukuokaLastmileMethod = "福冈Japan Post";
+const ocsThreeCmMethod = "OCS Yamato";
 const ocsSmallParcelMethod = "OCS 小包";
 
 function getOrderFulfillmentQuantity(order: TemuOrderRecord) {
@@ -2333,7 +2333,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
       if (dimensionIssue) {
         return {
           status: "blocked",
-          reason: `订单 ${getOrderLineLabel(order)}：福冈仓有库存，但${dimensionIssue}，不能发日本邮便 3cm。`,
+          reason: `订单 ${getOrderLineLabel(order)}：福冈仓有库存，但${dimensionIssue}，不能发福冈Japan Post。`,
         };
       }
 
@@ -4014,14 +4014,14 @@ export function OrdersPage({ user }: OrdersPageProps) {
               <input
                 ref={inputRef}
                 type="file"
-                accept=".xlsx,.csv"
+                accept=".xlsx,.csv,.tsv,.txt"
                 className="hidden"
                 onChange={(event) => void handleFileChange(event.target.files?.[0])}
               />
               <input
                 ref={trackingInputRef}
                 type="file"
-                accept=".xlsx,.csv"
+                accept=".xlsx,.csv,.tsv,.txt"
                 className="hidden"
                 onChange={(event) => void handleTrackingFileChange(event.target.files?.[0])}
               />

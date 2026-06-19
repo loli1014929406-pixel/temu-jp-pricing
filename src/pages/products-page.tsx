@@ -1,5 +1,5 @@
 import { Download, Plus, Trash2, Upload } from "lucide-react";
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
   deleteProduct,
@@ -18,7 +18,7 @@ import { usePermissions } from "../hooks/use-permissions";
 import { getErrorMessage } from "../utils/errors";
 import type { Product } from "../types";
 import type { User } from "@supabase/supabase-js";
-import { PageHeader } from "../components/ui";
+import { PageHeader, StatCard } from "../components/ui";
 
 type ProductsPageProps = {
   user: User;
@@ -40,6 +40,37 @@ export function ProductsPage({ user }: ProductsPageProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const location = useLocation();
   const successMessage = (location.state as { message?: string } | null)?.message;
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedMaterial, setSelectedMaterial] = useState("");
+
+  const filteredProducts = useMemo(() => {
+    return products.filter((product) => {
+      const query = searchQuery.trim().toLowerCase();
+      const matchesSearch =
+        !query ||
+        product.product_code.toLowerCase().includes(query) ||
+        product.product_name_cn.toLowerCase().includes(query) ||
+        (product.material_cn || "").toLowerCase().includes(query) ||
+        (product.material_en || "").toLowerCase().includes(query);
+
+      const matchesMaterial =
+        !selectedMaterial ||
+        product.material_cn === selectedMaterial ||
+        product.material_en === selectedMaterial;
+
+      return matchesSearch && matchesMaterial;
+    });
+  }, [products, searchQuery, selectedMaterial]);
+
+  const uniqueMaterials = useMemo(() => {
+    const set = new Set<string>();
+    products.forEach((p) => {
+      if (p.material_cn) set.add(p.material_cn);
+      if (p.material_en) set.add(p.material_en);
+    });
+    return Array.from(set).sort();
+  }, [products]);
   useEffect(() => {
     let active = true;
 
@@ -93,10 +124,10 @@ export function ProductsPage({ user }: ProductsPageProps) {
   }
 
   const allSelected =
-    products.length > 0 && selectedProductIds.length === products.length;
+    filteredProducts.length > 0 && selectedProductIds.length === filteredProducts.length;
 
   function toggleSelectAll() {
-    setSelectedProductIds(allSelected ? [] : products.map((product) => product.id));
+    setSelectedProductIds(allSelected ? [] : filteredProducts.map((product) => product.id));
   }
 
   function toggleProduct(productId: string) {
@@ -255,6 +286,44 @@ export function ProductsPage({ user }: ProductsPageProps) {
         }
       />
 
+      {/* 统计指标卡片 */}
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-3">
+        <StatCard label="商品总数" value={String(products.length)} />
+        <StatCard
+          label="已选商品"
+          value={`${selectedProductIds.length} / ${products.length}`}
+          tone={selectedProductIds.length > 0 ? "success" : "default"}
+        />
+        <StatCard label="材质组合数" value={String(uniqueMaterials.length)} />
+      </div>
+
+      {/* 搜索与过滤工具栏 */}
+      <div className="surface-card p-4 grid gap-4 sm:grid-cols-[1fr_200px] items-center">
+        <div className="relative">
+          <input
+            type="text"
+            placeholder="搜索商品编号、名称或材质..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10"
+          />
+        </div>
+        <div>
+          <select
+            value={selectedMaterial}
+            onChange={(e) => setSelectedMaterial(e.target.value)}
+            className="w-full h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10 text-slate-750 font-medium"
+          >
+            <option value="">全部材质</option>
+            {uniqueMaterials.map((mat) => (
+              <option key={mat} value={mat}>
+                {mat}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
       {successMessage && (
         <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
           {successMessage}
@@ -313,10 +382,10 @@ export function ProductsPage({ user }: ProductsPageProps) {
       <div className="grid gap-3 md:hidden">
         {loading ? (
           <div className="empty-state">加载中...</div>
-        ) : products.length === 0 ? (
+        ) : filteredProducts.length === 0 ? (
           <div className="empty-state">暂无商品</div>
         ) : (
-          products.map((product) => (
+          filteredProducts.map((product) => (
             <article key={product.id} className="mobile-summary-card">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -404,14 +473,14 @@ export function ProductsPage({ user }: ProductsPageProps) {
                     加载中...
                   </td>
                 </tr>
-              ) : products.length === 0 ? (
+              ) : filteredProducts.length === 0 ? (
                 <tr>
                   <td colSpan={11} className="px-4 py-10 text-center text-slate-500">
                     暂无商品
                   </td>
                 </tr>
               ) : (
-                products.map((product) => {
+                filteredProducts.map((product) => {
                   const isSelected = selectedProductIds.includes(product.id);
 
                   return (

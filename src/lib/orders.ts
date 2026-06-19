@@ -58,8 +58,17 @@ const temuOrderSelectFields =
 
 function normalizeLogisticsMethod(value: string) {
   const text = value.trim();
-  if (text === "OCS 昆山3cm" || text === "OCS 昆山 3cm") return "OCS 3cm";
-  if (text === "OCS 昆山小包") return "OCS 小包";
+  if (
+    text === "OCS 昆山3cm" ||
+    text === "OCS 昆山 3cm" ||
+    text === "OCS 3cm" ||
+    text === "OCS Yamato"
+  ) {
+    return "OCS Yamato";
+  }
+  if (text === "OCS 昆山小包" || text === "OCS 小包") return "OCS 小包";
+  if (text === "福冈尾程" || text === "福冈Japan Post") return "福冈Japan Post";
+  if (text === "大阪尾程" || text === "大阪Japan Post") return "大阪Japan Post";
   return text;
 }
 

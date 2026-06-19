@@ -95,7 +95,7 @@ describe("multi-shipment profit", () => {
       5,
     );
 
-    expect(row.selectedMethodName).toBe("OCS 3cm");
+    expect(row.selectedMethodName).toBe("OCS Yamato");
     expect(row.selectedPackageCount).toBe(1);
     expect(row.logisticsCostRmb).toBe(10);
   });

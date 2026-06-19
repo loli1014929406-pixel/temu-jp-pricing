@@ -67,6 +67,21 @@ export type ProductSpec = {
   values: string[];
 };
 
+export type LogisticsMethodConfig = {
+  id: string;
+  name: string;
+  type: "first_leg" | "last_leg";
+  formula: "sf" | "flat_rmb" | "flat_rmb_tariff" | "flat_jpy" | "ocs_3cm" | "ocs_small";
+  params: {
+    price?: number;        // flat_rmb, flat_jpy
+    tariffRate?: number;   // flat_rmb_tariff
+    firstWeight?: number;  // sf
+    firstPrice?: number;   // sf, ocs_3cm, ocs_small
+    extraPrice?: number;   // sf, ocs_3cm, ocs_small
+  };
+  isActive: boolean;
+};
+
 export type PricingSettings = {
   id?: string;
   owner_id?: string;
@@ -87,6 +102,8 @@ export type PricingSettings = {
   test_ocs_small_parcel_extra_price_per_500g_rmb: number;
   target_profit_rate: number;
   target_post_ad_profit_rate: number;
+  first_leg_methods?: LogisticsMethodConfig[];
+  last_leg_methods?: LogisticsMethodConfig[];
 };
 
 export type ProductDraft = Omit<
@@ -124,11 +141,7 @@ export type ProfitCalculationInput = {
   adRoas?: number;
 };
 
-export type ProfitLogisticsPlanKey =
-  | "huaian_osaka"
-  | "huaian_fukuoka"
-  | "ocs_osaka"
-  | "ocs_fukuoka";
+export type ProfitLogisticsPlanKey = string;
 
 export type ProfitLogisticsPlanResult = {
   planKey: ProfitLogisticsPlanKey;

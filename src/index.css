@@ -3,13 +3,15 @@
 @tailwind utilities;
 
 :root {
-  color: #0f172a;
-  background: #f1f5f9;
+  color: #1e293b;
+  background: #f8fafc;
   font-family:
-    Inter, "PingFang SC", "Microsoft YaHei", system-ui, -apple-system,
+    "Plus Jakarta Sans", Inter, "PingFang SC", "Microsoft YaHei", system-ui, -apple-system,
     BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 * {
@@ -20,7 +22,7 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background: #f1f5f9;
+  background: #f8fafc;
 }
 
 a {
@@ -28,25 +30,43 @@ a {
   text-decoration: none;
 }
 
+/* Beautiful Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-200 rounded-full transition hover:bg-slate-300;
+}
+
 @layer components {
   .erp-shell {
-    @apply flex bg-white;
+    @apply flex bg-[#f8fafc] min-h-screen p-0 lg:p-4;
   }
 
   .erp-sidebar {
-    @apply fixed inset-y-0 left-0 z-40 flex w-[176px] flex-col border-r border-slate-200 bg-slate-50/95;
+    @apply fixed left-0 top-0 bottom-0 lg:left-4 lg:top-4 lg:bottom-4 z-40 flex w-[200px] flex-col border-r border-slate-100 bg-white/95 transition-all duration-300 lg:rounded-3xl lg:border lg:shadow-[0_8px_30px_rgb(0,0,0,0.02)];
   }
 
   .erp-sidebar-brand {
-    @apply flex h-16 items-center gap-3 px-5 text-base font-bold text-slate-950;
+    @apply flex h-16 items-center gap-3 px-5 text-sm font-bold tracking-tight text-slate-900;
   }
 
   .erp-brand-mark {
-    @apply inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-950 text-xs font-black tracking-tight text-white shadow-soft;
+    @apply inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-tr from-violet-600 to-indigo-600 text-xs font-black tracking-tight text-white shadow-md shadow-violet-500/25 transition-transform duration-300 hover:scale-105;
   }
 
   .erp-side-nav {
-    @apply flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 pb-5 pt-2;
+    @apply flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pb-5 pt-2;
+    /* Hide scrollbar for IE, Edge and Firefox */
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .erp-side-nav::-webkit-scrollbar {
+    display: none;
   }
 
   .erp-side-section {
@@ -54,68 +74,69 @@ a {
   }
 
   .erp-side-section-title {
-    @apply px-3 py-2 text-xs font-semibold text-slate-400;
+    @apply px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400/80;
   }
 
   .erp-side-nav-item {
-    @apply relative inline-flex h-10 items-center gap-3 rounded-lg px-3 text-sm font-semibold text-slate-600 transition hover:bg-white hover:text-slate-950;
+    @apply relative inline-flex h-10 items-center gap-3 rounded-xl px-3 text-sm font-medium text-slate-600 transition-all duration-200 hover:bg-slate-50 hover:text-slate-900;
   }
 
   .erp-side-nav-item svg {
-    @apply text-slate-400;
+    @apply text-slate-400 transition-colors duration-200;
+  }
+
+  .erp-side-nav-item:hover svg {
+    @apply text-slate-700;
   }
 
   .erp-side-nav-item-active {
-    @apply bg-violet-100 text-slate-950 shadow-soft;
+    @apply bg-violet-600 text-white shadow-md shadow-violet-600/15 hover:bg-violet-700 hover:text-white;
   }
 
   .erp-side-nav-item-active svg {
-    @apply text-violet-600;
+    @apply text-white;
   }
 
   .erp-side-nav-item-active::after {
     content: "";
     position: absolute;
-    right: 8px;
+    right: 12px;
     top: 50%;
     width: 6px;
     height: 6px;
     border-radius: 999px;
-    background: #6d5dfc;
+    background: #ffffff;
     transform: translateY(-50%);
   }
 
   .erp-workspace {
-    @apply ml-[176px] flex min-h-screen min-w-0 flex-1 flex-col bg-white;
+    @apply ml-0 lg:ml-[220px] flex min-h-screen min-w-0 flex-1 flex-col bg-[#f8fafc] transition-all duration-300;
   }
 
   .erp-workspace-topbar {
-    @apply sticky top-0 z-30 flex h-[60px] items-center border-b border-slate-100 bg-white px-6;
+    @apply sticky top-0 lg:top-0 z-30 flex h-[60px] items-center justify-between border-b border-slate-100 bg-white/90 backdrop-blur-md px-6 lg:rounded-2xl lg:border lg:shadow-[0_8px_30px_rgb(0,0,0,0.01)];
   }
 
   .erp-main {
-    @apply min-w-0 flex-1 px-5 py-5;
+    @apply min-w-0 flex-1 px-0 py-6 lg:px-6;
   }
 
-  .surface-card {
-    @apply rounded-xl border border-slate-200 bg-white shadow-none;
-  }
-
+  .surface-card,
   .erp-panel {
-    @apply rounded-xl border border-slate-200 bg-white shadow-none;
+    @apply rounded-2xl border border-slate-100 bg-white p-6 shadow-[0_8px_30px_rgb(0,0,0,0.02)] transition-all duration-300 hover:shadow-[0_8px_30px_rgb(0,0,0,0.04)];
   }
 
   .page-title {
-    @apply text-xl font-semibold tracking-normal text-slate-950 sm:text-2xl;
-    line-height: 1.16;
+    @apply text-xl font-bold tracking-tight text-slate-900 sm:text-2xl;
+    line-height: 1.15;
   }
 
   .page-description {
-    @apply mt-1 max-w-3xl text-sm font-medium leading-5 text-slate-500;
+    @apply mt-1 max-w-3xl text-sm font-medium leading-5 text-slate-400;
   }
 
   .table-card {
-    @apply overflow-hidden rounded-xl border border-slate-200 bg-white shadow-none;
+    @apply overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.02)];
   }
 
   .table-card > .overflow-x-auto {
@@ -124,7 +145,7 @@ a {
   }
 
   .data-table {
-    @apply min-w-full text-left text-sm;
+    @apply min-w-full text-left text-xs;
     border-collapse: separate;
     border-spacing: 0;
   }
@@ -133,31 +154,24 @@ a {
     position: sticky;
     top: 0;
     z-index: 20;
-    background: #fbfbfc;
+    background: #f8fafc;
     color: #475569;
-    box-shadow: 0 1px 0 #eef2f7;
+    box-shadow: 0 1px 0 #f1f5f9;
   }
 
   .data-table th {
-    @apply py-3 text-xs font-bold tracking-normal text-slate-600;
-    padding-left: 0.55rem !important;
-    padding-right: 0.55rem !important;
-    width: calc(4.25em + 1rem);
-    min-width: calc(4.25em + 1rem);
-    max-width: calc(4.25em + 1rem);
+    @apply py-2 text-[11px] font-bold tracking-wider text-slate-500 uppercase bg-slate-50/75 backdrop-blur-sm;
+    padding-left: 0.75rem !important;
+    padding-right: 0.75rem !important;
     line-height: 1.35;
-    white-space: normal;
-    word-break: normal;
-    overflow-wrap: normal;
-    line-break: strict;
-    background: #fbfbfc;
+    background: #f8fafc;
     text-align: left;
   }
 
   .data-table td {
-    @apply py-3 align-middle text-slate-700;
-    padding-left: 0.55rem !important;
-    padding-right: 0.55rem !important;
+    @apply py-2.5 align-middle text-slate-700 border-t border-slate-100;
+    padding-left: 0.75rem !important;
+    padding-right: 0.75rem !important;
     text-align: left;
   }
 
@@ -232,27 +246,22 @@ a {
   }
 
   .data-table tbody tr {
-    border-top: 1px solid #eef2f7;
-    transition: background-color 120ms ease;
-  }
-
-  .data-table tbody tr:nth-child(even) {
-    background: #fff;
+    transition: background-color 150ms ease;
   }
 
   .data-table tbody tr:hover {
-    background: #fafafa;
+    @apply bg-slate-50/60;
   }
 
   .data-table tbody tr.is-selected,
   .data-table tbody tr[data-selected="true"] {
-    background-color: #e0f2fe;
-    box-shadow: inset 4px 0 0 #0ea5e9;
+    @apply bg-violet-50/50;
+    box-shadow: inset 4px 0 0 theme('colors.violet.600');
   }
 
   .data-table tbody tr.is-selected:hover,
   .data-table tbody tr[data-selected="true"]:hover {
-    background-color: #e0f2fe;
+    @apply bg-violet-50/70;
   }
 
   .data-table tbody tr.is-selected > td,
@@ -265,43 +274,43 @@ a {
   }
 
   .number-cell {
-    @apply text-left tabular-nums;
+    @apply text-left tabular-nums font-medium;
   }
 
   .btn-primary {
-    @apply inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white shadow-soft transition hover:bg-slate-800 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-violet-600 px-4 text-sm font-semibold text-white shadow-sm shadow-violet-600/10 transition-all duration-200 hover:bg-violet-700 hover:shadow-md hover:shadow-violet-600/20 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .btn-secondary {
-    @apply inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-soft transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .btn-danger {
-    @apply inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-md border border-rose-200 bg-white px-4 text-sm font-semibold text-rose-700 shadow-soft transition hover:bg-rose-50 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-700 transition-all duration-200 hover:bg-rose-100 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .icon-btn-danger {
-    @apply inline-flex h-9 w-9 items-center justify-center rounded-md border border-rose-200 bg-white text-rose-700 shadow-soft transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300;
+    @apply inline-flex h-9 w-9 items-center justify-center rounded-xl border border-rose-200 bg-rose-50/50 text-rose-700 transition-all duration-200 hover:bg-rose-100 active:scale-95 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300;
   }
 
   .text-action {
-    @apply text-sm font-semibold text-sky-700 transition hover:text-sky-900 hover:underline;
+    @apply text-sm font-semibold text-violet-600 transition hover:text-violet-800 hover:underline;
   }
 
   .empty-state {
-    @apply rounded-lg border border-dashed border-slate-300 bg-white px-4 py-10 text-center text-sm font-medium text-slate-500;
+    @apply rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-12 text-center text-sm font-medium text-slate-400 shadow-[0_8px_30px_rgb(0,0,0,0.01)];
   }
 
   .mobile-summary-card {
-    @apply surface-card p-3;
+    @apply surface-card p-4 rounded-2xl border border-slate-100 bg-white shadow-sm transition-all duration-200 hover:shadow-md;
   }
 
   .mobile-summary-title {
-    @apply text-sm font-semibold text-slate-950;
+    @apply text-base font-bold text-slate-900;
   }
 
   .mobile-summary-subtitle {
-    @apply mt-1 text-sm text-slate-600;
+    @apply mt-1 text-sm text-slate-500 font-medium;
   }
 
   .mobile-summary-grid {
@@ -309,7 +318,7 @@ a {
   }
 
   .mobile-summary-cell {
-    @apply rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-slate-700;
+    @apply rounded-xl border border-slate-100 bg-slate-50/50 px-2.5 py-2 text-slate-600 font-medium;
   }
 
   .mobile-summary-actions {
@@ -317,7 +326,7 @@ a {
   }
 
   .erp-kpi-card {
-    @apply relative overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-soft;
+    @apply relative overflow-hidden rounded-2xl border border-slate-100 bg-white p-5 shadow-[0_8px_30px_rgb(0,0,0,0.02)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_12px_40px_rgb(0,0,0,0.04)];
   }
 
   .erp-kpi-card::before {
@@ -325,7 +334,8 @@ a {
     position: absolute;
     inset: 0 auto 0 0;
     width: 4px;
-    background: #0ea5e9;
+    background: #4f46e5;
+    border-radius: 4px 0 0 4px;
   }
 
   .erp-kpi-success::before {
@@ -333,40 +343,40 @@ a {
   }
 
   .erp-kpi-danger::before {
-    background: #e11d48;
+    background: #ef4444;
   }
 
   .erp-kpi-warning::before {
-    background: #d97706;
+    background: #f59e0b;
   }
 
   .erp-dashboard-panel {
-    @apply rounded-lg border border-slate-200 bg-white p-4 shadow-soft;
+    @apply rounded-2xl border border-slate-100 bg-white p-5 shadow-[0_8px_30px_rgb(0,0,0,0.02)];
   }
 
   .erp-toolbar {
-    @apply bg-white p-0 shadow-none;
+    @apply bg-transparent p-0 shadow-none;
   }
 
   .erp-status-success {
-    @apply text-emerald-700;
+    @apply text-emerald-600 font-semibold;
   }
 
   .erp-status-danger {
-    @apply text-rose-700;
+    @apply text-rose-600 font-semibold;
   }
 
   .erp-status-warning {
-    @apply text-amber-700;
+    @apply text-amber-600 font-semibold;
   }
 
   .erp-status-info {
-    @apply text-sky-700;
+    @apply text-violet-600 font-semibold;
   }
 
   @media (max-width: 1023px) {
     .erp-sidebar {
-      @apply fixed inset-x-0 bottom-auto top-0 h-auto w-full border-b border-r-0;
+      @apply fixed inset-x-0 bottom-auto top-0 h-auto w-full border-b border-r-0 rounded-none bg-white/95 backdrop-blur-md;
     }
 
     .erp-sidebar-brand {
@@ -386,7 +396,7 @@ a {
     }
 
     .erp-side-nav-item {
-      @apply h-9 shrink-0;
+      @apply h-9 shrink-0 px-3 text-xs font-semibold rounded-lg;
     }
 
     .erp-side-nav-item-active::after {
@@ -413,8 +423,8 @@ a {
 
     .data-table th {
       @apply py-2 text-xs;
-      padding-left: 0.4rem !important;
-      padding-right: 0.4rem !important;
+      padding-left: 0.5rem !important;
+      padding-right: 0.5rem !important;
       width: calc(4em + 0.8rem);
       min-width: calc(4em + 0.8rem);
       max-width: calc(4em + 0.8rem);
@@ -429,18 +439,18 @@ a {
 
     .data-table td {
       @apply py-2.5 text-xs;
-      padding-left: 0.4rem !important;
-      padding-right: 0.4rem !important;
+      padding-left: 0.5rem !important;
+      padding-right: 0.5rem !important;
     }
 
     .btn-primary,
     .btn-secondary,
     .btn-danger {
-      @apply h-10 px-3 text-xs;
+      @apply h-9 px-3.5 text-xs rounded-xl;
     }
 
     .mobile-summary-card {
-      @apply p-3;
+      @apply p-4;
     }
   }
 
@@ -452,11 +462,11 @@ a {
     .btn-primary,
     .btn-secondary,
     .btn-danger {
-      @apply h-9 px-2.5 text-xs;
+      @apply h-9 px-3 text-xs;
     }
 
     .icon-btn-danger {
-      @apply h-8 w-8 rounded-md;
+      @apply h-8 w-8 rounded-xl;
     }
 
     .package-action-row {

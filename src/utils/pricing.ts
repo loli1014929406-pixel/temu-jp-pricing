@@ -2,7 +2,9 @@ import type { PricingResult, PricingSettings, ProductItem } from "../types";
 import {
   calculatePurchaseShippingRmb,
   calculateSfCostRmb,
+  calculateDynamicMethodCost,
 } from "./shipping-costs";
+import { defaultFirstLegMethods, defaultLastLegMethods } from "../lib/defaults";
 
 const round = (value: number, digits = 2) =>
   Number(value.toFixed(digits));
@@ -25,20 +27,163 @@ export function calculatePricing(
     settings.temu_shipping_subsidy_jpy *
     settings.exchange_rate_rmb_per_jpy;
   const packageWeightKg = packageWeightG / 1000;
-  const sfCostRmb = calculateSfCostRmb(packageWeightKg, settings);
-  const huaianAirCostRmb =
-    packageWeightKg * settings.huaian_air_price_per_kg_rmb;
-  const ocsCostRmb = packageWeightKg * settings.ocs_price_per_kg_rmb;
-  const ocsTariffMultiplier = 1 + Math.max(0, settings.ocs_tariff_rate ?? 0);
-  const osakaLastmileRmb =
-    settings.osaka_lastmile_jpy * settings.exchange_rate_rmb_per_jpy;
-  const fukuokaLastmileRmb =
-    settings.fukuoka_lastmile_jpy * settings.exchange_rate_rmb_per_jpy;
+
+  const firstLegs = settings.first_leg_methods || [
+    {
+      id: "sf-first-leg",
+      name: "顺丰",
+      type: "first_leg",
+      formula: "sf",
+      params: {
+        firstWeight: settings.sf_first_weight_kg,
+        firstPrice: settings.sf_first_price_rmb,
+        extraPrice: settings.sf_extra_price_per_kg_rmb,
+      },
+      isActive: true,
+    },
+    {
+      id: "huaian-air-first-leg",
+      name: "淮安空运 RMB/kg",
+      type: "first_leg",
+      formula: "flat_rmb",
+      params: {
+        price: settings.huaian_air_price_per_kg_rmb,
+      },
+      isActive: true,
+    },
+    {
+      id: "ocs-first-leg",
+      name: "OCS RMB/kg",
+      type: "first_leg",
+      formula: "flat_rmb_tariff",
+      params: {
+        price: settings.ocs_price_per_kg_rmb,
+        tariffRate: settings.ocs_tariff_rate ?? 0,
+      },
+      isActive: true,
+    },
+  ];
+
+  const lastLegs = settings.last_leg_methods || [
+    {
+      id: "ocs-yamato-last-leg",
+      name: "OCS Yamato",
+      type: "last_leg",
+      formula: "ocs_3cm",
+      params: {
+        firstPrice: settings.test_ocs_3cm_first_price_rmb,
+        extraPrice: settings.test_ocs_3cm_extra_price_per_100g_rmb,
+      },
+      isActive: true,
+    },
+    {
+      id: "ocs-small-last-leg",
+      name: "OCS 小包",
+      type: "last_leg",
+      formula: "ocs_small",
+      params: {
+        firstPrice: settings.test_ocs_small_parcel_first_price_rmb,
+        extraPrice: settings.test_ocs_small_parcel_extra_price_per_500g_rmb,
+      },
+      isActive: true,
+    },
+    {
+      id: "osaka-jp-last-leg",
+      name: "大阪Japan Post",
+      type: "last_leg",
+      formula: "flat_jpy",
+      params: {
+        price: settings.osaka_lastmile_jpy,
+      },
+      isActive: true,
+    },
+    {
+      id: "fukuoka-jp-last-leg",
+      name: "福冈Japan Post",
+      type: "last_leg",
+      formula: "flat_jpy",
+      params: {
+        price: settings.fukuoka_lastmile_jpy,
+      },
+      isActive: true,
+    },
+  ];
+
+  const activeFirstLegs = firstLegs.filter((m) => m.isActive);
+  const activeLastLegs = lastLegs.filter((m) => m.isActive);
+
+  // sfCostRmb
+  const sfMethod = activeFirstLegs.find((m) => m.formula === "sf" || m.name.includes("顺丰"));
+  const sfCostRmb = sfMethod
+    ? calculateDynamicMethodCost(sfMethod, packageWeightG, settings.exchange_rate_rmb_per_jpy)
+    : calculateSfCostRmb(packageWeightKg, settings);
+
+  // huaianAirCostRmb
+  const huaianAirMethod = activeFirstLegs.find(
+    (m) => m.name.includes("淮安空运") || m.id === "huaian-air-first-leg",
+  );
+  const huaianAirCostRmb = huaianAirMethod
+    ? calculateDynamicMethodCost(huaianAirMethod, packageWeightG, settings.exchange_rate_rmb_per_jpy)
+    : packageWeightKg * settings.huaian_air_price_per_kg_rmb;
+
+  // ocsCostRmb
+  const ocsMethod = activeFirstLegs.find(
+    (m) => m.name.includes("OCS") || m.id === "ocs-first-leg",
+  );
+  const ocsCostRmb = ocsMethod
+    ? packageWeightKg * (ocsMethod.params.price ?? 0)
+    : packageWeightKg * settings.ocs_price_per_kg_rmb;
+
+  // osakaLastmileRmb
+  const osakaMethod = activeLastLegs.find(
+    (m) => m.name.includes("大阪") || m.id === "osaka-jp-last-leg",
+  );
+  const osakaLastmileRmb = osakaMethod
+    ? calculateDynamicMethodCost(osakaMethod, packageWeightG, settings.exchange_rate_rmb_per_jpy)
+    : settings.osaka_lastmile_jpy * settings.exchange_rate_rmb_per_jpy;
+
+  // fukuokaLastmileRmb
+  const fukuokaMethod = activeLastLegs.find(
+    (m) => m.name.includes("福冈") || m.id === "fukuoka-jp-last-leg",
+  );
+  const fukuokaLastmileRmb = fukuokaMethod
+    ? calculateDynamicMethodCost(fukuokaMethod, packageWeightG, settings.exchange_rate_rmb_per_jpy)
+    : settings.fukuoka_lastmile_jpy * settings.exchange_rate_rmb_per_jpy;
+
+  const ocsTariffRate = ocsMethod ? (ocsMethod.params.tariffRate ?? 0) : (settings.ocs_tariff_rate ?? 0);
+  const ocsTariffMultiplier = 1 + Math.max(0, ocsTariffRate);
   const planA = huaianAirCostRmb + osakaLastmileRmb;
   const planB = huaianAirCostRmb + fukuokaLastmileRmb;
   const planC = ocsCostRmb * ocsTariffMultiplier + osakaLastmileRmb;
   const planD = ocsCostRmb * ocsTariffMultiplier + fukuokaLastmileRmb;
-  const logisticsCostRmb = Math.max(planA, planB, planC, planD);
+
+  // Calculate logisticsCostRmb as maximum of all active pairings of (overseas first leg) + (overseas last leg)
+  const overseasFirstLegs = activeFirstLegs.filter(
+    (m) => m.formula === "flat_rmb" || m.formula === "flat_rmb_tariff",
+  );
+  const overseasLastLegs = activeLastLegs.filter((m) => m.formula === "flat_jpy");
+
+  let maxLogisticsCost = 0;
+  let pairingsCount = 0;
+
+  for (const fl of overseasFirstLegs) {
+    for (const ll of overseasLastLegs) {
+      const flCost = calculateDynamicMethodCost(
+        fl,
+        packageWeightG,
+        settings.exchange_rate_rmb_per_jpy,
+      );
+      const llCost = calculateDynamicMethodCost(
+        ll,
+        packageWeightG,
+        settings.exchange_rate_rmb_per_jpy,
+      );
+      maxLogisticsCost = Math.max(maxLogisticsCost, flCost + llCost);
+      pairingsCount++;
+    }
+  }
+
+  const logisticsCostRmb = pairingsCount > 0 ? maxLogisticsCost : Math.max(planA, planB, planC, planD);
   const totalCostRmb =
     purchaseCostRmb +
     purchaseShippingRmb +

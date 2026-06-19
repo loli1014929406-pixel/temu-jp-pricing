@@ -1,4 +1,4 @@
-import type { PricingSettings, Product, ProductItem } from "../types";
+import type { PricingSettings, Product, ProductItem, LogisticsMethodConfig } from "../types";
 
 export const THREE_CM_WEIGHT_LIMIT_G = 1000;
 
@@ -148,4 +148,52 @@ export function getThreeCmUnavailableReason(
     return "单件重量超过 1kg";
   }
   return "";
+}
+
+export function calculateDynamicMethodCost(
+  method: LogisticsMethodConfig,
+  packageWeightG: number,
+  exchangeRateRmbPerJpy: number,
+): number {
+  const packageWeightKg = packageWeightG / 1000;
+  switch (method.formula) {
+    case "sf": {
+      const firstWeight = method.params.firstWeight ?? 1;
+      const firstPrice = method.params.firstPrice ?? 8;
+      const extraPrice = method.params.extraPrice ?? 2;
+      if (packageWeightKg <= 0) return 0;
+      if (firstWeight <= 0) return packageWeightKg * extraPrice;
+      return (
+        Math.min(packageWeightKg, firstWeight) * (firstPrice / firstWeight) +
+        Math.max(packageWeightKg - firstWeight, 0) * extraPrice
+      );
+    }
+    case "flat_rmb": {
+      return packageWeightKg * (method.params.price ?? 0);
+    }
+    case "flat_rmb_tariff": {
+      return (
+        packageWeightKg *
+        (method.params.price ?? 0) *
+        (1 + (method.params.tariffRate ?? 0))
+      );
+    }
+    case "flat_jpy": {
+      return (method.params.price ?? 0) * exchangeRateRmbPerJpy;
+    }
+    case "ocs_3cm": {
+      const firstPrice = method.params.firstPrice ?? 16.5;
+      const extraPrice = method.params.extraPrice ?? 1.5;
+      const weightUnits = Math.max(Math.ceil(Math.max(0, packageWeightG) / 100), 1);
+      return firstPrice + Math.max(weightUnits - 1, 0) * extraPrice;
+    }
+    case "ocs_small": {
+      const firstPrice = method.params.firstPrice ?? 36.5;
+      const extraPrice = method.params.extraPrice ?? 6;
+      const weightUnits = Math.max(Math.ceil(Math.max(0, packageWeightG) / 500), 1);
+      return firstPrice + Math.max(weightUnits - 1, 0) * extraPrice;
+    }
+    default:
+      return 0;
+  }
 }

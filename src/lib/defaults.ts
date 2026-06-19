@@ -4,7 +4,89 @@ import type {
   ProductItem,
   ProductSkuDraft,
   ProductSpec,
+  LogisticsMethodConfig,
 } from "../types";
+
+export const defaultFirstLegMethods: LogisticsMethodConfig[] = [
+  {
+    id: "sf-first-leg",
+    name: "顺丰",
+    type: "first_leg",
+    formula: "sf",
+    params: {
+      firstWeight: 1,
+      firstPrice: 8,
+      extraPrice: 2,
+    },
+    isActive: true,
+  },
+  {
+    id: "huaian-air-first-leg",
+    name: "淮安空运 RMB/kg",
+    type: "first_leg",
+    formula: "flat_rmb",
+    params: {
+      price: 25,
+    },
+    isActive: true,
+  },
+  {
+    id: "ocs-first-leg",
+    name: "OCS RMB/kg",
+    type: "first_leg",
+    formula: "flat_rmb_tariff",
+    params: {
+      price: 20,
+      tariffRate: 0,
+    },
+    isActive: true,
+  },
+];
+
+export const defaultLastLegMethods: LogisticsMethodConfig[] = [
+  {
+    id: "ocs-yamato-last-leg",
+    name: "OCS Yamato",
+    type: "last_leg",
+    formula: "ocs_3cm",
+    params: {
+      firstPrice: 16.5,
+      extraPrice: 1.5,
+    },
+    isActive: true,
+  },
+  {
+    id: "ocs-small-last-leg",
+    name: "OCS 小包",
+    type: "last_leg",
+    formula: "ocs_small",
+    params: {
+      firstPrice: 36.5,
+      extraPrice: 6,
+    },
+    isActive: true,
+  },
+  {
+    id: "osaka-jp-last-leg",
+    name: "大阪Japan Post",
+    type: "last_leg",
+    formula: "flat_jpy",
+    params: {
+      price: 260,
+    },
+    isActive: true,
+  },
+  {
+    id: "fukuoka-jp-last-leg",
+    name: "福冈Japan Post",
+    type: "last_leg",
+    formula: "flat_jpy",
+    params: {
+      price: 220,
+    },
+    isActive: true,
+  },
+];
 
 export const defaultSettings: PricingSettings = {
   packaging_cost_rmb: 0.2,
@@ -23,6 +105,8 @@ export const defaultSettings: PricingSettings = {
   test_ocs_small_parcel_extra_price_per_500g_rmb: 6,
   target_profit_rate: 0.3,
   target_post_ad_profit_rate: 0.25,
+  first_leg_methods: defaultFirstLegMethods,
+  last_leg_methods: defaultLastLegMethods,
 };
 
 export const emptyProductDraft: ProductDraft = {

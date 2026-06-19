@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Plus, Trash2, Settings, Search, MapPin, Truck, ArrowLeftRight, Edit3 } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { Link, useParams } from "react-router-dom";
@@ -34,6 +34,7 @@ import type {
   WarehouseItemStockAdjustment,
   WarehouseLogisticsMethod,
   WarehouseSku,
+  LogisticsMethodConfig,
 } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../utils/sku-code";
@@ -41,6 +42,8 @@ import { PageHeader } from "../components/ui";
 import { readDraft, useDraftPersistence } from "../hooks/use-draft-persistence";
 import { usePermissions } from "../hooks/use-permissions";
 import { AsyncProductSelect } from "../components/inventory/AsyncProductSelect";
+import { fetchSettings } from "../lib/settings";
+import { defaultFirstLegMethods, defaultLastLegMethods } from "../lib/defaults";
 
 type InventoryPageProps = {
   user: User;
@@ -236,6 +239,11 @@ export function InventoryPage({ user }: InventoryPageProps) {
   const [draftNotice, setDraftNotice] = useState(
     hasInventoryDraft(restoredDraft) ? "已恢复上次未保存的库存编辑草稿。" : "",
   );
+  const [searchQuery, setSearchQuery] = useState("");
+  const [editingWarehouseId, setEditingWarehouseId] = useState<string | null>(null);
+  const [showWarehouseSettings, setShowWarehouseSettings] = useState(false);
+  const [settingsFirstLegs, setSettingsFirstLegs] = useState<LogisticsMethodConfig[]>([]);
+  const [settingsLastLegs, setSettingsLastLegs] = useState<LogisticsMethodConfig[]>([]);
   const productCodeCollator = useMemo(
     () => new Intl.Collator("zh-CN", { numeric: true, sensitivity: "base" }),
     [],
@@ -262,16 +270,23 @@ export function InventoryPage({ user }: InventoryPageProps) {
     : "显示全部仓库的 SKU 与配件库存";
 
 
+  const PAGE_SIZE_OPTIONS = [20, 30, 50, 100] as const;
+  const [pageSize, setPageSize] = useState<number>(20);
   const [warehousePages, setWarehousePages] = useState<Record<string, number>>({});
-  const [warehouseHasMore, setWarehouseHasMore] = useState<Record<string, boolean>>({});
+  const [warehouseTotals, setWarehouseTotals] = useState<Record<string, number>>({});
+  const [warehousePageLoading, setWarehousePageLoading] = useState<Record<string, boolean>>({});
 
-  const loadWarehousePage = useCallback(async (warehouseId: string, targetPage: number) => {
+  const loadWarehousePage = useCallback(async (warehouseId: string, targetPage: number, size?: number) => {
+    const effectiveSize = size ?? pageSize;
+    setWarehousePageLoading(curr => ({ ...curr, [warehouseId]: true }));
     try {
-      const data = await fetchWarehouseInventoryPage(warehouseId, targetPage, 20);
-      setWarehouseSkus(curr => {
-        const newItems = data.warehouseSkus.filter(s => !curr.some(c => c.id === s.id));
-        return [...curr, ...newItems];
-      });
+      const data = await fetchWarehouseInventoryPage(warehouseId, targetPage, effectiveSize);
+
+      // Replace SKUs for this warehouse with the new page's data
+      setWarehouseSkus(curr => [
+        ...curr.filter(s => s.warehouse_id !== warehouseId),
+        ...data.warehouseSkus,
+      ]);
       setProducts(curr => {
         const newItems = data.products.filter(s => !curr.some(c => c.id === s.id));
         return [...curr, ...newItems];
@@ -284,21 +299,25 @@ export function InventoryPage({ user }: InventoryPageProps) {
         const newItems = data.productItems.filter(s => !curr.some(c => c.id === s.id));
         return [...curr, ...newItems];
       });
-      setWarehouseItemStocks(curr => {
-        const newItems = data.warehouseItemStocks.filter(s => !curr.some(c => c.id === s.id));
-        return [...curr, ...newItems];
-      });
-      setWarehouseItemStockAdjustments(curr => {
-        const newItems = data.warehouseItemStockAdjustments.filter(s => !curr.some(c => c.id === s.id));
-        return [...curr, ...newItems];
-      });
+      // Replace item stocks for this warehouse
+      setWarehouseItemStocks(curr => [
+        ...curr.filter(s => s.warehouse_id !== warehouseId),
+        ...data.warehouseItemStocks,
+      ]);
+      // Replace adjustments for this warehouse
+      setWarehouseItemStockAdjustments(curr => [
+        ...curr.filter(s => s.warehouse_id !== warehouseId),
+        ...data.warehouseItemStockAdjustments,
+      ]);
 
       setWarehousePages(curr => ({ ...curr, [warehouseId]: targetPage }));
-      setWarehouseHasMore(curr => ({ ...curr, [warehouseId]: data.hasMore }));
+      setWarehouseTotals(curr => ({ ...curr, [warehouseId]: data.total }));
     } catch (error) {
       setErrorMessage(getInventoryErrorMessage(error, "加载仓库数据失败"));
+    } finally {
+      setWarehousePageLoading(curr => ({ ...curr, [warehouseId]: false }));
     }
-  }, []);
+  }, [pageSize]);
 
   useEffect(() => {
     let active = true;
@@ -315,10 +334,52 @@ export function InventoryPage({ user }: InventoryPageProps) {
           nextWarehouses.map((warehouse) => warehouse.id)
         );
 
+        let nextSettings = null;
+        try {
+          nextSettings = await fetchSettings(user.id);
+        } catch (e) {
+          console.error("Failed to fetch settings in inventory page:", e);
+        }
+
+        const cachedConfig = localStorage.getItem(`pricing-logistics-config:v1:${user.id}`);
+        let dynamicConfig = cachedConfig ? JSON.parse(cachedConfig) : null;
+        if (!dynamicConfig) {
+          dynamicConfig = {
+            first_leg_methods: nextSettings?.first_leg_methods || defaultFirstLegMethods,
+            last_leg_methods: nextSettings?.last_leg_methods || defaultLastLegMethods,
+          };
+        }
+
+        const firstLegs: LogisticsMethodConfig[] = dynamicConfig.first_leg_methods || [];
+        const lastLegs: LogisticsMethodConfig[] = dynamicConfig.last_leg_methods || [];
+        const allSettingsNames = [
+          ...firstLegs.map((m) => m.name),
+          ...lastLegs.map((m) => m.name),
+        ];
+
+        let updatedDbLogisticsMethods = [...nextLogisticsMethods];
+        for (const name of allSettingsNames) {
+          const normalized = normalizeLogisticsMethodName(name);
+          if (!normalized) continue;
+          const exists = updatedDbLogisticsMethods.some(
+            (m) => normalizeLogisticsMethodName(m.name).toLowerCase() === normalized.toLowerCase(),
+          );
+          if (!exists) {
+            try {
+              const newMethod = await createLogisticsMethod(name);
+              updatedDbLogisticsMethods.push(newMethod);
+            } catch (e) {
+              console.error("Failed to auto-create logistics method in DB:", name, e);
+            }
+          }
+        }
+
         if (active) {
           setWarehouses(nextWarehouses);
-          setLogisticsMethods(nextLogisticsMethods);
+          setLogisticsMethods(updatedDbLogisticsMethods);
           setWarehouseLogisticsMethods(nextWarehouseLogisticsMethods);
+          setSettingsFirstLegs(firstLegs);
+          setSettingsLastLegs(lastLegs);
 
           const latestDraft = readDraft<InventoryDraft>(draftKey);
           setItemStockDrafts(latestDraft?.itemStockDrafts ?? {});
@@ -345,12 +406,12 @@ export function InventoryPage({ user }: InventoryPageProps) {
   useEffect(() => {
     if (visibleWarehouses.length === 1) {
       const warehouse = visibleWarehouses[0];
-      if (warehousePages[warehouse.id] === undefined) {
-        setWarehousePages(curr => ({ ...curr, [warehouse.id]: 1 }));
+      if (warehouseTotals[warehouse.id] === undefined) {
         void loadWarehousePage(warehouse.id, 1);
       }
     }
-  }, [visibleWarehouses, warehousePages, loadWarehousePage]);
+  }, [visibleWarehouses, warehouseTotals, loadWarehousePage]);
+
 
 
   const inventoryDraftValue = useMemo<InventoryDraft>(
@@ -846,6 +907,75 @@ export function InventoryPage({ user }: InventoryPageProps) {
     return possibleStocks.length > 0 ? Math.min(...possibleStocks) : 0;
   }
 
+  const findDbMethod = useCallback(
+    (name: string) => {
+      const normalizedName = normalizeLogisticsMethodName(name).toLowerCase();
+      return logisticsMethods.find(
+        (m) => normalizeLogisticsMethodName(m.name).toLowerCase() === normalizedName
+      );
+    },
+    [logisticsMethods]
+  );
+
+  const getWarehouseAssignedLegs = useCallback(
+    (warehouseId: string) => {
+      const methodIds = warehouseLogisticsMethodIdsByWarehouseId[warehouseId] ?? [];
+      const firstLegs: string[] = [];
+      const lastLegs: string[] = [];
+
+      methodIds.forEach((methodId) => {
+        const method = logisticsMethods.find((m) => m.id === methodId);
+        if (!method) return;
+        const normalizedName = normalizeLogisticsMethodName(method.name).toLowerCase();
+
+        // Check if it exists in settingsFirstLegs
+        const isFirstLeg = settingsFirstLegs.some(
+          (m) => normalizeLogisticsMethodName(m.name).toLowerCase() === normalizedName
+        );
+        if (isFirstLeg) {
+          firstLegs.push(method.name);
+          return;
+        }
+
+        // Check if it exists in settingsLastLegs
+        const isLastLeg = settingsLastLegs.some(
+          (m) => normalizeLogisticsMethodName(m.name).toLowerCase() === normalizedName
+        );
+        if (isLastLeg) {
+          lastLegs.push(method.name);
+          return;
+        }
+      });
+
+      return { firstLegs, lastLegs };
+    },
+    [warehouseLogisticsMethodIdsByWarehouseId, logisticsMethods, settingsFirstLegs, settingsLastLegs]
+  );
+
+  const filteredWarehouseSkusByWarehouseId = useMemo(() => {
+    const result: Record<string, WarehouseSku[]> = {};
+    Object.entries(sortedWarehouseSkusByWarehouseId).forEach(([warehouseId, sortedItems]) => {
+      if (!searchQuery.trim()) {
+        result[warehouseId] = sortedItems;
+        return;
+      }
+      const query = searchQuery.trim().toLowerCase();
+      result[warehouseId] = sortedItems.filter((item) => {
+        const product = productsById[item.product_id];
+        const sku = skusById[item.sku_id];
+        const skuCode = getSkuDisplayCode(sku).toLowerCase();
+        const productCode = (product?.product_code ?? "").toLowerCase();
+        const productName = (product?.product_name_cn ?? "").toLowerCase();
+        return (
+          productCode.includes(query) ||
+          productName.includes(query) ||
+          skuCode.includes(query)
+        );
+      });
+    });
+    return result;
+  }, [sortedWarehouseSkusByWarehouseId, searchQuery, productsById, skusById, getSkuDisplayCode]);
+
   return (
     <section className="grid gap-5">
       <PageHeader title={pageTitle} description={pageDescription} />
@@ -862,17 +992,17 @@ export function InventoryPage({ user }: InventoryPageProps) {
       )}
 
       {!loading && warehouses.length > 0 && (
-        <section className="surface-card p-3">
+        <section className="surface-card p-3 shadow-sm rounded-xl">
           <div className="flex flex-wrap gap-2">
             <Link
               to="/inventory"
-              className={`inline-flex h-10 items-center rounded-md border px-4 text-sm font-semibold transition ${
+              className={`inline-flex h-10 items-center rounded-lg border px-4 text-sm font-semibold transition ${
                 !warehouseSlug
-                  ? "border-sky-200 bg-sky-50 text-sky-700"
+                  ? "border-violet-200 bg-violet-50 text-violet-700"
                   : "border-line bg-white text-slate-700 hover:bg-slate-50"
               }`}
             >
-              全部
+              全部仓库
             </Link>
             {warehouses.map((warehouse) => {
               const isActive = routeWarehouse?.id === warehouse.id;
@@ -880,9 +1010,9 @@ export function InventoryPage({ user }: InventoryPageProps) {
                 <Link
                   key={warehouse.id}
                   to={`/inventory/${getWarehouseRouteSlug(warehouse)}`}
-                  className={`inline-flex h-10 items-center rounded-md border px-4 text-sm font-semibold transition ${
+                  className={`inline-flex h-10 items-center rounded-lg border px-4 text-sm font-semibold transition ${
                     isActive
-                      ? "border-sky-200 bg-sky-50 text-sky-700"
+                      ? "border-violet-200 bg-violet-50 text-violet-700"
                       : "border-line bg-white text-slate-700 hover:bg-slate-50"
                   }`}
                 >
@@ -894,81 +1024,63 @@ export function InventoryPage({ user }: InventoryPageProps) {
         </section>
       )}
 
-      {canEdit && (
-        <section className="surface-card grid gap-4 p-5">
+      {!warehouseSlug && !loading && (
+        <div className="grid gap-5 sm:grid-cols-3">
+          <div className="surface-card p-5 flex items-center justify-between shadow-sm rounded-xl">
+            <div>
+              <div className="text-sm font-medium text-slate-500">仓库总数</div>
+              <div className="mt-1 text-2xl font-bold text-ink">{warehouses.length} 个</div>
+            </div>
+            <div className="rounded-full bg-violet-50 p-3 text-violet-600">
+              <MapPin size={24} />
+            </div>
+          </div>
+          <div className="surface-card p-5 flex items-center justify-between shadow-sm rounded-xl">
+            <div>
+              <div className="text-sm font-medium text-slate-500">已分配商品 SKU 总数</div>
+              <div className="mt-1 text-2xl font-bold text-ink">
+                {Object.values(warehouseSkusByWarehouseId).reduce((acc, curr) => acc + curr.length, 0)} 个
+              </div>
+            </div>
+            <div className="rounded-full bg-blue-50 p-3 text-blue-600">
+              <Search size={24} />
+            </div>
+          </div>
+          <div className="surface-card p-5 flex items-center justify-between shadow-sm rounded-xl">
+            <div>
+              <div className="text-sm font-medium text-slate-500">可用发货方式</div>
+              <div className="mt-1 text-2xl font-bold text-ink">
+                {settingsFirstLegs.length + settingsLastLegs.length} 个
+              </div>
+            </div>
+            <div className="rounded-full bg-emerald-50 p-3 text-emerald-600">
+              <Truck size={24} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Admin creation blocks: only show on all warehouses view & with permissions */}
+      {!warehouseSlug && canEdit && (
+        <section className="surface-card grid gap-4 p-5 shadow-sm rounded-xl">
           <h2 className="text-base font-semibold text-ink">新增仓库</h2>
           <div className="grid gap-3 md:grid-cols-[minmax(220px,1fr)_auto]">
             <input
               value={draftWarehouseName}
               onChange={(event) => setDraftWarehouseName(event.target.value)}
-              placeholder="仓库名称"
+              placeholder="例如: 苏州仓、福冈仓、大厦仓"
               className="h-11 rounded-xl border border-line bg-white px-3 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
             />
             <button
               type="button"
               onClick={() => void handleCreateWarehouse()}
               disabled={!draftWarehouseName.trim() || busyKey === "create-warehouse"}
-              className="btn-primary"
+              className="btn-primary rounded-xl"
             >
               <Plus size={18} />
               增加仓库
             </button>
           </div>
-        </section>
-      )}
-
-      {canEdit && (
-        <section className="surface-card grid gap-4 p-5">
-          <h2 className="text-base font-semibold text-ink">发货方式选项</h2>
-          <div className="grid gap-3 md:grid-cols-[minmax(220px,1fr)_auto]">
-            <input
-              value={draftLogisticsMethodName}
-              onChange={(event) => setDraftLogisticsMethodName(event.target.value)}
-              placeholder="发货方式名称"
-              className="h-11 rounded-xl border border-line bg-white px-3 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
-            />
-            <button
-              type="button"
-              onClick={() => void handleCreateLogisticsMethod()}
-              disabled={
-                !draftLogisticsMethodName.trim() ||
-                busyKey === "create-logistics-method"
-              }
-              className="btn-primary"
-            >
-              <Plus size={18} />
-              增加发货方式
-            </button>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {activeLogisticsMethods.length === 0 ? (
-              <span className="text-sm text-slate-500">暂无发货方式</span>
-            ) : (
-              activeLogisticsMethods.map((method) => (
-                <span
-                  key={method.id}
-                  className="rounded-md bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600"
-                >
-                  {method.name}
-                </span>
-              ))
-            )}
-          </div>
-        </section>
-      )}
-
-      {canEdit && (
-        <section className="surface-card flex flex-wrap items-center justify-between gap-3 p-5">
-          <div>
-            <h2 className="text-base font-semibold text-ink">库存调拨</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              调拨多个 SKU、填写调拨日期，并查看调拨记录。
-            </p>
-          </div>
-          <Link to="/inventory/transfer" className="btn-primary">
-            <Plus size={18} />
-            去库存调拨
-          </Link>
         </section>
       )}
 
@@ -984,400 +1096,850 @@ export function InventoryPage({ user }: InventoryPageProps) {
         </div>
       ) : (
         <div className="grid gap-5">
-          {visibleWarehouses.map((warehouse) => {
-            const items = warehouseSkusByWarehouseId[warehouse.id] ?? [];
-            const assignedProductIds = new Set(items.map((item) => item.product_id));
-            const sortedItems = sortedWarehouseSkusByWarehouseId[warehouse.id] ?? [];
+          {/* Main List Layout */}
+          {!warehouseSlug ? (
+            <div className="grid gap-5 md:grid-cols-2">
+              {visibleWarehouses.map((warehouse) => {
+                const skuCount = (warehouseSkusByWarehouseId[warehouse.id] ?? []).length;
+                const { firstLegs, lastLegs } = getWarehouseAssignedLegs(warehouse.id);
+                const totalAssignedLegs = firstLegs.length + lastLegs.length;
 
-            return (
-              <section key={warehouse.id} className="surface-card grid gap-4 p-5">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="grid gap-3 md:grid-cols-[minmax(220px,1fr)]">
-                    <input
-                      value={warehouseNameDrafts[warehouse.id] ?? warehouse.name}
-                      readOnly={!canEdit}
-                      onChange={(event) =>
-                        setWarehouseNameDrafts((current) => ({
-                          ...current,
-                          [warehouse.id]: event.target.value,
-                        }))
-                      }
-                      onBlur={() => {
-                        if (canEdit) {
-                          const nextName =
-                            (warehouseNameDrafts[warehouse.id] ?? warehouse.name).trim() ||
-                            warehouse.name;
-                          void handleUpdateWarehouse(warehouse, {
-                            name: nextName,
-                          });
-                        }
-                      }}
-                      className="h-11 rounded-xl border border-line bg-white px-3 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
-                    />
-                  </div>
-                  {canDelete && (
-                    <button
-                      type="button"
-                      onClick={() => void handleDeleteWarehouse(warehouse)}
-                      disabled={busyKey === `warehouse-${warehouse.id}`}
-                      className="btn-danger"
-                    >
-                      <Trash2 size={18} />
-                      删除仓库
-                    </button>
-                  )}
-                </div>
-
-                <div className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                  <div className="text-sm font-semibold text-slate-700">
-                    可用发货方式
-                  </div>
-                  {activeLogisticsMethods.length === 0 ? (
-                    <div className="text-sm text-slate-500">暂无发货方式</div>
-                  ) : (
-                    <div className="flex flex-wrap gap-2">
-                      {activeLogisticsMethods.map((method) => {
-                        const methodIds =
-                          warehouseLogisticsMethodIdsByWarehouseId[warehouse.id] ?? [];
-                        const checked = methodIds.includes(method.id);
-                        return (
-                          <label
-                            key={method.id}
-                            className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700"
+                return (
+                  <div key={warehouse.id} className="surface-card p-5 flex flex-col justify-between shadow-sm rounded-xl relative group">
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2.5">
+                          <div className="rounded-lg bg-violet-50 p-2 text-violet-600">
+                            <MapPin size={20} />
+                          </div>
+                          <h3 className="text-lg font-bold text-ink">{warehouse.name}</h3>
+                        </div>
+                        {canEdit && (
+                          <button
+                            type="button"
+                            onClick={() => setEditingWarehouseId(editingWarehouseId === warehouse.id ? null : warehouse.id)}
+                            className={`p-2 rounded-lg border transition ${
+                              editingWarehouseId === warehouse.id
+                                ? "bg-violet-50 text-violet-600 border-violet-200"
+                                : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
+                            }`}
+                            title="仓库属性设置"
                           >
+                            <Settings size={18} />
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4 my-4 bg-slate-50 rounded-xl p-4 border border-line">
+                        <div>
+                          <div className="text-xs text-slate-500">SKU 种类</div>
+                          <div className="mt-1 text-lg font-bold text-ink">{skuCount} 个</div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-slate-500">关联配送方式</div>
+                          <div className="mt-1 text-lg font-bold text-ink">{totalAssignedLegs} 个</div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        <div className="text-xs font-semibold text-slate-500">已关联发货方式：</div>
+                        <div className="space-y-2">
+                          <div className="flex items-start gap-2">
+                            <span className="text-[10px] uppercase font-bold text-blue-600 bg-blue-50 border border-blue-100 rounded px-1.5 py-0.5 mt-0.5 shrink-0">头程</span>
+                            <div className="flex flex-wrap gap-1.5">
+                              {firstLegs.length === 0 ? (
+                                <span className="text-xs text-slate-400">未设置头程</span>
+                              ) : (
+                                firstLegs.map((name) => (
+                                  <span key={name} className="inline-flex items-center gap-1 rounded bg-blue-50 border border-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
+                                    <Truck size={12} />
+                                    {name}
+                                  </span>
+                                ))
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-start gap-2">
+                            <span className="text-[10px] uppercase font-bold text-violet-600 bg-violet-50 border border-violet-100 rounded px-1.5 py-0.5 mt-0.5 shrink-0">尾程</span>
+                            <div className="flex flex-wrap gap-1.5">
+                              {lastLegs.length === 0 ? (
+                                <span className="text-xs text-slate-400">未设置尾程</span>
+                              ) : (
+                                lastLegs.map((name) => (
+                                  <span key={name} className="inline-flex items-center gap-1 rounded bg-violet-50 border border-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700">
+                                    <Truck size={12} />
+                                    {name}
+                                  </span>
+                                ))
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {editingWarehouseId === warehouse.id && (
+                      <div className="mt-4 border-t border-line pt-4 grid gap-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+                            <span className="text-xs font-semibold text-slate-700">重命名仓库：</span>
                             <input
-                              type="checkbox"
-                              checked={checked}
-                              disabled={
-                                !canEdit ||
-                                busyKey === `warehouse-logistics-${warehouse.id}`
-                              }
+                              value={warehouseNameDrafts[warehouse.id] ?? warehouse.name}
+                              readOnly={!canEdit}
                               onChange={(event) =>
-                                void handleToggleWarehouseLogisticsMethod(
-                                  warehouse,
-                                  method,
-                                  event.target.checked,
-                                )
+                                setWarehouseNameDrafts((current) => ({
+                                  ...current,
+                                  [warehouse.id]: event.target.value,
+                                }))
                               }
-                              className="h-4 w-4 rounded border-slate-300 text-sky-700 focus:ring-sky-500"
+                              onBlur={() => {
+                                if (canEdit) {
+                                  const nextName =
+                                    (warehouseNameDrafts[warehouse.id] ?? warehouse.name).trim() ||
+                                    warehouse.name;
+                                  void handleUpdateWarehouse(warehouse, { name: nextName });
+                                }
+                              }}
+                              className="h-8 max-w-xs rounded-lg border border-line bg-white px-2 text-xs outline-none transition focus:border-accent"
                             />
-                            {method.name}
-                          </label>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
+                          </div>
+                          {canDelete && (
+                            <button
+                              type="button"
+                              onClick={() => void handleDeleteWarehouse(warehouse)}
+                              disabled={busyKey === `warehouse-${warehouse.id}`}
+                              className="btn-danger h-8 text-xs px-2"
+                            >
+                              <Trash2 size={14} />
+                              删除仓库
+                            </button>
+                          )}
+                        </div>
 
-                {canEdit && (
-                  <div className="grid gap-3 md:grid-cols-[minmax(220px,1fr)_auto]">
-
-                    <div className="flex-1">
-                      <AsyncProductSelect
-                        value={selectedProductIds[warehouse.id] ?? ""}
-                        onChange={(value) =>
-                          setSelectedProductIds((current) => ({
-                            ...current,
-                            [warehouse.id]: value,
-                          }))
-                        }
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => void handleAddProduct(warehouse.id)}
-                      disabled={
-                        !selectedProductIds[warehouse.id] ||
-                        busyKey === `add-product-${warehouse.id}`
-                      }
-                      className="btn-secondary"
-                    >
-                      <Plus size={18} />
-                      增加商品编号
-                    </button>
-                  </div>
-                )}
-
-                {warehousePages[warehouse.id] === undefined ? (
-                  <div className="flex justify-center p-8">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setWarehousePages(curr => ({ ...curr, [warehouse.id]: 1 }));
-                        void loadWarehousePage(warehouse.id, 1);
-                      }}
-                      className="rounded-full border border-line bg-white px-6 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
-                    >
-                      加载此仓库库存
-                    </button>
-                  </div>
-                ) : (
-                  <div className="table-card shadow-none">
-                  <div className="overflow-x-auto">
-                    <table className="data-table">
-                      <thead>
-                        <tr>
-                          <th className="px-4 py-3 font-medium">商品编号</th>
-                          <th className="product-name-col px-4 py-3 font-medium">产品名称</th>
-                          <th className="px-4 py-3 font-medium">SKU编号</th>
-                          <th className="px-4 py-3 font-medium">销售规格</th>
-                          <th className="px-4 py-3 font-medium">SKU库存</th>
-                          <th className="px-4 py-3 font-medium">查看配件</th>
-                          <th className="px-4 py-3 font-medium">操作</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {sortedItems.length === 0 ? (
-                          <tr>
-                            <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
-                              暂无商品
-                            </td>
-                          </tr>
-                        ) : (
-                          sortedItems.map((item) => {
-                            const product = productsById[item.product_id];
-                            const sku = skusById[item.sku_id];
-                            return (
-                              <Fragment key={item.id}>
-                                <tr>
-                                  <td className="px-4 py-3">{product?.product_code ?? "--"}</td>
-                                  <td className="product-name-col px-4 py-3">{product?.product_name_cn ?? "--"}</td>
-                                  <td className="px-4 py-3">{getSkuDisplayCode(sku)}</td>
-                                  <td className="px-4 py-3">
-                                    {sku && Object.keys(sku.attributes).length > 0 ? (
-                                      <div className="grid gap-1">
-                                        {Object.entries(sku.attributes).map(([name, value]) => (
-                                          <span key={name}>
-                                            {name}：{value}
-                                          </span>
-                                        ))}
-                                      </div>
-                                    ) : (
-                                      <span className="text-slate-500">无规格</span>
-                                    )}
-                                  </td>
-                                  <td className="px-4 py-3 font-medium">
-                                    {getSkuAvailableStock(warehouse.id, sku)}
-                                  </td>
-                                  <td className="px-4 py-3">
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        setExpandedSkuIds((current) => ({
-                                          ...current,
-                                          [item.id]: !current[item.id],
-                                        }))
-                                      }
-                                      className="btn-secondary h-10 px-3"
+                        <div className="grid gap-4 md:grid-cols-2 bg-slate-50 rounded-xl p-4 border border-line text-left">
+                          <div className="grid gap-2">
+                            <div className="text-xs font-semibold text-blue-800 flex items-center gap-1.5">
+                              <span className="h-1.5 w-1.5 rounded-full bg-blue-500"></span>
+                              可用头程物流 (First Leg)
+                            </div>
+                            {settingsFirstLegs.length === 0 ? (
+                              <div className="text-[11px] text-slate-500">参数设置中未配置头程</div>
+                            ) : (
+                              <div className="flex flex-wrap gap-1.5">
+                                {settingsFirstLegs.map((config) => {
+                                  const dbMethod = findDbMethod(config.name);
+                                  if (!dbMethod) return null;
+                                  const methodIds = warehouseLogisticsMethodIdsByWarehouseId[warehouse.id] ?? [];
+                                  const checked = methodIds.includes(dbMethod.id);
+                                  return (
+                                    <label
+                                      key={config.name}
+                                      className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium cursor-pointer transition select-none ${
+                                        checked
+                                          ? "border-blue-200 bg-blue-50 text-blue-700"
+                                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                                      }`}
                                     >
-                                      {expandedSkuIds[item.id] ? (
-                                        <ChevronUp size={16} />
-                                      ) : (
-                                        <ChevronDown size={16} />
-                                      )}
-                                      查看配件
-                                    </button>
-                                  </td>
-                                  <td className="px-4 py-3">
-                                    {canDelete && (
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          void handleRemoveProduct(warehouse.id, item.product_id)
-                                        }
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
                                         disabled={
-                                          busyKey === `product-${warehouse.id}-${item.product_id}`
+                                          !canEdit ||
+                                          busyKey === `warehouse-logistics-${warehouse.id}`
                                         }
-                                        className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-line text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
-                                        aria-label={`删除商品编号 ${product?.product_code ?? ""}`}
-                                        title="删除商品编号"
-                                      >
-                                        <Trash2 size={16} />
-                                      </button>
-                                    )}
-                                  </td>
-                                </tr>
-                                {expandedSkuIds[item.id] && (
-                                  <tr className="is-selected border-t border-line">
-                                    <td colSpan={7} className="px-4 py-4">
-                                      <div className="overflow-hidden rounded-md border border-line bg-white">
-                                        <table className="data-table">
-                                          <thead>
-                                            <tr>
-                                              <th className="px-4 py-3 font-medium">配件名称</th>
-                                              <th className="px-4 py-3 font-medium">配件规格</th>
-                                              <th className="px-4 py-3 font-medium">SKU用量</th>
-                                              <th className="px-4 py-3 font-medium">配件库存</th>
-                                              <th className="px-4 py-3 font-medium">编辑原因</th>
-                                              <th className="px-4 py-3 font-medium">编辑记录</th>
-                                            </tr>
-                                          </thead>
-                                          <tbody>
-                                            {sku?.component_links.length ? (
-                                              sku.component_links.map((link) => {
-                                                const component = productItemsById[link.item_id];
-                                                const itemStock =
-                                                  warehouseItemStocksByKey[
-                                                    `${warehouse.id}:${link.item_id}`
-                                                  ];
-                                                return (
-                                                  <tr key={link.item_id} className="border-t border-line">
-                                                    <td className="px-4 py-3">
-                                                      {component?.item_name ?? "--"}
-                                                    </td>
-                                                    <td className="px-4 py-3">
-                                                      {component?.item_spec || "--"}
-                                                    </td>
-                                                    <td className="px-4 py-3">{link.quantity}</td>
-                                                    <td className="px-4 py-3">
-                                                      {itemStock ? (
-                                                        <div className="flex items-center gap-2">
-                                                          <input
-                                                            step="1"
-                                                            type="number"
-                                                            placeholder="+/- 调整"
-                                                            disabled={!canEdit}
-                                                            value={
-                                                              itemStockDrafts[itemStock.id] ??
-                                                              String(itemStock.stock_quantity)
-                                                            }
-                                                            onChange={(event) =>
-                                                              setItemStockDrafts((current) => ({
-                                                                ...current,
-                                                                [itemStock.id]: event.target.value,
-                                                              }))
-                                                            }
-                                                            className="h-10 w-28 rounded-md border border-line bg-white px-3 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
-                                                          />
-                                                          {canEdit && (
-                                                            <button
-                                                              type="button"
-                                                              onClick={() =>
-                                                                void handleSaveItemStock(itemStock)
-                                                              }
-                                                              disabled={
-                                                                busyKey ===
-                                                                  `item-stock-${itemStock.id}` ||
-                                                                !itemStockReasonDrafts[
-                                                                  itemStock.id
-                                                                ]?.trim()
-                                                              }
-                                                              className="h-10 rounded-md bg-ink px-3 text-sm text-white disabled:opacity-60"
-                                                            >
-                                                              保存
-                                                            </button>
+                                        onChange={(event) =>
+                                          void handleToggleWarehouseLogisticsMethod(
+                                            warehouse,
+                                            dbMethod,
+                                            event.target.checked,
+                                          )
+                                        }
+                                        className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                      />
+                                      {config.name}
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="grid gap-2">
+                            <div className="text-xs font-semibold text-violet-800 flex items-center gap-1.5">
+                              <span className="h-1.5 w-1.5 rounded-full bg-violet-500"></span>
+                              可用尾程物流 (Last Leg)
+                            </div>
+                            {settingsLastLegs.length === 0 ? (
+                              <div className="text-[11px] text-slate-500">参数设置中未配置尾程</div>
+                            ) : (
+                              <div className="flex flex-wrap gap-1.5">
+                                {settingsLastLegs.map((config) => {
+                                  const dbMethod = findDbMethod(config.name);
+                                  if (!dbMethod) return null;
+                                  const methodIds = warehouseLogisticsMethodIdsByWarehouseId[warehouse.id] ?? [];
+                                  const checked = methodIds.includes(dbMethod.id);
+                                  return (
+                                    <label
+                                      key={config.name}
+                                      className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium cursor-pointer transition select-none ${
+                                        checked
+                                          ? "border-violet-200 bg-violet-50 text-violet-700"
+                                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                                      }`}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        disabled={
+                                          !canEdit ||
+                                          busyKey === `warehouse-logistics-${warehouse.id}`
+                                        }
+                                        onChange={(event) =>
+                                          void handleToggleWarehouseLogisticsMethod(
+                                            warehouse,
+                                            dbMethod,
+                                            event.target.checked,
+                                          )
+                                        }
+                                        className="h-3.5 w-3.5 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                                      />
+                                      {config.name}
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="mt-5 pt-4 border-t border-line flex justify-end">
+                      <Link
+                        to={`/inventory/${getWarehouseRouteSlug(warehouse)}`}
+                        className="inline-flex h-10 items-center justify-center rounded-xl bg-violet-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-700"
+                      >
+                        进入该仓库库存 →
+                      </Link>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            /* Specific Warehouse Page View */
+            visibleWarehouses.map((warehouse) => {
+              const { firstLegs, lastLegs } = getWarehouseAssignedLegs(warehouse.id);
+              const filteredItems = filteredWarehouseSkusByWarehouseId[warehouse.id] ?? [];
+
+              return (
+                <div key={warehouse.id} className="grid gap-5">
+                  {/* KPI cards for warehouse page */}
+                  <div className="grid gap-5 sm:grid-cols-3">
+                    <div className="surface-card p-5 flex items-center justify-between shadow-sm rounded-xl">
+                      <div>
+                        <div className="text-sm font-medium text-slate-500">已分配商品 SKU 数</div>
+                        <div className="mt-1 text-2xl font-bold text-ink">
+                          {(warehouseSkusByWarehouseId[warehouse.id] ?? []).length} 个
+                        </div>
+                      </div>
+                      <div className="rounded-full bg-blue-50 p-3 text-blue-600">
+                        <Search size={24} />
+                      </div>
+                    </div>
+                    <div className="surface-card p-5 flex items-center justify-between shadow-sm rounded-xl">
+                      <div>
+                        <div className="text-sm font-medium text-slate-500">已关联头程物流</div>
+                        <div className="mt-1 text-2xl font-bold text-ink">
+                          {firstLegs.length} 个
+                        </div>
+                      </div>
+                      <div className="rounded-full bg-indigo-50 p-3 text-indigo-600">
+                        <Truck size={24} />
+                      </div>
+                    </div>
+                    <div className="surface-card p-5 flex items-center justify-between shadow-sm rounded-xl">
+                      <div>
+                        <div className="text-sm font-medium text-slate-500">已关联尾程物流</div>
+                        <div className="mt-1 text-2xl font-bold text-ink">
+                          {lastLegs.length} 个
+                        </div>
+                      </div>
+                      <div className="rounded-full bg-violet-50 p-3 text-violet-600">
+                        <Truck size={24} />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Action Control Board */}
+                  <div className="surface-card p-5 grid gap-4 shadow-sm rounded-xl">
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setShowWarehouseSettings(!showWarehouseSettings)}
+                          className={`inline-flex h-10 items-center gap-2 rounded-xl border px-4 text-sm font-semibold transition ${
+                            showWarehouseSettings
+                              ? "border-violet-200 bg-violet-50 text-violet-700"
+                              : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                          }`}
+                        >
+                          <Settings size={16} />
+                          仓库属性设置
+                        </button>
+                        {canEdit && (
+                          <Link to="/inventory/transfer" className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition">
+                            <ArrowLeftRight size={16} />
+                            库存调拨
+                          </Link>
+                        )}
+                      </div>
+
+                      <div className="relative flex-1 max-w-md min-w-[260px]">
+                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                        <input
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          placeholder="搜索商品编号、产品名称或SKU编号..."
+                          className="h-10 w-full rounded-xl border border-line bg-white pl-10 pr-4 text-sm outline-none transition focus:border-violet-600 focus:ring-2 focus:ring-violet-600/20"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Collapsible settings drawer */}
+                    {showWarehouseSettings && (
+                      <div className="border-t border-line mt-4 pt-4 grid gap-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+                            <span className="text-sm font-semibold text-slate-700">重命名仓库：</span>
+                            <input
+                              value={warehouseNameDrafts[warehouse.id] ?? warehouse.name}
+                              readOnly={!canEdit}
+                              onChange={(event) =>
+                                setWarehouseNameDrafts((current) => ({
+                                  ...current,
+                                  [warehouse.id]: event.target.value,
+                                }))
+                              }
+                              onBlur={() => {
+                                if (canEdit) {
+                                  const nextName =
+                                    (warehouseNameDrafts[warehouse.id] ?? warehouse.name).trim() ||
+                                    warehouse.name;
+                                  void handleUpdateWarehouse(warehouse, { name: nextName });
+                                }
+                              }}
+                              className="h-9 max-w-xs rounded-lg border border-line bg-white px-3 text-sm outline-none transition focus:border-accent"
+                            />
+                          </div>
+                          {canDelete && (
+                            <button
+                              type="button"
+                              onClick={() => void handleDeleteWarehouse(warehouse)}
+                              disabled={busyKey === `warehouse-${warehouse.id}`}
+                              className="btn-danger h-9 text-xs"
+                            >
+                              <Trash2 size={16} />
+                              删除仓库
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="grid gap-4 md:grid-cols-2 bg-slate-50 rounded-xl p-4 border border-line">
+                          {/* First Leg */}
+                          <div className="grid gap-2">
+                            <div className="text-sm font-semibold text-blue-800 flex items-center gap-1.5">
+                              <span className="h-2 w-2 rounded-full bg-blue-500"></span>
+                              可用头程物流 (First Leg)
+                            </div>
+                            {settingsFirstLegs.length === 0 ? (
+                              <div className="text-xs text-slate-500">参数设置中未配置头程</div>
+                            ) : (
+                              <div className="flex flex-wrap gap-2">
+                                {settingsFirstLegs.map((config) => {
+                                  const dbMethod = findDbMethod(config.name);
+                                  if (!dbMethod) return null;
+                                  const methodIds = warehouseLogisticsMethodIdsByWarehouseId[warehouse.id] ?? [];
+                                  const checked = methodIds.includes(dbMethod.id);
+                                  return (
+                                    <label
+                                      key={config.name}
+                                      className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-medium cursor-pointer transition select-none ${
+                                        checked
+                                          ? "border-blue-200 bg-blue-50 text-blue-700"
+                                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                                      }`}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        disabled={
+                                          !canEdit ||
+                                          busyKey === `warehouse-logistics-${warehouse.id}`
+                                        }
+                                        onChange={(event) =>
+                                          void handleToggleWarehouseLogisticsMethod(
+                                            warehouse,
+                                            dbMethod,
+                                            event.target.checked,
+                                          )
+                                        }
+                                        className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                      />
+                                      {config.name}
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Last Leg */}
+                          <div className="grid gap-2">
+                            <div className="text-sm font-semibold text-violet-800 flex items-center gap-1.5">
+                              <span className="h-2 w-2 rounded-full bg-violet-500"></span>
+                              可用尾程物流 (Last Leg)
+                            </div>
+                            {settingsLastLegs.length === 0 ? (
+                              <div className="text-xs text-slate-500">参数设置中未配置尾程</div>
+                            ) : (
+                              <div className="flex flex-wrap gap-2">
+                                {settingsLastLegs.map((config) => {
+                                  const dbMethod = findDbMethod(config.name);
+                                  if (!dbMethod) return null;
+                                  const methodIds = warehouseLogisticsMethodIdsByWarehouseId[warehouse.id] ?? [];
+                                  const checked = methodIds.includes(dbMethod.id);
+                                  return (
+                                    <label
+                                      key={config.name}
+                                      className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-medium cursor-pointer transition select-none ${
+                                        checked
+                                          ? "border-violet-200 bg-violet-50 text-violet-700"
+                                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                                      }`}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        disabled={
+                                          !canEdit ||
+                                          busyKey === `warehouse-logistics-${warehouse.id}`
+                                        }
+                                        onChange={(event) =>
+                                          void handleToggleWarehouseLogisticsMethod(
+                                            warehouse,
+                                            dbMethod,
+                                            event.target.checked,
+                                          )
+                                        }
+                                        className="h-3.5 w-3.5 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                                      />
+                                      {config.name}
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Quick add product row */}
+                    {canEdit && (
+                      <div className="border-t border-line mt-2 pt-4 flex flex-wrap items-center gap-3">
+                        <div className="flex-1 min-w-[240px]">
+                          <AsyncProductSelect
+                            value={selectedProductIds[warehouse.id] ?? ""}
+                            onChange={(value) =>
+                              setSelectedProductIds((current) => ({
+                                ...current,
+                                [warehouse.id]: value,
+                              }))
+                            }
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void handleAddProduct(warehouse.id)}
+                          disabled={
+                            !selectedProductIds[warehouse.id] ||
+                            busyKey === `add-product-${warehouse.id}`
+                          }
+                          className="inline-flex h-10 items-center justify-center rounded-xl bg-violet-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-700 disabled:opacity-60"
+                        >
+                          <Plus size={18} />
+                          增加商品编号
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Inventory Table card */}
+                  {warehouseTotals[warehouse.id] === undefined ? (
+                    <div className="surface-card flex justify-center p-10 rounded-xl shadow-sm">
+                      <div className="flex items-center gap-3 text-slate-400">
+                        <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                        <span className="text-sm">加载库存中...</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="surface-card overflow-hidden shadow-sm rounded-xl">
+                      <div className="overflow-x-auto">
+                        <table className="data-table">
+                          <thead>
+                            <tr>
+                              <th className="px-4 py-3 font-semibold text-left">商品编号</th>
+                              <th className="product-name-col px-4 py-3 font-semibold text-left">产品名称</th>
+                              <th className="px-4 py-3 font-semibold text-left">SKU编号</th>
+                              <th className="px-4 py-3 font-semibold text-left">销售规格</th>
+                              <th className="px-4 py-3 font-semibold text-left">SKU库存</th>
+                              <th className="px-4 py-3 font-semibold text-left">查看配件</th>
+                              <th className="px-4 py-3 font-semibold text-left">操作</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredItems.length === 0 ? (
+                              <tr>
+                                <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                                  暂无符合条件的商品
+                                </td>
+                              </tr>
+                            ) : (
+                              filteredItems.map((item) => {
+                                const product = productsById[item.product_id];
+                                const sku = skusById[item.sku_id];
+                                return (
+                                  <Fragment key={item.id}>
+                                    <tr className="border-t border-line hover:bg-slate-50/50 transition">
+                                      <td className="px-4 py-3 font-medium text-ink">{product?.product_code ?? "--"}</td>
+                                      <td className="product-name-col px-4 py-3 text-slate-600">{product?.product_name_cn ?? "--"}</td>
+                                      <td className="px-4 py-3 font-mono text-xs">{getSkuDisplayCode(sku)}</td>
+                                      <td className="px-4 py-3 text-slate-600">
+                                        {sku && Object.keys(sku.attributes).length > 0 ? (
+                                          <div className="grid gap-1 text-xs">
+                                            {Object.entries(sku.attributes).map(([name, value]) => (
+                                              <span key={name}>
+                                                {name}：{value}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        ) : (
+                                          <span className="text-slate-400">无规格</span>
+                                        )}
+                                      </td>
+                                      <td className="px-4 py-3 font-semibold text-ink">
+                                        {getSkuAvailableStock(warehouse.id, sku)}
+                                      </td>
+                                      <td className="px-4 py-3">
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setExpandedSkuIds((current) => ({
+                                              ...current,
+                                              [item.id]: !current[item.id],
+                                            }))
+                                          }
+                                          className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition ${
+                                            expandedSkuIds[item.id]
+                                              ? "border-violet-200 bg-violet-50 text-violet-700"
+                                              : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                                          }`}
+                                        >
+                                          {expandedSkuIds[item.id] ? (
+                                            <ChevronUp size={14} />
+                                          ) : (
+                                            <ChevronDown size={14} />
+                                          )}
+                                          查看配件
+                                        </button>
+                                      </td>
+                                      <td className="px-4 py-3">
+                                        {canDelete && (
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              void handleRemoveProduct(warehouse.id, item.product_id)
+                                            }
+                                            disabled={
+                                              busyKey === `product-${warehouse.id}-${item.product_id}`
+                                            }
+                                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-100 transition disabled:opacity-60"
+                                            aria-label={`删除商品编号 ${product?.product_code ?? ""}`}
+                                            title="删除商品编号"
+                                          >
+                                            <Trash2 size={15} />
+                                          </button>
+                                        )}
+                                      </td>
+                                    </tr>
+                                    {expandedSkuIds[item.id] && (
+                                      <tr className="bg-slate-50/50">
+                                        <td colSpan={7} className="px-4 py-4">
+                                          <div className="overflow-hidden rounded-xl border border-line bg-white shadow-inner">
+                                            <table className="data-table">
+                                              <thead>
+                                                <tr className="bg-slate-50">
+                                                  <th className="px-4 py-3 font-semibold text-left text-xs">配件名称</th>
+                                                  <th className="px-4 py-3 font-semibold text-left text-xs">配件规格</th>
+                                                  <th className="px-4 py-3 font-semibold text-left text-xs">SKU用量</th>
+                                                  <th className="px-4 py-3 font-semibold text-left text-xs">配件库存</th>
+                                                  <th className="px-4 py-3 font-semibold text-left text-xs">编辑原因</th>
+                                                  <th className="px-4 py-3 font-semibold text-left text-xs">编辑记录</th>
+                                                </tr>
+                                              </thead>
+                                              <tbody>
+                                                {sku?.component_links.length ? (
+                                                  sku.component_links.map((link) => {
+                                                    const component = productItemsById[link.item_id];
+                                                    const itemStock =
+                                                      warehouseItemStocksByKey[
+                                                        `${warehouse.id}:${link.item_id}`
+                                                      ];
+                                                    return (
+                                                      <tr key={link.item_id} className="border-t border-line hover:bg-slate-50/50">
+                                                        <td className="px-4 py-3 text-sm text-ink font-medium">
+                                                          {component?.item_name ?? "--"}
+                                                        </td>
+                                                        <td className="px-4 py-3 text-xs text-slate-500">
+                                                          {component?.item_spec || "--"}
+                                                        </td>
+                                                        <td className="px-4 py-3 text-sm font-semibold text-slate-700">{link.quantity}</td>
+                                                        <td className="px-4 py-3">
+                                                          {itemStock ? (
+                                                            <div className="flex items-center gap-2">
+                                                              <input
+                                                                step="1"
+                                                                type="number"
+                                                                placeholder="+/- 调整"
+                                                                disabled={!canEdit}
+                                                                value={
+                                                                  itemStockDrafts[itemStock.id] ??
+                                                                  String(itemStock.stock_quantity)
+                                                                }
+                                                                onChange={(event) =>
+                                                                  setItemStockDrafts((current) => ({
+                                                                    ...current,
+                                                                    [itemStock.id]: event.target.value,
+                                                                  }))
+                                                                }
+                                                                className="h-9 w-24 rounded-lg border border-line bg-white px-2 text-xs outline-none transition focus:border-violet-600"
+                                                              />
+                                                              {canEdit && (
+                                                                <button
+                                                                  type="button"
+                                                                  onClick={() =>
+                                                                    void handleSaveItemStock(itemStock)
+                                                                  }
+                                                                  disabled={
+                                                                    busyKey ===
+                                                                      `item-stock-${itemStock.id}` ||
+                                                                    !itemStockReasonDrafts[
+                                                                      itemStock.id
+                                                                    ]?.trim()
+                                                                  }
+                                                                  className="h-9 rounded-lg bg-violet-600 px-3 text-xs font-semibold text-white shadow-sm hover:bg-violet-700 transition disabled:opacity-60"
+                                                                >
+                                                                  保存
+                                                                </button>
+                                                              )}
+                                                            </div>
+                                                          ) : (
+                                                            <span className="text-slate-400 text-sm">0</span>
                                                           )}
-                                                        </div>
-                                                      ) : (
-                                                        <span className="text-slate-500">0</span>
-                                                      )}
-                                                    </td>
-                                                    <td className="px-4 py-3">
-                                                      {itemStock ? (
-                                                        <input
-                                                          value={
-                                                            itemStockReasonDrafts[itemStock.id] ?? ""
-                                                          }
-                                                          disabled={!canEdit}
-                                                          onChange={(event) =>
-                                                            setItemStockReasonDrafts((current) => ({
-                                                              ...current,
-                                                              [itemStock.id]: event.target.value,
-                                                            }))
-                                                          }
-                                                          placeholder="填写编辑原因"
-                                                          className="h-10 min-w-40 rounded-md border border-line bg-white px-3 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
-                                                        />
-                                                      ) : (
-                                                        <span className="text-slate-500">--</span>
-                                                      )}
-                                                    </td>
-                                                    <td className="px-4 py-3 align-top">
-                                                      {itemStock ? (
-                                                        <div className="grid min-w-56 gap-2 text-xs text-slate-600">
-                                                          {(
-                                                            warehouseItemStockAdjustmentsByKey[
-                                                              `${warehouse.id}:${link.item_id}`
-                                                            ] ?? []
-                                                          )
-                                                            .slice(0, 3)
-                                                            .map((adjustment) => (
-                                                              <div
-                                                                key={adjustment.id}
-                                                                className="rounded-md bg-slate-50 px-2 py-1.5"
-                                                              >
-                                                                <div>
-                                                                  {adjustment.previous_quantity} →{" "}
-                                                                  {adjustment.next_quantity}
-                                                                  （
-                                                                  {adjustment.change_quantity > 0
-                                                                    ? "+"
-                                                                    : ""}
-                                                                  {adjustment.change_quantity}）
-                                                                </div>
-                                                                <div className="mt-1 text-slate-500">
-                                                                  {adjustment.reason}
-                                                                </div>
-                                                              </div>
-                                                            ))}
-                                                          {(
-                                                            warehouseItemStockAdjustmentsByKey[
-                                                              `${warehouse.id}:${link.item_id}`
-                                                            ] ?? []
-                                                          ).length === 0 && (
-                                                            <span className="text-slate-500">
-                                                              暂无记录
-                                                            </span>
+                                                        </td>
+                                                        <td className="px-4 py-3">
+                                                          {itemStock ? (
+                                                            <input
+                                                              value={
+                                                                itemStockReasonDrafts[itemStock.id] ?? ""
+                                                              }
+                                                              disabled={!canEdit}
+                                                              onChange={(event) =>
+                                                                setItemStockReasonDrafts((current) => ({
+                                                                  ...current,
+                                                                  [itemStock.id]: event.target.value,
+                                                                }))
+                                                              }
+                                                              placeholder="填写调整原因（必填）"
+                                                              className="h-9 min-w-40 rounded-lg border border-line bg-white px-3 text-xs outline-none transition focus:border-violet-600"
+                                                            />
+                                                          ) : (
+                                                            <span className="text-slate-400">--</span>
                                                           )}
-                                                        </div>
-                                                      ) : (
-                                                        <span className="text-slate-500">--</span>
-                                                      )}
+                                                        </td>
+                                                        <td className="px-4 py-3 align-top">
+                                                          {itemStock ? (
+                                                            <div className="grid min-w-56 gap-2 text-[11px] text-slate-600">
+                                                              {(
+                                                                warehouseItemStockAdjustmentsByKey[
+                                                                  `${warehouse.id}:${link.item_id}`
+                                                                ] ?? []
+                                                              )
+                                                                .slice(0, 3)
+                                                                .map((adjustment) => (
+                                                                  <div
+                                                                    key={adjustment.id}
+                                                                    className="rounded-lg bg-slate-50 p-2 border border-slate-100"
+                                                                  >
+                                                                    <div className="font-semibold text-slate-700">
+                                                                      {adjustment.previous_quantity} →{" "}
+                                                                      {adjustment.next_quantity}
+                                                                      （
+                                                                      {adjustment.change_quantity > 0
+                                                                        ? "+"
+                                                                        : ""}
+                                                                      {adjustment.change_quantity}）
+                                                                    </div>
+                                                                    <div className="mt-0.5 text-slate-500">
+                                                                      {adjustment.reason}
+                                                                    </div>
+                                                                  </div>
+                                                                ))}
+                                                              {(
+                                                                warehouseItemStockAdjustmentsByKey[
+                                                                  `${warehouse.id}:${link.item_id}`
+                                                                ] ?? []
+                                                              ).length === 0 && (
+                                                                <span className="text-slate-400">
+                                                                  暂无编辑记录
+                                                                </span>
+                                                              )}
+                                                            </div>
+                                                          ) : (
+                                                            <span className="text-slate-400">--</span>
+                                                          )}
+                                                        </td>
+                                                      </tr>
+                                                    );
+                                                  })
+                                                ) : (
+                                                  <tr>
+                                                    <td
+                                                      colSpan={6}
+                                                      className="px-4 py-6 text-center text-slate-400 text-xs"
+                                                    >
+                                                      该 SKU 暂无配件
                                                     </td>
                                                   </tr>
-                                                );
-                                              })
-                                            ) : (
-                                              <tr>
-                                                <td
-                                                  colSpan={6}
-                                                  className="px-4 py-6 text-center text-slate-500"
-                                                >
-                                                  该 SKU 暂无配件
-                                                </td>
-                                              </tr>
-                                            )}
-                                          </tbody>
-                                        </table>
-                                      </div>
-                                    </td>
-                                  </tr>
-                                )}
-                              </Fragment>
-                            );
-                          })
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
+                                                )}
+                                              </tbody>
+                                            </table>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    )}
+                                  </Fragment>
+                                );
+                              })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Pagination Controls */}
+                  {warehouseTotals[warehouse.id] !== undefined && (
+                    (() => {
+                      const total = warehouseTotals[warehouse.id] ?? 0;
+                      const currentPage = warehousePages[warehouse.id] ?? 1;
+                      const totalPages = Math.max(1, Math.ceil(total / pageSize));
+                      const isPageLoading = warehousePageLoading[warehouse.id] ?? false;
+
+                      // Build page number list with ellipsis
+                      const pageNumbers: (number | '...')[] = [];
+                      if (totalPages <= 7) {
+                        for (let i = 1; i <= totalPages; i++) pageNumbers.push(i);
+                      } else {
+                        pageNumbers.push(1);
+                        if (currentPage > 3) pageNumbers.push('...');
+                        for (let i = Math.max(2, currentPage - 1); i <= Math.min(totalPages - 1, currentPage + 1); i++) {
+                          pageNumbers.push(i);
+                        }
+                        if (currentPage < totalPages - 2) pageNumbers.push('...');
+                        pageNumbers.push(totalPages);
+                      }
+
+                      return (
+                        <div className="flex items-center justify-between gap-4 px-1 py-3 flex-wrap">
+                          {/* Left: total info + page size selector */}
+                          <div className="flex items-center gap-3">
+                            <span className="text-xs text-slate-500">
+                              共 <span className="font-semibold text-slate-700">{total}</span> 条，
+                              第 <span className="font-semibold text-slate-700">{currentPage}</span> / {totalPages} 页
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs text-slate-400">每页</span>
+                              <select
+                                value={pageSize}
+                                disabled={isPageLoading}
+                                onChange={(e) => {
+                                  const newSize = Number(e.target.value);
+                                  setPageSize(newSize);
+                                  // Reset to page 1 with new size
+                                  void loadWarehousePage(warehouse.id, 1, newSize);
+                                }}
+                                className="h-7 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none transition focus:border-violet-500 hover:border-slate-300 disabled:opacity-50"
+                              >
+                                {PAGE_SIZE_OPTIONS.map(s => (
+                                  <option key={s} value={s}>{s} 条</option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+                          {/* Right: page navigation */}
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              disabled={currentPage <= 1 || isPageLoading}
+                              onClick={() => void loadWarehousePage(warehouse.id, currentPage - 1)}
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold transition hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                              ‹
+                            </button>
+                            {pageNumbers.map((p, idx) =>
+                              p === '...' ? (
+                                <span key={`ellipsis-${idx}`} className="px-1 text-xs text-slate-400">…</span>
+                              ) : (
+                                <button
+                                  key={p}
+                                  type="button"
+                                  disabled={isPageLoading}
+                                  onClick={() => void loadWarehousePage(warehouse.id, p as number)}
+                                  className={`inline-flex h-8 min-w-[2rem] items-center justify-center rounded-lg border px-2 text-xs font-semibold transition disabled:cursor-not-allowed ${
+                                    p === currentPage
+                                      ? 'border-violet-200 bg-violet-600 text-white shadow-sm'
+                                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  {p}
+                                </button>
+                              )
+                            )}
+                            <button
+                              type="button"
+                              disabled={currentPage >= totalPages || isPageLoading}
+                              onClick={() => void loadWarehousePage(warehouse.id, currentPage + 1)}
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold transition hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                              ›
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })()
+                  )}
                 </div>
-                )}
-                {warehousePages[warehouse.id] !== undefined && warehouseHasMore[warehouse.id] && (
-                  <div className="mt-4 flex justify-center">
-                    <button
-                      type="button"
-                      onClick={() => void loadWarehousePage(warehouse.id, (warehousePages[warehouse.id] ?? 1) + 1)}
-                      className="rounded-full border border-line bg-white px-6 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
-                    >
-                      加载更多商品
-                    </button>
-                  </div>
-                )}
-              </section>
-            );
-          })}
+              );
+            })
+          )}
         </div>
       )}
     </section>
   );
 }
+

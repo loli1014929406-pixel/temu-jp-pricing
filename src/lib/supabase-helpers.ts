@@ -1,6 +1,7 @@
 import { getSupabaseClient } from "./supabase";
 
-export const requestTimeoutMs = 15000;
+export const requestTimeoutMs = 45000;
+
 
 export async function withTimeout<T>(promise: PromiseLike<T>, label: string): Promise<T> {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;

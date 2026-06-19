@@ -1,25 +1,182 @@
-[2m20:00:40[22m [31m[1m[vite][22m[39m [31mInternal server error: C:\Users\ning\Desktop\temu-jp-pricing-main\src\pages\orders-page.tsx: Unexpected token, expected "," (2770:75)
+[2m15:33:28[22m [31m[1m[vite][22m[39m [31mInternal server error: [postcss] C:/Users/ning/Desktop/temu-jp-pricing-main/src/index.css:163:5: The `bg-slate-55/75` class does not exist. If `bg-slate-55/75` is a custom class, make sure it is defined within a `@layer` directive.[39m
+  Plugin: [35mvite:css[39m
+  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/index.css[39m:163:4
+[33m  161|  
+  162|    .data-table th {
+  163|      @apply py-2 text-[11px] font-bold tracking-wider text-slate-500 uppercase bg-slate-55/75 backdrop-blur-sm;
+     |      ^
+  164|      padding-left: 0.75rem !important;
+  165|      padding-right: 0.75rem !important;[39m
+      at Input.error (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\postcss\lib\input.js:135:16)
+      at AtRule.error (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\postcss\lib\node.js:146:32)
+      at processApply (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\tailwindcss\lib\lib\expandApplyAtRules.js:380:29)
+      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\tailwindcss\lib\lib\expandApplyAtRules.js:551:9
+      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\tailwindcss\lib\processTailwindFeatures.js:55:50
+      at async plugins (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\tailwindcss\lib\plugin.js:38:17)
+      at async LazyResult.runAsync (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\postcss\lib\lazy-result.js:293:11)
+      at async runPostCSS (file:///C:/Users/ning/Desktop/temu-jp-pricing-main/node_modules/vite/dist/node/chunks/dep-Dq2t6Dq0.js:43878:21)
+      at async compilePostCSS (file:///C:/Users/ning/Desktop/temu-jp-pricing-main/node_modules/vite/dist/node/chunks/dep-Dq2t6Dq0.js:43848:18)
+      at async compileCSS (file:///C:/Users/ning/Desktop/temu-jp-pricing-main/node_modules/vite/dist/node/chunks/dep-Dq2t6Dq0.js:43703:27)
+      at async TransformPluginContext.handler (file:///C:/Users/ning/Desktop/temu-jp-pricing-main/node_modules/vite/dist/node/chunks/dep-Dq2t6Dq0.js:43019:11)
+      at async EnvironmentPluginContainer.transform (file:///C:/Users/ning/Desktop/temu-jp-pricing-main/node_modules/vite/dist/node/chunks/dep-Dq2t6Dq0.js:42348:18)
+      at async loadAndTransform (file:///C:/Users/ning/Desktop/temu-jp-pricing-main/node_modules/vite/dist/node/chunks/dep-Dq2t6Dq0.js:35740:27)
+      at async viteTransformMiddleware (file:///C:/Users/ning/Desktop/temu-jp-pricing-main/node_modules/vite/dist/node/chunks/dep-Dq2t6Dq0.js:37264:24)
+[2m15:52:33[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m Pre-transform error: Transform failed with 1 error:
+C:/Users/ning/Desktop/temu-jp-pricing-main/src/utils/profit-calculation.ts:224:5: ERROR: Unexpected "?"
+  Plugin: [35mvite:esbuild[39m
+  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/utils/profit-calculation.ts[39m:224:5
+[33m  
+  [33mUnexpected "?"[33m
+  222|        };
+  223|      }),
+  224|    }; ? null : round(breakEvenRoas, 4),
+     |       ^
+  225|        };
+  226|      }),
+  [39m
+[2m15:52:33[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m Pre-transform error: Transform failed with 1 error:
+C:/Users/ning/Desktop/temu-jp-pricing-main/src/utils/profit-calculation.ts:224:5: ERROR: Unexpected "?"
+  Plugin: [35mvite:esbuild[39m
+  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/utils/profit-calculation.ts[39m:224:5
+[33m  
+  [33mUnexpected "?"[33m
+  222|        };
+  223|      }),
+  224|    }; ? null : round(breakEvenRoas, 4),
+     |       ^
+  225|        };
+  226|      }),
+  [39m
+[2m15:52:33[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m Pre-transform error: Transform failed with 1 error:
+C:/Users/ning/Desktop/temu-jp-pricing-main/src/utils/profit-calculation.ts:224:5: ERROR: Unexpected "?"
+  Plugin: [35mvite:esbuild[39m
+  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/utils/profit-calculation.ts[39m:224:5
+[33m  
+  [33mUnexpected "?"[33m
+  222|        };
+  223|      }),
+  224|    }; ? null : round(breakEvenRoas, 4),
+     |       ^
+  225|        };
+  226|      }),
+  [39m
+[2m15:52:33[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m Pre-transform error: Transform failed with 1 error:
+C:/Users/ning/Desktop/temu-jp-pricing-main/src/utils/profit-calculation.ts:224:5: ERROR: Unexpected "?"
+  Plugin: [35mvite:esbuild[39m
+  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/utils/profit-calculation.ts[39m:224:5
+[33m  
+  [33mUnexpected "?"[33m
+  222|        };
+  223|      }),
+  224|    }; ? null : round(breakEvenRoas, 4),
+     |       ^
+  225|        };
+  226|      }),
+  [39m
+[2m15:52:33[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m Pre-transform error: Transform failed with 1 error:
+C:/Users/ning/Desktop/temu-jp-pricing-main/src/utils/profit-calculation.ts:224:5: ERROR: Unexpected "?"
+  Plugin: [35mvite:esbuild[39m
+  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/utils/profit-calculation.ts[39m:224:5
+[33m  
+  [33mUnexpected "?"[33m
+  222|        };
+  223|      }),
+  224|    }; ? null : round(breakEvenRoas, 4),
+     |       ^
+  225|        };
+  226|      }),
+  [39m
+[2m15:52:33[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m Pre-transform error: Transform failed with 1 error:
+C:/Users/ning/Desktop/temu-jp-pricing-main/src/utils/profit-calculation.ts:224:5: ERROR: Unexpected "?"
+  Plugin: [35mvite:esbuild[39m
+  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/utils/profit-calculation.ts[39m:224:5
+[33m  
+  [33mUnexpected "?"[33m
+  222|        };
+  223|      }),
+  224|    }; ? null : round(breakEvenRoas, 4),
+     |       ^
+  225|        };
+  226|      }),
+  [39m
+[2m15:52:33[22m [31m[1m[vite][22m[39m [31mInternal server error: Transform failed with 1 error:
+C:/Users/ning/Desktop/temu-jp-pricing-main/src/utils/profit-calculation.ts:224:5: ERROR: Unexpected "?"[39m
+  Plugin: [35mvite:esbuild[39m
+  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/utils/profit-calculation.ts[39m:224:5
+[33m  
+  [33mUnexpected "?"[33m
+  222|        };
+  223|      }),
+  224|    }; ? null : round(breakEvenRoas, 4),
+     |       ^
+  225|        };
+  226|      }),
+  [39m
+      at failureErrorWithLog (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:1467:15)
+      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:736:50
+      at responseCallbacks.<computed> (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:603:9)
+      at handleIncomingPacket (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:658:12)
+      at Socket.readFromStdout (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:581:7)
+      at Socket.emit (node:events:509:28)
+      at addChunk (node:internal/streams/readable:563:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)
+      at Readable.push (node:internal/streams/readable:394:5)
+      at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)
+[2m16:11:41[22m [31m[1m[vite][22m[39m [31mInternal server error: C:\Users\ning\Desktop\temu-jp-pricing-main\src\pages\inventory-page.tsx: Unexpected token, expected "," (874:63)
 
-[0m [90m 2768 |[31m       [36mconst[31m previousStage [33m=[31m getOrderStage(entry[33m.[31morder)[33m;[31m
- [90m 2769 |[31m       [36mconst[31m nextStage [33m=[31m getOrderStage(entry[33m.[31mnextOrder)[33m;[31m
-[31m[1m>[22m[31m[90m 2770 |[31m       [36mconst[31m hadReservedInventory [33m=[31m shouldReserveOrderInventory(previousSt  [36masync[31m [36mfunction[31m handleSaveSelectedOrders() {
- [90m      |[31m                                                                            [31m[1m^[22m[31m
- [90m 2771 |[31m     [36mif[31m ([33m![31mcanEdit) {
- [90m 2772 |[31m       setErrorMessage([32m"当前账号没有编辑权限，不能更新订单。"[31m)[33m;[31m
- [90m 2773 |[31m       [36mreturn[31m[33m;[31m[0m[39m
+[0m [90m 872 |[31m         current[33m.[31mmap((entry) [33m=>[31m (entry[33m.[31mid [33m===[31m item[33m.[31mid [33m?[31m nextItem [33m:[31m entry))[33m,[31m
+ [90m 873 |[31m       )[33m;[31m
+[31m[1m>[22m[31m[90m 874 |[31m       setWarehouseItemStockAdjustments((current) [33m=>[31m [adjustme  [36mreturn[31m (
+ [90m     |[31m                                                                [31m[1m^[22m[31m
+ [90m 875 |[31m     [33m<[31m[33msection[31m className[33m=[31m[32m"grid gap-5"[31m[33m>[31m
+ [90m 876 |[31m       [33m<[31m[33mPageHeader[31m title[33m=[31m{pageTitle} description[33m=[31m{pageDescription} [33m/[31m[33m>[31m
+ [90m 877 |[31m[0m[39m
   Plugin: [35mvite:react-babel[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/pages/orders-page.tsx[39m:2770:75
-[33m  2824|            } catch (rollbackError) {
-  2825|              throw new Error(
-  2826|                `${getOrdersErrorMessage(error, "保存订单失败")}；库存已回补但订单保存失败，且库存回滚失败：${getOrdersErrorMessage(
-     |                                                                                           ^
-  2827|                  rollbackError,
-  2828|                  "库存回滚失败",[39m
+  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/pages/inventory-page.tsx[39m:874:63
+[33m  872|          current.map((entry) => (entry.id === item.id ? nextItem : entry)),
+  873|        );
+  874|        setWarehouseItemStockAdjustments((current) => [adjustme  return (
+     |                                                                 ^
+  875|      <section className="grid gap-5">
+  876|        <PageHeader title={pageTitle} description={pageDescription} />[39m
       at constructor (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:365:19)
       at TypeScriptParserMixin.raise (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:6616:19)
       at TypeScriptParserMixin.unexpected (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:6636:16)
       at TypeScriptParserMixin.expect (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:6916:12)
-      at TypeScriptParserMixin.parseCallExpressionArguments (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11260:14)
+      at TypeScriptParserMixin.parseExprList (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12158:14)
+      at TypeScriptParserMixin.parseArrayLike (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12074:26)
+      at TypeScriptParserMixin.parseArrayLike (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9210:24)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11352:23)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4776:20)
+      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11098:23)
+      at TypeScriptParserMixin.parseUpdate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11083:21)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11063:23)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9854:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10916:61)
+      at TypeScriptParserMixin.parseExprOps (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10921:23)
+      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10898:23)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10848:21)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9803:20)
+      at TypeScriptParserMixin.parseFunctionBody (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12110:24)
+      at TypeScriptParserMixin.parseArrowExpression (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12092:10)
+      at TypeScriptParserMixin.parseParenAndDistinguishExpression (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11704:12)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11348:23)
+      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4776:20)
+      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11098:23)
+      at TypeScriptParserMixin.parseUpdate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11083:21)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11063:23)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9854:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10916:61)
+      at TypeScriptParserMixin.parseExprOps (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10921:23)
+      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10898:23)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10848:21)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9803:20)
+      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10817:39
+      at TypeScriptParserMixin.allowInAnd (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12443:12)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10817:17)
+      at TypeScriptParserMixin.parseMaybeAssignAllowInOrVoidPattern (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12510:17)
+      at TypeScriptParserMixin.parseExprListItem (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12192:18)
+      at TypeScriptParserMixin.parseCallExpressionArguments (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11269:22)
       at TypeScriptParserMixin.parseCoverCallAndAsyncArrowHead (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11203:29)
       at TypeScriptParserMixin.parseSubscript (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11137:19)
       at TypeScriptParserMixin.parseSubscript (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9289:18)
@@ -32,984 +189,3 @@
       at TypeScriptParserMixin.parseExprOps (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10921:23)
       at TypeScriptParserMixin.parseMaybeConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10898:23)
       at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10848:21)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9803:20)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10817:39
-      at TypeScriptParserMixin.allowInAnd (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12438:16)
-      at TypeScriptParserMixin.parseMaybeAssignAllowIn (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10817:17)
-      at TypeScriptParserMixin.parseVar (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:13401:91)
-      at TypeScriptParserMixin.parseVarStatement (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:13247:10)
-      at TypeScriptParserMixin.parseVarStatement (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9425:31)
-      at TypeScriptParserMixin.parseStatementContent (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12868:23)
-      at TypeScriptParserMixin.parseStatementContent (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9525:18)
-      at TypeScriptParserMixin.parseStatementLike (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12784:17)
-      at TypeScriptParserMixin.parseStatementListItem (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12764:17)
-      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:13333:61)
-      at TypeScriptParserMixin.parseBlockBody (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:13326:10)
-      at TypeScriptParserMixin.parseBlock (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:13314:10)
-      at TypeScriptParserMixin.parseStatementContent (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12875:21)
-      at TypeScriptParserMixin.parseStatementContent (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9525:18)
-      at TypeScriptParserMixin.parseStatementLike (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12784:17)
-      at TypeScriptParserMixin.parseStatement (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12777:17)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:13390:68
-      at TypeScriptParserMixin.withSmartMixTopicForbiddingContext (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12420:14)
-      at TypeScriptParserMixin.parseForIn (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:13390:22)
-      at TypeScriptParserMixin.parseForStatement (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:13104:23)
-      at TypeScriptParserMixin.parseStatementContent (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12802:21)
-      at TypeScriptParserMixin.parseStatementContent (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9525:18)
-      at TypeScriptParserMixin.parseStatementLike (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12784:17)
-      at TypeScriptParserMixin.parseStatementListItem (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12764:17)
-      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:13333:61)
-      at TypeScriptParserMixin.parseBlockBody (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:13326:10)
-      at TypeScriptParserMixin.parseBlock (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:13314:10)
-      at TypeScriptParserMixin.parseFunctionBody (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12117:24)
-      at TypeScriptParserMixin.parseFunctionBodyAndFinish (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12103:10)
-      at TypeScriptParserMixin.parseFunctionBodyAndFinish (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9189:18)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:13462:12
-[2m20:01:23[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m Pre-transform error: C:\Users\ning\Desktop\temu-jp-pricing-main\src\pages\orders-page.tsx: Unexpected token, expected "," (2770:75)
-
-[0m [90m 2768 |[39m       [36mconst[39m previousStage [33m=[39m getOrderStage(entry[33m.[39morder)[33m;[39m
- [90m 2769 |[39m       [36mconst[39m nextStage [33m=[39m getOrderStage(entry[33m.[39mnextOrder)[33m;[39m
-[31m[1m>[22m[39m[90m 2770 |[39m       [36mconst[39m hadReservedInventory [33m=[39m shouldReserveOrderInventory(previousSt  [36masync[39m [36mfunction[39m handleSaveSelectedOrders() {
- [90m      |[39m                                                                            [31m[1m^[22m[39m
- [90m 2771 |[39m     [36mif[39m ([33m![39mcanEdit) {
- [90m 2772 |[39m       setErrorMessage([32m"当前账号没有编辑权限，不能更新订单。"[39m)[33m;[39m
- [90m 2773 |[39m       [36mreturn[39m[33m;[39m[0m
-  Plugin: [35mvite:react-babel[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/pages/orders-page.tsx[39m:2770:75
-[33m  2824|            } catch (rollbackError) {
-  2825|              throw new Error(
-  2826|                `${getOrdersErrorMessage(error, "保存订单失败")}；库存已回补但订单保存失败，且库存回滚失败：${getOrdersErrorMessage(
-     |                                                                                           ^
-  2827|                  rollbackError,
-  2828|                  "库存回滚失败",[39m
-[2m20:01:24[22m [31m[1m[vite][22m[39m [31mInternal server error: C:\Users\ning\Desktop\temu-jp-pricing-main\src\pages\orders-page.tsx: Unexpected token, expected "," (2770:75)
-
-[0m [90m 2768 |[31m       [36mconst[31m previousStage [33m=[31m getOrderStage(entry[33m.[31morder)[33m;[31m
- [90m 2769 |[31m       [36mconst[31m nextStage [33m=[31m getOrderStage(entry[33m.[31mnextOrder)[33m;[31m
-[31m[1m>[22m[31m[90m 2770 |[31m       [36mconst[31m hadReservedInventory [33m=[31m shouldReserveOrderInventory(previousSt  [36masync[31m [36mfunction[31m handleSaveSelectedOrders() {
- [90m      |[31m                                                                            [31m[1m^[22m[31m
- [90m 2771 |[31m     [36mif[31m ([33m![31mcanEdit) {
- [90m 2772 |[31m       setErrorMessage([32m"当前账号没有编辑权限，不能更新订单。"[31m)[33m;[31m
- [90m 2773 |[31m       [36mreturn[31m[33m;[31m[0m[39m
-  Plugin: [35mvite:react-babel[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/pages/orders-page.tsx[39m:2770:75
-[33m  2824|            } catch (rollbackError) {
-  2825|              throw new Error(
-  2826|                `${getOrdersErrorMessage(error, "保存订单失败")}；库存已回补但订单保存失败，且库存回滚失败：${getOrdersErrorMessage(
-     |                                                                                           ^
-  2827|                  rollbackError,
-  2828|                  "库存回滚失败",[39m
-      at constructor (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:365:19)
-      at TypeScriptParserMixin.raise (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:6616:19)
-      at TypeScriptParserMixin.unexpected (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:6636:16)
-      at TypeScriptParserMixin.expect (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:6916:12)
-      at TypeScriptParserMixin.parseCallExpressionArguments (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11260:14)
-      at TypeScriptParserMixin.parseCoverCallAndAsyncArrowHead (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11203:29)
-      at TypeScriptParserMixin.parseSubscript (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11137:19)
-      at TypeScriptParserMixin.parseSubscript (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9289:18)
-      at TypeScriptParserMixin.parseSubscripts (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11111:19)
-      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11102:17)
-      at TypeScriptParserMixin.parseUpdate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11083:21)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11063:23)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9854:18)
-      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10916:61)
-      at TypeScriptParserMixin.parseExprOps (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10921:23)
-      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10898:23)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10848:21)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9803:20)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10817:39
-      at TypeScriptParserMixin.allowInAnd (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12438:16)
-      at TypeScriptParserMixin.parseMaybeAssignAllowIn (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10817:17)
-      at TypeScriptParserMixin.parseVar (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:13401:91)
-      at TypeScriptParserMixin.parseVarStatement (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:13247:10)
-      at TypeScriptParserMixin.parseVarStatement (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9425:31)
-      at TypeScriptParserMixin.parseStatementContent (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12868:23)
-      at TypeScriptParserMixin.parseStatementContent (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9525:18)
-      at TypeScriptParserMixin.parseStatementLike (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12784:17)
-      at TypeScriptParserMixin.parseStatementListItem (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12764:17)
-      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:13333:61)
-      at TypeScriptParserMixin.parseBlockBody (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:13326:10)
-      at TypeScriptParserMixin.parseBlock (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:13314:10)
-      at TypeScriptParserMixin.parseStatementContent (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12875:21)
-      at TypeScriptParserMixin.parseStatementContent (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9525:18)
-      at TypeScriptParserMixin.parseStatementLike (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12784:17)
-      at TypeScriptParserMixin.parseStatement (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12777:17)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:13390:68
-      at TypeScriptParserMixin.withSmartMixTopicForbiddingContext (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12420:14)
-      at TypeScriptParserMixin.parseForIn (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:13390:22)
-      at TypeScriptParserMixin.parseForStatement (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:13104:23)
-      at TypeScriptParserMixin.parseStatementContent (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12802:21)
-      at TypeScriptParserMixin.parseStatementContent (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9525:18)
-      at TypeScriptParserMixin.parseStatementLike (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12784:17)
-      at TypeScriptParserMixin.parseStatementListItem (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12764:17)
-      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:13333:61)
-      at TypeScriptParserMixin.parseBlockBody (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:13326:10)
-      at TypeScriptParserMixin.parseBlock (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:13314:10)
-      at TypeScriptParserMixin.parseFunctionBody (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12117:24)
-      at TypeScriptParserMixin.parseFunctionBodyAndFinish (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12103:10)
-      at TypeScriptParserMixin.parseFunctionBodyAndFinish (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9189:18)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:13462:12
-[2m23:50:55[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m Pre-transform error: Transform failed with 1 error:
-C:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts:189:93: ERROR: Unterminated string literal
-  Plugin: [35mvite:esbuild[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts[39m:189:93
-[33m  
-  [33mUnterminated string literal[33m
-  187|    }
-  188|  
-  189|    const escaped = trimmed.replace(/[%_\\^$*+?.()|[\]{}]/g, '\\const trimmed = keyword.trim();
-     |                                                                                               ^
-  190|    if (!trimmed) {
-  191|      return [];
-  [39m
-[2m23:50:55[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m Pre-transform error: Transform failed with 1 error:
-C:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts:189:93: ERROR: Unterminated string literal
-  Plugin: [35mvite:esbuild[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts[39m:189:93
-[33m  
-  [33mUnterminated string literal[33m
-  187|    }
-  188|  
-  189|    const escaped = trimmed.replace(/[%_\\^$*+?.()|[\]{}]/g, '\\const trimmed = keyword.trim();
-     |                                                                                               ^
-  190|    if (!trimmed) {
-  191|      return [];
-  [39m
-[2m23:50:55[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m Pre-transform error: Transform failed with 1 error:
-C:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts:189:93: ERROR: Unterminated string literal
-  Plugin: [35mvite:esbuild[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts[39m:189:93
-[33m  
-  [33mUnterminated string literal[33m
-  187|    }
-  188|  
-  189|    const escaped = trimmed.replace(/[%_\\^$*+?.()|[\]{}]/g, '\\const trimmed = keyword.trim();
-     |                                                                                               ^
-  190|    if (!trimmed) {
-  191|      return [];
-  [39m
-[2m23:50:55[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m Pre-transform error: Transform failed with 1 error:
-C:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts:189:93: ERROR: Unterminated string literal
-  Plugin: [35mvite:esbuild[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts[39m:189:93
-[33m  
-  [33mUnterminated string literal[33m
-  187|    }
-  188|  
-  189|    const escaped = trimmed.replace(/[%_\\^$*+?.()|[\]{}]/g, '\\const trimmed = keyword.trim();
-     |                                                                                               ^
-  190|    if (!trimmed) {
-  191|      return [];
-  [39m
-[2m23:50:55[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m Pre-transform error: Transform failed with 1 error:
-C:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts:189:93: ERROR: Unterminated string literal
-  Plugin: [35mvite:esbuild[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts[39m:189:93
-[33m  
-  [33mUnterminated string literal[33m
-  187|    }
-  188|  
-  189|    const escaped = trimmed.replace(/[%_\\^$*+?.()|[\]{}]/g, '\\const trimmed = keyword.trim();
-     |                                                                                               ^
-  190|    if (!trimmed) {
-  191|      return [];
-  [39m
-[2m23:50:55[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m Pre-transform error: Transform failed with 1 error:
-C:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts:189:93: ERROR: Unterminated string literal
-  Plugin: [35mvite:esbuild[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts[39m:189:93
-[33m  
-  [33mUnterminated string literal[33m
-  187|    }
-  188|  
-  189|    const escaped = trimmed.replace(/[%_\\^$*+?.()|[\]{}]/g, '\\const trimmed = keyword.trim();
-     |                                                                                               ^
-  190|    if (!trimmed) {
-  191|      return [];
-  [39m
-[2m23:50:55[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m Pre-transform error: Transform failed with 1 error:
-C:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts:189:93: ERROR: Unterminated string literal
-  Plugin: [35mvite:esbuild[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts[39m:189:93
-[33m  
-  [33mUnterminated string literal[33m
-  187|    }
-  188|  
-  189|    const escaped = trimmed.replace(/[%_\\^$*+?.()|[\]{}]/g, '\\const trimmed = keyword.trim();
-     |                                                                                               ^
-  190|    if (!trimmed) {
-  191|      return [];
-  [39m
-[2m23:50:55[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m Pre-transform error: Transform failed with 1 error:
-C:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts:189:93: ERROR: Unterminated string literal
-  Plugin: [35mvite:esbuild[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts[39m:189:93
-[33m  
-  [33mUnterminated string literal[33m
-  187|    }
-  188|  
-  189|    const escaped = trimmed.replace(/[%_\\^$*+?.()|[\]{}]/g, '\\const trimmed = keyword.trim();
-     |                                                                                               ^
-  190|    if (!trimmed) {
-  191|      return [];
-  [39m
-[2m23:50:55[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m Pre-transform error: Transform failed with 1 error:
-C:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts:189:93: ERROR: Unterminated string literal
-  Plugin: [35mvite:esbuild[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts[39m:189:93
-[33m  
-  [33mUnterminated string literal[33m
-  187|    }
-  188|  
-  189|    const escaped = trimmed.replace(/[%_\\^$*+?.()|[\]{}]/g, '\\const trimmed = keyword.trim();
-     |                                                                                               ^
-  190|    if (!trimmed) {
-  191|      return [];
-  [39m
-[2m23:50:55[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m Pre-transform error: Transform failed with 1 error:
-C:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts:189:93: ERROR: Unterminated string literal
-  Plugin: [35mvite:esbuild[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts[39m:189:93
-[33m  
-  [33mUnterminated string literal[33m
-  187|    }
-  188|  
-  189|    const escaped = trimmed.replace(/[%_\\^$*+?.()|[\]{}]/g, '\\const trimmed = keyword.trim();
-     |                                                                                               ^
-  190|    if (!trimmed) {
-  191|      return [];
-  [39m
-[2m23:50:55[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m Pre-transform error: Transform failed with 1 error:
-C:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts:189:93: ERROR: Unterminated string literal
-  Plugin: [35mvite:esbuild[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts[39m:189:93
-[33m  
-  [33mUnterminated string literal[33m
-  187|    }
-  188|  
-  189|    const escaped = trimmed.replace(/[%_\\^$*+?.()|[\]{}]/g, '\\const trimmed = keyword.trim();
-     |                                                                                               ^
-  190|    if (!trimmed) {
-  191|      return [];
-  [39m
-[2m23:50:55[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m Pre-transform error: Transform failed with 1 error:
-C:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts:189:93: ERROR: Unterminated string literal
-  Plugin: [35mvite:esbuild[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts[39m:189:93
-[33m  
-  [33mUnterminated string literal[33m
-  187|    }
-  188|  
-  189|    const escaped = trimmed.replace(/[%_\\^$*+?.()|[\]{}]/g, '\\const trimmed = keyword.trim();
-     |                                                                                               ^
-  190|    if (!trimmed) {
-  191|      return [];
-  [39m
-[2m23:50:55[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m Pre-transform error: Transform failed with 1 error:
-C:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts:189:93: ERROR: Unterminated string literal
-  Plugin: [35mvite:esbuild[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts[39m:189:93
-[33m  
-  [33mUnterminated string literal[33m
-  187|    }
-  188|  
-  189|    const escaped = trimmed.replace(/[%_\\^$*+?.()|[\]{}]/g, '\\const trimmed = keyword.trim();
-     |                                                                                               ^
-  190|    if (!trimmed) {
-  191|      return [];
-  [39m
-[2m23:50:55[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m Pre-transform error: Transform failed with 1 error:
-C:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts:189:93: ERROR: Unterminated string literal
-  Plugin: [35mvite:esbuild[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts[39m:189:93
-[33m  
-  [33mUnterminated string literal[33m
-  187|    }
-  188|  
-  189|    const escaped = trimmed.replace(/[%_\\^$*+?.()|[\]{}]/g, '\\const trimmed = keyword.trim();
-     |                                                                                               ^
-  190|    if (!trimmed) {
-  191|      return [];
-  [39m
-[2m23:50:55[22m [31m[1m[vite][22m[39m [31mInternal server error: Transform failed with 1 error:
-C:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts:189:93: ERROR: Unterminated string literal[39m
-  Plugin: [35mvite:esbuild[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts[39m:189:93
-[33m  
-  [33mUnterminated string literal[33m
-  187|    }
-  188|  
-  189|    const escaped = trimmed.replace(/[%_\\^$*+?.()|[\]{}]/g, '\\const trimmed = keyword.trim();
-     |                                                                                               ^
-  190|    if (!trimmed) {
-  191|      return [];
-  [39m
-      at failureErrorWithLog (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:1467:15)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:736:50
-      at responseCallbacks.<computed> (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:603:9)
-      at handleIncomingPacket (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:658:12)
-      at Socket.readFromStdout (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:581:7)
-      at Socket.emit (node:events:509:28)
-      at addChunk (node:internal/streams/readable:563:12)
-      at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)
-      at Readable.push (node:internal/streams/readable:394:5)
-      at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)
-[2m23:50:55[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m Pre-transform error: Transform failed with 1 error:
-C:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts:189:93: ERROR: Unterminated string literal
-  Plugin: [35mvite:esbuild[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts[39m:189:93
-[33m  
-  [33mUnterminated string literal[33m
-  187|    }
-  188|  
-  189|    const escaped = trimmed.replace(/[%_\\^$*+?.()|[\]{}]/g, '\\const trimmed = keyword.trim();
-     |                                                                                               ^
-  190|    if (!trimmed) {
-  191|      return [];
-  [39m
-[2m23:50:55[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m Pre-transform error: Transform failed with 1 error:
-C:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts:189:93: ERROR: Unterminated string literal
-  Plugin: [35mvite:esbuild[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts[39m:189:93
-[33m  
-  [33mUnterminated string literal[33m
-  187|    }
-  188|  
-  189|    const escaped = trimmed.replace(/[%_\\^$*+?.()|[\]{}]/g, '\\const trimmed = keyword.trim();
-     |                                                                                               ^
-  190|    if (!trimmed) {
-  191|      return [];
-  [39m
-[2m23:50:55[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m Pre-transform error: Transform failed with 1 error:
-C:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts:189:93: ERROR: Unterminated string literal
-  Plugin: [35mvite:esbuild[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts[39m:189:93
-[33m  
-  [33mUnterminated string literal[33m
-  187|    }
-  188|  
-  189|    const escaped = trimmed.replace(/[%_\\^$*+?.()|[\]{}]/g, '\\const trimmed = keyword.trim();
-     |                                                                                               ^
-  190|    if (!trimmed) {
-  191|      return [];
-  [39m
-[2m23:50:55[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m Pre-transform error: Transform failed with 1 error:
-C:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts:189:93: ERROR: Unterminated string literal
-  Plugin: [35mvite:esbuild[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts[39m:189:93
-[33m  
-  [33mUnterminated string literal[33m
-  187|    }
-  188|  
-  189|    const escaped = trimmed.replace(/[%_\\^$*+?.()|[\]{}]/g, '\\const trimmed = keyword.trim();
-     |                                                                                               ^
-  190|    if (!trimmed) {
-  191|      return [];
-  [39m
-[2m23:50:55[22m [31m[1m[vite][22m[39m [31mInternal server error: Transform failed with 1 error:
-C:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts:189:93: ERROR: Unterminated string literal[39m
-  Plugin: [35mvite:esbuild[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/lib/products.ts[39m:189:93
-[33m  
-  [33mUnterminated string literal[33m
-  187|    }
-  188|  
-  189|    const escaped = trimmed.replace(/[%_\\^$*+?.()|[\]{}]/g, '\\const trimmed = keyword.trim();
-     |                                                                                               ^
-  190|    if (!trimmed) {
-  191|      return [];
-  [39m
-      at failureErrorWithLog (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:1467:15)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:736:50
-      at responseCallbacks.<computed> (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:603:9)
-      at handleIncomingPacket (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:658:12)
-      at Socket.readFromStdout (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:581:7)
-      at Socket.emit (node:events:509:28)
-      at addChunk (node:internal/streams/readable:563:12)
-      at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)
-      at Readable.push (node:internal/streams/readable:394:5)
-      at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)
-[2m23:57:19[22m [31m[1m[vite][22m[39m [31mInternal server error: Transform failed with 1 error:
-C:/Users/ning/Desktop/temu-jp-pricing-main/src/pages/inventory-page.tsx:1340:19: ERROR: The character "}" is not valid inside a JSX element[39m
-  Plugin: [35mvite:esbuild[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/pages/inventory-page.tsx[39m:1321:0
-[33m  
-  [33mThe character "}" is not valid inside a JSX element[33m
-  1338|                      </table>
-  1339|                    </div>
-  1340|                    )}
-     |                     ^
-  1341|                  </div>
-  1342|                  {warehouseHasMore[warehouse.id] && warehousePages[warehouse.id] !== undefined &&
-  [39m
-      at failureErrorWithLog (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:1467:15)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:736:50
-      at responseCallbacks.<computed> (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:603:9)
-      at handleIncomingPacket (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:658:12)
-      at Socket.readFromStdout (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:581:7)
-      at Socket.emit (node:events:509:28)
-      at addChunk (node:internal/streams/readable:563:12)
-      at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)
-      at Readable.push (node:internal/streams/readable:394:5)
-      at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)
-[2m23:57:19[22m [31m[1m[vite][22m[39m [31mInternal server error: Transform failed with 1 error:
-C:/Users/ning/Desktop/temu-jp-pricing-main/src/pages/inventory-page.tsx:1340:19: ERROR: The character "}" is not valid inside a JSX element[39m
-  Plugin: [35mvite:esbuild[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/pages/inventory-page.tsx[39m:1321:0
-[33m  
-  [33mThe character "}" is not valid inside a JSX element[33m
-  1338|                      </table>
-  1339|                    </div>
-  1340|                    )}
-     |                     ^
-  1341|                  </div>
-  1342|                  {warehouseHasMore[warehouse.id] && warehousePages[warehouse.id] !== undefined &&
-  [39m
-      at failureErrorWithLog (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:1467:15)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:736:50
-      at responseCallbacks.<computed> (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:603:9)
-      at handleIncomingPacket (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:658:12)
-      at Socket.readFromStdout (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:581:7)
-      at Socket.emit (node:events:509:28)
-      at addChunk (node:internal/streams/readable:563:12)
-      at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)
-      at Readable.push (node:internal/streams/readable:394:5)
-      at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)
-[2m23:57:19[22m [31m[1m[vite][22m[39m [31mInternal server error: Transform failed with 1 error:
-C:/Users/ning/Desktop/temu-jp-pricing-main/src/pages/inventory-page.tsx:1340:19: ERROR: The character "}" is not valid inside a JSX element[39m
-  Plugin: [35mvite:esbuild[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/pages/inventory-page.tsx[39m:1321:0
-[33m  
-  [33mThe character "}" is not valid inside a JSX element[33m
-  1338|                      </table>
-  1339|                    </div>
-  1340|                    )}
-     |                     ^
-  1341|                  </div>
-  1342|                  {warehouseHasMore[warehouse.id] && warehousePages[warehouse.id] !== undefined &&
-  [39m
-      at failureErrorWithLog (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:1467:15)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:736:50
-      at responseCallbacks.<computed> (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:603:9)
-      at handleIncomingPacket (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:658:12)
-      at Socket.readFromStdout (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:581:7)
-      at Socket.emit (node:events:509:28)
-      at addChunk (node:internal/streams/readable:563:12)
-      at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)
-      at Readable.push (node:internal/streams/readable:394:5)
-      at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)
-[2m23:57:19[22m [31m[1m[vite][22m[39m [31mInternal server error: Transform failed with 1 error:
-C:/Users/ning/Desktop/temu-jp-pricing-main/src/pages/inventory-page.tsx:1340:19: ERROR: The character "}" is not valid inside a JSX element[39m
-  Plugin: [35mvite:esbuild[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/pages/inventory-page.tsx[39m:1321:0
-[33m  
-  [33mThe character "}" is not valid inside a JSX element[33m
-  1338|                      </table>
-  1339|                    </div>
-  1340|                    )}
-     |                     ^
-  1341|                  </div>
-  1342|                  {warehouseHasMore[warehouse.id] && warehousePages[warehouse.id] !== undefined &&
-  [39m
-      at failureErrorWithLog (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:1467:15)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:736:50
-      at responseCallbacks.<computed> (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:603:9)
-      at handleIncomingPacket (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:658:12)
-      at Socket.readFromStdout (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\esbuild\lib\main.js:581:7)
-      at Socket.emit (node:events:509:28)
-      at addChunk (node:internal/streams/readable:563:12)
-      at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)
-      at Readable.push (node:internal/streams/readable:394:5)
-      at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)
-[2m23:59:54[22m [31m[1m[vite][22m[39m [31mInternal server error: C:\Users\ning\Desktop\temu-jp-pricing-main\src\pages\inventory-page.tsx: Adjacent JSX elements must be wrapped in an enclosing tag. Did you want a JSX fragment <>...</>? (1337:14)
-
-[0m [90m 1335 |[31m                   [33m<[31m[33m/[31m[33mdiv[31m[33m>[31m
- [90m 1336 |[31m                 [33m<[31m[33m/[31m[33mdiv[31m[33m>[31m
-[31m[1m>[22m[31m[90m 1337 |[31m               [33m<[31m[33m/[31m[33msection[31m[33m>[31m
- [90m      |[31m               [31m[1m^[22m[31m
- [90m 1338 |[31m             )[33m;[31m
- [90m 1339 |[31m           })}
- [90m 1340 |[31m         [33m<[31m[33m/[31m[33mdiv[31m[33m>[31m[0m[39m
-  Plugin: [35mvite:react-babel[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/pages/inventory-page.tsx[39m:1337:14
-      at constructor (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:365:19)
-      at TypeScriptParserMixin.raise (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:6616:19)
-      at TypeScriptParserMixin.jsxParseElementAt (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4754:18)
-      at TypeScriptParserMixin.jsxParseElement (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4761:17)
-      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4771:19)
-      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11098:23)
-      at TypeScriptParserMixin.parseUpdate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11083:21)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11063:23)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9854:18)
-      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10916:61)
-      at TypeScriptParserMixin.parseExprOps (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10921:23)
-      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10898:23)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10848:21)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9792:39
-      at TypeScriptParserMixin.tryParse (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:6924:20)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9792:18)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10817:39
-      at TypeScriptParserMixin.allowInAnd (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12443:12)
-      at TypeScriptParserMixin.parseMaybeAssignAllowIn (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10817:17)
-      at TypeScriptParserMixin.parseMaybeAssignAllowInOrVoidPattern (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12510:17)
-      at TypeScriptParserMixin.parseParenAndDistinguishExpression (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11692:28)
-      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11348:23)
-      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4776:20)
-      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11098:23)
-      at TypeScriptParserMixin.parseUpdate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11083:21)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11063:23)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9854:18)
-      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10916:61)
-      at TypeScriptParserMixin.parseExprOps (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10921:23)
-      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10898:23)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10848:21)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9803:20)
-      at TypeScriptParserMixin.parseConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10910:29)
-      at TypeScriptParserMixin.parseConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9620:18)
-      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10902:17)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10848:21)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9803:20)
-      at TypeScriptParserMixin.parseExpressionBase (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10801:23)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10797:39
-      at TypeScriptParserMixin.allowInAnd (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12443:12)
-      at TypeScriptParserMixin.parseExpression (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10797:17)
-      at TypeScriptParserMixin.jsxParseExpressionContainer (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4644:31)
-      at TypeScriptParserMixin.jsxParseElementAt (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4723:36)
-      at TypeScriptParserMixin.jsxParseElement (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4761:17)
-      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4771:19)
-      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11098:23)
-      at TypeScriptParserMixin.parseUpdate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11083:21)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11063:23)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9854:18)
-      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10916:61)
-[2m23:59:54[22m [31m[1m[vite][22m[39m [31mInternal server error: C:\Users\ning\Desktop\temu-jp-pricing-main\src\pages\inventory-page.tsx: Adjacent JSX elements must be wrapped in an enclosing tag. Did you want a JSX fragment <>...</>? (1337:14)
-
-[0m [90m 1335 |[31m                   [33m<[31m[33m/[31m[33mdiv[31m[33m>[31m
- [90m 1336 |[31m                 [33m<[31m[33m/[31m[33mdiv[31m[33m>[31m
-[31m[1m>[22m[31m[90m 1337 |[31m               [33m<[31m[33m/[31m[33msection[31m[33m>[31m
- [90m      |[31m               [31m[1m^[22m[31m
- [90m 1338 |[31m             )[33m;[31m
- [90m 1339 |[31m           })}
- [90m 1340 |[31m         [33m<[31m[33m/[31m[33mdiv[31m[33m>[31m[0m[39m
-  Plugin: [35mvite:react-babel[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/pages/inventory-page.tsx[39m:1337:14
-      at constructor (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:365:19)
-      at TypeScriptParserMixin.raise (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:6616:19)
-      at TypeScriptParserMixin.jsxParseElementAt (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4754:18)
-      at TypeScriptParserMixin.jsxParseElement (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4761:17)
-      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4771:19)
-      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11098:23)
-      at TypeScriptParserMixin.parseUpdate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11083:21)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11063:23)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9854:18)
-      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10916:61)
-      at TypeScriptParserMixin.parseExprOps (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10921:23)
-      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10898:23)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10848:21)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9792:39
-      at TypeScriptParserMixin.tryParse (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:6924:20)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9792:18)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10817:39
-      at TypeScriptParserMixin.allowInAnd (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12443:12)
-      at TypeScriptParserMixin.parseMaybeAssignAllowIn (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10817:17)
-      at TypeScriptParserMixin.parseMaybeAssignAllowInOrVoidPattern (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12510:17)
-      at TypeScriptParserMixin.parseParenAndDistinguishExpression (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11692:28)
-      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11348:23)
-      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4776:20)
-      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11098:23)
-      at TypeScriptParserMixin.parseUpdate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11083:21)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11063:23)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9854:18)
-      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10916:61)
-      at TypeScriptParserMixin.parseExprOps (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10921:23)
-      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10898:23)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10848:21)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9803:20)
-      at TypeScriptParserMixin.parseConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10910:29)
-      at TypeScriptParserMixin.parseConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9620:18)
-      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10902:17)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10848:21)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9803:20)
-      at TypeScriptParserMixin.parseExpressionBase (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10801:23)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10797:39
-      at TypeScriptParserMixin.allowInAnd (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12443:12)
-      at TypeScriptParserMixin.parseExpression (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10797:17)
-      at TypeScriptParserMixin.jsxParseExpressionContainer (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4644:31)
-      at TypeScriptParserMixin.jsxParseElementAt (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4723:36)
-      at TypeScriptParserMixin.jsxParseElement (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4761:17)
-      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4771:19)
-      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11098:23)
-      at TypeScriptParserMixin.parseUpdate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11083:21)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11063:23)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9854:18)
-      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10916:61)
-[2m00:00:26[22m [31m[1m[vite][22m[39m [31mInternal server error: C:\Users\ning\Desktop\temu-jp-pricing-main\src\pages\inventory-page.tsx: Unexpected token, expected "," (1338:16)
-
-[0m [90m 1336 |[31m                   )}
- [90m 1337 |[31m                 [33m<[31m[33m/[31m[33mdiv[31m[33m>[31m
-[31m[1m>[22m[31m[90m 1338 |[31m                 {warehousePages[warehouse[33m.[31mid] [33m!==[31m undefined [33m&&[31m warehouseHasMore[warehouse[33m.[31mid] [33m&&[31m (
- [90m      |[31m                 [31m[1m^[22m[31m
- [90m 1339 |[31m                   [33m<[31m[33mdiv[31m className[33m=[31m[32m"mt-4 flex justify-center"[31m[33m>[31m
- [90m 1340 |[31m                     [33m<[31m[33mbutton[31m
- [90m 1341 |[31m                       type[33m=[31m[32m"button"[31m[0m[39m
-  Plugin: [35mvite:react-babel[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/pages/inventory-page.tsx[39m:1338:16
-      at constructor (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:365:19)
-      at TypeScriptParserMixin.raise (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:6616:19)
-      at TypeScriptParserMixin.unexpected (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:6636:16)
-      at TypeScriptParserMixin.expect (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:6916:12)
-      at TypeScriptParserMixin.parseParenAndDistinguishExpression (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11678:14)
-      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11348:23)
-      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4776:20)
-      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11098:23)
-      at TypeScriptParserMixin.parseUpdate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11083:21)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11063:23)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9854:18)
-      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10916:61)
-      at TypeScriptParserMixin.parseExprOps (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10921:23)
-      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10898:23)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10848:21)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9803:20)
-      at TypeScriptParserMixin.parseConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10910:29)
-      at TypeScriptParserMixin.parseConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9620:18)
-      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10902:17)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10848:21)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9803:20)
-      at TypeScriptParserMixin.parseExpressionBase (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10801:23)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10797:39
-      at TypeScriptParserMixin.allowInAnd (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12443:12)
-      at TypeScriptParserMixin.parseExpression (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10797:17)
-      at TypeScriptParserMixin.jsxParseExpressionContainer (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4644:31)
-      at TypeScriptParserMixin.jsxParseElementAt (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4723:36)
-      at TypeScriptParserMixin.jsxParseElement (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4761:17)
-      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4771:19)
-      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11098:23)
-      at TypeScriptParserMixin.parseUpdate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11083:21)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11063:23)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9854:18)
-      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10916:61)
-      at TypeScriptParserMixin.parseExprOps (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10921:23)
-      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10898:23)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10848:21)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9792:39
-      at TypeScriptParserMixin.tryParse (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:6924:20)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9792:18)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10817:39
-      at TypeScriptParserMixin.allowInAnd (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12443:12)
-      at TypeScriptParserMixin.parseMaybeAssignAllowIn (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10817:17)
-      at TypeScriptParserMixin.parseMaybeAssignAllowInOrVoidPattern (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12510:17)
-      at TypeScriptParserMixin.parseParenAndDistinguishExpression (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11692:28)
-      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11348:23)
-      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4776:20)
-      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11098:23)
-      at TypeScriptParserMixin.parseUpdate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11083:21)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11063:23)
-[2m00:00:26[22m [31m[1m[vite][22m[39m [31mInternal server error: C:\Users\ning\Desktop\temu-jp-pricing-main\src\pages\inventory-page.tsx: Unexpected token, expected "," (1338:16)
-
-[0m [90m 1336 |[31m                   )}
- [90m 1337 |[31m                 [33m<[31m[33m/[31m[33mdiv[31m[33m>[31m
-[31m[1m>[22m[31m[90m 1338 |[31m                 {warehousePages[warehouse[33m.[31mid] [33m!==[31m undefined [33m&&[31m warehouseHasMore[warehouse[33m.[31mid] [33m&&[31m (
- [90m      |[31m                 [31m[1m^[22m[31m
- [90m 1339 |[31m                   [33m<[31m[33mdiv[31m className[33m=[31m[32m"mt-4 flex justify-center"[31m[33m>[31m
- [90m 1340 |[31m                     [33m<[31m[33mbutton[31m
- [90m 1341 |[31m                       type[33m=[31m[32m"button"[31m[0m[39m
-  Plugin: [35mvite:react-babel[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/pages/inventory-page.tsx[39m:1338:16
-      at constructor (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:365:19)
-      at TypeScriptParserMixin.raise (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:6616:19)
-      at TypeScriptParserMixin.unexpected (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:6636:16)
-      at TypeScriptParserMixin.expect (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:6916:12)
-      at TypeScriptParserMixin.parseParenAndDistinguishExpression (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11678:14)
-      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11348:23)
-      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4776:20)
-      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11098:23)
-      at TypeScriptParserMixin.parseUpdate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11083:21)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11063:23)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9854:18)
-      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10916:61)
-      at TypeScriptParserMixin.parseExprOps (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10921:23)
-      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10898:23)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10848:21)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9803:20)
-      at TypeScriptParserMixin.parseConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10910:29)
-      at TypeScriptParserMixin.parseConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9620:18)
-      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10902:17)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10848:21)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9803:20)
-      at TypeScriptParserMixin.parseExpressionBase (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10801:23)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10797:39
-      at TypeScriptParserMixin.allowInAnd (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12443:12)
-      at TypeScriptParserMixin.parseExpression (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10797:17)
-      at TypeScriptParserMixin.jsxParseExpressionContainer (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4644:31)
-      at TypeScriptParserMixin.jsxParseElementAt (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4723:36)
-      at TypeScriptParserMixin.jsxParseElement (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4761:17)
-      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4771:19)
-      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11098:23)
-      at TypeScriptParserMixin.parseUpdate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11083:21)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11063:23)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9854:18)
-      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10916:61)
-      at TypeScriptParserMixin.parseExprOps (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10921:23)
-      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10898:23)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10848:21)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9792:39
-      at TypeScriptParserMixin.tryParse (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:6924:20)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9792:18)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10817:39
-      at TypeScriptParserMixin.allowInAnd (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12443:12)
-      at TypeScriptParserMixin.parseMaybeAssignAllowIn (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10817:17)
-      at TypeScriptParserMixin.parseMaybeAssignAllowInOrVoidPattern (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12510:17)
-      at TypeScriptParserMixin.parseParenAndDistinguishExpression (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11692:28)
-      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11348:23)
-      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4776:20)
-      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11098:23)
-      at TypeScriptParserMixin.parseUpdate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11083:21)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11063:23)
-[2m00:01:06[22m [31m[1m[vite][22m[39m [31mInternal server error: C:\Users\ning\Desktop\temu-jp-pricing-main\src\pages\inventory-page.tsx: Unexpected token, expected "," (1337:16)
-
-[0m [90m 1335 |[31m                   [33m<[31m[33m/[31m[33mdiv[31m[33m>[31m
- [90m 1336 |[31m                 [33m<[31m[33m/[31m[33mdiv[31m[33m>[31m
-[31m[1m>[22m[31m[90m 1337 |[31m                 {warehousePages[warehouse[33m.[31mid] [33m!==[31m undefined [33m&&[31m warehouseHasMore[warehouse[33m.[31mid] [33m&&[31m (
- [90m      |[31m                 [31m[1m^[22m[31m
- [90m 1338 |[31m                   [33m<[31m[33mdiv[31m className[33m=[31m[32m"mt-4 flex justify-center"[31m[33m>[31m
- [90m 1339 |[31m                     [33m<[31m[33mbutton[31m
- [90m 1340 |[31m                       type[33m=[31m[32m"button"[31m[0m[39m
-  Plugin: [35mvite:react-babel[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/pages/inventory-page.tsx[39m:1337:16
-      at constructor (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:365:19)
-      at TypeScriptParserMixin.raise (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:6616:19)
-      at TypeScriptParserMixin.unexpected (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:6636:16)
-      at TypeScriptParserMixin.expect (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:6916:12)
-      at TypeScriptParserMixin.parseParenAndDistinguishExpression (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11678:14)
-      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11348:23)
-      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4776:20)
-      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11098:23)
-      at TypeScriptParserMixin.parseUpdate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11083:21)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11063:23)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9854:18)
-      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10916:61)
-      at TypeScriptParserMixin.parseExprOps (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10921:23)
-      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10898:23)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10848:21)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9803:20)
-      at TypeScriptParserMixin.parseConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10910:29)
-      at TypeScriptParserMixin.parseConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9620:18)
-      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10902:17)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10848:21)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9803:20)
-      at TypeScriptParserMixin.parseExpressionBase (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10801:23)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10797:39
-      at TypeScriptParserMixin.allowInAnd (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12443:12)
-      at TypeScriptParserMixin.parseExpression (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10797:17)
-      at TypeScriptParserMixin.jsxParseExpressionContainer (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4644:31)
-      at TypeScriptParserMixin.jsxParseElementAt (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4723:36)
-      at TypeScriptParserMixin.jsxParseElement (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4761:17)
-      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4771:19)
-      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11098:23)
-      at TypeScriptParserMixin.parseUpdate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11083:21)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11063:23)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9854:18)
-      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10916:61)
-      at TypeScriptParserMixin.parseExprOps (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10921:23)
-      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10898:23)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10848:21)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9792:39
-      at TypeScriptParserMixin.tryParse (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:6924:20)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9792:18)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10817:39
-      at TypeScriptParserMixin.allowInAnd (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12443:12)
-      at TypeScriptParserMixin.parseMaybeAssignAllowIn (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10817:17)
-      at TypeScriptParserMixin.parseMaybeAssignAllowInOrVoidPattern (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12510:17)
-      at TypeScriptParserMixin.parseParenAndDistinguishExpression (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11692:28)
-      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11348:23)
-      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4776:20)
-      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11098:23)
-      at TypeScriptParserMixin.parseUpdate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11083:21)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11063:23)
-[2m00:01:06[22m [31m[1m[vite][22m[39m [31mInternal server error: C:\Users\ning\Desktop\temu-jp-pricing-main\src\pages\inventory-page.tsx: Unexpected token, expected "," (1337:16)
-
-[0m [90m 1335 |[31m                   [33m<[31m[33m/[31m[33mdiv[31m[33m>[31m
- [90m 1336 |[31m                 [33m<[31m[33m/[31m[33mdiv[31m[33m>[31m
-[31m[1m>[22m[31m[90m 1337 |[31m                 {warehousePages[warehouse[33m.[31mid] [33m!==[31m undefined [33m&&[31m warehouseHasMore[warehouse[33m.[31mid] [33m&&[31m (
- [90m      |[31m                 [31m[1m^[22m[31m
- [90m 1338 |[31m                   [33m<[31m[33mdiv[31m className[33m=[31m[32m"mt-4 flex justify-center"[31m[33m>[31m
- [90m 1339 |[31m                     [33m<[31m[33mbutton[31m
- [90m 1340 |[31m                       type[33m=[31m[32m"button"[31m[0m[39m
-  Plugin: [35mvite:react-babel[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/pages/inventory-page.tsx[39m:1337:16
-      at constructor (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:365:19)
-      at TypeScriptParserMixin.raise (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:6616:19)
-      at TypeScriptParserMixin.unexpected (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:6636:16)
-      at TypeScriptParserMixin.expect (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:6916:12)
-      at TypeScriptParserMixin.parseParenAndDistinguishExpression (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11678:14)
-      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11348:23)
-      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4776:20)
-      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11098:23)
-      at TypeScriptParserMixin.parseUpdate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11083:21)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11063:23)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9854:18)
-      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10916:61)
-      at TypeScriptParserMixin.parseExprOps (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10921:23)
-      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10898:23)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10848:21)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9803:20)
-      at TypeScriptParserMixin.parseConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10910:29)
-      at TypeScriptParserMixin.parseConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9620:18)
-      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10902:17)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10848:21)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9803:20)
-      at TypeScriptParserMixin.parseExpressionBase (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10801:23)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10797:39
-      at TypeScriptParserMixin.allowInAnd (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12443:12)
-      at TypeScriptParserMixin.parseExpression (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10797:17)
-      at TypeScriptParserMixin.jsxParseExpressionContainer (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4644:31)
-      at TypeScriptParserMixin.jsxParseElementAt (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4723:36)
-      at TypeScriptParserMixin.jsxParseElement (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4761:17)
-      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4771:19)
-      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11098:23)
-      at TypeScriptParserMixin.parseUpdate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11083:21)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11063:23)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9854:18)
-      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10916:61)
-      at TypeScriptParserMixin.parseExprOps (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10921:23)
-      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10898:23)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10848:21)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9792:39
-      at TypeScriptParserMixin.tryParse (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:6924:20)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9792:18)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10817:39
-      at TypeScriptParserMixin.allowInAnd (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12443:12)
-      at TypeScriptParserMixin.parseMaybeAssignAllowIn (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10817:17)
-      at TypeScriptParserMixin.parseMaybeAssignAllowInOrVoidPattern (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12510:17)
-      at TypeScriptParserMixin.parseParenAndDistinguishExpression (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11692:28)
-      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11348:23)
-      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4776:20)
-      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11098:23)
-      at TypeScriptParserMixin.parseUpdate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11083:21)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11063:23)
-[2m00:07:44[22m [31m[1m[vite][22m[39m [31mInternal server error: C:\Users\ning\Desktop\temu-jp-pricing-main\src\pages\inventory-page.tsx: Unexpected token (360:6)
-
-[0m [90m 358 |[31m       }))[33m;[31m
- [90m 359 |[31m       setSelectedProductIds((current) [33m=>[31m ({ [33m...[31mcurrent[33m,[31m [warehouseId][33m:[31m [32m""[31m }))[33m;[31m
-[31m[1m>[22m[31m[90m 360 |[31m     } [36mcatch[31m (error) {
- [90m     |[31m       [31m[1m^[22m[31m
- [90m 361 |[31m       setErrorMessage(getInventoryErrorMessage(error[33m,[31m [32m"添加库存商品失败"[31m))[33m;[31m
- [90m 362 |[31m     } [36mfinally[31m {
- [90m 363 |[31m       setBusyKey([32m""[31m)[33m;[31m[0m[39m
-  Plugin: [35mvite:react-babel[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/pages/inventory-page.tsx[39m:360:6
-[33m  358|        }));
-  359|        setSelectedProductIds((current) => ({ ...current, [warehouseId]: "" }));
-  360|      } catch (error) {
-     |                ^
-  361|        setErrorMessage(getInventoryErrorMessage(error, "添加库存商品失败"));
-  362|      } finally {[39m
-      at constructor (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:365:19)
-      at TypeScriptParserMixin.raise (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:6616:19)
-      at TypeScriptParserMixin.unexpected (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:6636:16)
-      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11459:22)
-      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4776:20)
-      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11098:23)
-      at TypeScriptParserMixin.parseUpdate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11083:21)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11063:23)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9854:18)
-      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10916:61)
-      at TypeScriptParserMixin.parseExprOps (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10921:23)
-      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10898:23)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10848:21)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9803:20)
-      at TypeScriptParserMixin.parseExpressionBase (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10801:23)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10797:39
-      at TypeScriptParserMixin.allowInAnd (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12438:16)
-      at TypeScriptParserMixin.parseExpression (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10797:17)
-      at TypeScriptParserMixin.parseStatementContent (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12912:23)
-      at TypeScriptParserMixin.parseStatementContent (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9525:18)
-      at TypeScriptParserMixin.parseStatementLike (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12784:17)
-      at TypeScriptParserMixin.parseModuleItem (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12761:17)
-      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:13333:36)
-      at TypeScriptParserMixin.parseBlockBody (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:13326:10)
-      at TypeScriptParserMixin.parseProgram (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12639:10)
-      at TypeScriptParserMixin.parseTopLevel (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12629:25)
-      at TypeScriptParserMixin.parse (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:14505:25)
-      at TypeScriptParserMixin.parse (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10143:18)
-      at parse (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:14539:38)
-      at parser (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\core\lib\parser\index.js:41:34)
-      at parser.next (<anonymous>)
-      at normalizeFile (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\core\lib\transformation\normalize-file.js:64:37)
-      at normalizeFile.next (<anonymous>)
-      at run (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\core\lib\transformation\index.js:22:50)
-      at run.next (<anonymous>)
-      at transform (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\core\lib\transform.js:22:33)
-      at transform.next (<anonymous>)
-      at step (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\gensync\index.js:261:32)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\gensync\index.js:273:13
-      at async.call.result.err.err (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\gensync\index.js:223:11)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\gensync\index.js:189:28
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\core\lib\gensync-utils\async.js:67:7
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\gensync\index.js:113:33
-      at step (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\gensync\index.js:287:14)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\gensync\index.js:273:13
-      at async.call.result.err.err (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\gensync\index.js:223:11)
-[2m00:07:44[22m [31m[1m[vite][22m[39m [31mInternal server error: C:\Users\ning\Desktop\temu-jp-pricing-main\src\pages\inventory-page.tsx: Unexpected token (360:6)
-
-[0m [90m 358 |[31m       }))[33m;[31m
- [90m 359 |[31m       setSelectedProductIds((current) [33m=>[31m ({ [33m...[31mcurrent[33m,[31m [warehouseId][33m:[31m [32m""[31m }))[33m;[31m
-[31m[1m>[22m[31m[90m 360 |[31m     } [36mcatch[31m (error) {
- [90m     |[31m       [31m[1m^[22m[31m
- [90m 361 |[31m       setErrorMessage(getInventoryErrorMessage(error[33m,[31m [32m"添加库存商品失败"[31m))[33m;[31m
- [90m 362 |[31m     } [36mfinally[31m {
- [90m 363 |[31m       setBusyKey([32m""[31m)[33m;[31m[0m[39m
-  Plugin: [35mvite:react-babel[39m
-  File: [36mC:/Users/ning/Desktop/temu-jp-pricing-main/src/pages/inventory-page.tsx[39m:360:6
-[33m  358|        }));
-  359|        setSelectedProductIds((current) => ({ ...current, [warehouseId]: "" }));
-  360|      } catch (error) {
-     |                ^
-  361|        setErrorMessage(getInventoryErrorMessage(error, "添加库存商品失败"));
-  362|      } finally {[39m
-      at constructor (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:365:19)
-      at TypeScriptParserMixin.raise (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:6616:19)
-      at TypeScriptParserMixin.unexpected (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:6636:16)
-      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11459:22)
-      at TypeScriptParserMixin.parseExprAtom (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:4776:20)
-      at TypeScriptParserMixin.parseExprSubscripts (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11098:23)
-      at TypeScriptParserMixin.parseUpdate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11083:21)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:11063:23)
-      at TypeScriptParserMixin.parseMaybeUnary (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9854:18)
-      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10916:61)
-      at TypeScriptParserMixin.parseExprOps (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10921:23)
-      at TypeScriptParserMixin.parseMaybeConditional (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10898:23)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10848:21)
-      at TypeScriptParserMixin.parseMaybeAssign (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9803:20)
-      at TypeScriptParserMixin.parseExpressionBase (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10801:23)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10797:39
-      at TypeScriptParserMixin.allowInAnd (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12438:16)
-      at TypeScriptParserMixin.parseExpression (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10797:17)
-      at TypeScriptParserMixin.parseStatementContent (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12912:23)
-      at TypeScriptParserMixin.parseStatementContent (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:9525:18)
-      at TypeScriptParserMixin.parseStatementLike (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12784:17)
-      at TypeScriptParserMixin.parseModuleItem (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12761:17)
-      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:13333:36)
-      at TypeScriptParserMixin.parseBlockBody (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:13326:10)
-      at TypeScriptParserMixin.parseProgram (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12639:10)
-      at TypeScriptParserMixin.parseTopLevel (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:12629:25)
-      at TypeScriptParserMixin.parse (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:14505:25)
-      at TypeScriptParserMixin.parse (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:10143:18)
-      at parse (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\parser\lib\index.js:14539:38)
-      at parser (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\core\lib\parser\index.js:41:34)
-      at parser.next (<anonymous>)
-      at normalizeFile (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\core\lib\transformation\normalize-file.js:64:37)
-      at normalizeFile.next (<anonymous>)
-      at run (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\core\lib\transformation\index.js:22:50)
-      at run.next (<anonymous>)
-      at transform (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\core\lib\transform.js:22:33)
-      at transform.next (<anonymous>)
-      at step (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\gensync\index.js:261:32)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\gensync\index.js:273:13
-      at async.call.result.err.err (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\gensync\index.js:223:11)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\gensync\index.js:189:28
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\@babel\core\lib\gensync-utils\async.js:67:7
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\gensync\index.js:113:33
-      at step (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\gensync\index.js:287:14)
-      at C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\gensync\index.js:273:13
-      at async.call.result.err.err (C:\Users\ning\Desktop\temu-jp-pricing-main\node_modules\gensync\index.js:223:11)

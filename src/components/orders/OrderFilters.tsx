@@ -33,20 +33,22 @@ export function OrderFilters({
   return (
     <>
       {urgentUnuploadedCount > 0 && (
-        <section className="surface-card p-3">
+        <section className="surface-card p-3 rounded-2xl">
           <div className="flex flex-wrap items-center gap-3">
-            <span className="min-w-20 text-sm font-medium text-slate-700">待办任务</span>
+            <span className="min-w-20 text-sm font-semibold text-slate-650">待办任务</span>
             <button
               type="button"
               onClick={onShowUrgentUnuploadedOnly}
-              className={`inline-flex h-10 min-w-60 items-center justify-center gap-2 rounded-md border px-4 text-sm font-semibold transition ${
+              className={`inline-flex h-10 min-w-60 items-center justify-center gap-2 rounded-xl border px-4 text-sm font-semibold transition-all duration-200 ${
                 showUrgentUnuploadedOnly
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-line bg-white text-slate-900 hover:border-slate-300 hover:bg-slate-50"
+                  ? "border-rose-600 bg-rose-600 text-white shadow-sm shadow-rose-600/10"
+                  : "border-rose-200 bg-rose-50/50 text-rose-700 hover:border-rose-350 hover:bg-rose-100/50"
               }`}
             >
               <span>即将逾期未发货</span>
-              <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-600 px-1.5 text-xs font-bold leading-none text-white">
+              <span className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-xs font-bold leading-none transition-colors ${
+                showUrgentUnuploadedOnly ? "bg-white text-rose-600" : "bg-rose-600 text-white"
+              }`}>
                 {urgentUnuploadedCount}
               </span>
             </button>
@@ -54,7 +56,7 @@ export function OrderFilters({
         </section>
       )}
 
-      <section className="surface-card p-3">
+      <section className="surface-card p-3.5 rounded-2xl">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap gap-2">
             {stages.map((stage) => {
@@ -64,16 +66,16 @@ export function OrderFilters({
                   key={stage.key}
                   type="button"
                   onClick={() => onStageChange(stage.key)}
-                  className={`inline-flex h-10 items-center gap-2 rounded-lg px-3 text-sm font-semibold transition ${
+                  className={`inline-flex h-10 items-center gap-2 rounded-xl px-3.5 text-sm font-semibold transition-all duration-250 ${
                     active
-                      ? "bg-slate-900 text-white shadow-soft"
-                      : "bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-950"
+                      ? "bg-violet-600 text-white shadow-md shadow-violet-600/15"
+                      : "bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900"
                   }`}
                 >
                   <span>{stage.label}</span>
                   <span
-                    className={`rounded-md px-2 py-0.5 text-xs tabular-nums ${
-                      active ? "bg-white/15 text-white" : "bg-slate-100 text-slate-500"
+                    className={`rounded-lg px-2 py-0.5 text-xs tabular-nums font-semibold transition-colors ${
+                      active ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"
                     }`}
                   >
                     {stageCounts[stage.key] ?? 0}
@@ -88,7 +90,7 @@ export function OrderFilters({
               value={search}
               onChange={(event) => onSearchChange(event.target.value)}
               placeholder="搜索订单号 / 收货人 / 地址 / 物流"
-              className="h-10 w-full rounded-md border border-line bg-white pl-9 pr-3 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
+              className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10"
             />
           </div>
         </div>
