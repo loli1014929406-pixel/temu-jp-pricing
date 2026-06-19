@@ -10,3 +10,5 @@ local-data/
 *.log
 .DS_Store
 Thumbs.db
+
+vite.err.log
