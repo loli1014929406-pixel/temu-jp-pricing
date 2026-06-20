@@ -14,6 +14,7 @@ import { calculatePurchaseShippingRmb, calculateDynamicMethodCost } from "../../
 import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../../utils/sku-code";
 import { normalizeLogisticsMethodName } from "../../lib/logistics-methods";
 import { defaultLastLegMethods } from "../../lib/defaults";
+import { type SettlementLookup, getOrderSettlementRevenue } from "../../lib/settlement";
 
 export function getTodayInputValue() {
   const now = new Date();
@@ -382,4 +383,46 @@ export function getPaginatedRows<T>(key: string, rows: T[], page: number, pageSi
 
 export function renderPaginationControls(key: string, page: number, totalPages: number, total: number) {
   return null;
+}
+
+export function getResolvedSettlementMetrics(
+  order: TemuOrderRecord,
+  quantity: number,
+  settlementLookup: SettlementLookup
+): { actualSalesRevenueRmb: number; actualFreightRevenueRmb: number; isSettled: boolean; matchType: "none" | "po" | "sku_avg" } {
+  let actualSalesRevenueRmb = 0;
+  let actualFreightRevenueRmb = 0;
+  let isSettled = false;
+  let matchType: "none" | "po" | "sku_avg" = "none";
+
+  // Level 1: PO exact match
+  const poKey = order.order_no.trim();
+  const skuCodeKey = order.sku_code.trim().toLowerCase();
+  
+  if (poKey && settlementLookup.byPO.has(poKey)) {
+    const matchingRecords = settlementLookup.byPO.get(poKey)!;
+    let matchedRecord = matchingRecords.find(r => r.skuCode.toLowerCase() === skuCodeKey);
+    if (!matchedRecord && matchingRecords.length === 1) {
+      matchedRecord = matchingRecords[0];
+    }
+    if (matchedRecord) {
+      actualSalesRevenueRmb = matchedRecord.salesRevenue;
+      actualFreightRevenueRmb = matchedRecord.freightRevenue;
+      isSettled = true;
+      matchType = "po";
+    }
+  }
+
+  // Level 2: SKU average fallback
+  if (!isSettled && order.sku_code) {
+    const fallback = getOrderSettlementRevenue(order.sku_code, quantity, settlementLookup);
+    if (fallback && fallback.matched) {
+      actualSalesRevenueRmb = fallback.salesRevenue;
+      actualFreightRevenueRmb = fallback.freightRevenue;
+      isSettled = true;
+      matchType = "sku_avg";
+    }
+  }
+
+  return { actualSalesRevenueRmb, actualFreightRevenueRmb, isSettled, matchType };
 }

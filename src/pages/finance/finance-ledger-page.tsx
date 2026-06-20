@@ -13,9 +13,12 @@ import {
   getPaginatedRows,
   renderPaginationControls,
   buildSkuLookup,
-  getOrderSku
+  getOrderSku,
+  getOrderQuantity,
+  roundMoney,
+  getResolvedSettlementMetrics
 } from "./shared";
-import { buildSettlementLookup, loadSettlementFiles } from "../../lib/settlement";
+import { buildSettlementLookup } from "../../lib/settlement";
 
 type Props = {
   user: User;
@@ -31,15 +34,15 @@ type LedgerRow = {
 };
 
 export function FinanceLedgerPage({ user }: Props) {
-  const { data, expenses, loading, error, reload } = useFinanceData(user.id, {
+  const { data, expenses, settlementFiles, loading, error, reload } = useFinanceData(user.id, {
     orders: true,
     purchases: true,
     expenses: true,
-    products: true, // Need products to match orders to skus if needed, though mostly we just need settlement
+    products: true,
+    settlements: true,
   });
 
-  const settlementFiles = useMemo(() => loadSettlementFiles(), []);
-  const settlementLookup = useMemo(() => buildSettlementLookup(settlementFiles), [settlementFiles]);
+  const settlementLookup = useMemo(() => buildSettlementLookup(settlementFiles || []), [settlementFiles]);
   
   const [cashflowDirection, setCashflowDirection] = useState<"all" | "收入" | "支出">("all");
   const [cashflowType, setCashflowType] = useState<string>("all");
@@ -49,25 +52,12 @@ export function FinanceLedgerPage({ user }: Props) {
   const ledgerRows = useMemo<LedgerRow[]>(() => {
     // 1. Order Income
     const orderLedgerRows = data.orders.map((order) => {
-      let actualSalesRevenueRmb = 0;
-      let actualFreightRevenueRmb = 0;
-      const poKey = order.order_no.trim();
-      const skuCodeKey = order.sku_code.trim().toLowerCase();
+      const quantity = getOrderQuantity(order);
+      const { actualSalesRevenueRmb, actualFreightRevenueRmb } = getResolvedSettlementMetrics(order, quantity, settlementLookup);
       
-      if (poKey && settlementLookup.byPO.has(poKey)) {
-        const matchingRecords = settlementLookup.byPO.get(poKey)!;
-        let matchedRecord = matchingRecords.find(r => r.skuCode.toLowerCase() === skuCodeKey);
-        if (!matchedRecord && matchingRecords.length === 1) {
-          matchedRecord = matchingRecords[0];
-        }
-        if (matchedRecord) {
-          actualSalesRevenueRmb = matchedRecord.salesRevenue;
-          actualFreightRevenueRmb = matchedRecord.freightRevenue;
-        }
-      }
       return {
         order,
-        actualRevenueRmb: actualSalesRevenueRmb + actualFreightRevenueRmb,
+        actualRevenueRmb: roundMoney(actualSalesRevenueRmb + actualFreightRevenueRmb),
         actualSalesRevenueRmb,
         actualFreightRevenueRmb
       };

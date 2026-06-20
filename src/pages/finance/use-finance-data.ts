@@ -15,6 +15,7 @@ type FetchOptions = {
   products?: boolean;
   inventory?: boolean;
   expenses?: boolean;
+  settlements?: boolean;
 };
 
 export function useFinanceData(userId: string, options: FetchOptions) {
@@ -28,6 +29,7 @@ export function useFinanceData(userId: string, options: FetchOptions) {
     warehouseSkus: [],
   });
   const [expenses, setExpenses] = useState<FinanceExpense[]>([]);
+  const [settlementFiles, setSettlementFiles] = useState<any[]>([]);
   const [settings, setSettings] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -69,6 +71,13 @@ export function useFinanceData(userId: string, options: FetchOptions) {
         keys.push("expenses");
       }
 
+      if (options.settlements) {
+        // dynamically import to avoid circular dependencies or bloating non-settlement pages
+        const { loadSettlementFiles } = await import("../../lib/settlement");
+        promises.push(loadSettlementFiles(userId));
+        keys.push("settlements");
+      }
+
       const results = await Promise.all(promises);
       const resultMap = Object.fromEntries(keys.map((k, i) => [k, results[i]]));
 
@@ -103,6 +112,9 @@ export function useFinanceData(userId: string, options: FetchOptions) {
       if (resultMap.expenses) {
          setExpenses(resultMap.expenses);
       }
+      if (resultMap.settlements) {
+         setSettlementFiles(resultMap.settlements);
+      }
       if (resultMap.settings !== undefined) {
          setSettings(resultMap.settings);
       }
@@ -120,5 +132,5 @@ export function useFinanceData(userId: string, options: FetchOptions) {
     }
   }, [userId]);
 
-  return { data, expenses, settings, loading, error, reload: load };
+  return { data, expenses, settlementFiles, settings, loading, error, reload: load };
 }

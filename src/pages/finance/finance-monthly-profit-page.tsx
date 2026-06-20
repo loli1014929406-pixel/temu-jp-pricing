@@ -18,24 +18,25 @@ import {
   getMonthKey,
   formatDate,
   getPurchaseTotalRmb,
-  buildSkuLookup
+  buildSkuLookup,
+  getResolvedSettlementMetrics
 } from "./shared";
-import { buildSettlementLookup, loadSettlementFiles } from "../../lib/settlement";
+import { buildSettlementLookup } from "../../lib/settlement";
 
 type Props = {
   user: User;
 };
 
 export function FinanceMonthlyProfitPage({ user }: Props) {
-  const { data, expenses, settings, loading, error, reload } = useFinanceData(user.id, {
+  const { data, expenses, settlementFiles, settings, loading, error, reload } = useFinanceData(user.id, {
     orders: true,
     purchases: true,
     products: true,
     expenses: true,
+    settlements: true,
   });
 
-  const settlementFiles = useMemo(() => loadSettlementFiles(), []);
-  const settlementLookup = useMemo(() => buildSettlementLookup(settlementFiles), [settlementFiles]);
+  const settlementLookup = useMemo(() => buildSettlementLookup(settlementFiles || []), [settlementFiles]);
 
   const productItemsById = useMemo(() => new Map<string, any>(data.productItems.map((item: any) => [item.id!, item])), [data.productItems]);
   const productsById = useMemo(() => new Map<string, any>(data.products.map((product: any) => [product.id, product])), [data.products]);
@@ -65,20 +66,9 @@ export function FinanceMonthlyProfitPage({ user }: Props) {
 
     // Settlement Income (Actual Revenue)
     data.orders.forEach((order: any) => {
-      const poKey = order.order_no.trim();
-      const skuCodeKey = order.sku_code.trim().toLowerCase();
-      let actualRevenueRmb = 0;
-      
-      if (poKey && settlementLookup.byPO.has(poKey)) {
-        const matchingRecords = settlementLookup.byPO.get(poKey)!;
-        let matchedRecord = matchingRecords.find(r => r.skuCode.toLowerCase() === skuCodeKey);
-        if (!matchedRecord && matchingRecords.length === 1) {
-          matchedRecord = matchingRecords[0];
-        }
-        if (matchedRecord) {
-          actualRevenueRmb = matchedRecord.totalRevenue;
-        }
-      }
+      const quantity = getOrderQuantity(order);
+      const { actualSalesRevenueRmb, actualFreightRevenueRmb } = getResolvedSettlementMetrics(order, quantity, settlementLookup);
+      const actualRevenueRmb = roundMoney(actualSalesRevenueRmb + actualFreightRevenueRmb);
 
       if (actualRevenueRmb > 0) {
          // 使用订单发货时间作为收入归属月份，如果没有则使用创建时间
@@ -90,9 +80,9 @@ export function FinanceMonthlyProfitPage({ user }: Props) {
       // Order Cost & Shipping
       const sku = getOrderSku(order, skuLookup);
       const product = sku?.product_id ? productsById.get(sku.product_id) ?? null : null;
-      const quantity = getOrderQuantity(order);
+      const orderQty = getOrderQuantity(order);
       const unitCost = sku ? getSkuUnitCostRmb(sku, productItemsById) : 0;
-      const productCostRmb = unitCost * quantity;
+      const productCostRmb = unitCost * orderQty;
       
       const actualShippingFeeRmb = Number(order.actual_shipping_fee_rmb || 0);
       const estimatedShippingRmb = estimateOrderShippingFee(order, product, settings);
@@ -146,7 +136,7 @@ export function FinanceMonthlyProfitPage({ user }: Props) {
     const width = 500;
     const padding = { top: 20, right: 20, bottom: 30, left: 50 };
     const chartHeight = height - padding.top - padding.bottom;
-    const values = chartData.flatMap((d) => [d.income, d.cashProfit, d.orderProfit]);
+    const values = chartData.flatMap((d) => [d.income, d.orderProfit]);
     const rawMax = Math.max(0, ...values);
     const rawMin = Math.min(0, ...values);
     const maxVal = rawMax > 0 ? rawMax * 1.1 : 1000;
@@ -190,12 +180,6 @@ export function FinanceMonthlyProfitPage({ user }: Props) {
               const incomeBarH = Math.abs(incomeValueY - y0);
               const incomeY = Math.min(incomeValueY, y0);
 
-              const cashValueY = yForValue(d.cashProfit);
-              const cashBarH = Math.abs(cashValueY - y0);
-              const cashY = Math.min(cashValueY, y0);
-              const cashFill = d.cashProfit >= 0 ? "#f59e0b" : "#fb7185";
-              const cashHover = d.cashProfit >= 0 ? "hover:fill-amber-500" : "hover:fill-rose-500";
-
               const orderValueY = yForValue(d.orderProfit);
               const orderBarH = Math.abs(orderValueY - y0);
               const orderY = Math.min(orderValueY, y0);
@@ -204,13 +188,10 @@ export function FinanceMonthlyProfitPage({ user }: Props) {
 
               return (
                 <g key={d.month} className="group">
-                  <rect x={x - 17} y={incomeY} width={8} height={Math.max(2, incomeBarH)} fill="#818cf8" rx={2} className="transition-all duration-300 hover:fill-indigo-500">
-                    <title>{`${d.month} 实际回款 ${formatCurrency(d.income)}`}</title>
+                  <rect x={x - 10} y={incomeY} width={10} height={Math.max(2, incomeBarH)} fill="#818cf8" rx={2} className="transition-all duration-300 hover:fill-indigo-500">
+                    <title>{`${d.month} 实际回款 ${formatCurrency(d.income)}\n(现金利润: ${formatCurrency(d.cashProfit)})`}</title>
                   </rect>
-                  <rect x={x - 4} y={cashY} width={8} height={Math.max(2, cashBarH)} fill={cashFill} rx={2} className={`transition-all duration-300 ${cashHover}`}>
-                    <title>{`${d.month} 实际现金利润 ${formatCurrency(d.cashProfit)}`}</title>
-                  </rect>
-                  <rect x={x + 9} y={orderY} width={8} height={Math.max(2, orderBarH)} fill={orderFill} rx={2} className={`transition-all duration-300 ${orderHover}`}>
+                  <rect x={x + 4} y={orderY} width={10} height={Math.max(2, orderBarH)} fill={orderFill} rx={2} className={`transition-all duration-300 ${orderHover}`}>
                     <title>{`${d.month} 实际订单利润 ${formatCurrency(d.orderProfit)}`}</title>
                   </rect>
                   <text x={x} y={height - padding.bottom + 16} textAnchor="middle" className="fill-slate-500 text-[10px] font-bold">
@@ -223,7 +204,6 @@ export function FinanceMonthlyProfitPage({ user }: Props) {
         </div>
         <div className="flex items-center gap-4 mt-2 justify-center text-xs font-semibold">
           <div className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-indigo-400 block" /><span className="text-slate-500">实际回款</span></div>
-          <div className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-amber-400 block" /><span className="text-slate-500">实际现金利润</span></div>
           <div className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-emerald-400 block" /><span className="text-slate-500">实际订单利润</span></div>
           <div className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-rose-400 block" /><span className="text-slate-500">负数向下</span></div>
         </div>

@@ -17,23 +17,24 @@ import {
   estimateOrderShippingFee,
   roundMoney,
   buildSkuLookup,
+  getResolvedSettlementMetrics,
 } from "./shared";
-import { buildSettlementLookup, loadSettlementFiles } from "../../lib/settlement";
+import { buildSettlementLookup } from "../../lib/settlement";
 
 type Props = {
   user: User;
 };
 
 export function FinanceOverviewPage({ user }: Props) {
-  const { data, expenses, settings, loading, error, reload } = useFinanceData(user.id, {
+  const { data, expenses, settlementFiles, settings, loading, error, reload } = useFinanceData(user.id, {
     orders: true,
     purchases: true,
     products: true,
     inventory: true,
     expenses: true,
+    settlements: true,
   });
 
-  const settlementFiles = useMemo(() => loadSettlementFiles(), []);
   const settlementLookup = useMemo(() => buildSettlementLookup(settlementFiles), [settlementFiles]);
 
   const productItemsById = useMemo(() => new Map<string, any>(data.productItems.map((item: any) => [item.id!, item])), [data.productItems]);
@@ -53,24 +54,7 @@ export function FinanceOverviewPage({ user }: Props) {
       const shippingFeeSource = (actualShippingFeeRmb > 0 ? "actual" : estimatedShippingRmb > 0 ? "estimated" : "missing") as "actual" | "estimated" | "missing";
       const shippingFeeRmb = roundMoney(shippingFeeSource === "actual" ? actualShippingFeeRmb : estimatedShippingRmb);
       
-      let actualSalesRevenueRmb = 0;
-      let actualFreightRevenueRmb = 0;
-      let isSettled = false;
-
-      const poKey = order.order_no.trim();
-      const skuCodeKey = order.sku_code.trim().toLowerCase();
-      if (poKey && settlementLookup.byPO.has(poKey)) {
-        const matchingRecords = settlementLookup.byPO.get(poKey)!;
-        let matchedRecord = matchingRecords.find(r => r.skuCode.toLowerCase() === skuCodeKey);
-        if (!matchedRecord && matchingRecords.length === 1) {
-          matchedRecord = matchingRecords[0];
-        }
-        if (matchedRecord) {
-          actualSalesRevenueRmb = matchedRecord.salesRevenue;
-          actualFreightRevenueRmb = matchedRecord.freightRevenue;
-          isSettled = true;
-        }
-      }
+      const { actualSalesRevenueRmb, actualFreightRevenueRmb, isSettled, matchType } = getResolvedSettlementMetrics(order, quantity, settlementLookup);
 
       const actualRevenueRmb = roundMoney(actualSalesRevenueRmb + actualFreightRevenueRmb);
 
@@ -157,21 +141,17 @@ export function FinanceOverviewPage({ user }: Props) {
 
             {/* Net Profit and Margin overview */}
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <div className={`rounded-2xl border border-slate-100 p-6 text-white shadow-lg ${
-                isCashLoss ? "bg-gradient-to-br from-rose-500 to-red-600 shadow-rose-500/20" : "bg-gradient-to-br from-emerald-500 to-teal-600 shadow-emerald-500/20"
-              }`}>
-                <div className={`text-xs font-bold uppercase tracking-wider ${isCashLoss ? "text-rose-100" : "text-emerald-100"}`}>实际现金利润（按收付）</div>
-                <div className="mt-2 text-3xl font-black tabular-nums">{formatCurrency(cashProfit)}</div>
-                <p className={`mt-2 text-[11px] ${isCashLoss ? "text-rose-100/75" : "text-emerald-100/75"}`}>
-                  回款 - 当月采购付款 - 运费 - 其他费用，利润率 {cashMarginRate.toFixed(2)}%
-                </p>
-              </div>
-              <div className={`rounded-2xl border border-slate-100 p-6 text-white shadow-lg ${
+              <div className={`col-span-1 md:col-span-2 rounded-2xl border border-slate-100 p-6 text-white shadow-lg ${
                 isOrderLoss ? "bg-gradient-to-br from-rose-500 to-red-600 shadow-rose-500/20" : "bg-gradient-to-br from-emerald-500 to-teal-600 shadow-emerald-500/20"
               }`}>
-                <div className={`text-xs font-bold uppercase tracking-wider ${isOrderLoss ? "text-rose-100" : "text-emerald-100"}`}>实际订单利润（不含库存）</div>
+                <div className={`text-xs font-bold uppercase tracking-wider ${isOrderLoss ? "text-rose-100" : "text-emerald-100"}`}>实际订单利润（经营层）</div>
                 <div className="mt-2 text-3xl font-black tabular-nums">{formatCurrency(orderProfit)}</div>
-                <p className={`mt-2 text-[11px] ${isOrderLoss ? "text-rose-100/75" : "text-emerald-100/75"}`}>回款 - 订单商品成本 - 运费 - 其他费用</p>
+                <div className={`mt-3 border-t ${isOrderLoss ? "border-rose-400/30" : "border-emerald-400/30"} pt-3 flex items-center gap-2`}>
+                   <span className="text-sm font-semibold">本期采购占用资金 {formatCurrency(totals.purchasePayment)}</span>
+                   <span className={`px-2 py-0.5 rounded text-xs font-bold ${isOrderLoss ? "bg-rose-400/20 text-rose-50" : "bg-emerald-400/20 text-emerald-50"}`}>
+                     现金利润 {formatCurrency(cashProfit)}
+                   </span>
+                </div>
               </div>
               <div className={`rounded-2xl border border-slate-100 p-6 text-white shadow-lg ${
                 isOrderLoss ? "bg-gradient-to-br from-rose-400 to-red-500 shadow-rose-500/15" : "bg-gradient-to-br from-emerald-400 to-teal-500 shadow-emerald-500/15"

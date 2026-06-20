@@ -19,7 +19,6 @@ import {
 } from "./shared";
 import { 
   parseSettlementData, 
-  loadSettlementFiles, 
   deleteSettlementFile, 
   addSettlementFile, 
   formatDateRange,
@@ -35,14 +34,14 @@ type Props = {
 
 export function FinanceSettlementPage({ user }: Props) {
   const { canEdit } = usePermissions();
-  const { data, settings, loading, error, reload } = useFinanceData(user.id, {
+  const { data, settlementFiles, settings, loading, error, reload } = useFinanceData(user.id, {
     orders: true,
     products: true,
+    settlements: true,
   });
 
-  const [settlementFiles, setSettlementFiles] = useState<SettlementFile[]>(loadSettlementFiles());
   const [importing, setImporting] = useState(false);
-  const [page, setPage] = useState(1);
+  const [showAllOrders, setShowAllOrders] = useState(false);
   const [reconPage, setReconPage] = useState(1);
 
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
@@ -92,8 +91,12 @@ export function FinanceSettlementPage({ user }: Props) {
     });
   }, [data.orders, skuLookup, data.products, settings]);
 
-  const unmatched = useMemo(() => orderRows.filter((row: any) => getReconciliationIssues(row as any).length > 0), [orderRows]);
-  const reconPaginated = getPaginatedRows("finance-recon", unmatched, reconPage);
+  const displayOrders = useMemo(() => {
+    if (showAllOrders) return orderRows;
+    return orderRows.filter((row: any) => getReconciliationIssues(row as any).length > 0);
+  }, [orderRows, showAllOrders]);
+
+  const reconPaginated = getPaginatedRows("finance-recon", displayOrders, reconPage);
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -117,9 +120,10 @@ export function FinanceSettlementPage({ user }: Props) {
       const records = parseSettlementData(sheet.data);
       if (records.length === 0) throw new Error("未解析到有效结算数据");
       
-      const newFile = addSettlementFile(file.name, records as any);
-      setSettlementFiles(loadSettlementFiles());
+      
+      const newFile = await addSettlementFile(user.id, file.name, records as any);
       alert(`成功导入 ${records.length} 条结算记录！\n总回款：${formatCurrency(newFile.totalRevenue)}`);
+      await reload();
     } catch (err) {
       alert("导入失败: " + getErrorMessage(err, "请确保选择的是 SettledParentFlow 导出文件"));
     } finally {
@@ -128,10 +132,14 @@ export function FinanceSettlementPage({ user }: Props) {
     }
   };
 
-  const handleDeleteFile = (id: string) => {
+  const handleDeleteFile = async (id: string) => {
     if (!window.confirm("确定删除该结算文件？\n删除后相关的财务利润和对账状态将重新计算。")) return;
-    deleteSettlementFile(id);
-    setSettlementFiles(loadSettlementFiles());
+    try {
+       await deleteSettlementFile(id);
+       await reload();
+    } catch (err) {
+       alert("删除失败: " + getErrorMessage(err, "未知错误"));
+    }
   };
 
   const handleSaveShippingFee = async (orderId: string, feeStr: string) => {
@@ -231,17 +239,37 @@ export function FinanceSettlementPage({ user }: Props) {
 
       {/* 异常对账 */}
       <section className="surface-card grid gap-4 p-5">
-        <div className="flex items-center gap-3 border-b border-slate-100 pb-3">
-          <h3 className="text-base font-bold text-slate-900">对账中心异常订单排查</h3>
-          <span className="rounded-full bg-rose-50 px-2.5 py-0.5 text-xs font-bold text-rose-600">
-            共 {unmatched.length} 项待处理
-          </span>
+        {settlementFiles.length === 0 && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 mb-2 flex items-start gap-3">
+            <AlertTriangle className="text-amber-500 mt-0.5" size={20} />
+            <div>
+              <h4 className="text-sm font-bold text-amber-800">暂未导入任何结算文件</h4>
+              <p className="text-xs text-amber-700 mt-1">系统无法对订单的实际回款进行准确核算和对账，目前的所有回款金额均为 0，且所有订单都将显示为“异常”状态。请先在上方导入 Temu 导出的 SettledParentFlow 账单文件。</p>
+            </div>
+          </div>
+        )}
+
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          <div className="flex items-center gap-3">
+            <h3 className="text-base font-bold text-slate-900">对账中心异常订单排查</h3>
+            {!showAllOrders && (
+              <span className="rounded-full bg-rose-50 px-2.5 py-0.5 text-xs font-bold text-rose-600">
+                共 {displayOrders.length} 项待处理
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 text-sm font-semibold">
+             <label className="flex items-center gap-2 cursor-pointer">
+               <input type="checkbox" checked={showAllOrders} onChange={(e) => { setShowAllOrders(e.target.checked); setReconPage(1); }} className="rounded border-slate-300 text-violet-600 focus:ring-violet-600/20" />
+               <span className="text-slate-700">显示所有订单</span>
+             </label>
+          </div>
         </div>
         
-        {loading && unmatched.length === 0 ? (
+        {loading && displayOrders.length === 0 ? (
            <EmptyPanel label="加载中..." />
-        ) : unmatched.length === 0 ? (
-           <EmptyPanel label="暂无需要人工对账的订单数据" />
+        ) : displayOrders.length === 0 ? (
+           <EmptyPanel label={showAllOrders ? "暂无订单数据" : "太棒了！所有订单已自动对账完成，暂无异常记录。"} />
         ) : (
           <>
             <FinanceTable minWidth="min-w-[1080px]">
@@ -272,11 +300,17 @@ export function FinanceSettlementPage({ user }: Props) {
                     </td>
                     <td>
                       <div className="flex flex-wrap gap-1.5">
-                         {issueTypes.map((issue) => (
-                           <span key={issue} className="inline-flex items-center gap-1 rounded bg-rose-50 px-2 py-0.5 text-xs font-bold text-rose-600">
-                             <AlertTriangle size={12} /> {issue === "unmatched" ? "SKU 货号未匹配" : "运费缺失 (无法估算)"}
+                         {issueTypes.length === 0 ? (
+                           <span className="inline-flex items-center gap-1 rounded bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-600">
+                             <Check size={12} /> 无异常
                            </span>
-                         ))}
+                         ) : (
+                           issueTypes.map((issue) => (
+                             <span key={issue} className="inline-flex items-center gap-1 rounded bg-rose-50 px-2 py-0.5 text-xs font-bold text-rose-600">
+                               <AlertTriangle size={12} /> {issue === "unmatched" ? "SKU 货号未匹配" : "运费缺失 (无法估算)"}
+                             </span>
+                           ))
+                         )}
                       </div>
                     </td>
                     <td className="money">

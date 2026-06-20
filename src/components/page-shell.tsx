@@ -4,36 +4,16 @@ import {
   ClipboardList,
   LogOut,
   PackageSearch,
-  Settings,
   ShoppingCart,
   Truck,
   Warehouse,
   WalletCards,
   ListOrdered,
+  Settings,
 } from "lucide-react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { getSupabaseClient } from "../lib/supabase";
 import { useAuth } from "../hooks/use-auth";
-
-const navItems = [
-  { to: "/orders", label: "订单管理", module: "销售履约", icon: ListOrdered },
-  { to: "/finance", label: "财务总览", module: "财务管理", icon: CircleDollarSign },
-  { to: "/finance/ledger", label: "收支流水", module: "财务管理", icon: WalletCards },
-  { to: "/finance/expenses", label: "费用管理", module: "财务管理", icon: WalletCards },
-  { to: "/finance/purchases", label: "采购付款", module: "财务管理", icon: WalletCards },
-  { to: "/finance/monthly-profit", label: "月度利润", module: "财务管理", icon: Calculator },
-  { to: "/finance/product-profit", label: "商品利润", module: "财务管理", icon: Calculator },
-  { to: "/finance/orders", label: "订单明细", module: "财务管理", icon: ListOrdered },
-  { to: "/finance/settlement", label: "对账中心", module: "财务管理", icon: ClipboardList },
-  { to: "/products", label: "商品管理", module: "商品资料", icon: PackageSearch },
-  { to: "/declaration-prices", label: "核算定价", module: "定价中心", icon: ClipboardList },
-  { to: "/profit-calculation", label: "利润分析", module: "经营分析", icon: Calculator },
-  { to: "/test-shipping", label: "直发测算", module: "物流测算", icon: Truck },
-  { to: "/purchases/records", label: "采购管理", module: "采购入库", icon: ShoppingCart },
-  { to: "/inventory", label: "仓储库存", module: "库存管理", icon: Warehouse },
-  { to: "/inventory/transfer", label: "库存调拨", module: "库存管理", icon: Warehouse },
-  { to: "/parameter-settings", label: "参数设置", module: "系统配置", icon: Settings },
-] as const;
 
 const navSections = [
   {
@@ -47,6 +27,7 @@ const navSections = [
     items: [
       { to: "/finance", label: "财务总览", icon: CircleDollarSign },
       { to: "/finance/ledger", label: "收支流水", icon: WalletCards },
+      { to: "/finance/purchases", label: "采购付款流水", icon: WalletCards },
       { to: "/finance/expenses", label: "费用管理", icon: WalletCards },
       { to: "/finance/monthly-profit", label: "月度利润", icon: Calculator },
       { to: "/finance/product-profit", label: "商品利润", icon: Calculator },
@@ -67,7 +48,6 @@ const navSections = [
     title: "仓储管理",
     items: [
       { to: "/purchases/records", label: "采购管理", icon: ShoppingCart },
-      { to: "/finance/purchases", label: "采购付款流水", icon: WalletCards },
       { to: "/inventory", label: "仓储库存", icon: Warehouse },
       { to: "/inventory/transfer", label: "库存调拨", icon: Warehouse }
     ]
@@ -78,19 +58,21 @@ const navSections = [
       { to: "/parameter-settings", label: "参数设置", icon: Settings }
     ]
   }
-] as const;
+];
 
 function getCanonicalNavPath(pathname: string) {
   return pathname;
 }
 
+const navItemsFlat = navSections.flatMap((section) => section.items) as { to: string; label: string; icon: any }[];
+
 function getActiveModule(pathname: string) {
   const canonicalPathname = getCanonicalNavPath(pathname);
   return (
-    [...navItems]
+    [...navItemsFlat]
       .sort((left, right) => right.to.length - left.to.length)
       .find((item) => canonicalPathname === item.to || canonicalPathname.startsWith(`${item.to}/`)) ??
-    navItems[0]
+    navItemsFlat[0]
   );
 }
 

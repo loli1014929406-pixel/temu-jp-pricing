@@ -15,9 +15,10 @@ import {
   getSkuUnitCostRmb,
   estimateOrderShippingFee,
   buildSkuLookup,
-  roundMoney
+  roundMoney,
+  getResolvedSettlementMetrics
 } from "./shared";
-import { buildSettlementLookup, loadSettlementFiles } from "../../lib/settlement";
+import { buildSettlementLookup } from "../../lib/settlement";
 import { updateTemuOrder } from "../../lib/orders";
 import { getErrorMessage } from "../../utils/errors";
 
@@ -27,13 +28,13 @@ type Props = {
 
 export function FinanceOrdersPage({ user }: Props) {
   const { canEdit } = usePermissions();
-  const { data, settings, loading, error, reload } = useFinanceData(user.id, {
+  const { data, settlementFiles, settings, loading, error, reload } = useFinanceData(user.id, {
     orders: true,
     products: true,
+    settlements: true,
   });
 
-  const settlementFiles = useMemo(() => loadSettlementFiles(), []);
-  const settlementLookup = useMemo(() => buildSettlementLookup(settlementFiles), [settlementFiles]);
+  const settlementLookup = useMemo(() => buildSettlementLookup(settlementFiles || []), [settlementFiles]);
 
   const productItemsById = useMemo(() => new Map<string, any>(data.productItems.map((item: any) => [item.id!, item])), [data.productItems]);
   const productsById = useMemo(() => new Map<string, any>(data.products.map((product: any) => [product.id, product])), [data.products]);
@@ -59,24 +60,7 @@ export function FinanceOrdersPage({ user }: Props) {
       const shippingFeeSource = actualShippingFeeRmb > 0 ? "actual" : estimatedShippingRmb > 0 ? "estimated" : "missing";
       const shippingFeeRmb = roundMoney(shippingFeeSource === "actual" ? actualShippingFeeRmb : estimatedShippingRmb);
       
-      let actualSalesRevenueRmb = 0;
-      let actualFreightRevenueRmb = 0;
-      let isSettled = false;
-
-      const poKey = order.order_no.trim();
-      const skuCodeKey = order.sku_code.trim().toLowerCase();
-      if (poKey && settlementLookup.byPO.has(poKey)) {
-        const matchingRecords = settlementLookup.byPO.get(poKey)!;
-        let matchedRecord = matchingRecords.find(r => r.skuCode.toLowerCase() === skuCodeKey);
-        if (!matchedRecord && matchingRecords.length === 1) {
-          matchedRecord = matchingRecords[0];
-        }
-        if (matchedRecord) {
-          actualSalesRevenueRmb = matchedRecord.salesRevenue;
-          actualFreightRevenueRmb = matchedRecord.freightRevenue;
-          isSettled = true;
-        }
-      }
+      const { actualSalesRevenueRmb, actualFreightRevenueRmb, isSettled } = getResolvedSettlementMetrics(order, quantity, settlementLookup);
 
       const actualRevenueRmb = roundMoney(actualSalesRevenueRmb + actualFreightRevenueRmb);
 

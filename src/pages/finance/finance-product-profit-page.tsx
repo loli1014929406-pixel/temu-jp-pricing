@@ -14,29 +14,31 @@ import {
   getOrderQuantity,
   getSkuUnitCostRmb,
   estimateOrderShippingFee,
-  buildSkuLookup
+  buildSkuLookup,
+  getResolvedSettlementMetrics,
+  roundMoney
 } from "./shared";
-import { buildSettlementLookup, loadSettlementFiles } from "../../lib/settlement";
+import { buildSettlementLookup } from "../../lib/settlement";
 
 type Props = {
   user: User;
 };
 
 export function FinanceProductProfitPage({ user }: Props) {
-  const { data, settings, loading, error, reload } = useFinanceData(user.id, {
+  const { data, settlementFiles, settings, loading, error, reload } = useFinanceData(user.id, {
     orders: true,
     products: true,
+    settlements: true,
   });
 
-  const settlementFiles = useMemo(() => loadSettlementFiles(), []);
-  const settlementLookup = useMemo(() => buildSettlementLookup(settlementFiles), [settlementFiles]);
+  const settlementLookup = useMemo(() => buildSettlementLookup(settlementFiles || []), [settlementFiles]);
 
   const productItemsById = useMemo(() => new Map<string, any>(data.productItems.map((item: any) => [item.id!, item])), [data.productItems]);
   const productsById = useMemo(() => new Map<string, any>(data.products.map((product: any) => [product.id, product])), [data.products]);
   const skuLookup = useMemo(() => buildSkuLookup(data.products, data.productSkus), [data.products, data.productSkus]);
 
   const [productSearch, setProductSearch] = useState("");
-  const [productSortField, setProductSortField] = useState<"orderCount" | "quantity" | "productCost" | "shipping" | "billAmount" | "profit" | "margin">("profit");
+  const [productSortField, setProductSortField] = useState<"orderCount" | "quantity" | "productCost" | "shipping" | "actualRevenue" | "profit" | "margin">("profit");
   const [productSortOrder, setProductSortOrder] = useState<"asc" | "desc">("desc");
   const [page, setPage] = useState(1);
 
@@ -50,7 +52,7 @@ export function FinanceProductProfitPage({ user }: Props) {
         quantity: number;
         productCost: number;
         shipping: number;
-        billAmount: number;
+        actualRevenue: number;
       }
     >();
 
@@ -64,7 +66,7 @@ export function FinanceProductProfitPage({ user }: Props) {
           quantity: 0,
           productCost: 0,
           shipping: 0,
-          billAmount: 0,
+          actualRevenue: 0,
         });
       }
       return productData.get(key)!;
@@ -89,25 +91,13 @@ export function FinanceProductProfitPage({ user }: Props) {
       const estimatedShippingRmb = estimateOrderShippingFee(order, product, settings);
       obj.shipping += actualShippingFeeRmb > 0 ? actualShippingFeeRmb : estimatedShippingRmb;
 
-      const poKey = order.order_no.trim();
-      const skuCodeKey = order.sku_code.trim().toLowerCase();
-      let actualRevenueRmb = 0;
-      if (poKey && settlementLookup.byPO.has(poKey)) {
-        const matchingRecords = settlementLookup.byPO.get(poKey)!;
-        let matchedRecord = matchingRecords.find(r => r.skuCode.toLowerCase() === skuCodeKey);
-        if (!matchedRecord && matchingRecords.length === 1) {
-          matchedRecord = matchingRecords[0];
-        }
-        if (matchedRecord) {
-          actualRevenueRmb = matchedRecord.totalRevenue;
-        }
-      }
-      obj.billAmount += actualRevenueRmb;
+      const { actualSalesRevenueRmb, actualFreightRevenueRmb } = getResolvedSettlementMetrics(order, quantity, settlementLookup);
+      obj.actualRevenue += roundMoney(actualSalesRevenueRmb + actualFreightRevenueRmb);
     });
 
     return Array.from(productData.values()).map((p: any) => {
-      const profit = p.billAmount - p.productCost - p.shipping;
-      const margin = calculateMarginRate(profit, p.billAmount);
+      const profit = p.actualRevenue - p.productCost - p.shipping;
+      const margin = calculateMarginRate(profit, p.actualRevenue);
       return { ...p, profit, margin };
     });
   }, [data.orders, productItemsById, productsById, skuLookup, settings, settlementLookup]);
@@ -206,8 +196,8 @@ export function FinanceProductProfitPage({ user }: Props) {
                   <th className="number-cell cursor-pointer hover:bg-slate-100 transition rounded select-none" onClick={() => handleSort("shipping")}>
                     核算总运费 {renderSortIcon("shipping")}
                   </th>
-                  <th className="number-cell cursor-pointer hover:bg-slate-100 transition rounded select-none" onClick={() => handleSort("billAmount")}>
-                    实际结算总回款 {renderSortIcon("billAmount")}
+                  <th className="number-cell cursor-pointer hover:bg-slate-100 transition rounded select-none" onClick={() => handleSort("actualRevenue")}>
+                    实际结算总回款 {renderSortIcon("actualRevenue")}
                   </th>
                   <th className="number-cell cursor-pointer hover:bg-slate-100 transition rounded select-none" onClick={() => handleSort("profit")}>
                     实际毛利润 {renderSortIcon("profit")}
@@ -228,7 +218,7 @@ export function FinanceProductProfitPage({ user }: Props) {
                       <td className="number-cell font-semibold">{row.quantity}</td>
                       <td className="money">{formatCurrency(row.productCost)}</td>
                       <td className="money">{formatCurrency(row.shipping)}</td>
-                      <td className="money text-slate-900">{formatCurrency(row.billAmount)}</td>
+                      <td className="money text-slate-900">{formatCurrency(row.actualRevenue)}</td>
                       <td className={`money ${profitClass}`}>{formatCurrency(row.profit)}</td>
                       <td className={`number-cell font-bold ${profitClass}`}>{row.margin.toFixed(2)}%</td>
                     </tr>

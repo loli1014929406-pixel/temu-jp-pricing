@@ -7,6 +7,7 @@
  *   Row 1: (null) | SKU ID | SKU名称 | SKU货号 | 件数 | 申报价格 | 是否活动价 | ...
  * Data starts at Row 2.
  */
+import { getSupabaseClient } from "./supabase";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -146,58 +147,162 @@ function roundMoney(value: number): number {
   return Number(value.toFixed(2));
 }
 
-// ── Storage (localStorage) ─────────────────────────────────────────────────────
+// ── Storage (Supabase) ─────────────────────────────────────────────────────
 
-const STORAGE_KEY = "codex_temu_settlements";
+export async function loadSettlementFiles(userId: string): Promise<SettlementFile[]> {
+  const supabase = getSupabaseClient();
+  const { data: filesData, error: filesError } = await supabase
+    .from("finance_settlement_files")
+    .select("*")
+    .eq("user_id", userId)
+    .order("imported_at", { ascending: false });
 
-export function loadSettlementFiles(): SettlementFile[] {
-  const saved = localStorage.getItem(STORAGE_KEY);
-  if (!saved) return [];
-  try {
-    return JSON.parse(saved) as SettlementFile[];
-  } catch {
-    console.error("Failed to parse settlement files from localStorage");
+  if (filesError || !filesData) {
+    console.error("Failed to load settlement files:", filesError);
     return [];
   }
+
+  // To build the full file structure, we need the records too.
+  // Since records can be large, we might fetch them concurrently.
+  const { data: recordsData, error: recordsError } = await supabase
+    .from("finance_settlement_records")
+    .select("*")
+    .eq("user_id", userId);
+
+  if (recordsError || !recordsData) {
+    console.error("Failed to load settlement records:", recordsError);
+    return [];
+  }
+
+  const recordsByFile = new Map<string, SettlementRecord[]>();
+  for (const r of recordsData) {
+    const list = recordsByFile.get(r.file_id) ?? [];
+    list.push({
+      poNumber: r.po_number,
+      skuId: r.sku_id,
+      skuName: r.sku_name,
+      skuCode: r.sku_code,
+      quantity: r.quantity,
+      declaredPrice: Number(r.declared_price),
+      isPromotionPrice: r.is_promotion_price,
+      currency: r.currency,
+      salesRevenue: Number(r.sales_revenue),
+      salesDiscountDeducted: Number(r.sales_discount_deducted),
+      salesReversal: Number(r.sales_reversal),
+      freightRevenue: Number(r.freight_revenue),
+      freightDiscountDeducted: Number(r.freight_discount_deducted),
+      freightReversal: Number(r.freight_reversal),
+      totalRevenue: Number(r.total_revenue),
+    });
+    recordsByFile.set(r.file_id, list);
+  }
+
+  return filesData.map((f: any) => ({
+    id: f.id,
+    fileName: f.file_name,
+    dateRangeStart: f.date_range_start,
+    dateRangeEnd: f.date_range_end,
+    importedAt: f.imported_at,
+    totalSalesRevenue: Number(f.total_sales_revenue),
+    totalFreightRevenue: Number(f.total_freight_revenue),
+    totalRevenue: Number(f.total_revenue),
+    recordCount: f.record_count,
+    records: recordsByFile.get(f.id) ?? [],
+  }));
 }
 
-export function saveSettlementFiles(files: SettlementFile[]): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(files));
+export async function deleteSettlementFile(fileId: string): Promise<void> {
+  const supabase = getSupabaseClient();
+  const { error } = await supabase.from("finance_settlement_files").delete().eq("id", fileId);
+  if (error) throw new Error(error.message);
 }
 
-export function deleteSettlementFile(fileId: string): SettlementFile[] {
-  const files = loadSettlementFiles().filter((f) => f.id !== fileId);
-  saveSettlementFiles(files);
-  return files;
-}
-
-export function addSettlementFile(
+export async function addSettlementFile(
+  userId: string,
   fileName: string,
   records: SettlementRecord[],
-): SettlementFile {
+): Promise<SettlementFile> {
+  const supabase = getSupabaseClient();
   const { start, end } = parseDateRange(fileName);
   const totalSalesRevenue = roundMoney(records.reduce((sum, r) => sum + r.salesRevenue, 0));
   const totalFreightRevenue = roundMoney(records.reduce((sum, r) => sum + r.freightRevenue, 0));
 
-  const file: SettlementFile = {
-    id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
-    fileName,
-    dateRangeStart: start,
-    dateRangeEnd: end,
-    importedAt: new Date().toISOString(),
-    records,
-    totalSalesRevenue,
-    totalFreightRevenue,
-    totalRevenue: roundMoney(totalSalesRevenue + totalFreightRevenue),
-    recordCount: records.length,
-  };
+  // Check existing file with same name
+  const { data: existing } = await supabase
+    .from("finance_settlement_files")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("file_name", fileName);
+    
+  if (existing && existing.length > 0) {
+    for (const f of existing) {
+      await deleteSettlementFile(f.id);
+    }
+  }
 
-  const existing = loadSettlementFiles();
-  // Replace if same filename exists
-  const filtered = existing.filter((f) => f.fileName !== fileName);
-  filtered.push(file);
-  saveSettlementFiles(filtered);
-  return file;
+  // Insert file
+  const { data: fileData, error: fileError } = await supabase
+    .from("finance_settlement_files")
+    .insert({
+      user_id: userId,
+      file_name: fileName,
+      date_range_start: start,
+      date_range_end: end,
+      total_sales_revenue: totalSalesRevenue,
+      total_freight_revenue: totalFreightRevenue,
+      total_revenue: roundMoney(totalSalesRevenue + totalFreightRevenue),
+      record_count: records.length,
+      imported_at: new Date().toISOString(),
+    })
+    .select()
+    .single();
+
+  if (fileError) throw new Error("保存文件信息失败: " + fileError.message);
+
+  const fileId = fileData.id;
+
+  // Insert records in batches of 500
+  const BATCH_SIZE = 500;
+  for (let i = 0; i < records.length; i += BATCH_SIZE) {
+    const batch = records.slice(i, i + BATCH_SIZE).map((r) => ({
+      user_id: userId,
+      file_id: fileId,
+      po_number: r.poNumber,
+      sku_id: r.skuId,
+      sku_name: r.skuName,
+      sku_code: r.skuCode,
+      quantity: r.quantity,
+      declared_price: r.declaredPrice,
+      is_promotion_price: r.isPromotionPrice,
+      currency: r.currency,
+      sales_revenue: r.salesRevenue,
+      sales_discount_deducted: r.salesDiscountDeducted,
+      sales_reversal: r.salesReversal,
+      freight_revenue: r.freightRevenue,
+      freight_discount_deducted: r.freightDiscountDeducted,
+      freight_reversal: r.freightReversal,
+      total_revenue: r.totalRevenue,
+    }));
+    
+    const { error: batchError } = await supabase.from("finance_settlement_records").insert(batch);
+    if (batchError) {
+      await deleteSettlementFile(fileId);
+      throw new Error("保存文件数据失败: " + batchError.message);
+    }
+  }
+
+  return {
+    id: fileId,
+    fileName: fileData.file_name,
+    dateRangeStart: fileData.date_range_start,
+    dateRangeEnd: fileData.date_range_end,
+    importedAt: fileData.imported_at,
+    totalSalesRevenue: Number(fileData.total_sales_revenue),
+    totalFreightRevenue: Number(fileData.total_freight_revenue),
+    totalRevenue: Number(fileData.total_revenue),
+    recordCount: fileData.record_count,
+    records,
+  };
 }
 
 // ── Lookup / Indexing ──────────────────────────────────────────────────────────
