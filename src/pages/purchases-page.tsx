@@ -9,6 +9,7 @@ import {
   readDraft,
   useDraftPersistence,
 } from "../hooks/use-draft-persistence";
+import { useAutoDismiss } from "../hooks/use-auto-dismiss";
 import { usePermissions } from "../hooks/use-permissions";
 import { fetchWarehouses } from "../lib/inventory";
 import {
@@ -213,6 +214,9 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
       ? "已恢复上次未保存的采购管理单草稿。"
       : "",
   );
+  useAutoDismiss(errorMessage, () => setErrorMessage(""));
+  useAutoDismiss(noticeMessage, () => setNoticeMessage(""));
+  useAutoDismiss(draftNotice, () => setDraftNotice(""));
 
   useEffect(() => {
     let active = true;
@@ -976,7 +980,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
   }
 
   return (
-    <section className="grid gap-5">
+    <section className="flex flex-col gap-6 p-4 sm:p-6">
       <PageHeader
         title={view === "create" ? "新增采购管理单" : "采购管理记录"}
         description={view === "create" ? "保存采购管理单，后续在记录页补录物流并签收入库" : "查看采购管理单、补录物流并按包裹签收入库"}
@@ -997,7 +1001,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
       {noticeMessage && <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{noticeMessage}</div>}
       {draftNotice && <div className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-700">{draftNotice}</div>}
 
-      {view === "create" && <section className="surface-card grid gap-4 p-5">
+      {view === "create" && <section className="grid gap-4 rounded-lg bg-panel p-5 shadow-soft">
         <div>
           <h2 className="text-base font-semibold text-ink">新增采购管理单</h2>
           <p className="mt-1 text-sm text-slate-500">同一个 1688 订单号保存为一张采购管理单。</p>
@@ -1252,7 +1256,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
 
       {view === "records" && (
         <section className="grid gap-4">
-          <section className="surface-card grid gap-4 p-4 sm:p-5">
+          <section className="grid gap-4 rounded-lg bg-panel p-4 sm:p-5 shadow-soft">
             <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(280px,380px)] lg:items-end">
               <div>
                 <h2 className="text-base font-semibold text-ink">采购管理记录</h2>
@@ -1349,7 +1353,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                 return (
                   <article
                     key={order.id}
-                    className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4"
+                    className="rounded-xl border border-line bg-white p-3 shadow-sm sm:p-4"
                   >
                     <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(420px,520px)_auto] lg:items-center">
                       <div className="min-w-0">
@@ -1579,7 +1583,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                               return (
                                 <div
                                   key={group.key}
-                                  className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3"
+                                  className="grid gap-3 rounded-xl border border-line bg-slate-50/70 p-3"
                                 >
                                   <div className="grid gap-3">
                                     <div className="min-w-0">

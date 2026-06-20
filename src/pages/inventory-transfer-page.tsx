@@ -45,6 +45,7 @@ import type {
 } from "../types";
 import type { WarehouseInventoryTransferMetadata } from "../lib/inventory";
 import { PageHeader } from "../components/ui";
+import { useAutoDismiss } from "../hooks/use-auto-dismiss";
 import { usePermissions } from "../hooks/use-permissions";
 import { getErrorMessage } from "../utils/errors";
 import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../utils/sku-code";
@@ -147,6 +148,8 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
   const [busyKey, setBusyKey] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  useAutoDismiss(errorMessage, () => setErrorMessage(""));
+  useAutoDismiss(successMessage, () => setSuccessMessage(""));
   const productCodeCollator = useMemo(
     () => new Intl.Collator("zh-CN", { numeric: true, sensitivity: "base" }),
     [],
@@ -759,7 +762,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
   }
 
   return (
-    <section className="grid gap-5">
+    <section className="flex flex-col gap-6 p-4 sm:p-6">
       <PageHeader
         title="库存调拨"
         description="先从调出仓扣减库存，快递签收后再加入调入仓库"
@@ -781,7 +784,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
         </div>
       )}
 
-      <section className="surface-card grid gap-6 p-6">
+      <section className="container-card">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
           <div>
             <h2 className="text-base font-bold text-slate-800">新建库存调拨</h2>
@@ -789,7 +792,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
               选择调出和调入仓库，填写物流单号并添加调拨商品。
             </p>
           </div>
-          <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-bold text-violet-700">
+          <span className="rounded-full bg-accentSoft px-3 py-1 text-xs font-bold text-accentDeep">
             已选择 {transferSkuLineDetails.length} 个 SKU
           </span>
         </div>
@@ -797,8 +800,8 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
         {/* Visual Warehouse Flow Connector Diagram */}
         <div className="flex flex-col items-center justify-between gap-6 rounded-2xl border border-slate-100 bg-slate-50/50 p-6 md:flex-row md:gap-12">
           {/* Source Warehouse Card */}
-          <div className="flex flex-1 flex-col items-center gap-3 rounded-2xl border border-dashed border-slate-200 bg-white p-5 text-center shadow-sm w-full md:w-auto">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
+          <div className="flex flex-1 flex-col items-center gap-3 rounded-2xl border border-dashed border-line bg-white p-5 text-center shadow-sm w-full md:w-auto">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-accentSoft text-accent">
               <Home size={24} />
             </div>
             <div className="w-full">
@@ -807,7 +810,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
                 value={transferSourceWarehouseId}
                 onChange={(event) => handleTransferSourceWarehouseChange(event.target.value)}
                 disabled={!canEdit || loading}
-                className="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-center text-sm font-bold text-slate-800 outline-none transition focus:border-violet-600 focus:bg-white focus:ring-2 focus:ring-violet-600/10"
+                className="mt-2 h-10 w-full rounded-xl border border-line bg-slate-50 px-3 text-center text-sm font-bold text-slate-800 outline-none transition focus:border-accent focus:bg-white focus:ring-2 focus:ring-accent/10"
               >
                 <option value="">选择仓库</option>
                 {warehouses.map((warehouse) => (
@@ -821,7 +824,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
 
           {/* Connector Graphic */}
           <div className="flex flex-col items-center gap-2 text-slate-400 shrink-0">
-            <div className="flex items-center gap-1.5 font-mono text-[11px] font-bold text-violet-700 bg-violet-50 px-3 py-1.5 rounded-full border border-violet-100 shadow-sm animate-pulse">
+            <div className="flex items-center gap-1.5 font-mono text-[11px] font-bold text-accentDeep bg-accentSoft px-3 py-1.5 rounded-full border border-accentSoft shadow-sm animate-pulse">
               <Truck size={14} />
               <span>在途调拨运输</span>
             </div>
@@ -830,8 +833,8 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
           </div>
 
           {/* Destination Warehouse Card */}
-          <div className="flex flex-1 flex-col items-center gap-3 rounded-2xl border border-dashed border-slate-200 bg-white p-5 text-center shadow-sm w-full md:w-auto">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
+          <div className="flex flex-1 flex-col items-center gap-3 rounded-2xl border border-dashed border-line bg-white p-5 text-center shadow-sm w-full md:w-auto">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-accentSoft text-accent">
               <Home size={24} />
             </div>
             <div className="w-full">
@@ -840,7 +843,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
                 value={transferDestinationWarehouseId}
                 onChange={(event) => setTransferDestinationWarehouseId(event.target.value)}
                 disabled={!canEdit || loading}
-                className="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-center text-sm font-bold text-slate-800 outline-none transition focus:border-indigo-600 focus:bg-white focus:ring-2 focus:ring-indigo-600/10"
+                className="mt-2 h-10 w-full rounded-xl border border-line bg-slate-50 px-3 text-center text-sm font-bold text-slate-800 outline-none transition focus:border-accent focus:bg-white focus:ring-2 focus:ring-accent/10"
               >
                 <option value="">选择仓库</option>
                 {warehouses.map((warehouse) => (
@@ -860,7 +863,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
           <div className="flex flex-col gap-6">
             {/* Logistics and Date Card */}
-            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="rounded-xl border border-line bg-white p-5 shadow-sm">
               <h3 className="mb-4 text-sm font-bold text-slate-800 flex items-center gap-2">
                 <ClipboardList size={16} className="text-slate-400" />
                 <span>物流与时间</span>
@@ -875,7 +878,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
                       value={transferDate}
                       onChange={(event) => setTransferDate(event.target.value)}
                       disabled={!canEdit || loading}
-                      className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm outline-none transition focus:border-violet-600 focus:bg-white focus:ring-2 focus:ring-violet-600/10 disabled:opacity-60"
+                      className="h-11 w-full rounded-xl border border-line bg-slate-50 pl-10 pr-3 text-sm outline-none transition focus:border-accent focus:bg-white focus:ring-2 focus:ring-accent/10 disabled:opacity-60"
                     />
                   </div>
                 </label>
@@ -888,7 +891,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
                       onChange={(event) => setTransferTrackingNo(event.target.value)}
                       disabled={!canEdit || loading}
                       placeholder="调拨快递单号"
-                      className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm outline-none transition focus:border-violet-600 focus:bg-white focus:ring-2 focus:ring-violet-600/10 disabled:opacity-60"
+                      className="h-11 w-full rounded-xl border border-line bg-slate-50 pl-10 pr-3 text-sm outline-none transition focus:border-accent focus:bg-white focus:ring-2 focus:ring-accent/10 disabled:opacity-60"
                     />
                   </div>
                 </label>
@@ -896,7 +899,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
             </div>
 
             {/* Add Item Form */}
-            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="rounded-xl border border-line bg-white p-5 shadow-sm">
               <h3 className="mb-4 text-sm font-bold text-slate-800 flex items-center gap-2">
                 <Plus size={16} className="text-slate-400" />
                 <span>添加调拨商品</span>
@@ -908,7 +911,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
                     value={transferSkuId}
                     onChange={(event) => setTransferSkuId(event.target.value)}
                     disabled={!canEdit || !transferSourceWarehouseId || loading}
-                    className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm outline-none transition focus:border-violet-600 focus:bg-white focus:ring-2 focus:ring-violet-600/10 disabled:opacity-60"
+                    className="h-11 rounded-xl border border-line bg-slate-50 px-3 text-sm outline-none transition focus:border-accent focus:bg-white focus:ring-2 focus:ring-accent/10 disabled:opacity-60"
                   >
                     <option value="">选择 SKU</option>
                     {transferSkuOptions.map((item) => {
@@ -938,7 +941,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
                     value={transferQuantity}
                     onChange={(event) => setTransferQuantity(event.target.value)}
                     disabled={!canEdit || loading}
-                    className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm outline-none transition focus:border-violet-600 focus:bg-white focus:ring-2 focus:ring-violet-600/10 disabled:opacity-60"
+                    className="h-11 rounded-xl border border-line bg-slate-50 px-3 text-sm outline-none transition focus:border-accent focus:bg-white focus:ring-2 focus:ring-accent/10 disabled:opacity-60"
                   />
                 </label>
                 <div className="flex items-end">
@@ -964,7 +967,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
 
           {/* Transfer List Panel */}
           <div className="flex min-w-0 flex-col rounded-2xl border border-slate-100 bg-slate-50/50 p-5 shadow-inner">
-            <div className="flex items-center justify-between gap-3 border-b border-slate-200 pb-3">
+            <div className="flex items-center justify-between gap-3 border-b border-line pb-3">
               <h3 className="text-sm font-bold text-slate-800">调拨清单</h3>
               <span className="rounded-full bg-slate-200 px-2.5 py-0.5 text-xs font-bold text-slate-600">
                 {transferSkuLineDetails.length} 项
@@ -976,7 +979,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
                 transferSkuLineDetails.map((line) => (
                   <div
                     key={line.draft.skuId}
-                    className="grid gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition-all hover:border-slate-300 sm:grid-cols-[minmax(0,1fr)_120px_36px] sm:items-center"
+                    className="grid gap-3 rounded-xl border border-line bg-white p-3 shadow-sm transition-all hover:border-line sm:grid-cols-[minmax(0,1fr)_120px_36px] sm:items-center"
                   >
                     <div className="min-w-0">
                       <div className="break-words text-sm font-bold text-slate-800">
@@ -994,7 +997,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
                       </div>
                     </div>
                     {/* Custom quantity adjuster */}
-                    <div className="flex items-center rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+                    <div className="flex items-center rounded-lg border border-line bg-slate-50 p-0.5">
                       <button
                         type="button"
                         onClick={() => {
@@ -1046,7 +1049,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
                   </div>
                 ))
               ) : (
-                <div className="flex min-h-[158px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white/50 px-4 py-8 text-center text-slate-500">
+                <div className="flex min-h-[158px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-line bg-white/50 px-4 py-8 text-center text-slate-500">
                   <PackageOpen size={32} className="text-slate-300" />
                   <span className="text-sm font-medium">暂无调拨 SKU，请在左侧添加</span>
                 </div>
@@ -1067,7 +1070,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
 
       <section className="grid gap-4">
         {/* Sub-tab filter for records */}
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-3">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-line pb-3">
           <div className="flex items-center gap-2">
             <h2 className="text-base font-bold text-slate-900">调拨记录</h2>
             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-500">
@@ -1140,7 +1143,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
               return (
                 <article
                   key={record.key}
-                  className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow-md"
+                  className="rounded-2xl border border-line bg-white p-5 shadow-sm transition hover:shadow-md"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-4">
                     <div className="flex flex-wrap items-center gap-3">
@@ -1176,7 +1179,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
                     {/* Step 1: Outbound */}
                     <div className="relative flex gap-3.5 md:flex-col md:items-start">
                       <div className="flex flex-col items-center">
-                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-violet-50 text-violet-600 ring-4 ring-white">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-accentSoft text-accent ring-4 ring-white">
                           <PackageCheck size={18} />
                         </div>
                         <div className="h-full w-0.5 bg-slate-150 md:hidden" />
@@ -1193,7 +1196,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
                       <div className="flex flex-col items-center">
                         <div
                           className={`flex h-9 w-9 items-center justify-center rounded-full ring-4 ring-white ${
-                            isReceived ? "bg-indigo-50 text-indigo-600" : "bg-amber-50 text-amber-600 animate-pulse"
+                            isReceived ? "bg-accentSoft text-accent" : "bg-amber-50 text-amber-600 animate-pulse"
                           }`}
                         >
                           <Truck size={18} />
@@ -1203,7 +1206,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
                       <div className="pt-1.5 md:pt-0">
                         <div className="text-xs font-bold text-slate-800">物流运输中</div>
                         <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                          <span className="font-mono text-xs font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                          <span className="font-mono text-xs font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-line">
                             {record.trackingNo}
                           </span>
                           <button
@@ -1223,7 +1226,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
                             href={trackingUrl}
                             target="_blank"
                             rel="noreferrer"
-                            className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-bold text-violet-600 hover:underline"
+                            className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-bold text-accent hover:underline"
                           >
                             <span>查询物流轨迹</span>
                             <ExternalLink size={10} />
@@ -1298,7 +1301,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
                         return (
                           <div
                             key={adjustment.id}
-                            className="grid gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-700 sm:grid-cols-[64px_minmax(0,1fr)_auto] sm:items-center shadow-sm"
+                            className="grid gap-2 rounded-xl border border-line bg-white px-4 py-3 text-xs text-slate-700 sm:grid-cols-[64px_minmax(0,1fr)_auto] sm:items-center shadow-sm"
                           >
                             <span
                               className={`inline-flex w-fit rounded-lg px-2 py-0.5 text-[10px] font-bold ${

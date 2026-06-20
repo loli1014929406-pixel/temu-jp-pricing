@@ -196,9 +196,15 @@ export function calculateProfitProjection(
   ];
 
   const activeFirstLegs = firstLegs.filter(
-    (m) => m.isActive && (m.formula === "flat_rmb" || m.formula === "flat_rmb_tariff"),
+    (m) =>
+      m.isActive &&
+      (m.formula === "flat_rmb" ||
+        m.formula === "flat_rmb_tariff" ||
+        m.formula === "fixed_rmb"),
   );
-  const activeLastLegs = lastLegs.filter((m) => m.isActive && m.formula === "flat_jpy");
+  const activeLastLegs = lastLegs.filter(
+    (m) => m.isActive && (m.formula === "flat_jpy" || m.formula === "fixed_rmb"),
+  );
 
   const plansList = [];
   if (activeFirstLegs.length > 0 && activeLastLegs.length > 0) {

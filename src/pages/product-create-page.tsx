@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import type { User } from "@supabase/supabase-js";
 import { ProductForm } from "../components/product-form";
@@ -8,6 +8,7 @@ import {
   readDraft,
   useDraftPersistence,
 } from "../hooks/use-draft-persistence";
+import { useAutoDismiss } from "../hooks/use-auto-dismiss";
 import {
   createEmptyItem,
   createEmptySku,
@@ -15,7 +16,16 @@ import {
   emptyProductDraft,
 } from "../lib/defaults";
 import { createProduct } from "../lib/products";
-import type { ProductDraft, ProductItem, ProductSkuDraft, ProductSpec } from "../types";
+import { fetchWarehouses } from "../lib/inventory";
+import { buildWarehouseShippingLimits } from "../lib/product-warehouse-shipping-limits";
+import type {
+  ProductDraft,
+  ProductItem,
+  ProductSkuDraft,
+  ProductSpec,
+  ProductWarehouseShippingLimit,
+  Warehouse,
+} from "../types";
 import { getErrorMessage } from "../utils/errors";
 
 type ProductCreatePageProps = {
@@ -27,6 +37,7 @@ type ProductCreateDraft = {
   items: ProductItem[];
   specs: ProductSpec[];
   skus: ProductSkuDraft[];
+  warehouseShippingLimits: ProductWarehouseShippingLimit[];
 };
 
 function createInitialProductDraft(): ProductCreateDraft {
@@ -35,6 +46,7 @@ function createInitialProductDraft(): ProductCreateDraft {
     items: [createEmptyItem()],
     specs: [createEmptySpec()],
     skus: [createEmptySku()],
+    warehouseShippingLimits: [],
   };
 }
 
@@ -72,8 +84,14 @@ function isProductCreateDraftEmpty(draft: ProductCreateDraft) {
         Object.keys(sku.attributes).length === 0 &&
         sku.component_links.length === 0,
     );
+  const warehouseShippingLimitsAreEmpty =
+    !Array.isArray(draft.warehouseShippingLimits) ||
+    draft.warehouseShippingLimits.length === 0 ||
+    draft.warehouseShippingLimits.every(
+      (limit) => Number(limit.max_units_per_parcel) === 1,
+    );
 
-  return productIsEmpty && itemsAreEmpty && specsAreEmpty && skusAreEmpty;
+  return productIsEmpty && itemsAreEmpty && specsAreEmpty && skusAreEmpty && warehouseShippingLimitsAreEmpty;
 }
 
 export function ProductCreatePage({ user }: ProductCreatePageProps) {
@@ -100,11 +118,16 @@ export function ProductCreatePage({ user }: ProductCreatePageProps) {
   const [skus, setSkus] = useState<ProductSkuDraft[]>(
     restoredDraft?.skus ?? [createEmptySku()],
   );
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [warehouseShippingLimits, setWarehouseShippingLimits] = useState<
+    ProductWarehouseShippingLimit[]
+  >(restoredDraft?.warehouseShippingLimits ?? []);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
-  const [draftNotice, setDraftNotice] = useState(
-    restoredDraft ? "已恢复上次未保存的新商品草稿。" : "",
-  );
+  const [hasRestoredDraft, setHasRestoredDraft] = useState(Boolean(restoredDraft));
+  const [draftDisabled, setDraftDisabled] = useState(false);
+  useAutoDismiss(message, () => setMessage(""));
+  useAutoDismiss(hasRestoredDraft, () => setHasRestoredDraft(false));
 
   useDraftPersistence(
     draftKey,
@@ -113,9 +136,35 @@ export function ProductCreatePage({ user }: ProductCreatePageProps) {
       items,
       specs,
       skus,
+      warehouseShippingLimits,
     },
-    { enabled: Boolean(user.id), shouldPersist: (draft) => !isProductCreateDraftEmpty(draft) },
+    {
+      enabled: Boolean(user.id) && !draftDisabled,
+      shouldPersist: (draft) => !isProductCreateDraftEmpty(draft),
+    },
   );
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadWarehouses() {
+      try {
+        const nextWarehouses = await fetchWarehouses();
+        if (!active) return;
+        setWarehouses(nextWarehouses);
+        setWarehouseShippingLimits((current) =>
+          buildWarehouseShippingLimits(nextWarehouses, current),
+        );
+      } catch (error) {
+        if (active) setMessage(getErrorMessage(error, "加载仓库失败"));
+      }
+    }
+
+    void loadWarehouses();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   function resetDraft() {
     const nextDraft = createInitialProductDraft();
@@ -123,8 +172,9 @@ export function ProductCreatePage({ user }: ProductCreatePageProps) {
     setItems(nextDraft.items);
     setSpecs(nextDraft.specs);
     setSkus(nextDraft.skus);
+    setWarehouseShippingLimits(buildWarehouseShippingLimits(warehouses, []));
     clearDraft(draftKey);
-    setDraftNotice("");
+    setHasRestoredDraft(false);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -138,8 +188,10 @@ export function ProductCreatePage({ user }: ProductCreatePageProps) {
     setMessage("");
 
     try {
-      await createProduct(product, items, skus);
+      await createProduct(product, items, skus, warehouseShippingLimits);
+      setDraftDisabled(true);
       clearDraft(draftKey);
+      setHasRestoredDraft(false);
       navigate("/products", { state: { message: "保存成功" } });
     } catch (error) {
       setMessage(getErrorMessage(error, "保存商品失败"));
@@ -159,9 +211,9 @@ export function ProductCreatePage({ user }: ProductCreatePageProps) {
           {message}
         </div>
       )}
-      {draftNotice && (
+      {hasRestoredDraft && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-700">
-          <span>{draftNotice}</span>
+          <span>已恢复上次未保存的新商品草稿。</span>
           <button type="button" onClick={resetDraft} className="text-sm font-semibold text-sky-800">
             清除草稿
           </button>
@@ -172,12 +224,15 @@ export function ProductCreatePage({ user }: ProductCreatePageProps) {
         items={items}
         specs={specs}
         skus={skus}
+        warehouses={warehouses}
+        warehouseShippingLimits={warehouseShippingLimits}
         busy={busy}
         submitLabel="保存商品"
         onProductChange={setProduct}
         onItemsChange={setItems}
         onSpecsChange={setSpecs}
         onSkusChange={setSkus}
+        onWarehouseShippingLimitsChange={setWarehouseShippingLimits}
         onSubmit={handleSubmit}
       />
     </section>

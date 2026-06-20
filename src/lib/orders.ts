@@ -168,6 +168,62 @@ export async function fetchTemuOrders() {
   return ((data ?? []) as Partial<TemuOrderRecord>[]).map(normalizeTemuOrder);
 }
 
+export type FetchTemuOrdersPaginatedOptions = {
+  page: number;
+  pageSize: number;
+  searchQuery?: string;
+  statusFilter?: string;
+};
+
+export async function fetchTemuOrdersPaginated(options: FetchTemuOrdersPaginatedOptions) {
+  const { supabase, session } = await requireSession();
+  const { page, pageSize, searchQuery, statusFilter } = options;
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+
+  const buildRequest = (fields: string) => {
+    let req = supabase
+      .from("temu_orders")
+      .select(fields, { count: "exact" })
+      .eq("owner_id", session.user.id);
+    
+    if (statusFilter) {
+      req = req.eq("order_status", statusFilter);
+    }
+    
+    if (searchQuery) {
+      const escaped = searchQuery.replace(/[%_\\]/g, "\\$&").replace(/"/g, '""');
+      req = req.or(`order_no.ilike."%${escaped}%",sub_order_no.ilike."%${escaped}%",logistics_tracking_no.ilike."%${escaped}%"`);
+    }
+
+    return req
+      .order("latest_ship_time", { ascending: true })
+      .order("created_at", { ascending: false })
+      .range(from, to);
+  };
+
+  const { data, error, count } = await withTimeout(buildRequest(temuOrderSelectFields), "加载订单分页");
+
+  if (error && isMissingActualShippingFeeColumnError(error)) {
+    const { data: legacyData, error: legacyError, count: legacyCount } = await withTimeout(
+      buildRequest(temuOrderLegacySelectFields),
+      "加载订单分页",
+    );
+    if (legacyError) throw legacyError;
+    return {
+      data: ((legacyData ?? []) as Partial<TemuOrderRecord>[]).map(normalizeTemuOrder),
+      count: legacyCount ?? 0,
+    };
+  }
+  
+  if (error) throw error;
+
+  return {
+    data: ((data ?? []) as Partial<TemuOrderRecord>[]).map(normalizeTemuOrder),
+    count: count ?? 0,
+  };
+}
+
 export async function importTemuOrders(rows: TemuOrderImportRow[]) {
   const { supabase, session } = await requireSession();
   if (rows.length === 0) return [] as TemuOrderRecord[];

@@ -97,3 +97,5 @@ export function StatCard({ label, value, tone = "default" }: StatCardProps) {
     </div>
   );
 }
+
+export * from "./ui/StandardTable";

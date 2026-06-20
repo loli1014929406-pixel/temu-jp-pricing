@@ -1,6 +1,7 @@
 import type { User } from "@supabase/supabase-js";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Badge, BackToParentAction, PageHeader, StatCard } from "../components/ui";
+import { StandardTable } from "../components/ui/StandardTable";
 import {
   fetchProductItemsByProductIds,
   fetchProductSkusByProductIds,
@@ -8,6 +9,7 @@ import {
 } from "../lib/products";
 import { fetchProfitCalculationsBySkuIds } from "../lib/profit-calculations";
 import { fetchSettings } from "../lib/settings";
+import { useAutoDismiss } from "../hooks/use-auto-dismiss";
 import type {
   PricingResult,
   PricingSettings,
@@ -599,7 +601,7 @@ function FeatureToggle({
   return (
     <label
       className={`mt-0.5 inline-flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md border transition ${
-        checked ? "border-emerald-300 bg-emerald-50" : "border-slate-200 bg-white"
+        checked ? "border-emerald-300 bg-emerald-50" : "border-line bg-white"
       } ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
       title={label}
     >
@@ -708,6 +710,13 @@ export function PromotionRecommendationsPage({
   const [missingRows, setMissingRows] = useState<MissingRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  useAutoDismiss(errorMessage, () => setErrorMessage(""));
+
+  useEffect(() => {
+    setPage(1);
+  }, [pageSize]);
 
   useEffect(() => {
     writeStoredFeatureToggles(user.id, featureTogglesByProductId);
@@ -898,8 +907,10 @@ export function PromotionRecommendationsPage({
     [rows],
   );
 
+  const paginatedRows = rows.slice((page - 1) * pageSize, page * pageSize);
+
   return (
-    <section className="grid gap-5">
+    <section className="flex flex-col gap-6 p-4 sm:p-6">
       <PageHeader
         title="促销投放推荐"
         description="按现有核价、成本和利润设置，给出每个商品的促销与广告建议"
@@ -921,7 +932,7 @@ export function PromotionRecommendationsPage({
         <StatCard label="建议开广告" value={String(summary.adCount)} />
       </div>
 
-      <section className="surface-card grid gap-3 p-4">
+      <section className="grid gap-4 rounded-lg bg-panel p-4 sm:p-5 shadow-soft">
         <h2 className="text-base font-semibold text-ink">统一勾选</h2>
         <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
           {featureKeys.map((feature) => (
@@ -939,10 +950,10 @@ export function PromotionRecommendationsPage({
       <div className="grid gap-3 md:hidden">
         {loading ? (
           <div className="empty-state">加载中...</div>
-        ) : rows.length === 0 ? (
+        ) : paginatedRows.length === 0 ? (
           <div className="empty-state">暂无可推荐商品</div>
         ) : (
-          rows.map((row) => (
+          paginatedRows.map((row) => (
             <article key={row.product.id} className="mobile-summary-card">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -998,9 +1009,17 @@ export function PromotionRecommendationsPage({
         )}
       </div>
 
-      <div className="table-card hidden md:block">
+      <div className="hidden rounded-lg bg-panel shadow-soft overflow-hidden md:block">
         <div className="overflow-x-auto">
-          <table className="data-table min-w-[1260px] table-fixed [&_td]:px-3 [&_td]:py-4 [&_th]:px-3 [&_th]:py-3">
+          <StandardTable
+            page={page}
+            pageSize={pageSize}
+            totalPages={Math.max(1, Math.ceil(rows.length / pageSize))}
+            totalRecordCount={rows.length}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+            tableClassName="data-table min-w-[1260px] table-fixed [&_td]:px-3 [&_td]:py-4 [&_th]:px-3 [&_th]:py-3"
+          >
             <colgroup>
               <col className="w-[100px]" />
               <col className="w-[78px]" />
@@ -1034,14 +1053,14 @@ export function PromotionRecommendationsPage({
                     加载中...
                   </td>
                 </tr>
-              ) : rows.length === 0 ? (
+              ) : paginatedRows.length === 0 ? (
                 <tr>
                   <td colSpan={10} className="px-4 py-8 text-center text-slate-500">
                     暂无可推荐商品
                   </td>
                 </tr>
               ) : (
-                rows.map((row) => (
+                paginatedRows.map((row) => (
                   <tr key={row.product.id}>
                     <td>
                       <div className="grid gap-1">
@@ -1133,12 +1152,12 @@ export function PromotionRecommendationsPage({
                 ))
               )}
             </tbody>
-          </table>
+          </StandardTable>
         </div>
       </div>
 
       {!loading && missingRows.length > 0 && (
-        <section className="surface-card p-4">
+        <section className="grid gap-4 rounded-lg bg-panel p-4 sm:p-5 shadow-soft">
           <h2 className="text-base font-semibold text-ink">暂不可推荐</h2>
           <div className="mt-3 grid gap-2 text-sm text-slate-600">
             {missingRows.map((row) => (

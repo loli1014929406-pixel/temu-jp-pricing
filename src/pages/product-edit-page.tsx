@@ -8,6 +8,11 @@ import {
   fetchProductSkus,
   updateProduct,
 } from "../lib/products";
+import { fetchWarehouses } from "../lib/inventory";
+import {
+  buildWarehouseShippingLimits,
+  fetchProductWarehouseShippingLimits,
+} from "../lib/product-warehouse-shipping-limits";
 import {
   createEmptyItem,
   createEmptySku,
@@ -19,9 +24,12 @@ import type {
   ProductItem,
   ProductSkuDraft,
   ProductSpec,
+  ProductWarehouseShippingLimit,
+  Warehouse,
 } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../utils/sku-code";
+import { useAutoDismiss } from "../hooks/use-auto-dismiss";
 
 type ProductEditDraftCache = {
   productId: string;
@@ -29,6 +37,7 @@ type ProductEditDraftCache = {
   items: ProductItem[];
   specs: ProductSpec[];
   skus: ProductSkuDraft[];
+  warehouseShippingLimits: ProductWarehouseShippingLimit[];
   savedAt?: string;
 };
 
@@ -145,6 +154,9 @@ function mergeCachedDraft(
     skus: Array.isArray(cachedDraft.skus)
       ? normalizeDraftSkus(cachedDraft.skus)
       : baseDraft.skus,
+    warehouseShippingLimits: Array.isArray(cachedDraft.warehouseShippingLimits)
+      ? cachedDraft.warehouseShippingLimits
+      : baseDraft.warehouseShippingLimits,
   };
 }
 
@@ -157,7 +169,8 @@ function isCompleteProductEditDraft(
       draft.product &&
       Array.isArray(draft.items) &&
       Array.isArray(draft.specs) &&
-      Array.isArray(draft.skus),
+      Array.isArray(draft.skus) &&
+      Array.isArray(draft.warehouseShippingLimits),
   );
 }
 
@@ -206,6 +219,12 @@ function getComparableDraft(draft: ProductEditDraftCache) {
         quantity,
       })),
     })),
+    warehouseShippingLimits: draft.warehouseShippingLimits.map(
+      ({ warehouse_id, max_units_per_parcel }) => ({
+        warehouse_id,
+        max_units_per_parcel,
+      }),
+    ),
   };
 }
 
@@ -226,10 +245,16 @@ export function ProductEditPage() {
   const [items, setItems] = useState<ProductItem[]>([]);
   const [specs, setSpecs] = useState<ProductSpec[]>([createEmptySpec()]);
   const [skus, setSkus] = useState<ProductSkuDraft[]>([]);
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [warehouseShippingLimits, setWarehouseShippingLimits] = useState<
+    ProductWarehouseShippingLimit[]
+  >([]);
   const [loadingError, setLoadingError] = useState("");
   const [draftNotice, setDraftNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  useAutoDismiss(message, () => setMessage(""));
+  useAutoDismiss(draftNotice, () => setDraftNotice(""));
 
   useEffect(() => {
     let active = true;
@@ -244,9 +269,11 @@ export function ProductEditPage() {
       try {
         const nextProduct = await fetchProduct(productKey);
 
-        const [nextItems, nextSkus] = await Promise.all([
+        const [nextItems, nextSkus, nextWarehouses, nextWarehouseShippingLimits] = await Promise.all([
           fetchProductItems(nextProduct.id),
           fetchProductSkus(nextProduct.id),
+          fetchWarehouses(),
+          fetchProductWarehouseShippingLimits(nextProduct.id),
         ]);
         const {
           id,
@@ -278,6 +305,10 @@ export function ProductEditPage() {
                   })),
                 }))
               : [createEmptySku()],
+          warehouseShippingLimits: buildWarehouseShippingLimits(
+            nextWarehouses,
+            nextWarehouseShippingLimits,
+          ),
         };
         const cachedDraft = readProductEditDraft(productKey);
         const nextDraft = mergeCachedDraft(serverDraft, cachedDraft);
@@ -292,6 +323,10 @@ export function ProductEditPage() {
         setItems(nextDraft.items);
         setSpecs(nextDraft.specs);
         setSkus(nextDraft.skus);
+        setWarehouses(nextWarehouses);
+        setWarehouseShippingLimits(
+          buildWarehouseShippingLimits(nextWarehouses, nextDraft.warehouseShippingLimits),
+        );
         setDraftNotice(restoredDraft ? "已恢复上次未保存的编辑草稿，保存编辑后会自动清除。" : "");
         if (restoredDraft) {
           writeProductEditDraft(productKey, nextDraft);
@@ -306,6 +341,7 @@ export function ProductEditPage() {
             ...cachedDraft,
             product: { ...emptyProductDraft, ...cachedDraft.product },
             skus: normalizeDraftSkus(cachedDraft.skus),
+            warehouseShippingLimits: cachedDraft.warehouseShippingLimits,
           };
           draftRef.current = fallbackDraft;
           draftDirtyRef.current = true;
@@ -314,6 +350,7 @@ export function ProductEditPage() {
           setItems(fallbackDraft.items);
           setSpecs(fallbackDraft.specs);
           setSkus(fallbackDraft.skus);
+          setWarehouseShippingLimits(fallbackDraft.warehouseShippingLimits);
           setMessage(getErrorMessage(error, "加载商品失败，已先显示本地草稿"));
           setDraftNotice("当前显示的是本地草稿；保存前请确认后台连接已恢复。");
           return;
@@ -346,35 +383,13 @@ export function ProductEditPage() {
       items,
       specs,
       skus,
+      warehouseShippingLimits,
     };
     draftRef.current = nextDraft;
     if (draftDirtyRef.current) {
       writeProductEditDraft(productKey, nextDraft);
     }
-  }, [items, product, productId, productKey, skus, specs]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const flushDraft = () => {
-      if (draftDirtyRef.current && draftRef.current) {
-        writeProductEditDraft(productKey, draftRef.current);
-      }
-    };
-    const flushHiddenDraft = () => {
-      if (document.visibilityState === "hidden") flushDraft();
-    };
-
-    window.addEventListener("pagehide", flushDraft);
-    window.addEventListener("beforeunload", flushDraft);
-    document.addEventListener("visibilitychange", flushHiddenDraft);
-
-    return () => {
-      window.removeEventListener("pagehide", flushDraft);
-      window.removeEventListener("beforeunload", flushDraft);
-      document.removeEventListener("visibilitychange", flushHiddenDraft);
-    };
-  }, [productKey]);
+  }, [items, product, productId, productKey, skus, specs, warehouseShippingLimits]);
 
   const handleProductChange = useCallback(
     (nextProduct: ProductDraft) => {
@@ -386,9 +401,10 @@ export function ProductEditPage() {
         items,
         specs,
         skus,
+        warehouseShippingLimits,
       });
     },
-    [items, persistDraftNow, productId, skus, specs],
+    [items, persistDraftNow, productId, skus, specs, warehouseShippingLimits],
   );
 
   const handleItemsChange = useCallback(
@@ -401,9 +417,10 @@ export function ProductEditPage() {
         items: nextItems,
         specs,
         skus,
+        warehouseShippingLimits,
       });
     },
-    [persistDraftNow, product, productId, skus, specs],
+    [persistDraftNow, product, productId, skus, specs, warehouseShippingLimits],
   );
 
   const handleSpecsChange = useCallback(
@@ -416,9 +433,10 @@ export function ProductEditPage() {
         items,
         specs: nextSpecs,
         skus,
+        warehouseShippingLimits,
       });
     },
-    [items, persistDraftNow, product, productId, skus],
+    [items, persistDraftNow, product, productId, skus, warehouseShippingLimits],
   );
 
   const handleSkusChange = useCallback(
@@ -431,9 +449,26 @@ export function ProductEditPage() {
         items,
         specs,
         skus: nextSkus,
+        warehouseShippingLimits,
       });
     },
-    [items, persistDraftNow, product, productId, specs],
+    [items, persistDraftNow, product, productId, specs, warehouseShippingLimits],
+  );
+
+  const handleWarehouseShippingLimitsChange = useCallback(
+    (nextLimits: ProductWarehouseShippingLimit[]) => {
+      setWarehouseShippingLimits(nextLimits);
+      if (!product || !productId) return;
+      persistDraftNow({
+        productId,
+        product,
+        items,
+        specs,
+        skus,
+        warehouseShippingLimits: nextLimits,
+      });
+    },
+    [items, persistDraftNow, product, productId, skus, specs],
   );
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -443,7 +478,7 @@ export function ProductEditPage() {
     setMessage("");
 
     try {
-      await updateProduct(productId, product, items, skus);
+      await updateProduct(productId, product, items, skus, warehouseShippingLimits);
       draftDirtyRef.current = false;
       draftRef.current = null;
       clearProductEditDraft(productKey);
@@ -468,7 +503,7 @@ export function ProductEditPage() {
   }
 
   return (
-    <section className="grid gap-5">
+    <section className="flex flex-col gap-6 p-4 sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold text-ink">编辑商品</h1>
         <BackToParentAction fallbackTo="/products" />
@@ -488,12 +523,15 @@ export function ProductEditPage() {
         items={items}
         specs={specs}
         skus={skus}
+        warehouses={warehouses}
+        warehouseShippingLimits={warehouseShippingLimits}
         busy={busy}
         submitLabel="保存编辑"
         onProductChange={handleProductChange}
         onItemsChange={handleItemsChange}
         onSpecsChange={handleSpecsChange}
         onSkusChange={handleSkusChange}
+        onWarehouseShippingLimitsChange={handleWarehouseShippingLimitsChange}
         onSubmit={handleSubmit}
       />
     </section>

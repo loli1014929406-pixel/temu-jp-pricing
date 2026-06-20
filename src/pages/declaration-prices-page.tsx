@@ -12,7 +12,9 @@ import type { PricingResult, Product } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { calculatePricing, formatCurrency } from "../utils/pricing";
 import { PageHeader } from "../components/ui";
+import { StandardTable } from "../components/ui/StandardTable";
 import { usePermissions } from "../hooks/use-permissions";
+import { useAutoDismiss } from "../hooks/use-auto-dismiss";
 
 type DeclarationPricesPageProps = {
   user: User;
@@ -43,6 +45,13 @@ export function DeclarationPricesPage({ user }: DeclarationPricesPageProps) {
   >({});
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  useAutoDismiss(errorMessage, () => setErrorMessage(""));
+
+  useEffect(() => {
+    setPage(1);
+  }, [pageSize]);
 
   useEffect(() => {
     let active = true;
@@ -124,8 +133,10 @@ export function DeclarationPricesPage({ user }: DeclarationPricesPageProps) {
     };
   }, [user.id]);
 
+  const paginatedProducts = products.slice((page - 1) * pageSize, page * pageSize);
+
   return (
-    <section className="grid gap-5">
+    <section className="flex flex-col gap-6 p-4 sm:p-6">
       <PageHeader title="核算定价" description="查看和维护商品核算定价数据" />
 
       {errorMessage && (
@@ -137,10 +148,10 @@ export function DeclarationPricesPage({ user }: DeclarationPricesPageProps) {
       <div className="grid gap-3 md:hidden">
         {loading ? (
           <div className="empty-state">加载中...</div>
-        ) : products.length === 0 ? (
+        ) : paginatedProducts.length === 0 ? (
           <div className="empty-state">暂无商品</div>
         ) : (
-          products.map((product) => {
+          paginatedProducts.map((product) => {
             const summary = pricingSummaries[product.id];
 
             return (
@@ -180,9 +191,16 @@ export function DeclarationPricesPage({ user }: DeclarationPricesPageProps) {
         )}
       </div>
 
-      <div className="table-card hidden md:block">
+      <div className="rounded-lg bg-panel shadow-soft overflow-hidden hidden md:block">
         <div className="overflow-x-auto">
-          <table className="data-table">
+          <StandardTable
+            page={page}
+            pageSize={pageSize}
+            totalPages={Math.max(1, Math.ceil(products.length / pageSize))}
+            totalRecordCount={products.length}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+          >
             <thead>
               <tr>
                 <th className="px-4 py-3 font-medium">商品编号</th>
@@ -202,14 +220,14 @@ export function DeclarationPricesPage({ user }: DeclarationPricesPageProps) {
                     加载中...
                   </td>
                 </tr>
-              ) : products.length === 0 ? (
+              ) : paginatedProducts.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
                     暂无商品
                   </td>
                 </tr>
               ) : (
-                products.map((product) => {
+                paginatedProducts.map((product) => {
                   const summary = pricingSummaries[product.id];
 
                   return (
@@ -248,7 +266,7 @@ export function DeclarationPricesPage({ user }: DeclarationPricesPageProps) {
                 })
               )}
             </tbody>
-          </table>
+          </StandardTable>
         </div>
       </div>
     </section>

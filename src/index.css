@@ -56,7 +56,7 @@ a {
   }
 
   .erp-brand-mark {
-    @apply inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-tr from-violet-600 to-indigo-600 text-xs font-black tracking-tight text-white shadow-md shadow-violet-500/25 transition-transform duration-300 hover:scale-105;
+    @apply inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-tr from-accent to-accentDeep text-xs font-black tracking-tight text-white shadow-md shadow-accent/25 transition-transform duration-300 hover:scale-105;
   }
 
   .erp-side-nav {
@@ -90,7 +90,7 @@ a {
   }
 
   .erp-side-nav-item-active {
-    @apply bg-violet-600 text-white shadow-md shadow-violet-600/15 hover:bg-violet-700 hover:text-white;
+    @apply bg-accent text-white shadow-md shadow-accent/15 hover:bg-accentDeep hover:text-white;
   }
 
   .erp-side-nav-item-active svg {
@@ -330,13 +330,13 @@ a {
 
   .data-table tbody tr.is-selected,
   .data-table tbody tr[data-selected="true"] {
-    @apply bg-violet-50/50;
-    box-shadow: inset 4px 0 0 theme('colors.violet.600');
+    @apply bg-accentSoft/50;
+    box-shadow: inset 4px 0 0 theme('colors.accent');
   }
 
   .data-table tbody tr.is-selected:hover,
   .data-table tbody tr[data-selected="true"]:hover {
-    @apply bg-violet-50/70;
+    @apply bg-accentSoft/70;
   }
 
   .data-table tbody tr.is-selected > td,
@@ -353,7 +353,7 @@ a {
   }
 
   .btn-primary {
-    @apply inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-violet-600 px-4 text-sm font-semibold text-white shadow-sm shadow-violet-600/10 transition-all duration-200 hover:bg-violet-700 hover:shadow-md hover:shadow-violet-600/20 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-accent px-4 text-sm font-semibold text-white shadow-sm shadow-accent/10 transition-all duration-200 hover:bg-accentDeep hover:shadow-md hover:shadow-accent/20 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .btn-secondary {
@@ -369,7 +369,7 @@ a {
   }
 
   .text-action {
-    @apply text-sm font-semibold text-violet-600 transition hover:text-violet-800 hover:underline;
+    @apply text-sm font-semibold text-accent transition hover:text-accentDeep hover:underline;
   }
 
   .empty-state {
@@ -446,7 +446,7 @@ a {
   }
 
   .erp-status-info {
-    @apply text-violet-600 font-semibold;
+    @apply text-accent font-semibold;
   }
 
   @media (max-width: 1023px) {

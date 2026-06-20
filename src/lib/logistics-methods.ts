@@ -1,4 +1,8 @@
-import type { LogisticsMethod, WarehouseLogisticsMethod } from "../types";
+import type {
+  LogisticsMethod,
+  LogisticsMethodConfig,
+  WarehouseLogisticsMethod,
+} from "../types";
 import { requireSession, withTimeout } from "./supabase-helpers";
 
 const logisticsMethodSelect =
@@ -66,6 +70,136 @@ export async function createLogisticsMethod(name: string) {
 
   if (error) throw error;
   return data as LogisticsMethod;
+}
+
+export async function updateLogisticsMethod(
+  id: string,
+  updates: { name?: string; is_active?: boolean },
+) {
+  const nextUpdates: { name?: string; is_active?: boolean } = {};
+  if (typeof updates.name !== "undefined") {
+    const normalizedName = normalizeLogisticsMethodName(updates.name);
+    if (!normalizedName) throw new Error("请填写发货方式名称");
+    nextUpdates.name = normalizedName;
+  }
+  if (typeof updates.is_active !== "undefined") {
+    nextUpdates.is_active = updates.is_active;
+  }
+
+  const { supabase } = await requireSession();
+  const { data, error } = await withTimeout(
+    supabase
+      .from("logistics_methods")
+      .update(nextUpdates)
+      .eq("id", id)
+      .select(logisticsMethodSelect)
+      .single(),
+    "更新发货方式",
+  );
+
+  if (error) throw error;
+  return data as LogisticsMethod;
+}
+
+function findLogisticsMethodForConfig(
+  config: LogisticsMethodConfig,
+  previousConfig: LogisticsMethodConfig | undefined,
+  logisticsMethods: LogisticsMethod[],
+) {
+  if (config.db_method_id) {
+    const method = logisticsMethods.find((item) => item.id === config.db_method_id);
+    if (method) return method;
+  }
+
+  const candidateNames = [
+    config.name,
+    previousConfig?.name,
+  ]
+    .map((name) => normalizeLogisticsMethodName(name ?? "").toLowerCase())
+    .filter(Boolean);
+
+  return logisticsMethods.find((method) =>
+    candidateNames.includes(normalizeLogisticsMethodName(method.name).toLowerCase()),
+  );
+}
+
+async function syncLogisticsMethodConfigs(
+  configs: LogisticsMethodConfig[],
+  previousConfigs: LogisticsMethodConfig[],
+  logisticsMethods: LogisticsMethod[],
+) {
+  const previousById = new Map(previousConfigs.map((config) => [config.id, config]));
+  const syncedConfigs: LogisticsMethodConfig[] = [];
+  const syncedMethods = [...logisticsMethods];
+
+  for (const config of configs) {
+    const name = normalizeLogisticsMethodName(config.name);
+    if (!name) continue;
+
+    const previousConfig = previousById.get(config.id);
+    const existing = findLogisticsMethodForConfig(config, previousConfig, syncedMethods);
+    const isActive = Boolean(config.isActive);
+    let syncedMethod: LogisticsMethod;
+
+    if (existing) {
+      const shouldUpdateName =
+        normalizeLogisticsMethodName(existing.name).toLowerCase() !== name.toLowerCase();
+      const shouldUpdateActive = existing.is_active !== isActive;
+      syncedMethod =
+        shouldUpdateName || shouldUpdateActive
+          ? await updateLogisticsMethod(existing.id, {
+              name: shouldUpdateName ? name : undefined,
+              is_active: shouldUpdateActive ? isActive : undefined,
+            })
+          : existing;
+      const index = syncedMethods.findIndex((method) => method.id === syncedMethod.id);
+      if (index >= 0) syncedMethods[index] = syncedMethod;
+    } else {
+      syncedMethod = await createLogisticsMethod(name);
+      if (syncedMethod.is_active !== isActive) {
+        syncedMethod = await updateLogisticsMethod(syncedMethod.id, { is_active: isActive });
+      }
+      syncedMethods.push(syncedMethod);
+    }
+
+    syncedConfigs.push({
+      ...config,
+      db_method_id: syncedMethod.id,
+      name,
+      isActive,
+    });
+  }
+
+  return syncedConfigs;
+}
+
+export async function syncLogisticsMethodsFromSettings(
+  settings: {
+    first_leg_methods?: LogisticsMethodConfig[];
+    last_leg_methods?: LogisticsMethodConfig[];
+  },
+  previousSettings?: {
+    first_leg_methods?: LogisticsMethodConfig[];
+    last_leg_methods?: LogisticsMethodConfig[];
+  },
+) {
+  const logisticsMethods = await fetchLogisticsMethods();
+  const firstLegMethods = await syncLogisticsMethodConfigs(
+    settings.first_leg_methods ?? [],
+    previousSettings?.first_leg_methods ?? [],
+    logisticsMethods,
+  );
+  const refreshedMethods = await fetchLogisticsMethods();
+  const lastLegMethods = await syncLogisticsMethodConfigs(
+    settings.last_leg_methods ?? [],
+    previousSettings?.last_leg_methods ?? [],
+    refreshedMethods,
+  );
+
+  return {
+    first_leg_methods: firstLegMethods,
+    last_leg_methods: lastLegMethods,
+  };
 }
 
 export async function fetchWarehouseLogisticsMethods(warehouseIds: string[]) {

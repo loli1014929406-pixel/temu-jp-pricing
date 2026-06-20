@@ -67,9 +67,9 @@ export function calculateSfCostRmb(
 
   return (
     Math.min(packageWeightKg, firstWeightKg) *
-      (settings.sf_first_price_rmb / firstWeightKg) +
+    (settings.sf_first_price_rmb / firstWeightKg) +
     Math.max(packageWeightKg - firstWeightKg, 0) *
-      settings.sf_extra_price_per_kg_rmb
+    settings.sf_extra_price_per_kg_rmb
   );
 }
 
@@ -106,7 +106,7 @@ export function calculateOcsSmallParcelCostRmb(
   return (
     settings.test_ocs_small_parcel_first_price_rmb +
     Math.max(weightUnits - 1, 0) *
-      settings.test_ocs_small_parcel_extra_price_per_500g_rmb
+    settings.test_ocs_small_parcel_extra_price_per_500g_rmb
   );
 }
 

@@ -99,7 +99,7 @@ export function OrderFilters({
                     onClick={() => onStageChange(stage.key)}
                     className={`inline-flex h-10 shrink-0 items-center gap-2 rounded-xl px-3.5 text-sm font-semibold transition-all duration-250 ${
                       active
-                        ? "bg-violet-600 text-white shadow-md shadow-violet-600/15"
+                        ? "bg-accent text-white shadow-md shadow-violet-600/15"
                         : "bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-slate-900"
                     }`}
                   >
@@ -127,7 +127,7 @@ export function OrderFilters({
                 <select
                   value={warehouseFilter}
                   onChange={(event) => onWarehouseFilterChange(event.target.value)}
-                  className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-white pl-9 pr-8 text-sm font-medium text-slate-700 outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10"
+                  className="h-10 w-full appearance-none rounded-xl border border-line bg-white pl-9 pr-8 text-sm font-medium text-slate-700 outline-none transition focus:border-accent focus:ring-4 focus:ring-accent/10"
                 >
                   <option value="">全部仓库</option>
                   {warehouseOptions.map((warehouse) => (
@@ -147,7 +147,7 @@ export function OrderFilters({
                 <select
                   value={logisticsMethodFilter}
                   onChange={(event) => onLogisticsMethodFilterChange(event.target.value)}
-                  className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-white pl-9 pr-8 text-sm font-medium text-slate-700 outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10"
+                  className="h-10 w-full appearance-none rounded-xl border border-line bg-white pl-9 pr-8 text-sm font-medium text-slate-700 outline-none transition focus:border-accent focus:ring-4 focus:ring-accent/10"
                 >
                   <option value="">全部方式</option>
                   {logisticsMethodOptions.map((method) => (
@@ -168,7 +168,7 @@ export function OrderFilters({
                   value={search}
                   onChange={(event) => onSearchChange(event.target.value)}
                   placeholder="订单号 / 收货人 / 地址 / 物流"
-                  className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10"
+                  className="h-10 w-full rounded-xl border border-line bg-white pl-9 pr-3 text-sm outline-none transition focus:border-accent focus:ring-4 focus:ring-accent/10"
                 />
               </div>
             </label>

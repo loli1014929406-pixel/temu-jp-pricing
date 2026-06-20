@@ -1,11 +1,10 @@
 import type { User } from "@supabase/supabase-js";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Plus, Trash2, AlertTriangle, Check, X, RefreshCw, Edit2, Search } from "lucide-react";
-import { PageHeader, Badge } from "../../components/ui";
+import { PageHeader, Badge, StandardTable } from "../../components/ui";
 import { usePermissions } from "../../hooks/use-permissions";
 import { useFinanceData } from "./use-finance-data";
 import {
-  FinanceTable,
   EmptyPanel,
   getReconciliationIssues,
   getAccountingStatus,
@@ -58,6 +57,14 @@ export function FinanceSettlementPage({ user }: Props) {
   // Income Tab states
   const [orderSearch, setOrderSearch] = useState("");
   const [orderStatusFilter, setOrderStatusFilter] = useState("all");
+
+  useEffect(() => {
+    setReconPage(1);
+  }, [reconPageSize]);
+
+  useEffect(() => {
+    setIncomePage(1);
+  }, [incomePageSize, orderSearch, orderStatusFilter]);
 
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [editingFeeValue, setEditingFeeValue] = useState("");
@@ -226,7 +233,7 @@ export function FinanceSettlementPage({ user }: Props) {
   };
 
   return (
-    <section className="grid gap-5">
+    <section className="flex flex-col gap-6 p-4 sm:p-6">
       <PageHeader
         title="结算与对账"
         description="管理 Temu 结算文件、排查对账异常、查看订单收入明细。"
@@ -243,11 +250,11 @@ export function FinanceSettlementPage({ user }: Props) {
       )}
 
       {/* Tabs */}
-      <div className="flex items-center gap-6 border-b border-slate-200 px-1">
+      <div className="flex items-center gap-6 border-b border-line px-1">
         <button
           onClick={() => setActiveTab("files")}
           className={`pb-3 text-sm font-bold transition-colors ${
-            activeTab === "files" ? "border-b-2 border-violet-600 text-violet-700" : "text-slate-500 hover:text-slate-800"
+            activeTab === "files" ? "border-b-2 border-accent text-accentDeep" : "text-slate-500 hover:text-slate-800"
           }`}
         >
           结算文件
@@ -255,7 +262,7 @@ export function FinanceSettlementPage({ user }: Props) {
         <button
           onClick={() => { setActiveTab("recon"); setReconPage(1); }}
           className={`pb-3 text-sm font-bold transition-colors flex items-center gap-1.5 ${
-            activeTab === "recon" ? "border-b-2 border-violet-600 text-violet-700" : "text-slate-500 hover:text-slate-800"
+            activeTab === "recon" ? "border-b-2 border-accent text-accentDeep" : "text-slate-500 hover:text-slate-800"
           }`}
         >
           对账排查
@@ -268,7 +275,7 @@ export function FinanceSettlementPage({ user }: Props) {
         <button
           onClick={() => { setActiveTab("income"); setIncomePage(1); }}
           className={`pb-3 text-sm font-bold transition-colors ${
-            activeTab === "income" ? "border-b-2 border-violet-600 text-violet-700" : "text-slate-500 hover:text-slate-800"
+            activeTab === "income" ? "border-b-2 border-accent text-accentDeep" : "text-slate-500 hover:text-slate-800"
           }`}
         >
           收入明细
@@ -301,23 +308,29 @@ export function FinanceSettlementPage({ user }: Props) {
             {settlementFiles.length === 0 ? (
               <EmptyPanel label="暂未导入任何结算文件" />
             ) : (
-              <FinanceTable minWidth="min-w-[800px]">
+              <StandardTable 
+                minWidth="min-w-[800px]"
+                page={1}
+                pageSize={100}
+                totalPages={1}
+                totalRecordCount={settlementFiles.length}
+                onPageChange={() => {}}
+                onPageSizeChange={() => {}}
+              >
                 <thead>
                   <tr>
-                    <th>导入时间</th>
-                    <th>文件名</th>
-                    <th>数据日期范围</th>
-                    <th className="number-cell">包含记录数</th>
-                    <th className="number-cell">文件总回款</th>
-                    <th className="text-center">操作</th>
+                    <th className="bg-slate-50">结算账期 / 时间段</th>
+                    <th className="bg-slate-50">文件名</th>
+                    <th className="number-cell bg-slate-50">解析记录数</th>
+                    <th className="number-cell bg-slate-50">结算总金额</th>
+                    <th className="text-center bg-slate-50">操作</th>
                   </tr>
                 </thead>
                 <tbody>
                   {settlementFiles.map((file) => (
                     <tr key={file.id} className="hover:bg-slate-50/50">
-                      <td className="text-slate-500 font-mono text-xs">{new Date(file.importedAt).toLocaleString()}</td>
+                      <td className="text-slate-500 font-mono text-xs">{formatDateRange(file.dateRangeStart, file.dateRangeEnd)}</td>
                       <td className="font-bold text-slate-800 text-xs">{file.fileName}</td>
-                      <td className="text-slate-600 font-medium text-xs">{formatDateRange(file.dateRangeStart, file.dateRangeEnd)}</td>
                       <td className="number-cell font-semibold">{file.recordCount}</td>
                       <td className="money text-emerald-700">{formatCurrency(file.totalRevenue)}</td>
                       <td className="text-center">
@@ -332,7 +345,7 @@ export function FinanceSettlementPage({ user }: Props) {
                     </tr>
                   ))}
                 </tbody>
-              </FinanceTable>
+              </StandardTable>
             )}
           </div>
         )}
@@ -351,7 +364,7 @@ export function FinanceSettlementPage({ user }: Props) {
               </div>
               <div className="flex items-center gap-2 text-sm font-semibold">
                 <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" checked={showAllOrders} onChange={(e) => { setShowAllOrders(e.target.checked); setReconPage(1); }} className="rounded border-slate-300 text-violet-600 focus:ring-violet-600/20" />
+                  <input type="checkbox" checked={showAllOrders} onChange={(e) => { setShowAllOrders(e.target.checked); setReconPage(1); }} className="rounded border-line text-accent focus:ring-accent/20" />
                   <span className="text-slate-700">显示所有订单</span>
                 </label>
               </div>
@@ -363,15 +376,23 @@ export function FinanceSettlementPage({ user }: Props) {
               <EmptyPanel label={showAllOrders ? "暂无订单数据" : "太棒了！所有订单已自动对账完成，暂无异常记录。"} />
             ) : (
               <>
-                <FinanceTable minWidth="min-w-[1080px]">
+                <StandardTable 
+                  minWidth="min-w-[1080px]"
+                  page={reconPaginated.page}
+                  pageSize={reconPageSize}
+                  totalPages={reconPaginated.totalPages}
+                  totalRecordCount={reconPaginated.total}
+                  onPageChange={setReconPage}
+                  onPageSizeChange={setReconPageSize}
+                >
                   <thead>
                     <tr>
-                      <th>订单编号</th>
-                      <th>Temu SKU Code</th>
-                      <th>系统商品 SKU</th>
-                      <th>待处理问题</th>
-                      <th className="number-cell">核算运费</th>
-                      <th className="text-center">操作对账</th>
+                      <th className="bg-slate-50">异常状态</th>
+                      <th className="bg-slate-50">订单号</th>
+                      <th className="bg-slate-50">Temu SKU Code</th>
+                      <th className="bg-slate-50">排查建议操作</th>
+                      <th className="number-cell bg-slate-50">核算运费</th>
+                      <th className="text-center bg-slate-50">操作对账</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -427,8 +448,8 @@ export function FinanceSettlementPage({ user }: Props) {
                                 <span className="text-rose-600 font-bold">缺失运费</span>
                               ) : (
                                 <>
-                                  <span className={row.isShippingFeeEstimated ? "text-violet-600 font-semibold" : "font-bold text-slate-900"}>{formatCurrency(row.shippingFeeRmb)}</span>
-                                  <span className={`rounded px-1 py-0.2 text-[9px] font-black ${row.shippingFeeSource === "actual" ? "bg-emerald-50 text-emerald-600" : "bg-violet-50 text-violet-600"}`}>
+                                  <span className={row.isShippingFeeEstimated ? "text-accent font-semibold" : "font-bold text-slate-900"}>{formatCurrency(row.shippingFeeRmb)}</span>
+                                  <span className={`rounded px-1 py-0.2 text-[9px] font-black ${row.shippingFeeSource === "actual" ? "bg-emerald-50 text-emerald-600" : "bg-accentSoft text-accent"}`}>
                                     {row.shippingFeeSource === "actual" ? "实际" : "自动估算"}
                                   </span>
                                 </>
@@ -445,7 +466,7 @@ export function FinanceSettlementPage({ user }: Props) {
                           {!row.matched ? (
                             matchingOrderId === row.order.id ? (
                               <div className="flex items-center gap-1.5 justify-center">
-                                <select value={matchingSkuId} onChange={(e) => setMatchingSkuId(e.target.value)} className="h-8 w-44 rounded border border-slate-300 bg-white px-2 text-xs font-semibold">
+                                <select value={matchingSkuId} onChange={(e) => setMatchingSkuId(e.target.value)} className="h-8 w-44 rounded border border-line bg-white px-2 text-xs font-semibold">
                                   <option value="">选择系统 SKU</option>
                                   {groupedSkuOptions.map((group: any) => (
                                     <optgroup key={group.product.id} label={`${group.product.product_code} · ${group.product.product_name_cn}`}>
@@ -455,11 +476,11 @@ export function FinanceSettlementPage({ user }: Props) {
                                     </optgroup>
                                   ))}
                                 </select>
-                                <button onClick={() => handleLinkSkuCode(row.order.id, row.order.sku_code, matchingSkuId)} disabled={!matchingSkuId} className="rounded bg-violet-600 px-2 py-1 text-white text-xs font-bold disabled:opacity-50">关联</button>
+                                <button onClick={() => handleLinkSkuCode(row.order.id, row.order.sku_code, matchingSkuId)} disabled={!matchingSkuId} className="rounded bg-accent px-2 py-1 text-white text-xs font-bold disabled:opacity-50">关联</button>
                                 <button onClick={() => setMatchingOrderId(null)} className="rounded bg-slate-200 px-2 py-1 text-slate-700 text-xs font-bold">取消</button>
                               </div>
                             ) : (
-                              <button onClick={() => { setMatchingOrderId(row.order.id); setMatchingSkuId(""); }} className="rounded-lg bg-violet-50 px-3 py-1 text-violet-600 hover:bg-violet-100 text-xs font-bold">
+                              <button onClick={() => { setMatchingOrderId(row.order.id); setMatchingSkuId(""); }} className="rounded-lg bg-accentSoft px-3 py-1 text-accent hover:bg-accentSoft text-xs font-bold">
                                 关联商品 SKU
                               </button>
                             )
@@ -473,16 +494,7 @@ export function FinanceSettlementPage({ user }: Props) {
                       );
                     })}
                   </tbody>
-                </FinanceTable>
-                {renderPaginationControls(
-                  "recon",
-                  reconPaginated.page,
-                  reconPaginated.totalPages,
-                  reconPaginated.total,
-                  setReconPage,
-                  reconPageSize,
-                  setReconPageSize
-                )}
+                </StandardTable>
               </>
             )}
           </div>
@@ -499,13 +511,13 @@ export function FinanceSettlementPage({ user }: Props) {
                     value={orderSearch}
                     onChange={(e) => { setOrderSearch(e.target.value); setIncomePage(1); }}
                     placeholder="搜索订单/单号/商品..."
-                    className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-violet-600 sm:w-64"
+                    className="h-9 w-full rounded-lg border border-line bg-white pl-9 pr-3 text-sm outline-none focus:border-accent sm:w-64"
                   />
                 </div>
                 <select
                   value={orderStatusFilter}
                   onChange={(e) => { setOrderStatusFilter(e.target.value); setIncomePage(1); }}
-                  className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold outline-none focus:border-violet-600"
+                  className="h-9 rounded-lg border border-line bg-white px-3 text-xs font-semibold outline-none focus:border-accent"
                 >
                   <option value="all">全部订单</option>
                   <option value="unsettled">未结算订单</option>
@@ -525,26 +537,39 @@ export function FinanceSettlementPage({ user }: Props) {
               <EmptyPanel label="未找到匹配的订单记录" />
             ) : (
               <>
-                <FinanceTable minWidth="min-w-[1450px]" tableClassName="finance-freeze-order">
+                <StandardTable 
+                  minWidth="min-w-[1450px]" 
+                  tableClassName="finance-freeze-order"
+                  page={incomePaginated.page}
+                  pageSize={incomePageSize}
+                  totalPages={incomePaginated.totalPages}
+                  totalRecordCount={incomePaginated.total}
+                  onPageChange={setIncomePage}
+                  onPageSizeChange={setIncomePageSize}
+                >
                   <thead>
                     <tr>
-                      <th>订单编号</th>
-                      <th>Temu SKU Code</th>
-                      <th>系统匹配商品</th>
-                      <th className="number-cell">订单商品成本</th>
-                      <th className="number-cell">订单核算运费</th>
-                      <th className="number-cell">总预估账单</th>
-                      <th className="number-cell">实际结算回款</th>
-                      <th>发货方式</th>
-                      <th>结算状态</th>
-                      <th>财务对账</th>
+                      <th className="bg-slate-50 w-16 text-center">序号</th>
+                      <th className="bg-slate-50">订单编号</th>
+                      <th className="bg-slate-50">Temu SKU Code</th>
+                      <th className="bg-slate-50">系统匹配商品</th>
+                      <th className="number-cell bg-slate-50">订单商品成本</th>
+                      <th className="number-cell bg-slate-50">订单核算运费</th>
+                      <th className="number-cell bg-slate-50">总预估账单</th>
+                      <th className="number-cell bg-slate-50">实际结算回款</th>
+                      <th className="bg-slate-50">发货方式</th>
+                      <th className="bg-slate-50">结算状态</th>
+                      <th className="bg-slate-50">财务对账</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {incomePaginated.rows.map((row: any) => {
+                    {incomePaginated.rows.map((row: any, index: number) => {
                       const accountingStatus = getAccountingStatus(row as any);
                       return (
                         <tr key={row.order.id} className="hover:bg-slate-50/50">
+                          <td className="text-center text-slate-400 font-mono text-xs">
+                            {(incomePaginated.page - 1) * incomePageSize + index + 1}
+                          </td>
                           <td className="font-semibold text-slate-800">{row.order.order_no}</td>
                           <td className="font-mono text-slate-600 text-xs">{row.order.sku_code || "--"}</td>
                           <td className="text-slate-700 font-medium max-w-xs truncate" title={row.product?.product_name_cn}>
@@ -563,7 +588,7 @@ export function FinanceSettlementPage({ user }: Props) {
                                     else if (e.key === "Escape") setEditingOrderId(null);
                                   }}
                                   disabled={savingOrderId === row.order.id}
-                                  className="h-8 w-16 rounded border border-slate-300 px-1 text-xs outline-none text-right font-bold"
+                                  className="h-8 w-16 rounded border border-line px-1 text-xs outline-none text-right font-bold"
                                   autoFocus
                                 />
                                 <button onClick={() => handleSaveShippingFee(row.order.id, editingFeeValue)} className="text-emerald-600"><Check size={14}/></button>
@@ -575,11 +600,11 @@ export function FinanceSettlementPage({ user }: Props) {
                                   <span className="text-rose-600 font-bold">缺失</span>
                                 ) : (
                                   <>
-                                    <span className={row.isShippingFeeEstimated ? "text-violet-600 font-semibold" : "font-bold text-slate-900"}>{formatCurrency(row.shippingFeeRmb)}</span>
+                                    <span className={row.isShippingFeeEstimated ? "text-accent font-semibold" : "font-bold text-slate-900"}>{formatCurrency(row.shippingFeeRmb)}</span>
                                     {row.shippingFeeSource === "actual" ? (
                                       <span className="rounded bg-emerald-50 px-1 py-0.2 text-[9px] font-black text-emerald-600">实际</span>
                                     ) : (
-                                      <span className="rounded bg-violet-50 px-1 py-0.2 text-[9px] font-black text-violet-600">估算</span>
+                                      <span className="rounded bg-accentSoft px-1 py-0.2 text-[9px] font-black text-accent">估算</span>
                                     )}
                                   </>
                                 )}
@@ -613,16 +638,7 @@ export function FinanceSettlementPage({ user }: Props) {
                       );
                     })}
                   </tbody>
-                </FinanceTable>
-                {renderPaginationControls(
-                  "income",
-                  incomePaginated.page,
-                  incomePaginated.totalPages,
-                  incomePaginated.total,
-                  setIncomePage,
-                  incomePageSize,
-                  setIncomePageSize
-                )}
+                </StandardTable>
               </>
             )}
           </div>

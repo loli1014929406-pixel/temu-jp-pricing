@@ -344,7 +344,7 @@ export function calculateFinanceTotals(orderRows: FinanceOrderRow[], purchases: 
 
 export function EmptyPanel({ label, compact = false }: { label: string; compact?: boolean }) {
   return (
-    <div className={`rounded-lg border border-dashed border-slate-200 bg-slate-50/70 text-center text-sm font-medium text-slate-500 ${compact ? "p-4" : "p-8"}`}>
+    <div className={`rounded-lg border border-dashed border-line bg-slate-50/70 text-center text-sm font-medium text-slate-500 ${compact ? "p-4" : "p-8"}`}>
       {label}
     </div>
   );
@@ -406,7 +406,7 @@ export function renderPaginationControls(
             <select
               value={pageSize}
               onChange={(e) => setPageSize(Number(e.target.value))}
-              className="h-7 rounded border border-slate-200 bg-white px-1 text-xs font-semibold outline-none focus:border-violet-600"
+              className="h-7 rounded border border-line bg-white px-1 text-xs font-semibold outline-none focus:border-accent"
             >
               {financePageSizeOptions.map((opt) => (
                 <option key={opt} value={opt}>

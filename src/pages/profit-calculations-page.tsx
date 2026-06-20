@@ -32,11 +32,15 @@ import {
   type ProfitCalculationsDraft,
   type ProfitDiscountFields,
 } from "../utils/profit-discount-drafts";
+import { useAutoDismiss } from "../hooks/use-auto-dismiss";
 import { Badge, PageHeader } from "../components/ui";
 import { isSameDraft, readDraft, useDraftPersistence } from "../hooks/use-draft-persistence";
 import { usePermissions } from "../hooks/use-permissions";
 import { addObjectSheet, createWorkbook, downloadWorkbook } from "../lib/excel";
 import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../utils/sku-code";
+
+import { getPaginatedRows } from "./finance/shared";
+import { StandardTable } from "../components/ui";
 
 type ProfitCalculationsPageProps = {
   user: User;
@@ -418,6 +422,16 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
   const [customActivityDiscountMin, setCustomActivityDiscountMin] = useState("");
   const [customActivityDiscountMax, setCustomActivityDiscountMax] = useState("");
   const [draftNotice, setDraftNotice] = useState("");
+  useAutoDismiss(errorMessage, () => setErrorMessage(""));
+  useAutoDismiss(savedProductId, () => setSavedProductId(""));
+  useAutoDismiss(draftNotice, () => setDraftNotice(""));
+
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+
+  useEffect(() => {
+    setPage(1);
+  }, [pageSize, productSearchTerm, sortState]);
 
   const draftValue = useMemo<ProfitCalculationsDraft>(
     () => ({
@@ -706,6 +720,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
       key,
       direction: current.key === key && current.direction === "asc" ? "desc" : "asc",
     }));
+    setPage(1);
   }
 
   const filteredProducts = useMemo(() => {
@@ -764,6 +779,10 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
       return sortState.direction === "asc" ? result : -result;
     });
   }, [discountSummaries, filteredProducts, salesQuantities, sortState]);
+
+  const paginatedProducts = useMemo(() => {
+    return getPaginatedRows("profit-calculations", sortedProducts, page, pageSize);
+  }, [sortedProducts, page, pageSize]);
 
   async function handleExcelExport() {
     setExporting(true);
@@ -883,7 +902,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
   }, [discountSummaries]);
 
   return (
-    <section className="grid gap-5">
+    <section className="flex flex-col gap-6 p-4 sm:p-6">
       <PageHeader
         title="利润分析"
         description="实时分析利润率、最终售价及广告投放安全边际"
@@ -983,11 +1002,11 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
         </div>
       </section>
 
-      <section className="grid gap-3 rounded-lg border border-slate-200 bg-white p-3 md:hidden">
+      <section className="grid gap-3 rounded-lg border border-line bg-white p-3 md:hidden">
         <p className="text-sm font-semibold text-slate-700">商品筛选</p>
         <input
           aria-label="商品编号或商品名筛选"
-          className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15"
+          className="h-10 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15"
           type="search"
           placeholder="输入商品编号或商品名"
           value={productSearchTerm}
@@ -997,7 +1016,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
           <input
             aria-label="活动折扣最小值"
-            className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15"
+            className="h-10 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15"
             min="0"
             max="10"
             step="0.01"
@@ -1009,7 +1028,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
           <span className="text-sm text-slate-500">到</span>
           <input
             aria-label="活动折扣最大值"
-            className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15"
+            className="h-10 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15"
             min="0"
             max="10"
             step="0.01"
@@ -1187,7 +1206,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                 type="search"
                 placeholder="商品编号或商品名"
                 value={productSearchTerm}
-                onChange={(event) => setProductSearchTerm(event.target.value)}
+                onChange={(event) => { setProductSearchTerm(event.target.value); setPage(1); }}
               />
             </label>
             <div className="grid gap-1">
@@ -1202,7 +1221,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                   type="number"
                   placeholder="最小"
                   value={customActivityDiscountMin}
-                  onChange={(event) => setCustomActivityDiscountMin(event.target.value)}
+                  onChange={(event) => { setCustomActivityDiscountMin(event.target.value); setPage(1); }}
                 />
                 <span className="text-xs font-semibold text-slate-500">到</span>
                 <input
@@ -1214,7 +1233,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                   type="number"
                   placeholder="最大"
                   value={customActivityDiscountMax}
-                  onChange={(event) => setCustomActivityDiscountMax(event.target.value)}
+                  onChange={(event) => { setCustomActivityDiscountMax(event.target.value); setPage(1); }}
                 />
               </div>
             </div>
@@ -1226,6 +1245,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                   setProductSearchTerm("");
                   setCustomActivityDiscountMin("");
                   setCustomActivityDiscountMax("");
+                  setPage(1);
                 }}
               >
                 清除筛选
@@ -1235,12 +1255,20 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
         </div>
       </section>
 
-      <div className="table-card hidden md:block">
+      <div className="table-card hidden md:block rounded-lg shadow-soft overflow-hidden bg-panel">
         <div className="overflow-x-auto">
-          <table className="data-table">
+          <StandardTable 
+            minWidth="min-w-[1200px]"
+            page={paginatedProducts.page}
+            pageSize={pageSize}
+            totalPages={paginatedProducts.totalPages}
+            totalRecordCount={paginatedProducts.total}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+          >
             <thead>
               <tr>
-                <th className="px-4 py-3 font-medium">
+                <th className="bg-slate-50 px-4 py-3 font-medium">
                   <SortableHeader
                     label="商品编号"
                     sortKey="productCode"
@@ -1248,8 +1276,8 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                     onSort={handleSort}
                   />
                 </th>
-                <th className="product-name-col px-4 py-3 font-medium">产品名称</th>
-                <th className="px-4 py-3 font-medium">
+                <th className="bg-slate-50 px-4 py-3 text-left font-medium text-slate-500">产品名称</th>
+                <th className="bg-slate-50 px-4 py-3 font-medium">
                   <SortableHeader
                     label="销量"
                     sortKey="salesQuantity"
@@ -1257,10 +1285,10 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                     onSort={handleSort}
                   />
                 </th>
-                <th className="px-4 py-3 font-medium">核价</th>
-                <th className="px-4 py-3 font-medium">总成本</th>
-                <th className="px-4 py-3 font-medium">流量加速</th>
-                <th className="px-4 py-3 font-medium">
+                <th className="bg-slate-50 px-4 py-3 font-medium text-slate-500">核价</th>
+                <th className="bg-slate-50 px-4 py-3 font-medium">总成本</th>
+                <th className="bg-slate-50 px-4 py-3 font-medium text-slate-500">流量加速</th>
+                <th className="bg-slate-50 px-4 py-3 font-medium">
                   <SortableHeader
                     label="活动折扣"
                     sortKey="activityDiscountRate"
@@ -1268,13 +1296,13 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                     onSort={handleSort}
                   />
                 </th>
-                <th className="px-4 py-3 font-medium">优惠券价</th>
-                <th className="px-4 py-3 font-medium">ROAS</th>
-                <th className="px-4 py-3 font-medium">广告费</th>
-                <th className="px-4 py-3 font-medium">最终售价</th>
-                <th className="px-4 py-3 font-medium">PR</th>
-                <th className="px-4 py-3 font-medium">临界值</th>
-                <th className="px-4 py-3 font-medium">
+                <th className="bg-slate-50 px-4 py-3 text-center font-medium text-slate-500">优惠券价</th>
+                <th className="bg-slate-50 px-4 py-3 text-center font-medium text-slate-500">ROAS</th>
+                <th className="bg-slate-50 px-4 py-3 text-right font-medium text-slate-500">广告费</th>
+                <th className="bg-slate-50 px-4 py-3 text-right font-medium text-slate-500">最终售价</th>
+                <th className="bg-slate-50 px-4 py-3 text-center font-medium text-slate-500">PR</th>
+                <th className="bg-slate-50 px-4 py-3 text-center font-medium text-slate-500">临界值</th>
+                <th className="bg-slate-50 px-4 py-3 font-medium">
                   <SortableHeader
                     label="利润"
                     sortKey="profitRmb"
@@ -1282,7 +1310,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                     onSort={handleSort}
                   />
                 </th>
-                <th className="px-4 py-3 font-medium">
+                <th className="bg-slate-50 px-4 py-3 font-medium">
                   <SortableHeader
                     label="利润率"
                     sortKey="profitRate"
@@ -1290,31 +1318,14 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                     onSort={handleSort}
                   />
                 </th>
-                <th className="px-4 py-3 font-medium">免邮件数</th>
-                <th className="min-w-20 px-4 py-3 font-medium">操作</th>
+                <th className="bg-slate-50 px-4 py-3 text-center font-medium text-slate-500">
+                  包邮数量
+                </th>
+                <th className="bg-slate-50 px-4 py-3 text-center font-medium text-slate-500">操作</th>
               </tr>
             </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan={17} className="px-4 py-8 text-center text-slate-500">
-                    加载中...
-                  </td>
-                </tr>
-              ) : products.length === 0 ? (
-                <tr>
-                  <td colSpan={17} className="px-4 py-8 text-center text-slate-500">
-                    暂无商品
-                  </td>
-                </tr>
-              ) : sortedProducts.length === 0 ? (
-                <tr>
-                  <td colSpan={17} className="px-4 py-8 text-center text-slate-500">
-                    没有符合当前筛选条件的商品
-                  </td>
-                </tr>
-              ) : (
-                sortedProducts.map((product) => {
+            <tbody className="divide-y divide-line bg-white">
+              {paginatedProducts.rows.map((product) => {
                   const summary = discountSummaries[product.id];
 
                   return (
@@ -1461,10 +1472,9 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                     </td>
                   </tr>
                   );
-                })
-              )}
+                })}
             </tbody>
-          </table>
+          </StandardTable>
         </div>
       </div>
     </section>

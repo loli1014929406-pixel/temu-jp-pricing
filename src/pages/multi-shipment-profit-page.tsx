@@ -20,6 +20,7 @@ import {
   type MultiShipmentMode,
   type MultiShipmentProfitRow,
 } from "../utils/multi-shipment-profit";
+import { useAutoDismiss } from "../hooks/use-auto-dismiss";
 import { PROFIT_CALCULATION_VERSION } from "../utils/profit-calculation";
 import { calculatePricing, formatCurrency, formatPercent } from "../utils/pricing";
 
@@ -135,6 +136,7 @@ export function MultiShipmentProfitPage({
   const [maxQuantity, setMaxQuantity] = useState(10);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  useAutoDismiss(errorMessage, () => setErrorMessage(""));
 
   useEffect(() => {
     let active = true;
@@ -284,7 +286,7 @@ export function MultiShipmentProfitPage({
         </div>
       )}
 
-      <section className="grid gap-4 rounded-lg border border-slate-200 bg-white p-4 shadow-soft">
+      <section className="grid gap-4 rounded-lg border border-line bg-white p-4 shadow-soft">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard label="SKU 数" value={String(calculations.length)} />
           <StatCard
@@ -313,7 +315,7 @@ export function MultiShipmentProfitPage({
               onChange={(event) => updateMaxQuantity(Number(event.target.value))}
             />
           </Field>
-          <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+          <div className="rounded-md border border-line bg-slate-50 px-3 py-2 text-sm text-slate-600">
             核价、流量加速、活动折扣、优惠券和 ROAS 来自已保存的利润分析；3cm
             每包件数来自商品编辑页，刷新后按最新商品数据计算。
           </div>
@@ -331,7 +333,7 @@ export function MultiShipmentProfitPage({
             return (
               <section
                 key={calculation.sku.id ?? calculation.sku.sku_code}
-                className="grid gap-4 rounded-lg border border-slate-200 bg-white p-4 shadow-soft"
+                className="grid gap-4 rounded-lg border border-line bg-white p-4 shadow-soft"
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
@@ -352,7 +354,7 @@ export function MultiShipmentProfitPage({
                       {getSkuAttributesLabel(calculation.sku)}
                     </p>
                   </div>
-                  <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                  <div className="rounded-md border border-line bg-slate-50 px-3 py-2 text-sm text-slate-600">
                     最多盈利：
                     <span className="ml-1 font-semibold text-slate-950">
                       {lastProfitableQuantity === null ? "--" : `${lastProfitableQuantity} 件`}

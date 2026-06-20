@@ -5,8 +5,9 @@ import { PageHeader } from "../../components/ui";
 import { usePermissions } from "../../hooks/use-permissions";
 import { useFinanceData } from "./use-finance-data";
 import { addExpense, addExpensesBulk, updateExpense, deleteExpense } from "../../lib/expenses";
-import { EmptyPanel, FinanceTable, getPaginatedRows, renderPaginationControls } from "./shared";
+import { EmptyPanel, getPaginatedRows } from "./shared";
 import { formatCurrency } from "../../utils/pricing";
+import { StandardTable } from "../../components/ui";
 import type { FinanceExpense } from "../../types";
 
 type Props = {
@@ -36,7 +37,11 @@ export function FinanceExpensesPage({ user }: Props) {
   const [expenseRemark, setExpenseRemark] = useState("");
 
   const [page, setPage] = useState(1);
-  const pageSize = 20;
+  const [pageSize, setPageSize] = useState(30);
+
+  useEffect(() => {
+    setPage(1);
+  }, [pageSize]);
 
   // LocalStorage Migration
   useEffect(() => {
@@ -137,10 +142,10 @@ export function FinanceExpensesPage({ user }: Props) {
       totalPages,
       rows: expenses.slice(startIndex, startIndex + pageSize),
     };
-  }, [expenses, page]);
+  }, [expenses, page, pageSize]);
 
   return (
-    <section className="grid gap-5">
+    <section className="flex flex-col gap-6 p-4 sm:p-6">
       <PageHeader
         title="费用管理"
         description="记录和管理各项杂费，如平台佣金、广告推广、关税头程等。"
@@ -183,14 +188,21 @@ export function FinanceExpensesPage({ user }: Props) {
           <EmptyPanel label="暂无费用记录" />
         ) : (
           <>
-            <FinanceTable minWidth="min-w-[720px]">
+            <StandardTable
+              page={paginated.page}
+              pageSize={pageSize}
+              totalPages={paginated.totalPages}
+              totalRecordCount={paginated.total}
+              onPageChange={setPage}
+              onPageSizeChange={setPageSize}
+            >
               <thead>
                 <tr>
-                  <th>交易日期</th>
-                  <th>费用类别</th>
-                  <th className="number-cell">扣减金额</th>
-                  <th>备注详情说明</th>
-                  <th className="text-center">操作</th>
+                  <th className="bg-slate-50">记录日期</th>
+                  <th className="bg-slate-50">费用归类</th>
+                  <th className="number-cell bg-slate-50">扣减金额</th>
+                  <th className="bg-slate-50">备注说明</th>
+                  <th className="text-center bg-slate-50">操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -210,7 +222,7 @@ export function FinanceExpensesPage({ user }: Props) {
                           type="button"
                           onClick={() => handleEdit(expense)}
                           disabled={!canEdit}
-                          className="text-indigo-600 hover:text-indigo-800 font-semibold text-xs inline-flex items-center gap-1 transition disabled:opacity-50"
+                          className="text-accent hover:text-accentDeep font-semibold text-xs inline-flex items-center gap-1 transition disabled:opacity-50"
                         >
                           <Edit2 size={12} />
                           编辑
@@ -229,15 +241,7 @@ export function FinanceExpensesPage({ user }: Props) {
                   </tr>
                 ))}
               </tbody>
-            </FinanceTable>
-            {/* Simple pagination */}
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-3 text-xs text-slate-500">
-               <span>共 {paginated.total} 条，第 {paginated.page} / {paginated.totalPages} 页</span>
-               <div className="flex items-center gap-1.5">
-                  <button onClick={() => setPage(p => p - 1)} disabled={paginated.page <= 1} className="btn-secondary h-8 px-3">上一页</button>
-                  <button onClick={() => setPage(p => p + 1)} disabled={paginated.page >= paginated.totalPages} className="btn-secondary h-8 px-3">下一页</button>
-               </div>
-            </div>
+            </StandardTable>
           </>
         )}
       </div>
@@ -258,7 +262,7 @@ export function FinanceExpensesPage({ user }: Props) {
               <button
                 type="button"
                 onClick={resetForm}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-800"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-line bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-800"
               >
                 <X size={16} />
               </button>
@@ -271,7 +275,7 @@ export function FinanceExpensesPage({ user }: Props) {
                   required
                   value={expenseDate}
                   onChange={(e) => setExpenseDate(e.target.value)}
-                  className="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-750 outline-none transition focus:border-violet-600 focus:bg-white"
+                  className="h-10 rounded-xl border border-line bg-slate-50 px-3 text-sm font-bold text-slate-750 outline-none transition focus:border-accent focus:bg-white"
                 />
               </label>
               <label className="grid gap-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">
@@ -279,7 +283,7 @@ export function FinanceExpensesPage({ user }: Props) {
                 <select
                   value={expenseCategory}
                   onChange={(e) => setExpenseCategory(e.target.value as any)}
-                  className="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-750 outline-none transition focus:border-violet-600 focus:bg-white"
+                  className="h-10 rounded-xl border border-line bg-slate-50 px-3 text-sm font-bold text-slate-750 outline-none transition focus:border-accent focus:bg-white"
                 >
                   <option value="platform_commission">平台佣金</option>
                   <option value="refund_loss">退款损失</option>
@@ -298,7 +302,7 @@ export function FinanceExpensesPage({ user }: Props) {
                   min="0.01"
                   value={expenseAmount}
                   onChange={(e) => setExpenseAmount(e.target.value)}
-                  className="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-750 outline-none transition focus:border-violet-600 focus:bg-white"
+                  className="h-10 rounded-xl border border-line bg-slate-50 px-3 text-sm font-bold text-slate-750 outline-none transition focus:border-accent focus:bg-white"
                 />
               </label>
               <label className="grid gap-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">
@@ -306,7 +310,7 @@ export function FinanceExpensesPage({ user }: Props) {
                 <textarea
                   value={expenseRemark}
                   onChange={(e) => setExpenseRemark(e.target.value)}
-                  className="h-24 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-bold text-slate-750 outline-none transition focus:border-violet-600 focus:bg-white resize-none"
+                  className="h-24 rounded-xl border border-line bg-slate-50 p-3 text-sm font-bold text-slate-750 outline-none transition focus:border-accent focus:bg-white resize-none"
                 />
               </label>
               <button type="submit" disabled={!canEdit} className="btn-primary h-10 w-full font-bold mt-2">

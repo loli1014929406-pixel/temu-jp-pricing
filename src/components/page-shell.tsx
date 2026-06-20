@@ -11,9 +11,16 @@ import {
   ListOrdered,
   Settings,
 } from "lucide-react";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { getSupabaseClient } from "../lib/supabase";
 import { useAuth } from "../hooks/use-auth";
+import { usePermissions } from "../hooks/use-permissions";
+import {
+  fetchOrCreateCurrentAccountProfile,
+  formatAccountProfileDisplay,
+} from "../lib/account-profiles";
+import type { AccountProfile } from "../types";
 
 const navSections = [
   {
@@ -89,7 +96,9 @@ function isNavItemActive(pathname: string, itemTo: string, isActive: boolean) {
 
 export function PageShell() {
   const { user } = useAuth();
+  const { label } = usePermissions();
   const location = useLocation();
+  const [profile, setProfile] = useState<AccountProfile | null>(null);
   const activeModule = getActiveModule(location.pathname);
 
   const activeSection = navSections.find((sec) =>
@@ -100,6 +109,40 @@ export function PageShell() {
   async function handleSignOut() {
     await getSupabaseClient().auth.signOut();
   }
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadProfile() {
+      if (!user?.id) {
+        setProfile(null);
+        return;
+      }
+      try {
+        const nextProfile = await fetchOrCreateCurrentAccountProfile();
+        if (active) setProfile(nextProfile);
+      } catch {
+        if (active) {
+          setProfile({
+            owner_id: user.id,
+            username: "",
+            user_code: "未知",
+          });
+        }
+      }
+    }
+
+    void loadProfile();
+    return () => {
+      active = false;
+    };
+  }, [user?.id]);
+
+  const profileDisplay = formatAccountProfileDisplay(profile);
+  const avatarText =
+    profile?.username?.trim().slice(0, 2).toUpperCase() ||
+    profile?.user_code?.trim().slice(0, 2).toUpperCase() ||
+    "U";
 
   return (
     <div className="erp-shell min-h-screen bg-white text-slate-900">
@@ -138,19 +181,19 @@ export function PageShell() {
 
         {/* User Identity Profile Card at Sidebar Bottom */}
         <div className="erp-sidebar-profile border-t border-slate-100 p-4 hidden lg:flex items-center justify-between gap-2.5">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="h-9 w-9 shrink-0 rounded-full bg-gradient-to-tr from-violet-100 to-indigo-100 text-violet-700 flex items-center justify-center font-bold text-xs border border-violet-200 shadow-sm">
-              {user?.email ? user.email.slice(0, 2).toUpperCase() : "U"}
+          <Link to="/user" className="flex min-w-0 flex-1 items-center gap-2.5 hover:no-underline">
+            <div className="h-9 w-9 shrink-0 rounded-full bg-gradient-to-tr from-violet-100 to-indigo-100 text-accentDeep flex items-center justify-center font-bold text-xs border border-accentSoft shadow-sm">
+              {avatarText}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-xs font-bold text-slate-800 truncate" title={user?.email || ""}>
-                {user?.email || "Unknown User"}
+              <p className="truncate text-xs font-bold text-slate-800" title={profileDisplay}>
+                {profileDisplay}
               </p>
-              <p className="text-[10px] font-semibold text-slate-400">
-                系统管理员
+              <p className="truncate text-[10px] font-semibold text-slate-400">
+                {label}
               </p>
             </div>
-          </div>
+          </Link>
           <button
             type="button"
             aria-label="退出"

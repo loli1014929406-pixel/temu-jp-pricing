@@ -12,12 +12,13 @@ import {
   fetchWarehouses,
   fetchWarehouseSkus,
 } from "../lib/inventory";
+import { useAutoDismiss } from "./use-auto-dismiss";
 import {
   fetchLogisticsMethods,
   fetchWarehouseLogisticsMethods,
   normalizeLogisticsMethodName,
 } from "../lib/logistics-methods";
-import { fetchTemuOrders } from "../lib/orders";
+import { fetchTemuOrders, fetchTemuOrdersPaginated } from "../lib/orders";
 import { fetchSettings } from "../lib/settings";
 import {
   fetchProducts,
@@ -93,6 +94,7 @@ const restoredEditableDraftFields = [
 
 type UseOrdersResult = {
   orders: TemuOrderRecord[];
+  allOrders: TemuOrderRecord[];
   warehouses: Warehouse[];
   products: Product[];
   productItems: ProductItem[];
@@ -131,6 +133,7 @@ type UseOrdersResult = {
     products: Product[];
     productSkus: ProductSku[];
   }>;
+  totalRecordCount: number;
 };
 
 function normalizeSkuCode(value: string) {
@@ -249,13 +252,7 @@ export function createEmptyDraft(): OrderDraft {
 }
 
 function hasOrdersDraft(draft: OrdersDraftState | null | undefined) {
-  return Boolean(
-    draft &&
-      (Object.keys(draft.drafts).length > 0 ||
-        draft.selectedOrderIds.length > 0 ||
-        draft.bulkWarehouseId ||
-        draft.bulkLogisticsMethod),
-  );
+  return Boolean(draft && Object.keys(draft.drafts).length > 0);
 }
 
 export function getOrdersErrorMessage(error: unknown, fallback: string) {
@@ -396,8 +393,9 @@ function restoreDraftMapFromOrders(
   ) as Record<string, OrderDraft>;
 }
 
-async function loadLatestOrders() {
-  return dedupeOrdersByOrderLine(await fetchTemuOrders());
+async function loadLatestOrders(options: { page: number; pageSize: number; searchQuery?: string; statusFilter?: string }) {
+  const { data, count } = await fetchTemuOrdersPaginated(options);
+  return { orders: dedupeOrdersByOrderLine(data), count };
 }
 
 async function loadLatestProductsAndSkus() {
@@ -409,11 +407,15 @@ async function loadLatestProductsAndSkus() {
   return { products, productSkus };
 }
 
-export function useOrders(user: User) {
+export type UseOrdersOptions = { page: number; pageSize: number; searchQuery?: string; statusFilter?: string };
+
+export function useOrders(user: User, options: UseOrdersOptions) {
   const draftKey = `orders-draft:v1:${user.id}`;
   const restoredDraftRef = useRef(readDraft<OrdersDraftState>(draftKey));
   const restoredDraft = restoredDraftRef.current;
   const [orders, setOrders] = useState<TemuOrderRecord[]>([]);
+  const [allOrders, setAllOrders] = useState<TemuOrderRecord[]>([]);
+  const [totalRecordCount, setTotalRecordCount] = useState(0);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [productItems, setProductItems] = useState<ProductItem[]>([]);
@@ -426,21 +428,17 @@ export function useOrders(user: User) {
   const [warehouseItemStocks, setWarehouseItemStocks] = useState<WarehouseItemStock[]>([]);
   const [settings, setSettings] = useState<PricingSettings | null>(null);
   const [drafts, setDrafts] = useState<Record<string, OrderDraft>>(restoredDraft?.drafts ?? {});
-  const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>(
-    restoredDraft?.selectedOrderIds ?? [],
-  );
-  const [bulkWarehouseId, setBulkWarehouseId] = useState(
-    restoredDraft?.bulkWarehouseId ?? "",
-  );
-  const [bulkLogisticsMethod, setBulkLogisticsMethod] = useState(
-    restoredDraft?.bulkLogisticsMethod ?? "",
-  );
+  const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
+  const [bulkWarehouseId, setBulkWarehouseId] = useState("");
+  const [bulkLogisticsMethod, setBulkLogisticsMethod] = useState("");
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [draftNotice, setDraftNotice] = useState(
     hasOrdersDraft(restoredDraft) ? "已恢复上次未保存的订单编辑草稿。" : "",
   );
   const [currentTime, setCurrentTime] = useState(() => new Date());
+  useAutoDismiss(errorMessage, () => setErrorMessage(""));
+  useAutoDismiss(draftNotice, () => setDraftNotice(""));
 
   useEffect(() => {
     let active = true;
@@ -449,9 +447,17 @@ export function useOrders(user: User) {
       setLoading(true);
       setErrorMessage("");
       try {
-        const [nextOrders, nextWarehouses, nextProducts, nextLogisticsMethods, fetchedSettings] =
+        const [
+          { orders: nextOrders, count: nextCount },
+          nextAllOrders,
+          nextWarehouses,
+          nextProducts,
+          nextLogisticsMethods,
+          fetchedSettings,
+        ] =
           await Promise.all([
-            loadLatestOrders(),
+            loadLatestOrders(options),
+            fetchTemuOrders().then(dedupeOrdersByOrderLine),
             fetchWarehouses(),
             fetchProducts({ includeNotSelling: true }),
             fetchLogisticsMethods(),
@@ -476,6 +482,8 @@ export function useOrders(user: User) {
         if (!active) return;
 
         setOrders(nextOrders);
+        setAllOrders(nextAllOrders);
+        setTotalRecordCount(nextCount);
         setWarehouses(nextWarehouses);
         setProducts(nextProducts);
         setProductItems(nextProductItems);
@@ -487,12 +495,14 @@ export function useOrders(user: User) {
         setSettings(fetchedSettings);
 
         const latestDraft = readDraft<OrdersDraftState>(draftKey);
-        setDrafts(restoreDraftMapFromOrders(nextOrders, latestDraft?.drafts));
-        setBulkWarehouseId(latestDraft?.bulkWarehouseId ?? "");
-        setBulkLogisticsMethod(latestDraft?.bulkLogisticsMethod ?? "");
-        setSelectedOrderIds(latestDraft?.selectedOrderIds ?? []);
+        setDrafts(restoreDraftMapFromOrders(nextAllOrders, latestDraft?.drafts));
+        setBulkWarehouseId("");
+        setBulkLogisticsMethod("");
+        setSelectedOrderIds([]);
         if (hasOrdersDraft(latestDraft)) {
           setDraftNotice("已恢复上次未保存的订单编辑草稿。");
+        } else {
+          setDraftNotice("");
         }
       } catch (error) {
         if (active) {
@@ -510,7 +520,7 @@ export function useOrders(user: User) {
     return () => {
       active = false;
     };
-  }, [draftKey, user.id]);
+  }, [draftKey, user.id, options.page, options.pageSize, options.searchQuery, options.statusFilter]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setCurrentTime(new Date()), 1000);
@@ -519,7 +529,7 @@ export function useOrders(user: User) {
 
   const ordersDraftValue = useMemo<OrdersDraftState>(
     () => {
-      const ordersById = new Map(orders.map((order) => [order.id, order]));
+      const ordersById = new Map(allOrders.map((order) => [order.id, order]));
 
       return {
         drafts: Object.fromEntries(
@@ -533,15 +543,18 @@ export function useOrders(user: User) {
         bulkLogisticsMethod,
       };
     },
-    [bulkLogisticsMethod, bulkWarehouseId, drafts, orders, selectedOrderIds],
+    [allOrders, bulkLogisticsMethod, bulkWarehouseId, drafts, selectedOrderIds],
   );
+
+  useEffect(() => {
+    if (!hasOrdersDraft(ordersDraftValue)) {
+      setDraftNotice("");
+    }
+  }, [ordersDraftValue]);
 
   useDraftPersistence(draftKey, ordersDraftValue, {
     enabled: !loading,
-    shouldPersist: (draft) =>
-      Object.keys(draft.drafts).length > 0 ||
-      draft.selectedOrderIds.length > 0 ||
-      Boolean(draft.bulkWarehouseId || draft.bulkLogisticsMethod),
+    shouldPersist: hasOrdersDraft,
   });
 
   function updateDraftForOrders<K extends keyof OrderDraft>(
@@ -574,23 +587,40 @@ export function useOrders(user: User) {
     });
   }
 
+  function mergeAllOrdersSnapshot(nextOrders: TemuOrderRecord[]) {
+    setAllOrders((current) => {
+      const nextById = new Map(nextOrders.map((order) => [order.id, order]));
+      const merged = current.map((order) => nextById.get(order.id) ?? order);
+      const currentIds = new Set(current.map((order) => order.id));
+      nextOrders.forEach((order) => {
+        if (!currentIds.has(order.id)) merged.push(order);
+      });
+      return merged;
+    });
+  }
+
   function replaceOrders(nextOrders: TemuOrderRecord[]) {
     setOrders(nextOrders);
+    mergeAllOrdersSnapshot(nextOrders);
+    setTotalRecordCount((current) => Math.max(current, nextOrders.length));
   }
 
   function removeOrders(orderIds: string[]) {
     if (orderIds.length === 0) return;
     const targetIds = new Set(orderIds);
     setOrders((current) => current.filter((order) => !targetIds.has(order.id)));
+    setAllOrders((current) => current.filter((order) => !targetIds.has(order.id)));
+    setTotalRecordCount((current) => Math.max(0, current - targetIds.size));
   }
 
   function mergeOrders(nextOrders: TemuOrderRecord[]) {
-    const previousOrdersById = new Map(orders.map((order) => [order.id, order]));
+    const previousOrdersById = new Map(allOrders.map((order) => [order.id, order]));
     setOrders((current) =>
       current.map(
         (order) => nextOrders.find((nextOrder) => nextOrder.id === order.id) ?? order,
       ),
     );
+    mergeAllOrdersSnapshot(nextOrders);
     setDrafts((current) => {
       const next = { ...current };
       nextOrders.forEach((order) => {
@@ -635,7 +665,8 @@ export function useOrders(user: User) {
   }
 
   async function fetchLatestOrders() {
-    return loadLatestOrders();
+    const { orders } = await loadLatestOrders(options);
+    return orders;
   }
 
   async function fetchLatestProductsAndSkus() {
@@ -644,6 +675,8 @@ export function useOrders(user: User) {
 
   return {
     orders,
+    allOrders,
+    totalRecordCount,
     warehouses,
     products,
     productItems,

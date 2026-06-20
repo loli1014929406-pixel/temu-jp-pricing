@@ -91,7 +91,7 @@ export function OrderBulkActions({
   return (
     <>
       {selectedOrderLineInViewCount > 0 && (
-        <div className="grid gap-3 rounded-xl border border-violet-100 bg-violet-50/50 p-3 lg:grid-cols-[auto_minmax(0,1fr)] lg:items-center">
+        <div className="grid gap-3 rounded-xl border border-accentSoft bg-accentSoft/50 p-3 lg:grid-cols-[auto_minmax(0,1fr)] lg:items-center">
           <span className="inline-flex h-9 w-fit items-center rounded-lg bg-white px-3 text-sm font-semibold text-slate-900 ring-1 ring-violet-100">
             已选 {selectedInViewCount || selectedOrderLineInViewCount}
             {selectedInViewCount > 0 ? " 行" : " 条明细"}
@@ -227,7 +227,7 @@ export function OrderBulkActions({
       )}
 
       {canEdit && activeStage === "pending_assignment" && (
-        <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3 lg:grid-cols-[auto_auto_minmax(160px,220px)_minmax(200px,260px)_auto_auto] lg:items-center">
+        <div className="grid gap-3 rounded-xl border border-line bg-slate-50/80 p-3 lg:grid-cols-[auto_auto_minmax(160px,220px)_minmax(200px,260px)_auto_auto] lg:items-center">
           <span className="text-sm font-semibold text-slate-700">批量分配</span>
           <span className="rounded-md bg-white px-2.5 py-1 text-xs font-semibold text-slate-500 ring-1 ring-slate-200">
             已选 {selectedInViewCount}

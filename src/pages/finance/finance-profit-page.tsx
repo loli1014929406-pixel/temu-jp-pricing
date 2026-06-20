@@ -1,13 +1,11 @@
 import type { User } from "@supabase/supabase-js";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { TrendingUp, RefreshCw, Search } from "lucide-react";
-import { PageHeader } from "../../components/ui";
+import { PageHeader, StandardTable } from "../../components/ui";
 import { useFinanceData } from "./use-finance-data";
 import {
-  FinanceTable,
   EmptyPanel,
   getPaginatedRows,
-  renderPaginationControls,
   formatCurrency,
   calculateMarginRate,
   getSignedAmountClass,
@@ -35,6 +33,62 @@ type Props = {
   user: User;
 };
 
+const PROFIT_CHART_TARGET_TICKS = 5;
+const PROFIT_CHART_MIN_PADDING = 100;
+
+function normalizeAxisValue(value: number) {
+  const normalized = Math.abs(value) < 1e-9 ? 0 : value;
+  return Number(normalized.toFixed(10));
+}
+
+function getNiceAxisStep(roughStep: number) {
+  if (!Number.isFinite(roughStep) || roughStep <= 0) return 1;
+
+  const magnitude = 10 ** Math.floor(Math.log10(roughStep));
+  const normalized = roughStep / magnitude;
+
+  if (normalized <= 1) return magnitude;
+  if (normalized <= 2.5) return 2.5 * magnitude;
+  if (normalized <= 6) return 5 * magnitude;
+  return 10 * magnitude;
+}
+
+function buildProfitChartAxis(values: number[]) {
+  const finiteValues = values.filter(Number.isFinite);
+  const dataMin = finiteValues.length > 0 ? Math.min(...finiteValues) : 0;
+  const dataMax = finiteValues.length > 0 ? Math.max(...finiteValues) : 0;
+  const hasNegative = dataMin < 0;
+  const hasPositive = dataMax > 0;
+
+  const span = Math.max(dataMax - dataMin, Math.abs(dataMax), Math.abs(dataMin), 1);
+  const padding = Math.max(span * 0.1, PROFIT_CHART_MIN_PADDING);
+  const paddedMin = hasNegative ? dataMin - padding : hasPositive ? 0 : -padding;
+  const paddedMax = hasPositive ? dataMax + padding : hasNegative ? 0 : padding;
+  const roughStep = (paddedMax - paddedMin) / Math.max(1, PROFIT_CHART_TARGET_TICKS - 1);
+  const step = getNiceAxisStep(roughStep);
+  const minVal = normalizeAxisValue(Math.floor(paddedMin / step) * step);
+  const maxVal = normalizeAxisValue(Math.ceil(paddedMax / step) * step);
+  const ticks: number[] = [];
+
+  for (let tick = minVal; tick <= maxVal + step / 2; tick += step) {
+    ticks.push(normalizeAxisValue(tick));
+  }
+
+  if (!ticks.includes(0)) {
+    ticks.push(0);
+    ticks.sort((a, b) => a - b);
+  }
+
+  return { minVal, maxVal, ticks };
+}
+
+function formatChartTick(value: number) {
+  if (Math.abs(value) < 1e-9) return "0";
+  if (Math.abs(value) >= 100 || Number.isInteger(value)) return value.toFixed(0);
+  if (Math.abs(value) >= 10) return value.toFixed(1);
+  return value.toFixed(2);
+}
+
 export function FinanceProfitPage({ user }: Props) {
   const { data, expenses, settlementFiles, settings, loading, error, reload } = useFinanceData(user.id, {
     orders: true,
@@ -59,6 +113,14 @@ export function FinanceProfitPage({ user }: Props) {
   const [productPage, setProductPage] = useState(1);
   const [productPageSize, setProductPageSize] = useState(20);
 
+  useEffect(() => {
+    setMonthlyPage(1);
+  }, [monthlyPageSize]);
+
+  useEffect(() => {
+    setProductPage(1);
+  }, [productPageSize]);
+
   // Period controls
   const [period, setPeriod] = useState<FinancePeriod>({
     mode: "month",
@@ -76,6 +138,8 @@ export function FinanceProfitPage({ user }: Props) {
     } else {
       setPeriod({ mode, start: getMonthStart(getCurrentMonthInputValue()), end: getTodayInputValue(), label: "自定义" });
     }
+    setMonthlyPage(1);
+    setProductPage(1);
   };
 
   const renderPeriodControls = () => {
@@ -110,7 +174,7 @@ export function FinanceProfitPage({ user }: Props) {
               const month = e.target.value;
               setPeriod({ mode: "month", start: getMonthStart(month), end: getMonthEnd(month), label: month });
             }}
-            className="h-8 rounded-md border border-slate-200 bg-white px-3 text-xs outline-none focus:border-violet-600 focus:ring-1 focus:ring-violet-600"
+            className="h-8 rounded-md border border-line bg-white px-3 text-xs outline-none focus:border-accent focus:ring-1 focus:ring-accent"
           />
         )}
 
@@ -120,14 +184,14 @@ export function FinanceProfitPage({ user }: Props) {
               type="date"
               value={period.start}
               onChange={(e) => setPeriod({ ...period, start: e.target.value })}
-              className="h-8 rounded-md border border-slate-200 bg-white px-3 text-xs outline-none focus:border-violet-600 focus:ring-1 focus:ring-violet-600"
+              className="h-8 rounded-md border border-line bg-white px-3 text-xs outline-none focus:border-accent focus:ring-1 focus:ring-accent"
             />
             <span className="text-slate-400">-</span>
             <input
               type="date"
               value={period.end}
               onChange={(e) => setPeriod({ ...period, end: e.target.value })}
-              className="h-8 rounded-md border border-slate-200 bg-white px-3 text-xs outline-none focus:border-violet-600 focus:ring-1 focus:ring-violet-600"
+              className="h-8 rounded-md border border-line bg-white px-3 text-xs outline-none focus:border-accent focus:ring-1 focus:ring-accent"
             />
           </div>
         )}
@@ -322,39 +386,33 @@ export function FinanceProfitPage({ user }: Props) {
     const width = 500;
     const padding = { top: 20, right: 20, bottom: 30, left: 50 };
     const chartHeight = height - padding.top - padding.bottom;
-    const values = chartData.flatMap((d) => [d.settledIncome, d.orderProfit]);
-    const rawMax = Math.max(0, ...values);
-    const rawMin = Math.min(0, ...values);
-    const maxVal = rawMax > 0 ? rawMax * 1.1 : 1000;
-    const minVal = rawMin < 0 ? rawMin * 1.1 : 0;
+    const values = chartData.flatMap((d) => [d.cashProfit, d.orderProfit]);
+    const { minVal, maxVal, ticks } = buildProfitChartAxis(values);
     const totalRange = maxVal - minVal || 1;
     const yForValue = (value: number) => padding.top + chartHeight * ((maxVal - value) / totalRange);
     const y0 = yForValue(0);
 
     return (
-      <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+      <div className="rounded-2xl border border-line bg-white p-5 shadow-sm">
         <h4 className="text-xs font-bold text-slate-400 mb-4 flex items-center gap-1.5">
-          <TrendingUp size={14} className="text-emerald-500" />
+          <TrendingUp size={14} className="text-accent" />
           <span>近 6 个月利润分析趋势 (元)</span>
         </h4>
-        <div className="relative w-full overflow-x-auto">
-          <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[450px]">
+        <div className="relative w-full min-h-[350px] overflow-x-auto">
+          <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[450px] h-full absolute inset-0">
             {/* Grid lines */}
-            {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
-              const val = maxVal - totalRange * ratio;
+            {ticks.map((val) => {
               const y = yForValue(val);
               return (
-                <g key={ratio} className="opacity-40">
+                <g key={val} className="opacity-40">
                   <line x1={padding.left} y1={y} x2={width - padding.right} y2={y} stroke="#e2e8f0" strokeDasharray="3 3" />
-                  <text x={padding.left - 8} y={y + 4} textAnchor="end" className="fill-slate-400 text-[10px] font-medium font-mono">{val.toFixed(0)}</text>
+                  <text x={padding.left - 8} y={y + 4} textAnchor="end" className="fill-slate-400 text-[10px] font-medium font-mono">{formatChartTick(val)}</text>
                 </g>
               );
             })}
             
             {/* Zero Line */}
-            {minVal < 0 && (
-               <line x1={padding.left} y1={y0} x2={width - padding.right} y2={y0} stroke="#94a3b8" strokeWidth={1} strokeDasharray="4 2" />
-            )}
+            <line x1={padding.left} y1={y0} x2={width - padding.right} y2={y0} stroke="#cbd5e1" strokeWidth={1.5} strokeDasharray="3 3" />
 
             {/* Bars */}
             {chartData.map((d, index) => {
@@ -362,9 +420,11 @@ export function FinanceProfitPage({ user }: Props) {
               const step = xRange / chartData.length;
               const x = padding.left + step * index + step / 2;
 
-              const incomeValueY = yForValue(d.settledIncome);
-              const incomeBarH = Math.abs(incomeValueY - y0);
-              const incomeY = Math.min(incomeValueY, y0);
+              const cashProfitValueY = yForValue(d.cashProfit);
+              const cashProfitBarH = Math.abs(cashProfitValueY - y0);
+              const cashProfitY = Math.min(cashProfitValueY, y0);
+              const cashProfitFill = d.cashProfit >= 0 ? "#818cf8" : "#fb7185";
+              const cashProfitHover = d.cashProfit >= 0 ? "hover:fill-indigo-500" : "hover:fill-rose-500";
 
               const orderValueY = yForValue(d.orderProfit);
               const orderBarH = Math.abs(orderValueY - y0);
@@ -374,11 +434,11 @@ export function FinanceProfitPage({ user }: Props) {
 
               return (
                 <g key={d.month} className="group">
-                  <rect x={x - 10} y={incomeY} width={10} height={Math.max(2, incomeBarH)} fill="#818cf8" rx={2} className="transition-all duration-300 hover:fill-indigo-500">
-                    <title>{`${d.month} 实际回款 ${formatCurrency(d.settledIncome)}\n(现金利润: ${formatCurrency(d.cashProfit)})`}</title>
+                  <rect x={x - 10} y={cashProfitY} width={10} height={Math.max(2, cashProfitBarH)} fill={cashProfitFill} rx={2} className={`transition-all duration-300 ${cashProfitHover}`}>
+                    <title>{`${d.month} 结算口径现金利润 ${formatCurrency(d.cashProfit)}\n实际结算回款: ${formatCurrency(d.settledIncome)}`}</title>
                   </rect>
                   <rect x={x + 4} y={orderY} width={10} height={Math.max(2, orderBarH)} fill={orderFill} rx={2} className={`transition-all duration-300 ${orderHover}`}>
-                    <title>{`${d.month} 订单口径利润 ${formatCurrency(d.orderProfit)}`}</title>
+                    <title>{`${d.month} 发货口径利润 ${formatCurrency(d.orderProfit)}\n订单口径预估回款: ${formatCurrency(d.estimatedIncome)}`}</title>
                   </rect>
                   <text x={x} y={height - padding.bottom + 16} textAnchor="middle" className="fill-slate-500 text-[10px] font-bold">
                     {d.month}
@@ -389,8 +449,8 @@ export function FinanceProfitPage({ user }: Props) {
           </svg>
         </div>
         <div className="flex items-center gap-4 mt-2 justify-center text-xs font-semibold">
-          <div className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-indigo-400 block" /><span className="text-slate-500">实际回款</span></div>
-          <div className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-emerald-400 block" /><span className="text-slate-500">订单口径利润</span></div>
+          <div className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-indigo-400 block" /><span className="text-slate-500">结算口径现金利润</span></div>
+          <div className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-emerald-400 block" /><span className="text-slate-500">发货口径利润</span></div>
           <div className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-rose-400 block" /><span className="text-slate-500">负数向下</span></div>
         </div>
       </div>
@@ -398,7 +458,7 @@ export function FinanceProfitPage({ user }: Props) {
   };
 
   return (
-    <section className="grid gap-5">
+    <section className="flex flex-col gap-6 p-4 sm:p-6">
       <PageHeader
         title="利润报表"
         description="基于收支结算数据与业务核算逻辑的财务利润。"
@@ -417,11 +477,11 @@ export function FinanceProfitPage({ user }: Props) {
       )}
 
       {/* Tabs */}
-      <div className="flex items-center gap-6 border-b border-slate-200 px-1">
+      <div className="flex items-center gap-6 border-b border-line px-1">
         <button
           onClick={() => setActiveTab("monthly")}
           className={`pb-3 text-sm font-bold transition-colors ${
-            activeTab === "monthly" ? "border-b-2 border-violet-600 text-violet-700" : "text-slate-500 hover:text-slate-800"
+            activeTab === "monthly" ? "border-b-2 border-accent text-accentDeep" : "text-slate-500 hover:text-slate-800"
           }`}
         >
           月度利润
@@ -429,7 +489,7 @@ export function FinanceProfitPage({ user }: Props) {
         <button
           onClick={() => setActiveTab("product")}
           className={`pb-3 text-sm font-bold transition-colors ${
-            activeTab === "product" ? "border-b-2 border-violet-600 text-violet-700" : "text-slate-500 hover:text-slate-800"
+            activeTab === "product" ? "border-b-2 border-accent text-accentDeep" : "text-slate-500 hover:text-slate-800"
           }`}
         >
           商品利润
@@ -452,24 +512,32 @@ export function FinanceProfitPage({ user }: Props) {
 
               <section className="grid gap-4">
                 <h3 className="text-sm font-bold text-slate-800">月度实际利润与订单利润表</h3>
-                <FinanceTable minWidth="min-w-[1160px]">
+                <StandardTable 
+                  minWidth="min-w-[1160px]"
+                  page={paginatedMonthly.page}
+                  pageSize={monthlyPageSize}
+                  totalPages={paginatedMonthly.totalPages}
+                  totalRecordCount={paginatedMonthly.total}
+                  onPageChange={setMonthlyPage}
+                  onPageSizeChange={setMonthlyPageSize}
+                >
                   <thead>
                     <tr>
-                      <th>月份</th>
-                      <th className="number-cell">实际结算回款 (+)</th>
-                      <th className="number-cell" title="对未结算订单使用核算账单金额进行收入估算，对齐所有已发出订单成本。">
+                      <th className="bg-slate-50">月份</th>
+                      <th className="number-cell bg-slate-50">实际结算回款 (+)</th>
+                      <th className="number-cell bg-slate-50" title="对未结算订单使用核算账单金额进行收入估算，对齐所有已发出订单成本。">
                         订单口径预估回款 (+)
                       </th>
-                      <th className="number-cell">当月采购付款 (-)</th>
-                      <th className="number-cell">订单商品成本 (-)</th>
-                      <th className="number-cell">核算运费支出 (-)</th>
-                      <th className="number-cell">其他杂项费用 (-)</th>
-                      <th className="number-cell">实际现金利润</th>
+                      <th className="number-cell bg-slate-50">当月采购付款 (-)</th>
+                      <th className="number-cell bg-slate-50">订单商品成本 (-)</th>
+                      <th className="number-cell bg-slate-50">核算运费支出 (-)</th>
+                      <th className="number-cell bg-slate-50">其他杂项费用 (-)</th>
+                      <th className="number-cell" title="仅统计已导入结算文件匹配到的订单的(实际回款 - 采购 - 运费 - 杂费)">结算口径现金利润</th>
                       <th className="number-cell" title="所有已发出订单的(估算回款 - 商品成本 - 运费 - 杂费)">
-                        订单口径利润
+                        发货口径利润
                       </th>
-                      <th className="number-cell">现金利润率</th>
-                      <th className="number-cell">订单利润率</th>
+                      <th className="number-cell">结算口径现金利润率</th>
+                      <th className="number-cell">发货口径利润率</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -495,16 +563,7 @@ export function FinanceProfitPage({ user }: Props) {
                       );
                     })}
                   </tbody>
-                </FinanceTable>
-                {renderPaginationControls(
-                  "monthly",
-                  paginatedMonthly.page,
-                  paginatedMonthly.totalPages,
-                  paginatedMonthly.total,
-                  setMonthlyPage,
-                  monthlyPageSize,
-                  setMonthlyPageSize
-                )}
+                </StandardTable>
               </section>
             </div>
           )
@@ -516,7 +575,7 @@ export function FinanceProfitPage({ user }: Props) {
           ) : productRows.length === 0 ? (
             <EmptyPanel label="该时间段内暂无商品销售利润数据" />
           ) : (
-            <div className="grid gap-4">
+            <section className="flex flex-col gap-4 min-h-[350px]">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4 mb-2">
                 <div className="relative flex items-center">
                   <Search size={16} className="absolute left-3 text-slate-400" />
@@ -524,14 +583,22 @@ export function FinanceProfitPage({ user }: Props) {
                     value={productSearch}
                     onChange={(e) => { setProductSearch(e.target.value); setProductPage(1); }}
                     placeholder="搜索商品编码或名称"
-                    className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-violet-600 focus:ring-1 focus:ring-violet-600 sm:w-80"
+                    className="h-9 w-full rounded-lg border border-line bg-white pl-9 pr-3 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent sm:w-80"
                   />
                 </div>
                 <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500">
                   共计 {filteredProductRows.length} 款商品
                 </span>
               </div>
-              <FinanceTable minWidth="min-w-[1250px]" tableClassName="finance-freeze-product">
+              <StandardTable 
+                minWidth="min-w-[1250px]"
+                page={paginatedProduct.page}
+                pageSize={productPageSize}
+                totalPages={paginatedProduct.totalPages}
+                totalRecordCount={paginatedProduct.total}
+                onPageChange={setProductPage}
+                onPageSizeChange={setProductPageSize}
+              >
                 <thead>
                   <tr>
                     <th>商品编码</th>
@@ -577,17 +644,8 @@ export function FinanceProfitPage({ user }: Props) {
                     );
                   })}
                 </tbody>
-              </FinanceTable>
-              {renderPaginationControls(
-                "product",
-                paginatedProduct.page,
-                paginatedProduct.totalPages,
-                paginatedProduct.total,
-                setProductPage,
-                productPageSize,
-                setProductPageSize
-              )}
-            </div>
+              </StandardTable>
+            </section>
           )
         )}
       </div>

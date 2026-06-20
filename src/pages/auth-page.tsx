@@ -3,6 +3,7 @@ import { Navigate } from "react-router-dom";
 import type { User } from "@supabase/supabase-js";
 import { getSupabaseClient, supabaseConfigError } from "../lib/supabase";
 import { Field, TextInput } from "../components/form-controls";
+import { useAutoDismiss } from "../hooks/use-auto-dismiss";
 
 type AuthPageProps = {
   user: User | null;
@@ -16,6 +17,7 @@ export function AuthPage({ user }: AuthPageProps) {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  useAutoDismiss(message, () => setMessage(""));
 
   useEffect(() => {
     const autoEmail = import.meta.env.VITE_AUTO_LOGIN_EMAIL;
@@ -71,8 +73,8 @@ export function AuthPage({ user }: AuthPageProps) {
   return (
     <div className="min-h-screen bg-slate-950 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-indigo-950 via-slate-900 to-slate-950 px-4 py-8 text-slate-100 flex items-center justify-center relative overflow-hidden">
       {/* Background ambient glows */}
-      <div className="absolute top-0 right-1/4 w-96 h-96 bg-violet-500/10 rounded-full blur-[100px] pointer-events-none" />
-      <div className="absolute bottom-0 left-1/4 w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none" />
+      <div className="absolute top-0 right-1/4 w-96 h-96 bg-accent/10 rounded-full blur-[100px] pointer-events-none" />
+      <div className="absolute bottom-0 left-1/4 w-96 h-96 bg-accentSoft0/10 rounded-full blur-[100px] pointer-events-none" />
 
       <div className="mx-auto grid min-h-[calc(100vh-4rem)] w-full max-w-5xl items-center gap-12 lg:grid-cols-[minmax(0,1fr)_440px] relative z-10">
         <section className="grid gap-6">
@@ -111,11 +113,11 @@ export function AuthPage({ user }: AuthPageProps) {
               {mode === "login" ? "登录后继续访问管理控制台" : "新建运营系统账号"}
             </p>
           </div>
-          <div className="mb-5 grid grid-cols-2 rounded-xl border border-slate-200 bg-slate-100/60 p-1 text-sm font-semibold">
+          <div className="mb-5 grid grid-cols-2 rounded-xl border border-line bg-slate-100/60 p-1 text-sm font-semibold">
             <button
               type="button"
               onClick={() => setMode("login")}
-              className={`h-10 rounded-lg transition ${mode === "login" ? "bg-white text-violet-700 shadow-sm font-bold" : "text-slate-500 hover:text-slate-855"} ${signUpEnabled ? "" : "col-span-2"}`}
+              className={`h-10 rounded-lg transition ${mode === "login" ? "bg-white text-accentDeep shadow-sm font-bold" : "text-slate-500 hover:text-slate-855"} ${signUpEnabled ? "" : "col-span-2"}`}
             >
               登录
             </button>
@@ -123,7 +125,7 @@ export function AuthPage({ user }: AuthPageProps) {
               <button
                 type="button"
                 onClick={() => setMode("register")}
-                className={`h-10 rounded-lg transition ${mode === "register" ? "bg-white text-violet-700 shadow-sm font-bold" : "text-slate-500 hover:text-slate-855"}`}
+                className={`h-10 rounded-lg transition ${mode === "register" ? "bg-white text-accentDeep shadow-sm font-bold" : "text-slate-500 hover:text-slate-855"}`}
               >
                 注册
               </button>

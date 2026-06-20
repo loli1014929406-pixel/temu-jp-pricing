@@ -44,9 +44,10 @@ export function PermissionProvider({ user, children }: PermissionProviderProps) 
   const [permission, setPermission] =
     useState<AccountPermissionLevel>(defaultPermission);
   const [loading, setLoading] = useState(true);
+  const userId = user?.id ?? "";
 
   const loadPermission = useCallback(async () => {
-    if (!user) {
+    if (!userId) {
       setPermission(defaultPermission);
       setLoading(false);
       return;
@@ -59,7 +60,7 @@ export function PermissionProvider({ user, children }: PermissionProviderProps) 
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [userId]);
 
   useEffect(() => {
     void loadPermission();

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 
 type DraftEnvelope<T> = {
   value: T;
@@ -87,7 +87,6 @@ export function useDraftPersistence<T>(
   options: { enabled?: boolean; shouldPersist?: (value: T) => boolean } = {},
 ) {
   const { enabled = true, shouldPersist } = options;
-  const latestValueRef = useRef(value);
 
   function persistValue(nextValue: T) {
     if (shouldPersist && !shouldPersist(nextValue)) {
@@ -98,28 +97,8 @@ export function useDraftPersistence<T>(
   }
 
   useEffect(() => {
-    latestValueRef.current = value;
     if (enabled) {
       persistValue(value);
     }
   }, [enabled, key, value, shouldPersist]);
-
-  useEffect(() => {
-    if (!enabled) return;
-
-    const flushDraft = () => persistValue(latestValueRef.current);
-    const flushHiddenDraft = () => {
-      if (document.visibilityState === "hidden") flushDraft();
-    };
-
-    window.addEventListener("pagehide", flushDraft);
-    window.addEventListener("beforeunload", flushDraft);
-    document.addEventListener("visibilitychange", flushHiddenDraft);
-
-    return () => {
-      window.removeEventListener("pagehide", flushDraft);
-      window.removeEventListener("beforeunload", flushDraft);
-      document.removeEventListener("visibilitychange", flushHiddenDraft);
-    };
-  }, [enabled, key]);
 }

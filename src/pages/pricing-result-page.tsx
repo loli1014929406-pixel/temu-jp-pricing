@@ -9,6 +9,7 @@ import {
 } from "../lib/products";
 import { savePricingResult } from "../lib/pricing-results";
 import { fetchSettings } from "../lib/settings";
+import { useAutoDismiss } from "../hooks/use-auto-dismiss";
 import { usePermissions } from "../hooks/use-permissions";
 import { calculatePricing, formatCurrency, formatPercent } from "../utils/pricing";
 import type { PricingResult, Product, ProductSku } from "../types";
@@ -29,6 +30,7 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [emptyItems, setEmptyItems] = useState(false);
+  useAutoDismiss(errorMessage, () => setErrorMessage(""));
 
   useEffect(() => {
     let active = true;
@@ -120,7 +122,7 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
 
   if (emptyItems) {
     return (
-      <section className="grid gap-4">
+      <section className="flex flex-col gap-6 p-4 sm:p-6">
         <h1 className="text-2xl font-semibold text-ink">核算定价结果</h1>
         <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
           暂无组合明细，无法计算核算定价
@@ -134,7 +136,7 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
   }
 
   return (
-    <section className="grid gap-5">
+    <section className="flex flex-col gap-6 p-4 sm:p-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-ink">核算定价结果</h1>
@@ -155,7 +157,7 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
         </div>
       </div>
 
-      <div className="grid gap-5">
+      <div className="flex flex-col gap-5">
         {skuResults.map(({ sku, result }) => {
           const metrics = [
             ["采购成本", formatCurrency(result.purchaseCostRmb)],
@@ -185,26 +187,26 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
                 </p>
               </div>
               <div className="grid gap-4 md:grid-cols-3">
-                <div className="rounded-lg bg-white p-5 shadow-panel">
+                <div className="rounded-lg bg-panel p-5 shadow-soft">
                   <p className="text-sm text-slate-500">核算定价</p>
                   <p className="mt-2 text-3xl font-semibold text-ink">
                     {formatCurrency(result.temuDeclarationPriceRmb)}
                   </p>
                 </div>
-                <div className="rounded-lg bg-white p-5 shadow-panel">
+                <div className="rounded-lg bg-panel p-5 shadow-soft">
                   <p className="text-sm text-slate-500">利润</p>
                   <p className="mt-2 text-3xl font-semibold text-ink">
                     {formatCurrency(result.profitRmb)}
                   </p>
                 </div>
-                <div className="rounded-lg bg-white p-5 shadow-panel">
+                <div className="rounded-lg bg-panel p-5 shadow-soft">
                   <p className="text-sm text-slate-500">利润率</p>
                   <p className="mt-2 text-3xl font-semibold text-ink">
                     {formatPercent(result.profitRate)}
                   </p>
                 </div>
               </div>
-              <div className="grid gap-4 rounded-lg bg-white p-5 shadow-panel sm:grid-cols-2 xl:grid-cols-3">
+              <div className="grid gap-4 rounded-lg bg-panel p-5 shadow-soft sm:grid-cols-2 xl:grid-cols-3">
                 {metrics.map(([label, value]) => (
                   <div key={label} className="rounded-md border border-line p-4">
                     <p className="text-sm text-slate-500">{label}</p>

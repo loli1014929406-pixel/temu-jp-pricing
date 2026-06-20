@@ -1,3 +1,4 @@
+import { Suspense, lazy } from "react";
 import { Link, Navigate, Route, Routes } from "react-router-dom";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PageShell } from "./components/page-shell";
@@ -5,27 +6,28 @@ import { ProtectedRoute } from "./components/protected-route";
 import { useAuth } from "./hooks/use-auth";
 import { PermissionGate, PermissionProvider } from "./hooks/use-permissions";
 import { AuthPage } from "./pages/auth-page";
-import { DeclarationPricesPage } from "./pages/declaration-prices-page";
-import { FinanceOverviewPage } from "./pages/finance/finance-overview-page";
-import { FinanceLedgerPage } from "./pages/finance/finance-ledger-page";
-import { FinanceExpensesPage } from "./pages/finance/finance-expenses-page";
-import { FinanceProfitPage } from "./pages/finance/finance-profit-page";
-import { FinanceSettlementPage } from "./pages/finance/finance-settlement-page";
-import { InventoryPage } from "./pages/inventory-page";
-import { InventoryTransferPage } from "./pages/inventory-transfer-page";
-import { OrdersPage } from "./pages/orders-page";
-import { MultiShipmentProfitPage } from "./pages/multi-shipment-profit-page";
-import { MultiShipmentProductsPage } from "./pages/multi-shipment-products-page";
-import { ProfitCalculationPage } from "./pages/profit-calculation-page";
-import { ProfitCalculationsPage } from "./pages/profit-calculations-page";
-import { PromotionRecommendationsPage } from "./pages/promotion-recommendations-page";
-import { PricingResultPage } from "./pages/pricing-result-page";
-import { ProductCreatePage } from "./pages/product-create-page";
-import { ProductEditPage } from "./pages/product-edit-page";
-import { ProductsPage } from "./pages/products-page";
-import { PurchasesPage } from "./pages/purchases-page";
-import { SettingsPage } from "./pages/settings-page";
-import { TestShippingPage } from "./pages/test-shipping-page";
+const DeclarationPricesPage = lazy(() => import('./pages/declaration-prices-page').then(module => ({ default: module.DeclarationPricesPage })));
+const FinanceOverviewPage = lazy(() => import('./pages/finance/finance-overview-page').then(module => ({ default: module.FinanceOverviewPage })));
+const FinanceLedgerPage = lazy(() => import('./pages/finance/finance-ledger-page').then(module => ({ default: module.FinanceLedgerPage })));
+const FinanceExpensesPage = lazy(() => import('./pages/finance/finance-expenses-page').then(module => ({ default: module.FinanceExpensesPage })));
+const FinanceProfitPage = lazy(() => import('./pages/finance/finance-profit-page').then(module => ({ default: module.FinanceProfitPage })));
+const FinanceSettlementPage = lazy(() => import('./pages/finance/finance-settlement-page').then(module => ({ default: module.FinanceSettlementPage })));
+const InventoryPage = lazy(() => import('./pages/inventory-page').then(module => ({ default: module.InventoryPage })));
+const InventoryTransferPage = lazy(() => import('./pages/inventory-transfer-page').then(module => ({ default: module.InventoryTransferPage })));
+const OrdersPage = lazy(() => import('./pages/orders-page').then(module => ({ default: module.OrdersPage })));
+const MultiShipmentProfitPage = lazy(() => import('./pages/multi-shipment-profit-page').then(module => ({ default: module.MultiShipmentProfitPage })));
+const MultiShipmentProductsPage = lazy(() => import('./pages/multi-shipment-products-page').then(module => ({ default: module.MultiShipmentProductsPage })));
+const ProfitCalculationPage = lazy(() => import('./pages/profit-calculation-page').then(module => ({ default: module.ProfitCalculationPage })));
+const ProfitCalculationsPage = lazy(() => import('./pages/profit-calculations-page').then(module => ({ default: module.ProfitCalculationsPage })));
+const PromotionRecommendationsPage = lazy(() => import('./pages/promotion-recommendations-page').then(module => ({ default: module.PromotionRecommendationsPage })));
+const PricingResultPage = lazy(() => import('./pages/pricing-result-page').then(module => ({ default: module.PricingResultPage })));
+const ProductCreatePage = lazy(() => import('./pages/product-create-page').then(module => ({ default: module.ProductCreatePage })));
+const ProductEditPage = lazy(() => import('./pages/product-edit-page').then(module => ({ default: module.ProductEditPage })));
+const ProductsPage = lazy(() => import('./pages/products-page').then(module => ({ default: module.ProductsPage })));
+const PurchasesPage = lazy(() => import('./pages/purchases-page').then(module => ({ default: module.PurchasesPage })));
+const SettingsPage = lazy(() => import('./pages/settings-page').then(module => ({ default: module.SettingsPage })));
+const TestShippingPage = lazy(() => import('./pages/test-shipping-page').then(module => ({ default: module.TestShippingPage })));
+const UserPage = lazy(() => import('./pages/user-page').then(module => ({ default: module.UserPage })));
 
 function NotFoundPage() {
   return (
@@ -46,7 +48,8 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <Routes>
+      <Suspense fallback={<div className="flex h-screen items-center justify-center"><div className="text-slate-500">Loading...</div></div>}>
+        <Routes>
         <Route path="/login" element={<AuthPage user={user} />} />
         <Route
           element={
@@ -58,6 +61,7 @@ export default function App() {
           }
         >
           <Route index element={isOrdersSubdomain ? <Navigate to="/orders" replace /> : <NotFoundPage />} />
+          <Route path="/user" element={user ? <UserPage /> : null} />
           <Route path="/products" element={user ? <ProductsPage user={user} /> : null} />
           <Route
             path="/orders"
@@ -71,6 +75,9 @@ export default function App() {
           />
           <Route path="/finance" element={user ? <FinanceOverviewPage user={user} /> : null} />
           <Route path="/finance/ledger" element={user ? <FinanceLedgerPage user={user} /> : null} />
+          <Route path="/finance/books" element={<Navigate to="/finance/ledger" replace />} />
+          <Route path="/finance/cashflow" element={<Navigate to="/finance/ledger" replace />} />
+          <Route path="/finance/reconciliation" element={<Navigate to="/finance/settlement" replace />} />
           <Route path="/finance/expenses" element={user ? <FinanceExpensesPage user={user} /> : null} />
           <Route path="/finance/profit" element={user ? <FinanceProfitPage user={user} /> : null} />
           <Route path="/finance/settlement" element={user ? <FinanceSettlementPage user={user} /> : null} />
@@ -180,6 +187,7 @@ export default function App() {
           <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Routes>
+      </Suspense>
     </ErrorBoundary>
   );
 }

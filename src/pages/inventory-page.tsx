@@ -39,9 +39,10 @@ import type {
 } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../utils/sku-code";
-import { PageHeader } from "../components/ui";
+import { PageHeader, StandardTable } from "../components/ui";
 import { readDraft, useDraftPersistence } from "../hooks/use-draft-persistence";
 import { usePermissions } from "../hooks/use-permissions";
+import { useAutoDismiss } from "../hooks/use-auto-dismiss";
 import { AsyncProductSelect } from "../components/inventory/AsyncProductSelect";
 import { fetchSettings } from "../lib/settings";
 import { defaultFirstLegMethods, defaultLastLegMethods } from "../lib/defaults";
@@ -240,6 +241,8 @@ export function InventoryPage({ user }: InventoryPageProps) {
   const [draftNotice, setDraftNotice] = useState(
     hasInventoryDraft(restoredDraft) ? "已恢复上次未保存的库存编辑草稿。" : "",
   );
+  useAutoDismiss(errorMessage, () => setErrorMessage(""));
+  useAutoDismiss(draftNotice, () => setDraftNotice(""));
   const [searchQuery, setSearchQuery] = useState("");
   const [editingWarehouseId, setEditingWarehouseId] = useState<string | null>(null);
   const [showWarehouseSettings, setShowWarehouseSettings] = useState(false);
@@ -1010,7 +1013,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
   }, [sortedWarehouseSkusByWarehouseId]);
 
   return (
-    <section className="grid gap-5">
+    <section className="flex flex-col gap-6 p-4 sm:p-6">
       <PageHeader title={pageTitle} description={pageDescription} />
 
       {errorMessage && (
@@ -1025,7 +1028,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
       )}
 
       {!loading && warehouses.length > 0 && (
-        <section className="surface-card p-3 shadow-sm rounded-xl">
+        <section className="rounded-lg bg-panel p-3 shadow-soft">
           <div className="flex flex-wrap gap-2">
             <Link
               to="/inventory"
@@ -1059,7 +1062,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
 
       {!warehouseSlug && !loading && (
         <div className="grid gap-5 sm:grid-cols-3">
-          <div className="surface-card p-5 flex items-center justify-between shadow-sm rounded-xl">
+          <div className="rounded-lg bg-panel p-5 flex items-center justify-between shadow-soft">
             <div>
               <div className="text-sm font-medium text-slate-500">仓库总数</div>
               <div className="mt-1 text-2xl font-bold text-ink">{warehouses.length} 个</div>
@@ -1068,7 +1071,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
               <MapPin size={24} />
             </div>
           </div>
-          <div className="surface-card p-5 flex items-center justify-between shadow-sm rounded-xl">
+          <div className="rounded-lg bg-panel p-5 flex items-center justify-between shadow-soft">
             <div>
               <div className="text-sm font-medium text-slate-500">已分配商品 SKU 总数</div>
               <div className="mt-1 text-2xl font-bold text-ink">
@@ -1079,7 +1082,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
               <Search size={24} />
             </div>
           </div>
-          <div className="surface-card p-5 flex items-center justify-between shadow-sm rounded-xl">
+          <div className="rounded-lg bg-panel p-5 flex items-center justify-between shadow-soft">
             <div>
               <div className="text-sm font-medium text-slate-500">可用发货方式</div>
               <div className="mt-1 text-2xl font-bold text-ink">
@@ -1095,7 +1098,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
 
       {/* Admin creation blocks: only show on all warehouses view & with permissions */}
       {!warehouseSlug && canEdit && (
-        <section className="surface-card grid gap-4 p-5 shadow-sm rounded-xl">
+        <section className="rounded-lg bg-panel grid gap-4 p-5 shadow-soft">
           <h2 className="text-base font-semibold text-ink">新增仓库</h2>
           <div className="grid gap-3 md:grid-cols-[minmax(220px,1fr)_auto]">
             <input
@@ -1138,7 +1141,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                 const totalAssignedLegs = firstLegs.length + lastLegs.length;
 
                 return (
-                  <div key={warehouse.id} className="surface-card p-5 flex flex-col justify-between shadow-sm rounded-xl relative group">
+                  <div key={warehouse.id} className="rounded-lg bg-panel p-5 flex flex-col justify-between shadow-soft relative group">
                     <div>
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2.5">
@@ -1371,7 +1374,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                 <div key={warehouse.id} className="grid gap-5">
                   {/* KPI cards for warehouse page */}
                   <div className="grid gap-5 sm:grid-cols-3">
-                    <div className="surface-card p-5 flex items-center justify-between shadow-sm rounded-xl">
+                    <div className="rounded-lg bg-panel p-5 flex items-center justify-between shadow-soft">
                       <div>
                         <div className="text-sm font-medium text-slate-500">{hasSearch ? "筛选匹配 SKU 数" : "已分配商品 SKU 数"}</div>
                         <div className="mt-1 text-2xl font-bold text-ink">
@@ -1382,7 +1385,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                         <Search size={24} />
                       </div>
                     </div>
-                    <div className="surface-card p-5 flex items-center justify-between shadow-sm rounded-xl">
+                    <div className="rounded-lg bg-panel p-5 flex items-center justify-between shadow-soft">
                       <div>
                         <div className="text-sm font-medium text-slate-500">已关联头程物流</div>
                         <div className="mt-1 text-2xl font-bold text-ink">
@@ -1393,7 +1396,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                         <Truck size={24} />
                       </div>
                     </div>
-                    <div className="surface-card p-5 flex items-center justify-between shadow-sm rounded-xl">
+                    <div className="rounded-lg bg-panel p-5 flex items-center justify-between shadow-soft">
                       <div>
                         <div className="text-sm font-medium text-slate-500">已关联尾程物流</div>
                         <div className="mt-1 text-2xl font-bold text-ink">
@@ -1407,8 +1410,8 @@ export function InventoryPage({ user }: InventoryPageProps) {
                   </div>
 
                   {/* Action Control Board */}
-                  <div className="surface-card p-5 grid gap-4 shadow-sm rounded-xl">
-                    <div className="flex flex-wrap items-center justify-between gap-4">
+                  <section className="grid gap-4 rounded-lg bg-panel p-5 shadow-soft">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div className="flex items-center gap-3">
                         <button
                           type="button"
@@ -1608,7 +1611,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                         </button>
                       </div>
                     )}
-                  </div>
+                  </section>
 
                   {/* Inventory Table card */}
                   {warehouseTotals[warehouse.id] === undefined ? (
@@ -1622,21 +1625,32 @@ export function InventoryPage({ user }: InventoryPageProps) {
                       </div>
                     </div>
                   ) : (
-                    <div className="surface-card overflow-hidden shadow-sm rounded-xl">
+                    <div className="rounded-lg shadow-soft overflow-hidden bg-panel">
                       <div className="overflow-x-auto">
-                        <table className="data-table">
+                        <StandardTable
+                          page={warehousePages[warehouse.id] ?? 1}
+                          pageSize={pageSize}
+                          totalPages={Math.max(1, Math.ceil((warehouseTotals[warehouse.id] ?? 0) / pageSize))}
+                          totalRecordCount={warehouseTotals[warehouse.id] ?? 0}
+                          onPageChange={(page) => void loadWarehousePage(warehouse.id, page)}
+                          onPageSizeChange={(newSize) => {
+                            setPageSize(newSize);
+                            void loadWarehousePage(warehouse.id, 1, newSize);
+                          }}
+                          loading={warehousePageLoading[warehouse.id] ?? false}
+                        >
                           <thead>
                             <tr>
-                              <th className="px-4 py-3 font-semibold text-left">商品编号</th>
-                              <th className="product-name-col px-4 py-3 font-semibold text-left">产品名称</th>
-                              <th className="px-4 py-3 font-semibold text-left">SKU编号</th>
-                              <th className="px-4 py-3 font-semibold text-left">销售规格</th>
-                              <th className="px-4 py-3 font-semibold text-left">SKU库存</th>
-                              <th className="px-4 py-3 font-semibold text-left">查看配件</th>
-                              <th className="px-4 py-3 font-semibold text-left">操作</th>
+                              <th className="bg-slate-50 px-4 py-3 font-semibold text-left">商品编号</th>
+                              <th className="bg-slate-50 product-name-col px-4 py-3 font-semibold text-left">产品名称</th>
+                              <th className="bg-slate-50 px-4 py-3 font-semibold text-left">SKU编号</th>
+                              <th className="bg-slate-50 px-4 py-3 font-semibold text-left">销售规格</th>
+                              <th className="bg-slate-50 px-4 py-3 font-semibold text-left">SKU库存</th>
+                              <th className="bg-slate-50 px-4 py-3 font-semibold text-left">查看配件</th>
+                              <th className="bg-slate-50 px-4 py-3 font-semibold text-left">操作</th>
                             </tr>
                           </thead>
-                          <tbody>
+                          <tbody className="divide-y divide-line bg-white">
                             {filteredItems.length === 0 ? (
                               <tr>
                                 <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
@@ -1870,101 +1884,9 @@ export function InventoryPage({ user }: InventoryPageProps) {
                               })
                             )}
                           </tbody>
-                        </table>
+                        </StandardTable>
                       </div>
                     </div>
-                  )}
-
-                  {/* Pagination Controls */}
-                  {warehouseTotals[warehouse.id] !== undefined && (
-                    (() => {
-                      const total = warehouseTotals[warehouse.id] ?? 0;
-                      const currentPage = warehousePages[warehouse.id] ?? 1;
-                      const totalPages = Math.max(1, Math.ceil(total / pageSize));
-                      const isPageLoading = warehousePageLoading[warehouse.id] ?? false;
-
-                      // Build page number list with ellipsis
-                      const pageNumbers: (number | '...')[] = [];
-                      if (totalPages <= 7) {
-                        for (let i = 1; i <= totalPages; i++) pageNumbers.push(i);
-                      } else {
-                        pageNumbers.push(1);
-                        if (currentPage > 3) pageNumbers.push('...');
-                        for (let i = Math.max(2, currentPage - 1); i <= Math.min(totalPages - 1, currentPage + 1); i++) {
-                          pageNumbers.push(i);
-                        }
-                        if (currentPage < totalPages - 2) pageNumbers.push('...');
-                        pageNumbers.push(totalPages);
-                      }
-
-                      return (
-                        <div className="flex items-center justify-between gap-4 px-1 py-3 flex-wrap">
-                          {/* Left: total info + page size selector */}
-                          <div className="flex items-center gap-3">
-                            <span className="text-xs text-slate-500">
-                              {hasSearch ? "筛选后共" : "共"} <span className="font-semibold text-slate-700">{total}</span> 条，
-                              第 <span className="font-semibold text-slate-700">{currentPage}</span> / {totalPages} 页
-                            </span>
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-xs text-slate-400">每页</span>
-                              <select
-                                value={pageSize}
-                                disabled={isPageLoading}
-                                onChange={(e) => {
-                                  const newSize = Number(e.target.value);
-                                  setPageSize(newSize);
-                                  // Reset to page 1 with new size
-                                  void loadWarehousePage(warehouse.id, 1, newSize);
-                                }}
-                                className="h-7 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none transition focus:border-violet-500 hover:border-slate-300 disabled:opacity-50"
-                              >
-                                {PAGE_SIZE_OPTIONS.map(s => (
-                                  <option key={s} value={s}>{s} 条</option>
-                                ))}
-                              </select>
-                            </div>
-                          </div>
-                          {/* Right: page navigation */}
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              disabled={currentPage <= 1 || isPageLoading}
-                              onClick={() => void loadWarehousePage(warehouse.id, currentPage - 1)}
-                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold transition hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                            >
-                              ‹
-                            </button>
-                            {pageNumbers.map((p, idx) =>
-                              p === '...' ? (
-                                <span key={`ellipsis-${idx}`} className="px-1 text-xs text-slate-400">…</span>
-                              ) : (
-                                <button
-                                  key={p}
-                                  type="button"
-                                  disabled={isPageLoading}
-                                  onClick={() => void loadWarehousePage(warehouse.id, p as number)}
-                                  className={`inline-flex h-8 min-w-[2rem] items-center justify-center rounded-lg border px-2 text-xs font-semibold transition disabled:cursor-not-allowed ${
-                                    p === currentPage
-                                      ? 'border-violet-200 bg-violet-600 text-white shadow-sm'
-                                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                                  }`}
-                                >
-                                  {p}
-                                </button>
-                              )
-                            )}
-                            <button
-                              type="button"
-                              disabled={currentPage >= totalPages || isPageLoading}
-                              onClick={() => void loadWarehousePage(warehouse.id, currentPage + 1)}
-                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold transition hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                            >
-                              ›
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })()
                   )}
                 </div>
               );

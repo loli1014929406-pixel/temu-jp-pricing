@@ -86,6 +86,8 @@ create table if not exists public.pricing_settings (
   test_ocs_small_parcel_extra_price_per_500g_rmb numeric not null default 6,
   target_profit_rate numeric not null default 0.3,
   target_post_ad_profit_rate numeric not null default 0.25,
+  first_leg_methods jsonb,
+  last_leg_methods jsonb,
   updated_at timestamptz not null default now()
 );
 
@@ -352,6 +354,12 @@ add column if not exists test_ocs_small_parcel_first_price_rmb numeric not null 
 
 alter table public.pricing_settings
 add column if not exists test_ocs_small_parcel_extra_price_per_500g_rmb numeric not null default 6;
+
+alter table public.pricing_settings
+add column if not exists first_leg_methods jsonb;
+
+alter table public.pricing_settings
+add column if not exists last_leg_methods jsonb;
 
 alter table public.pricing_results
 alter column owner_id set default auth.uid();

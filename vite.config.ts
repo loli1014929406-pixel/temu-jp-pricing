@@ -23,6 +23,12 @@ export default defineConfig({
           if (normalizedId.includes("/node_modules/react-router-dom/")) {
             return "router";
           }
+          if (normalizedId.includes("/node_modules/lucide-react/")) {
+            return "lucide";
+          }
+          if (normalizedId.includes("/node_modules/read-excel-file/") || normalizedId.includes("/node_modules/write-excel-file/")) {
+            return "excel";
+          }
           if (normalizedId.endsWith("/src/hooks/useOrders.ts")) {
             return "orders-hook";
           }

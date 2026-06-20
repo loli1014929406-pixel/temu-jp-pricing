@@ -10,6 +10,7 @@ import {
 import { fetchProfitCalculationsBySkuIds } from "../lib/profit-calculations";
 import { fetchSettings } from "../lib/settings";
 import { readDraft } from "../hooks/use-draft-persistence";
+import { useAutoDismiss } from "../hooks/use-auto-dismiss";
 import type { Product, ProfitCalculationInput } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { calculatePricing, formatCurrency } from "../utils/pricing";
@@ -19,6 +20,7 @@ import {
 } from "../utils/profit-calculation";
 import { calculateTestShipping } from "../utils/test-shipping";
 import { Badge, PageHeader } from "../components/ui";
+import { StandardTable } from "../components/ui/StandardTable";
 
 type TestShippingPageProps = {
   user: User;
@@ -59,6 +61,13 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
   >({});
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  useAutoDismiss(errorMessage, () => setErrorMessage(""));
+
+  useEffect(() => {
+    setPage(1);
+  }, [pageSize]);
 
   useEffect(() => {
     let active = true;
@@ -241,8 +250,10 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
     };
   }, [user.id]);
 
+  const paginatedProducts = products.slice((page - 1) * pageSize, page * pageSize);
+
   return (
-    <section className="grid gap-5">
+    <section className="flex flex-col gap-6 p-4 sm:p-6">
       <PageHeader
         title="直发测算"
         description="查看直发物流方案与利润表现"
@@ -262,10 +273,10 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
       <div className="grid gap-3 md:hidden">
         {loading ? (
           <div className="empty-state">加载中...</div>
-        ) : products.length === 0 ? (
+        ) : paginatedProducts.length === 0 ? (
           <div className="empty-state">暂无商品</div>
         ) : (
-          products.map((product) => {
+          paginatedProducts.map((product) => {
             const summary = summaries[product.id];
             return (
               <article key={product.id} className="mobile-summary-card">
@@ -305,9 +316,16 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
         )}
       </div>
 
-      <div className="table-card hidden md:block">
+      <div className="hidden rounded-lg bg-panel shadow-soft overflow-hidden md:block">
         <div className="overflow-x-auto">
-          <table className="data-table">
+          <StandardTable
+            page={page}
+            pageSize={pageSize}
+            totalPages={Math.max(1, Math.ceil(products.length / pageSize))}
+            totalRecordCount={products.length}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+          >
             <thead>
               <tr>
                 <th className="px-4 py-3 font-medium">商品编号</th>
@@ -331,14 +349,14 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                     加载中...
                   </td>
                 </tr>
-              ) : products.length === 0 ? (
+              ) : paginatedProducts.length === 0 ? (
                 <tr>
                   <td colSpan={12} className="px-4 py-8 text-center text-slate-500">
                     暂无商品
                   </td>
                 </tr>
               ) : (
-                products.map((product) => {
+                paginatedProducts.map((product) => {
                   const summary = summaries[product.id];
                   return (
                     <tr key={product.id}>
@@ -403,7 +421,7 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                 })
               )}
             </tbody>
-          </table>
+          </StandardTable>
         </div>
       </div>
     </section>

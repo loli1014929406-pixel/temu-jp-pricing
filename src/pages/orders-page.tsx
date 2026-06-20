@@ -9,6 +9,7 @@ import { OrderDetailPanel } from "../components/orders/OrderDetailPanel";
 import { OrderFilters } from "../components/orders/OrderFilters";
 import { memo, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { Badge, PageHeader } from "../components/ui";
+import { StandardTable } from "../components/ui/StandardTable";
 import {
   createEmptyDraft,
   getOrdersErrorMessage,
@@ -16,6 +17,7 @@ import {
   type OrderDraft,
   useOrders,
 } from "../hooks/useOrders";
+import { useAutoDismiss } from "../hooks/use-auto-dismiss";
 import { usePermissions } from "../hooks/use-permissions";
 import {
   addObjectSheet,
@@ -270,7 +272,6 @@ const visibleColumns = [
   { key: "delivery_deadline", label: "签收时效", className: "order-time-col", sortable: true },
   { key: "warehouse", label: "仓库" },
   { key: "logistics", label: "发货方式" },
-  { key: "actual_shipping_fee_rmb", label: "实际运费", className: "order-fee-col" },
   { key: "quantity", label: "数量" },
   { key: "product", label: "商品信息", className: "order-product-col", sortable: true },
   { key: "sales_spec", label: "销售规格", className: "order-attr-col" },
@@ -607,6 +608,43 @@ function getOrderDisplayRowSalesSpec(rowOrders: TemuOrderRecord[]) {
   return Array.from(specGroups.values())
     .map((item) => (item.quantity > 1 ? `${item.label} ×${item.quantity}` : item.label))
     .join(" / ");
+}
+
+type OrderDisplaySkuLine = {
+  key: string;
+  skuCode: string;
+  spec: string;
+  quantity: number;
+};
+
+function getOrderDisplayRowSkuLines(
+  rowOrders: TemuOrderRecord[],
+  productsById: ProductsById,
+  skuOrderLookup: SkuOrderLookup,
+): OrderDisplaySkuLine[] {
+  const groups = new Map<string, OrderDisplaySkuLine>();
+
+  rowOrders.forEach((order) => {
+    const declaration = getOrderDeclarationFromLookups(order, productsById, skuOrderLookup);
+    const skuCode =
+      declaration?.sku.sku_code.trim() ||
+      order.sku_code.trim() ||
+      "--";
+    const spec = order.product_attributes.trim() || "--";
+    const key =
+      declaration?.sku.id ||
+      [normalizeSkuCode(skuCode), normalizeSalesSpec(spec)].join("\u0000");
+    const current = groups.get(key);
+
+    groups.set(key, {
+      key,
+      skuCode: current?.skuCode ?? skuCode,
+      spec: current?.spec ?? spec,
+      quantity: (current?.quantity ?? 0) + getOrderFulfillmentQuantity(order),
+    });
+  });
+
+  return Array.from(groups.values());
 }
 
 function getOrderDisplayRowDeclarationGroups(
@@ -1129,7 +1167,6 @@ type OrderTableRowProps = {
   currentTime: Date;
   logisticsMethods: LogisticsMethod[];
   onHandleWarehouseChangeForOrders: (orderIds: string[], warehouseId: string) => void;
-  onSaveActualShippingFeeForOrders: (targetOrders: TemuOrderRecord[]) => Promise<void>;
   onSaveActualShipTimeForOrders: (targetOrders: TemuOrderRecord[]) => Promise<void>;
   onToggleOrderRowSelection: (rowOrderIds: string[], checked: boolean) => void;
   onUpdateDraftForOrders: <K extends keyof OrderDraft>(
@@ -1156,7 +1193,6 @@ const OrderTableRow = memo(function OrderTableRow({
   currentTime,
   logisticsMethods,
   onHandleWarehouseChangeForOrders,
-  onSaveActualShippingFeeForOrders,
   onSaveActualShipTimeForOrders,
   onToggleOrderRowSelection,
   onUpdateDraftForOrders,
@@ -1280,6 +1316,10 @@ const OrderTableRow = memo(function OrderTableRow({
     () => getOrderDisplayRowSalesSpec(rowOrders),
     [rowOrders],
   );
+  const skuLines = useMemo(
+    () => getOrderDisplayRowSkuLines(rowOrders, productsById, skuOrderLookup),
+    [productsById, rowOrders, skuOrderLookup],
+  );
   const normalizedDraftLogisticsMethod = useMemo(
     () => normalizeLogisticsMethod(draft.logistics_method),
     [draft.logistics_method],
@@ -1393,9 +1433,15 @@ const OrderTableRow = memo(function OrderTableRow({
               <span className="font-medium text-slate-900">
                 {primaryDeclaration.product.product_name_cn || "--"}
               </span>
-              <span className="text-xs font-medium text-slate-500">
-                {productMeta || skuSummary}
-              </span>
+              <div className="grid gap-0.5 text-xs font-medium text-slate-500">
+                <span>{productMeta || skuSummary}</span>
+                {skuLines.map((line) => (
+                  <span key={line.key} className="whitespace-nowrap">
+                    {line.skuCode} · {line.spec}
+                    {line.quantity > 1 ? ` ×${line.quantity}` : ""}
+                  </span>
+                ))}
+              </div>
             </div>
           </div>
         ) : (
@@ -1490,8 +1536,16 @@ export function OrdersPage({ user }: OrdersPageProps) {
   const { canEdit, canDelete } = usePermissions();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const trackingInputRef = useRef<HTMLInputElement | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    setPage(1);
+  }, [pageSize, search]);
+  
   const {
-    orders,
+    allOrders,
     warehouses,
     products,
     productItems,
@@ -1515,17 +1569,13 @@ export function OrdersPage({ user }: OrdersPageProps) {
     setErrorMessage,
     updateDraftForOrders,
     updateDraftFieldsForOrders,
-    replaceOrders,
     removeOrders,
     mergeOrders: updateOrdersState,
-    replaceDraftsFromOrders,
     clearDrafts,
     applyWarehouseItemStockUpdates,
-    fetchLatestOrders,
     fetchLatestProductsAndSkus,
-  } = useOrders(user);
+  } = useOrders(user, { page: 1, pageSize: 20 });
   const [activeStage, setActiveStage] = useState<OrderStage>("all");
-  const [search, setSearch] = useState("");
   const [warehouseFilter, setWarehouseFilter] = useState("");
   const [logisticsMethodFilter, setLogisticsMethodFilter] = useState("");
   const [busyKey, setBusyKey] = useState("");
@@ -1535,6 +1585,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
   const [showUrgentUnuploadedOnly, setShowUrgentUnuploadedOnly] = useState(false);
   const autoQueriedTrackingNosRef = useRef<Set<string>>(new Set());
   const autoCompletedDeliveredOrderIdsRef = useRef<Set<string>>(new Set());
+  useAutoDismiss(noticeMessage, () => setNoticeMessage(""));
 
   const logisticsMethodOptions = useMemo(
     () =>
@@ -1548,12 +1599,12 @@ export function OrdersPage({ user }: OrdersPageProps) {
             })
             .map((method) => normalizeLogisticsMethod(method.name))
             .filter(Boolean),
-          ...orders
+          ...allOrders
             .map((order) => normalizeLogisticsMethod(mergeOrderDraft(order).logistics_method))
             .filter(Boolean),
         ]),
       ),
-    [drafts, logisticsMethods, orders],
+    [allOrders, drafts, logisticsMethods],
   );
 
   const skuOrderLookup = useMemo(
@@ -1562,8 +1613,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
   );
 
   const ordersById = useMemo(
-    () => new Map(orders.map((order) => [order.id, order])),
-    [orders],
+    () => new Map(allOrders.map((order) => [order.id, order])),
+    [allOrders],
   );
 
   const productsById = useMemo(
@@ -1610,8 +1661,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
   );
 
   const urgentUnuploadedOrders = useMemo(
-    () => orders.filter((order) => isUrgentUnuploadedOrder(order, currentTime)),
-    [currentTime, orders],
+    () => allOrders.filter((order) => isUrgentUnuploadedOrder(order, currentTime)),
+    [allOrders, currentTime],
   );
 
   useEffect(() => {
@@ -1656,7 +1707,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
 
   const filteredOrders = useMemo(() => {
     const term = search.trim().toLowerCase();
-    const nextOrders = orders.filter((order) => {
+    const nextOrders = allOrders.filter((order) => {
       const merged = mergeOrderDraft(order);
       if (showUrgentUnuploadedOnly && !isUrgentUnuploadedOrder(merged, currentTime)) {
         return false;
@@ -1721,8 +1772,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
     activeStage,
     currentTime,
     drafts,
+    allOrders,
     logisticsMethodFilter,
-    orders,
     orderSort,
     productsById,
     search,
@@ -1736,12 +1787,23 @@ export function OrdersPage({ user }: OrdersPageProps) {
     () => buildOrderDisplayRows(filteredOrders),
     [drafts, filteredOrders, productsById, skuOrderLookup],
   );
+  const filteredTotalPages = Math.max(1, Math.ceil(filteredOrderRows.length / pageSize));
+  const paginatedOrderRows = useMemo(() => {
+    const startIndex = (page - 1) * pageSize;
+    return filteredOrderRows.slice(startIndex, startIndex + pageSize);
+  }, [filteredOrderRows, page, pageSize]);
+
+  useEffect(() => {
+    if (page > filteredTotalPages) {
+      setPage(filteredTotalPages);
+    }
+  }, [filteredTotalPages, page]);
 
   const stageCounts = useMemo(() => {
     const counts = Object.fromEntries(
       stageDefinitions.map((definition) => [definition.key, 0]),
     ) as Record<OrderStage, number>;
-    const countableOrders = orders.filter((order) => matchesFulfillmentFilters(order));
+    const countableOrders = allOrders.filter((order) => matchesFulfillmentFilters(order));
     const rows = buildOrderDisplayRows(countableOrders);
 
     counts.all = rows.length;
@@ -1751,8 +1813,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
     return counts;
   }, [
     drafts,
+    allOrders,
     logisticsMethodFilter,
-    orders,
     productsById,
     skuOrderLookup,
     warehouseFilter,
@@ -1880,8 +1942,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
     [drafts, filteredOrders],
   );
   const allFilteredSelected =
-    filteredOrderRows.length > 0 &&
-    filteredOrderRows.every((row) =>
+    paginatedOrderRows.length > 0 &&
+    paginatedOrderRows.every((row) =>
       row.orders.every((order) => selectedOrderIdSet.has(order.id)),
     );
 
@@ -1908,7 +1970,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
   useEffect(() => {
     if (!canEdit || loading || busyKey) return;
 
-    const deliveredOrders = orders.filter(
+    const deliveredOrders = allOrders.filter(
       (order) =>
         !order.actual_signed_time.trim() &&
         isDeliveredTrackingStatus(order.logistics_status) &&
@@ -1920,7 +1982,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
       autoCompletedDeliveredOrderIdsRef.current.add(order.id);
     });
     void completeDeliveredOrders(deliveredOrders, "delivered-complete-auto", true);
-  }, [busyKey, canEdit, loading, orders]);
+  }, [allOrders, busyKey, canEdit, loading]);
 
   function mergeOrderDraft(order: TemuOrderRecord) {
     return {
@@ -1940,7 +2002,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
       },
       {},
     );
-    const orderNoCounts = orders.reduce<Record<string, number>>((counts, order) => {
+    const orderNoCounts = allOrders.reduce<Record<string, number>>((counts, order) => {
       const key = getOrderNoKey(order.order_no);
       if (key) counts[key] = (counts[key] ?? 0) + 1;
       return counts;
@@ -2471,7 +2533,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
       ["实际发货时间", merged.actual_ship_time],
       ["预计送达时间", merged.estimated_delivery_time],
       ["实际签收时间", merged.actual_signed_time],
-      ["实际运费", formatRmbAmount(merged.actual_shipping_fee_rmb)],
       ["发货仓库", merged.warehouse_name || "未分配"],
       ["发货方式", normalizeLogisticsMethod(merged.logistics_method) || "未分配"],
       ["物流单号", merged.logistics_tracking_no],
@@ -2498,7 +2559,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
   }
 
   function toggleFilteredSelection(checked: boolean) {
-    const filteredIds = filteredOrderRows.flatMap((row) =>
+    const filteredIds = paginatedOrderRows.flatMap((row) =>
       row.orders.map((order) => order.id),
     );
     setSelectedOrderIds((current) =>
@@ -2509,6 +2570,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
   }
 
   function toggleOrderSort(key: OrderSortKey) {
+    setPage(1);
     setOrderSort((current) =>
       current.key === key
         ? { key, direction: current.direction === "asc" ? "desc" : "asc" }
@@ -2578,7 +2640,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
 
       const uniqueImportRows = dedupeImportRowsByOrderLine(importRows);
       const skippedDuplicateCount = importRows.length - uniqueImportRows.length;
-      const existingOrders = await fetchLatestOrders();
+      const existingOrders = allOrders;
       const existingOrdersByLineKey = new Map<string, TemuOrderRecord>();
       const existingOrdersBySkuKey = new Map<string, TemuOrderRecord>();
       const existingOrderNoCounts = existingOrders.reduce<Record<string, number>>(
@@ -2640,10 +2702,15 @@ export function OrdersPage({ user }: OrdersPageProps) {
         newImportRows.length > 0
           ? await importTemuOrders(newImportRows)
           : [] as TemuOrderRecord[];
-      const nextOrders =
-        newImportRows.length > 0 ? await fetchLatestOrders() : existingOrders;
-      replaceOrders(nextOrders);
-      replaceDraftsFromOrders(nextOrders);
+      if (savedOrders.length > 0) {
+        updateOrdersState(savedOrders);
+        setActiveStage("pending_assignment");
+        setSearch("");
+        setWarehouseFilter("");
+        setLogisticsMethodFilter("");
+        setShowUrgentUnuploadedOnly(false);
+        setPage(1);
+      }
       const skipMessages = [
         skippedDuplicateCount > 0 ? `跳过上传表内重复订单明细 ${skippedDuplicateCount} 行` : "",
         existingLineCount > 0 ? `跳过已有订单明细 ${existingLineCount} 条` : "",
@@ -2695,7 +2762,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
         .filter((row): row is TrackingImportRecord => Boolean(row));
       if (trackingRows.length === 0) throw new Error("没有读取到可用的物流单号");
 
-      const pendingOrders = orders.filter(
+      const pendingOrders = allOrders.filter(
         (order) => getOrderStage(order) === "pending_shipping",
       );
       if (pendingOrders.length === 0) {
@@ -3214,47 +3281,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
     await handleSaveActualShipTimeForOrders([order]);
   }
 
-  async function handleSaveActualShippingFeeForOrders(targetOrders: TemuOrderRecord[]) {
-    if (!canEdit) return;
-
-    const changedOrders = targetOrders.filter((order) => {
-      const nextFee = normalizeRmbAmount(
-        (drafts[order.id] ?? toDraft(order)).actual_shipping_fee_rmb ?? 0,
-      );
-      return nextFee !== normalizeRmbAmount(order.actual_shipping_fee_rmb);
-    });
-    if (changedOrders.length === 0) return;
-
-    setBusyKey(`actual-shipping-fee-${changedOrders.map((order) => order.id).join("|")}`);
-    setErrorMessage("");
-
-    try {
-      const saveEntries = changedOrders.map((order) => {
-        const updates = {
-          actual_shipping_fee_rmb: normalizeRmbAmount(
-            (drafts[order.id] ?? toDraft(order)).actual_shipping_fee_rmb ?? 0,
-          ),
-        };
-        return { order, updates, nextOrder: { ...order, ...updates } };
-      });
-      const { nextOrders, failures } = await saveOrderEntriesWithInventory(saveEntries);
-      if (nextOrders.length === 0 && failures.length > 0) {
-        throw failures[0].error;
-      }
-      updateOrdersState(nextOrders);
-      setNoticeMessage(
-        [
-          `已保存 ${nextOrders.length} 条订单的实际运费`,
-          failures.length > 0 ? `${failures.length} 条保存失败` : "",
-        ].filter(Boolean).join("，"),
-      );
-    } catch (error) {
-      setErrorMessage(getOrdersErrorMessage(error, "保存实际运费失败"));
-    } finally {
-      setBusyKey("");
-    }
-  }
-
   async function handleSaveActualShipTimeForOrders(targetOrders: TemuOrderRecord[]) {
     if (!canEdit) return;
 
@@ -3501,23 +3527,69 @@ export function OrdersPage({ user }: OrdersPageProps) {
       ]),
     );
     const blockedReasons: string[] = [];
-    const matchedOrders = targetOrders.flatMap((order) => {
-      const matchResult = matchOrderFulfillment(order, availableStockByKey);
-      if (matchResult.status === "blocked") {
-        blockedReasons.push(matchResult.reason);
-        return [];
-      }
-      if (matchResult.status !== "matched") return [];
+    const targetGroupKeys = new Set(
+      targetOrders.map((order) => getOrderDisplayGroupKey(order)),
+    );
+    const targetOrderGroups = buildOrderDisplayRows(
+      allOrders.filter((order) => targetGroupKeys.has(getOrderDisplayGroupKey(order))),
+    );
+    const matchedOrders: Array<{ order: TemuOrderRecord } & OrderFulfillmentMatch> = [];
+    let matchedOrderGroupCount = 0;
 
-      const matched = matchResult.match;
-      const reserved = reserveOrderInventory(
-        matched.warehouse.id,
-        matched.sku,
-        matched.quantity,
-        availableStockByKey,
+    targetOrderGroups.forEach((orderGroup) => {
+      const groupOrders = orderGroup.orders;
+      const orderLabel = orderGroup.primaryOrder.order_no.trim() || getOrderLineLabel(orderGroup.primaryOrder);
+      const pendingOrders = groupOrders.filter(
+        (order) => getOrderStage(mergeOrderDraft(order)) === "pending_assignment",
       );
-      return reserved ? [{ order, ...matched }] : [];
+
+      if (pendingOrders.length !== groupOrders.length) {
+        blockedReasons.push(
+          `订单 ${orderLabel} 已存在部分 SKU 被分配，自动匹配不会继续拆分订单，请手动处理整单。`,
+        );
+        return;
+      }
+
+      const groupAvailableStockByKey = new Map(availableStockByKey);
+      const groupMatches: Array<{ order: TemuOrderRecord } & OrderFulfillmentMatch> = [];
+
+      for (const order of groupOrders) {
+        const matchResult = matchOrderFulfillment(order, groupAvailableStockByKey);
+        if (matchResult.status === "blocked") {
+          blockedReasons.push(matchResult.reason);
+          return;
+        }
+        if (matchResult.status !== "matched") {
+          blockedReasons.push(
+            `订单 ${orderLabel} 含未匹配 SKU（${getOrderLineLabel(order)}），整单保持未匹配。`,
+          );
+          return;
+        }
+
+        const matched = matchResult.match;
+        const reserved = reserveOrderInventory(
+          matched.warehouse.id,
+          matched.sku,
+          matched.quantity,
+          groupAvailableStockByKey,
+        );
+        if (!reserved) {
+          blockedReasons.push(
+            `订单 ${orderLabel} 的 ${getOrderLineLabel(order)} 配件库存不足，整单保持未匹配。`,
+          );
+          return;
+        }
+        groupMatches.push({ order, ...matched });
+      }
+
+      availableStockByKey.clear();
+      groupAvailableStockByKey.forEach((quantity, stockKey) => {
+        availableStockByKey.set(stockKey, quantity);
+      });
+      matchedOrders.push(...groupMatches);
+      matchedOrderGroupCount += 1;
     });
+
     if (matchedOrders.length === 0) {
       if (blockedReasons.length > 0) {
         setErrorMessage(formatAutoMatchBlockedReasons(blockedReasons));
@@ -3559,7 +3631,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
       }
       setNoticeMessage(
         [
-          `已自动匹配 ${nextOrders.length} 条订单`,
+          `已自动匹配 ${matchedOrderGroupCount} 个订单（${nextOrders.length} 条明细）`,
           inventoryChanges.length > 0
             ? `扣减 ${inventoryChanges.length} 项配件库存`
             : "",
@@ -4289,20 +4361,24 @@ export function OrdersPage({ user }: OrdersPageProps) {
           setOrderSort(defaultOrderSort);
           setSelectedOrderIds([]);
           setShowUrgentUnuploadedOnly(false);
+          setPage(1);
         }}
         onWarehouseFilterChange={(warehouseId) => {
           setWarehouseFilter(warehouseId);
           setSelectedOrderIds([]);
+          setPage(1);
         }}
         onLogisticsMethodFilterChange={(method) => {
           setLogisticsMethodFilter(method);
           setSelectedOrderIds([]);
+          setPage(1);
         }}
         onShowUrgentUnuploadedOnly={() => {
           setActiveStage("all");
           setOrderSort(defaultOrderSort);
           setSelectedOrderIds([]);
           setShowUrgentUnuploadedOnly(true);
+          setPage(1);
         }}
       />
 
@@ -4318,7 +4394,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
                 <Badge tone={activeOrderViewTone}>{activeOrderViewLabel}</Badge>
               </div>
               <p className="mt-1 text-sm font-medium text-slate-500">
-                当前显示 {filteredOrderRows.length} 行，覆盖 {filteredOrders.length} 个订单
+                当前显示 {paginatedOrderRows.length} 行，共 {filteredOrderRows.length} 行，覆盖 {filteredOrders.length} 个订单
               </p>
             </div>
           </div>
@@ -4426,16 +4502,24 @@ export function OrdersPage({ user }: OrdersPageProps) {
             暂无订单数据
           </div>
         ) : (
-          <div className="table-card shadow-none">
-            <div className="overflow-x-auto">
-              <table className="data-table orders-table min-w-[2020px]">
+          <div className="shadow-none">
+            <StandardTable
+              page={page}
+              pageSize={pageSize}
+              totalPages={filteredTotalPages}
+              totalRecordCount={filteredOrderRows.length}
+              onPageChange={setPage}
+              onPageSizeChange={setPageSize}
+              loading={loading}
+              empty={filteredOrderRows.length === 0}
+            >
                 <thead>
                   <tr>
                     <th className="w-12 text-center" scope="col">
                       <input
                         type="checkbox"
                         checked={allFilteredSelected}
-                        disabled={filteredOrderRows.length === 0}
+                        disabled={paginatedOrderRows.length === 0}
                         onChange={(event) => toggleFilteredSelection(event.target.checked)}
                         aria-label="选择当前列表全部订单"
                         className="h-4 w-4 rounded border-slate-300 text-sky-700 focus:ring-sky-500"
@@ -4465,7 +4549,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredOrderRows.map((orderRow) => (
+                  {paginatedOrderRows.map((orderRow) => (
                     <OrderTableRow
                       key={orderRow.id}
                       activeStage={activeStage}
@@ -4473,7 +4557,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
                       currentTime={currentTime}
                       logisticsMethods={logisticsMethods}
                       onHandleWarehouseChangeForOrders={handleWarehouseChangeForOrders}
-                      onSaveActualShippingFeeForOrders={handleSaveActualShippingFeeForOrders}
                       onSaveActualShipTimeForOrders={handleSaveActualShipTimeForOrders}
                       onToggleOrderRowSelection={toggleOrderRowSelection}
                       onUpdateDraftForOrders={updateDraftForOrders}
@@ -4491,8 +4574,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
                     />
                   ))}
                 </tbody>
-              </table>
-            </div>
+            </StandardTable>
           </div>
         )}
       </section>

@@ -1,14 +1,18 @@
 import { Download, Plus, Trash2, Upload } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   deleteProduct,
   exportProductsData,
-  fetchAllProducts,
+  fetchProductsPaginated,
   getProductRoutePath,
   importProductsData,
   updateProductSellingStatus,
 } from "../lib/products";
+import {
+  fetchAccountProfilesByOwnerIds,
+  formatAccountProfileDisplay,
+} from "../lib/account-profiles";
 import {
   buildWorkbook,
   getTransferValidation,
@@ -16,10 +20,12 @@ import {
 } from "../lib/product-transfer";
 import { downloadWorkbook } from "../lib/excel";
 import { usePermissions } from "../hooks/use-permissions";
+import { useAutoDismiss } from "../hooks/use-auto-dismiss";
 import { getErrorMessage } from "../utils/errors";
-import type { Product } from "../types";
+import type { AccountProfile, Product } from "../types";
 import type { User } from "@supabase/supabase-js";
 import { PageHeader, StatCard } from "../components/ui";
+import { StandardTable } from "../components/ui/StandardTable";
 
 type ProductsPageProps = {
   user: User;
@@ -30,12 +36,15 @@ type ProductSellingFilter = "selling" | "not_selling" | "all";
 export function ProductsPage({ user }: ProductsPageProps) {
   const { canEdit, canDelete } = usePermissions();
   const [products, setProducts] = useState<Product[]>([]);
+  const [profilesByOwnerId, setProfilesByOwnerId] = useState<Map<string, AccountProfile>>(
+    () => new Map(),
+  );
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [deletingProductId, setDeletingProductId] = useState("");
   const [updatingSellingProductId, setUpdatingSellingProductId] = useState("");
   const [transferring, setTransferring] = useState(false);
-  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
+  const [noticeMessage, setNoticeMessage] = useState("");
   const [pendingImport, setPendingImport] = useState<{
     fileName: string;
     records: Parameters<typeof importProductsData>[0];
@@ -43,54 +52,18 @@ export function ProductsPage({ user }: ProductsPageProps) {
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const location = useLocation();
+  const navigate = useNavigate();
   const successMessage = (location.state as { message?: string } | null)?.message;
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedMaterial, setSelectedMaterial] = useState("");
   const [sellingFilter, setSellingFilter] = useState<ProductSellingFilter>("selling");
+  useAutoDismiss(errorMessage, () => setErrorMessage(""));
 
-  const filteredProducts = useMemo(() => {
-    return products.filter((product) => {
-      const query = searchQuery.trim().toLowerCase();
-      const matchesSearch =
-        !query ||
-        product.product_code.toLowerCase().includes(query) ||
-        product.product_name_cn.toLowerCase().includes(query) ||
-        (product.material_cn || "").toLowerCase().includes(query) ||
-        (product.material_en || "").toLowerCase().includes(query);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [totalRecordCount, setTotalRecordCount] = useState(0);
+  const [refreshToken, setRefreshToken] = useState(0);
 
-      const matchesMaterial =
-        !selectedMaterial ||
-        product.material_cn === selectedMaterial ||
-        product.material_en === selectedMaterial;
-
-      const matchesSelling =
-        sellingFilter === "all" ||
-        (sellingFilter === "selling" && product.is_selling) ||
-        (sellingFilter === "not_selling" && !product.is_selling);
-
-      return matchesSearch && matchesMaterial && matchesSelling;
-    });
-  }, [products, searchQuery, selectedMaterial, sellingFilter]);
-
-  const sellingProductCount = useMemo(
-    () => products.filter((product) => product.is_selling).length,
-    [products],
-  );
-  const notSellingProductCount = products.length - sellingProductCount;
-  const filteredProductIdSet = useMemo(
-    () => new Set(filteredProducts.map((product) => product.id)),
-    [filteredProducts],
-  );
-
-  const uniqueMaterials = useMemo(() => {
-    const set = new Set<string>();
-    products.forEach((p) => {
-      if (p.material_cn) set.add(p.material_cn);
-      if (p.material_en) set.add(p.material_en);
-    });
-    return Array.from(set).sort();
-  }, [products]);
   useEffect(() => {
     let active = true;
 
@@ -99,10 +72,16 @@ export function ProductsPage({ user }: ProductsPageProps) {
       setErrorMessage("");
 
       try {
-        const baseProducts = await fetchAllProducts();
+        const { data, count } = await fetchProductsPaginated({
+          page,
+          pageSize,
+          searchQuery,
+          sellingFilter,
+        });
 
         if (active) {
-          setProducts(baseProducts);
+          setProducts(data);
+          setTotalRecordCount(count);
         }
       } catch (error) {
         if (active) {
@@ -119,7 +98,49 @@ export function ProductsPage({ user }: ProductsPageProps) {
     return () => {
       active = false;
     };
-  }, [user.id]);
+  }, [user.id, page, pageSize, searchQuery, sellingFilter, refreshToken]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadProfiles() {
+      const ownerIds = products.map((product) => product.owner_id).filter(Boolean);
+      try {
+        const nextProfiles = await fetchAccountProfilesByOwnerIds(ownerIds);
+        if (active) setProfilesByOwnerId(nextProfiles);
+      } catch (error) {
+        if (active) setErrorMessage(getErrorMessage(error, "加载创建用户失败"));
+      }
+    }
+
+    void loadProfiles();
+    return () => {
+      active = false;
+    };
+  }, [products]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, sellingFilter, pageSize]);
+
+  const filteredProducts = products;
+
+  useEffect(() => {
+    if (!successMessage) return;
+
+    setNoticeMessage(successMessage);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.pathname, navigate, successMessage]);
+
+  useEffect(() => {
+    if (!noticeMessage) return;
+
+    const timer = window.setTimeout(() => {
+      setNoticeMessage("");
+    }, 5000);
+
+    return () => window.clearTimeout(timer);
+  }, [noticeMessage]);
 
   async function handleDelete(product: Product) {
     if (!canDelete) {
@@ -127,8 +148,11 @@ export function ProductsPage({ user }: ProductsPageProps) {
       return;
     }
 
-    const confirmed = window.confirm(`确认删除商品“${product.product_name_cn}”吗？`);
-    if (!confirmed) return;
+    const firstConfirmed = window.confirm(`确认删除商品“${product.product_name_cn}”吗？`);
+    if (!firstConfirmed) return;
+
+    const secondConfirmed = window.confirm("再次确认：删除后不可恢复，确定继续删除吗？");
+    if (!secondConfirmed) return;
 
     setDeletingProductId(product.id);
     setErrorMessage("");
@@ -136,6 +160,8 @@ export function ProductsPage({ user }: ProductsPageProps) {
     try {
       await deleteProduct(product.id);
       setProducts((current) => current.filter((item) => item.id !== product.id));
+      setTotalRecordCount((current) => Math.max(0, current - 1));
+      setNoticeMessage(`已删除商品“${product.product_name_cn}”。`);
     } catch (error) {
       setErrorMessage(getErrorMessage(error, "删除商品失败"));
     } finally {
@@ -164,57 +190,12 @@ export function ProductsPage({ user }: ProductsPageProps) {
     }
   }
 
-  const allSelected =
-    filteredProducts.length > 0 &&
-    filteredProducts.every((product) => selectedProductIds.includes(product.id));
-
-  function toggleSelectAll() {
-    setSelectedProductIds((current) =>
-      allSelected
-        ? current.filter((productId) => !filteredProductIdSet.has(productId))
-        : Array.from(new Set([...current, ...filteredProducts.map((product) => product.id)])),
-    );
-  }
-
-  function toggleProduct(productId: string) {
-    setSelectedProductIds((current) =>
-      current.includes(productId)
-        ? current.filter((id) => id !== productId)
-        : [...current, productId],
-    );
-  }
-
-  async function handleBulkDelete() {
-    if (selectedProductIds.length === 0) return;
-    if (!canDelete) {
-      setErrorMessage("当前账号没有删除权限。");
-      return;
-    }
-
-    const confirmed = window.confirm(`确认删除已选中的 ${selectedProductIds.length} 个商品吗？`);
-    if (!confirmed) return;
-
-    setTransferring(true);
-    setErrorMessage("");
-    try {
-      await Promise.all(selectedProductIds.map((productId) => deleteProduct(productId)));
-      setProducts((current) =>
-        current.filter((product) => !selectedProductIds.includes(product.id)),
-      );
-      setSelectedProductIds([]);
-    } catch (error) {
-      setErrorMessage(getErrorMessage(error, "批量删除商品失败"));
-    } finally {
-      setTransferring(false);
-    }
-  }
-
   async function handleExcelExport() {
     setTransferring(true);
     setErrorMessage("");
 
     try {
-      const data = await exportProductsData(selectedProductIds);
+      const data = await exportProductsData();
       const workbook = await buildWorkbook(data);
       await downloadWorkbook(workbook, `products-${new Date().toISOString().slice(0, 10)}.xlsx`);
     } catch (error) {
@@ -266,7 +247,10 @@ export function ProductsPage({ user }: ProductsPageProps) {
     setErrorMessage("");
     try {
       await importProductsData(pendingImport.records);
-      window.location.reload();
+      setPendingImport(null);
+      setPage(1);
+      setRefreshToken((current) => current + 1);
+      setNoticeMessage(`已导入 ${pendingImport.records.length} 个商品。`);
     } catch (error) {
       setErrorMessage(getErrorMessage(error, "导入商品失败"));
     } finally {
@@ -281,28 +265,17 @@ export function ProductsPage({ user }: ProductsPageProps) {
         description="管理商品尺寸、重量与申报材质"
         actions={
           <>
-          <button
-            type="button"
-            onClick={() => void handleExcelExport()}
-            disabled={transferring}
-            className="btn-secondary"
-          >
-            <Download size={18} />
-            下载 Excel
-          </button>
-          {canDelete && (
             <button
               type="button"
-              onClick={() => void handleBulkDelete()}
-              disabled={selectedProductIds.length === 0 || transferring}
-              className={selectedProductIds.length > 0 ? "btn-danger" : "btn-secondary"}
+              onClick={() => void handleExcelExport()}
+              disabled={transferring}
+              className="btn-secondary"
             >
-              <Trash2 size={18} />
-              批量删除
+              <Download size={18} />
+              下载 Excel
             </button>
-          )}
-          {canEdit && (
-            <>
+            {canEdit && (
+              <>
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
@@ -325,54 +298,35 @@ export function ProductsPage({ user }: ProductsPageProps) {
               >
                 <Plus size={18} />
                 新增商品
-              </Link>
-            </>
-          )}
+                </Link>
+              </>
+            )}
           </>
         }
       />
 
       {/* 统计指标卡片 */}
-      <div className="grid gap-4 grid-cols-1 sm:grid-cols-3">
-        <StatCard label="售卖商品" value={String(sellingProductCount)} />
-        <StatCard label="不售卖" value={String(notSellingProductCount)} />
-        <StatCard
-          label="已选商品"
-          value={`${selectedProductIds.length} / ${products.length}`}
-          tone={selectedProductIds.length > 0 ? "success" : "default"}
-        />
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
+        <StatCard label="查询结果" value={String(totalRecordCount)} />
+        <StatCard label="当前页码" value={`${page} / ${Math.max(1, Math.ceil(totalRecordCount / pageSize))}`} />
       </div>
 
       {/* 搜索与过滤工具栏 */}
-      <div className="surface-card p-4 grid gap-4 sm:grid-cols-[1fr_180px_180px] items-center">
+      <div className="surface-card p-4 grid gap-4 sm:grid-cols-[1fr_180px] items-center">
         <div className="relative">
           <input
             type="text"
             placeholder="搜索商品编号、名称或材质..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10"
+            className="w-full h-10 rounded-xl border border-line bg-white px-4 text-sm outline-none transition focus:border-accent focus:ring-4 focus:ring-accent/10"
           />
-        </div>
-        <div>
-          <select
-            value={selectedMaterial}
-            onChange={(e) => setSelectedMaterial(e.target.value)}
-            className="w-full h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10 text-slate-750 font-medium"
-          >
-            <option value="">全部材质</option>
-            {uniqueMaterials.map((mat) => (
-              <option key={mat} value={mat}>
-                {mat}
-              </option>
-            ))}
-          </select>
         </div>
         <div>
           <select
             value={sellingFilter}
             onChange={(e) => setSellingFilter(e.target.value as ProductSellingFilter)}
-            className="w-full h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10 text-slate-750 font-medium"
+            className="w-full h-10 rounded-xl border border-line bg-white px-3 text-sm outline-none transition focus:border-accent focus:ring-4 focus:ring-accent/10 text-slate-750 font-medium"
           >
             <option value="selling">售卖中</option>
             <option value="not_selling">不售卖</option>
@@ -381,9 +335,9 @@ export function ProductsPage({ user }: ProductsPageProps) {
         </div>
       </div>
 
-      {successMessage && (
+      {noticeMessage && (
         <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
-          {successMessage}
+          {noticeMessage}
         </div>
       )}
 
@@ -421,14 +375,14 @@ export function ProductsPage({ user }: ProductsPageProps) {
               type="button"
               onClick={() => void confirmImport()}
               disabled={pendingImport.errors.length > 0 || transferring}
-              className="inline-flex h-10 items-center rounded-md bg-ink px-4 text-sm font-medium text-white disabled:opacity-60"
+              className="btn-primary"
             >
               确认导入
             </button>
             <button
               type="button"
               onClick={() => setPendingImport(null)}
-              className="inline-flex h-10 items-center rounded-md border border-line px-4 text-sm text-slate-700"
+              className="btn-secondary"
             >
               取消
             </button>
@@ -449,12 +403,6 @@ export function ProductsPage({ user }: ProductsPageProps) {
                   <p className="mobile-summary-title">{product.product_code}</p>
                   <p className="mobile-summary-subtitle">{product.product_name_cn}</p>
                 </div>
-                <input
-                  type="checkbox"
-                  checked={selectedProductIds.includes(product.id)}
-                  onChange={() => toggleProduct(product.id)}
-                  aria-label={`选择商品 ${product.product_code}`}
-                />
               </div>
               <div className="mobile-summary-grid">
                 <div className="mobile-summary-cell">英文材质：{product.material_en || "--"}</div>
@@ -465,6 +413,9 @@ export function ProductsPage({ user }: ProductsPageProps) {
                 <div className="mobile-summary-cell">重：{product.package_weight_g} g</div>
                 <div className="mobile-summary-cell">
                   状态：{product.is_selling ? "售卖中" : "不售卖"}
+                </div>
+                <div className="mobile-summary-cell">
+                  创建用户：{formatAccountProfileDisplay(profilesByOwnerId.get(product.owner_id))}
                 </div>
               </div>
               <p className="mt-2 text-xs text-slate-500">
@@ -511,19 +462,19 @@ export function ProductsPage({ user }: ProductsPageProps) {
         )}
       </div>
 
-      <div className="table-card hidden md:block">
-        <div className="overflow-x-auto">
-          <table className="data-table">
+      <div className="hidden md:block">
+        <StandardTable
+          page={page}
+          pageSize={pageSize}
+          totalPages={Math.max(1, Math.ceil(totalRecordCount / pageSize))}
+          totalRecordCount={totalRecordCount}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+          loading={loading}
+          empty={filteredProducts.length === 0}
+        >
             <thead>
               <tr>
-                <th className="px-4 py-3 font-medium">
-                  <input
-                    type="checkbox"
-                    checked={allSelected}
-                    onChange={toggleSelectAll}
-                    aria-label="全选商品"
-                  />
-                </th>
                 <th className="px-4 py-3 font-medium">商品编号</th>
                 <th className="product-name-col px-4 py-3 font-medium">中文名称</th>
                 <th className="px-4 py-3 font-medium">英文材质</th>
@@ -533,37 +484,15 @@ export function ProductsPage({ user }: ProductsPageProps) {
                 <th className="px-4 py-3 font-medium">包装高</th>
                 <th className="px-4 py-3 font-medium">包装重量</th>
                 <th className="px-4 py-3 font-medium">是否售卖</th>
+                <th className="px-4 py-3 font-medium">创建用户</th>
                 <th className="px-4 py-3 font-medium">创建时间</th>
                 <th className="px-4 py-3 font-medium">操作</th>
               </tr>
             </thead>
             <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan={12} className="px-4 py-10 text-center text-slate-500">
-                    加载中...
-                  </td>
-                </tr>
-              ) : filteredProducts.length === 0 ? (
-                <tr>
-                  <td colSpan={12} className="px-4 py-10 text-center text-slate-500">
-                    暂无商品
-                  </td>
-                </tr>
-              ) : (
-                filteredProducts.map((product) => {
-                  const isSelected = selectedProductIds.includes(product.id);
-
-                  return (
-                  <tr key={product.id} className={isSelected ? "is-selected" : undefined}>
-                    <td className="px-4 py-3">
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => toggleProduct(product.id)}
-                        aria-label={`选择商品 ${product.product_code}`}
-                      />
-                    </td>
+              {(!loading && filteredProducts.length > 0) && (
+                filteredProducts.map((product) => (
+                  <tr key={product.id}>
                     <td className="px-4 py-3">{product.product_code}</td>
                     <td className="product-name-col px-4 py-3">{product.product_name_cn}</td>
                     <td className="px-4 py-3">{product.material_en || "--"}</td>
@@ -591,6 +520,9 @@ export function ProductsPage({ user }: ProductsPageProps) {
                       )}
                     </td>
                     <td className="px-4 py-3">
+                      {formatAccountProfileDisplay(profilesByOwnerId.get(product.owner_id))}
+                    </td>
+                    <td className="px-4 py-3">
                       {new Date(product.created_at).toLocaleString("zh-CN", {
                         year: "numeric",
                         month: "2-digit",
@@ -602,7 +534,7 @@ export function ProductsPage({ user }: ProductsPageProps) {
                     <td className="px-4 py-3">
                       <div className="flex min-w-28 items-center gap-3">
                         {canEdit && (
-                          <Link className="text-action text-slate-600 hover:no-underline" to={getProductRoutePath(product, "/edit")}>
+                          <Link className="text-sm font-semibold text-slate-700 hover:text-accent hover:no-underline" to={getProductRoutePath(product, "/edit")}>
                             编辑
                           </Link>
                         )}
@@ -621,12 +553,10 @@ export function ProductsPage({ user }: ProductsPageProps) {
                       </div>
                     </td>
                   </tr>
-                  );
-                })
+                ))
               )}
             </tbody>
-          </table>
-        </div>
+        </StandardTable>
       </div>
     </section>
   );

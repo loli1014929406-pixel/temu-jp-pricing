@@ -6,6 +6,7 @@ import { Field, TextInput } from "../components/form-controls";
 import { BackToParentAction } from "../components/ui";
 import { isSameDraft, readDraft, useDraftPersistence } from "../hooks/use-draft-persistence";
 import { usePermissions } from "../hooks/use-permissions";
+import { useAutoDismiss } from "../hooks/use-auto-dismiss";
 import { fetchProfitCalculationsBySkuIds, saveProfitCalculation } from "../lib/profit-calculations";
 import {
   fetchProduct,
@@ -100,6 +101,9 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
   const [errorMessage, setErrorMessage] = useState("");
   const [savedSkuId, setSavedSkuId] = useState("");
   const [draftNotice, setDraftNotice] = useState("");
+  useAutoDismiss(errorMessage, () => setErrorMessage(""));
+  useAutoDismiss(savedSkuId, () => setSavedSkuId(""));
+  useAutoDismiss(draftNotice, () => setDraftNotice(""));
 
   const draftValue = useMemo<ProfitCalculationDraft>(
     () => ({
@@ -367,7 +371,7 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
   }
 
   return (
-    <section className="grid gap-5">
+    <section className="flex flex-col gap-6 p-4 sm:p-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
         <h1 className="text-2xl font-semibold text-ink">利润分析</h1>
@@ -397,7 +401,7 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
         </div>
       )}
 
-      <section className="grid gap-4 rounded-lg bg-white p-5 shadow-panel">
+      <section className="grid gap-4 rounded-lg bg-panel p-5 shadow-soft">
         <div className="grid gap-4 md:grid-cols-5">
           <Field label="核价">
             <TextInput
@@ -479,7 +483,7 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
           {Object.values(calculations).map(({ sku, input, result }) => {
                   const skuId = sku.id as string;
                   return (
-                    <section key={skuId} className="grid gap-4 rounded-lg bg-white p-5 shadow-panel">
+                    <section key={skuId} className="grid gap-4 rounded-lg bg-panel p-5 shadow-soft">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
                           <h3 className="text-base font-semibold text-ink">{sku.sku_code}</h3>

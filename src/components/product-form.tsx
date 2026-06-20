@@ -6,6 +6,8 @@ import type {
   ProductItem,
   ProductSkuDraft,
   ProductSpec,
+  ProductWarehouseShippingLimit,
+  Warehouse,
 } from "../types";
 import { buildDefaultSkuCode } from "../utils/sku-code";
 import { Field, TextArea, TextInput } from "./form-controls";
@@ -15,12 +17,15 @@ type ProductFormProps = {
   items: ProductItem[];
   specs: ProductSpec[];
   skus: ProductSkuDraft[];
+  warehouses?: Warehouse[];
+  warehouseShippingLimits?: ProductWarehouseShippingLimit[];
   submitLabel: string;
   busy?: boolean;
   onProductChange: (next: ProductDraft) => void;
   onItemsChange: (next: ProductItem[]) => void;
   onSpecsChange: (next: ProductSpec[]) => void;
   onSkusChange: (next: ProductSkuDraft[]) => void;
+  onWarehouseShippingLimitsChange?: (next: ProductWarehouseShippingLimit[]) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 };
 
@@ -69,12 +74,15 @@ export function ProductForm({
   items,
   specs,
   skus,
+  warehouses = [],
+  warehouseShippingLimits = [],
   submitLabel,
   busy = false,
   onProductChange,
   onItemsChange,
   onSpecsChange,
   onSkusChange,
+  onWarehouseShippingLimitsChange,
   onSubmit,
 }: ProductFormProps) {
   const updateProduct = <K extends keyof ProductDraft>(
@@ -92,6 +100,30 @@ export function ProductForm({
         itemIndex === index ? { ...item, [key]: value } : item,
       ),
     );
+
+  const updateWarehouseShippingLimit = (warehouseId: string, value: number) => {
+    if (!onWarehouseShippingLimitsChange) return;
+
+    const normalizedValue = Math.max(1, Math.trunc(Number(value) || 1));
+    const existingLimit = warehouseShippingLimits.find(
+      (limit) => limit.warehouse_id === warehouseId,
+    );
+    const nextLimits = existingLimit
+      ? warehouseShippingLimits.map((limit) =>
+          limit.warehouse_id === warehouseId
+            ? { ...limit, max_units_per_parcel: normalizedValue }
+            : limit,
+        )
+      : [
+          ...warehouseShippingLimits,
+          {
+            warehouse_id: warehouseId,
+            max_units_per_parcel: normalizedValue,
+          },
+        ];
+
+    onWarehouseShippingLimitsChange(nextLimits);
+  };
 
   const duplicateItem = (index: number) => {
     const { id, product_id, owner_id, ...item } = items[index];
@@ -307,15 +339,6 @@ export function ProductForm({
               onChange={(event) => updateProduct("material_cn", event.target.value)}
             />
           </Field>
-          <label className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm font-semibold text-slate-700">
-            <input
-              type="checkbox"
-              checked={product.is_selling}
-              onChange={(event) => updateProduct("is_selling", event.target.checked)}
-              className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
-            />
-            售卖中
-          </label>
         </div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Field label="包装长 cm">
@@ -366,18 +389,52 @@ export function ProductForm({
               }
             />
           </Field>
-          <Field label="3cm快递可发几个">
-            <TextInput
-              required
-              min="1"
-              step="1"
-              type="number"
-              value={product.max_units_per_parcel}
-              onChange={(event) =>
-                updateProduct("max_units_per_parcel", toNumber(event.target.value))
-              }
-            />
-          </Field>
+        </div>
+        <div className="grid gap-3">
+          <p className="text-sm font-semibold text-slate-700">3cm最大数</p>
+          {warehouses.length === 0 ? (
+            <div className="rounded-md border border-dashed border-line px-4 py-6 text-sm text-slate-500">
+              暂无仓库
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-md border border-line">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 text-xs font-semibold text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3 text-left">渠道/仓库</th>
+                    <th className="w-40 px-4 py-3 text-left">3cm最大数</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-line">
+                  {warehouses.map((warehouse) => {
+                    const limit = warehouseShippingLimits.find(
+                      (item) => item.warehouse_id === warehouse.id,
+                    );
+                    return (
+                      <tr key={warehouse.id}>
+                        <td className="px-4 py-3 font-medium text-slate-700">{warehouse.name}</td>
+                        <td className="px-4 py-3">
+                          <TextInput
+                            required
+                            min="1"
+                            step="1"
+                            type="number"
+                            value={limit?.max_units_per_parcel ?? 1}
+                            onChange={(event) =>
+                              updateWarehouseShippingLimit(
+                                warehouse.id,
+                                toNumber(event.target.value),
+                              )
+                            }
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
         <Field label="备注">
           <TextArea

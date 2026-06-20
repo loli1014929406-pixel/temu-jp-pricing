@@ -7,10 +7,12 @@ import type {
   ProductSkuDraft,
   ProductSkuDraftLink,
   ProductSkuItemLink,
+  ProductWarehouseShippingLimit,
   ProductTransferRecord,
   SavedProfitCalculation,
 } from "../types";
 import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../utils/sku-code";
+import { upsertProductWarehouseShippingLimits } from "./product-warehouse-shipping-limits";
 
 const requestTimeoutMs = 45000;
 
@@ -233,6 +235,67 @@ export async function fetchSellingProducts() {
 
 export async function fetchAllProducts() {
   return fetchProducts({ includeNotSelling: true });
+}
+
+export type ProductSellingFilter = "selling" | "not_selling" | "all";
+
+export type FetchProductsPaginatedOptions = {
+  page: number;
+  pageSize: number;
+  searchQuery?: string;
+  materialFilter?: string;
+  sellingFilter?: ProductSellingFilter;
+};
+
+export async function fetchProductsPaginated(options: FetchProductsPaginatedOptions) {
+  const { supabase } = await requireSession();
+  const { page, pageSize, searchQuery, materialFilter, sellingFilter } = options;
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+
+  let request = supabase.from("products").select("*", { count: "exact" });
+
+  if (sellingFilter === "selling") request = request.eq("is_selling", true);
+  if (sellingFilter === "not_selling") request = request.eq("is_selling", false);
+
+  if (searchQuery) {
+    const escaped = searchQuery.replace(/[%_\\]/g, "\\$&").replace(/"/g, '""');
+    request = request.or(`product_code.ilike."%${escaped}%",product_name_cn.ilike."%${escaped}%",material_cn.ilike."%${escaped}%",material_en.ilike."%${escaped}%"`);
+  }
+
+  if (materialFilter) {
+    // using generic ilike to be safe, or exact match if needed. eq is safer.
+    const escapedMat = materialFilter.replace(/"/g, '""');
+    request = request.or(`material_cn.eq."${escapedMat}",material_en.eq."${escapedMat}"`);
+  }
+
+  request = request.order("created_at", { ascending: false }).range(from, to);
+
+  // We should handle the missing column error gracefully just like fetchProducts does.
+  let result = await withTimeout(request, "加载商品列表");
+  
+  if (result.error && isMissingProductSellingColumnError(result.error) && sellingFilter !== "not_selling") {
+    // Fallback if is_selling doesn't exist
+    let fallbackRequest = supabase.from("products").select("*", { count: "exact" });
+    if (searchQuery) {
+      const escaped = searchQuery.replace(/[%_\\]/g, "\\$&").replace(/"/g, '""');
+      fallbackRequest = fallbackRequest.or(`product_code.ilike."%${escaped}%",product_name_cn.ilike."%${escaped}%",material_cn.ilike."%${escaped}%",material_en.ilike."%${escaped}%"`);
+    }
+    if (materialFilter) {
+      const escapedMat = materialFilter.replace(/"/g, '""');
+      fallbackRequest = fallbackRequest.or(`material_cn.eq."${escapedMat}",material_en.eq."${escapedMat}"`);
+    }
+    fallbackRequest = fallbackRequest.order("created_at", { ascending: false }).range(from, to);
+    result = await withTimeout(fallbackRequest, "加载商品列表");
+  }
+
+  const { data, error, count } = result;
+  if (error) throw error;
+
+  return {
+    data: ((data ?? []) as Partial<Product>[]).map(normalizeProductRow),
+    count: count ?? 0,
+  };
 }
 
 export async function fetchProductsByIds(productIds: string[]) {
@@ -595,6 +658,7 @@ export async function createProduct(
   product: ProductDraft,
   items: ProductItem[],
   skus: ProductSkuDraft[],
+  warehouseShippingLimits: ProductWarehouseShippingLimit[] = [],
 ) {
   const normalizedProduct = normalizeProductDraft(product);
   await assertProductCodeAvailable(normalizedProduct.product_code);
@@ -653,6 +717,7 @@ export async function createProduct(
 
   const itemIdsByKey = await insertItems(data!.id, items);
   await insertSkus(data!.id, skus, itemIdsByKey);
+  await upsertProductWarehouseShippingLimits(data!.id, warehouseShippingLimits);
   return data as Product;
 }
 
@@ -661,6 +726,7 @@ export async function updateProduct(
   product: ProductDraft,
   items: ProductItem[],
   skus: ProductSkuDraft[],
+  warehouseShippingLimits: ProductWarehouseShippingLimit[] = [],
 ) {
   const normalizedProduct = normalizeProductDraft(product);
   await assertProductCodeAvailable(normalizedProduct.product_code, productId);
@@ -786,6 +852,8 @@ export async function updateProduct(
     );
     if (restoreCalculationError) throw restoreCalculationError;
   }
+
+  await upsertProductWarehouseShippingLimits(productId, warehouseShippingLimits);
 }
 
 export async function deleteProduct(productId: string) {
@@ -909,4 +977,3 @@ export async function updateSkuCode(skuId: string, skuCode: string) {
   if (error) throw error;
   return data;
 }
-

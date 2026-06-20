@@ -1,17 +1,15 @@
 import type { User } from "@supabase/supabase-js";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { RefreshCw } from "lucide-react";
-import { PageHeader, Badge } from "../../components/ui";
+import { PageHeader, Badge, StandardTable } from "../../components/ui";
 import { useFinanceData } from "./use-finance-data";
 import {
-  FinanceTable,
   EmptyPanel,
   formatCurrency,
   formatDate,
   getOrderDate,
   getPurchaseTotalRmb,
   getPaginatedRows,
-  renderPaginationControls,
   buildSkuLookup,
   getOrderSku,
   getOrderQuantity,
@@ -48,6 +46,10 @@ export function FinanceLedgerPage({ user }: Props) {
   const [cashflowMonth, setCashflowMonth] = useState<string>("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+
+  useEffect(() => {
+    setPage(1);
+  }, [pageSize, cashflowMonth, activeTab]);
 
   const ledgerRows = useMemo<LedgerRow[]>(() => {
     // 1. Order Income
@@ -129,7 +131,7 @@ export function FinanceLedgerPage({ user }: Props) {
   const totalExpense = useMemo(() => filteredLedgerRows.filter(r => r.direction === "支出").reduce((sum, r) => sum + Math.abs(r.amountRmb), 0), [filteredLedgerRows]);
 
   return (
-    <section className="grid gap-5">
+    <section className="flex flex-col gap-6 p-4 sm:p-6">
       <PageHeader
         title="收支流水"
         description="查看全部业务的资金流入和流出明细"
@@ -148,11 +150,11 @@ export function FinanceLedgerPage({ user }: Props) {
       )}
 
       {/* Tabs */}
-      <div className="flex items-center gap-6 border-b border-slate-200 px-1">
+      <div className="flex items-center gap-6 border-b border-line px-1">
         <button
           onClick={() => { setActiveTab("all"); setPage(1); }}
           className={`pb-3 text-sm font-bold transition-colors ${
-            activeTab === "all" ? "border-b-2 border-violet-600 text-violet-700" : "text-slate-500 hover:text-slate-800"
+            activeTab === "all" ? "border-b-2 border-accent text-accentDeep" : "text-slate-500 hover:text-slate-800"
           }`}
         >
           全部流水
@@ -160,7 +162,7 @@ export function FinanceLedgerPage({ user }: Props) {
         <button
           onClick={() => { setActiveTab("订单回款"); setPage(1); }}
           className={`pb-3 text-sm font-bold transition-colors ${
-            activeTab === "订单回款" ? "border-b-2 border-violet-600 text-violet-700" : "text-slate-500 hover:text-slate-800"
+            activeTab === "订单回款" ? "border-b-2 border-accent text-accentDeep" : "text-slate-500 hover:text-slate-800"
           }`}
         >
           订单回款
@@ -168,7 +170,7 @@ export function FinanceLedgerPage({ user }: Props) {
         <button
           onClick={() => { setActiveTab("采购付款"); setPage(1); }}
           className={`pb-3 text-sm font-bold transition-colors ${
-            activeTab === "采购付款" ? "border-b-2 border-violet-600 text-violet-700" : "text-slate-500 hover:text-slate-800"
+            activeTab === "采购付款" ? "border-b-2 border-accent text-accentDeep" : "text-slate-500 hover:text-slate-800"
           }`}
         >
           采购付款
@@ -176,7 +178,7 @@ export function FinanceLedgerPage({ user }: Props) {
         <button
           onClick={() => { setActiveTab("其他费用"); setPage(1); }}
           className={`pb-3 text-sm font-bold transition-colors ${
-            activeTab === "其他费用" ? "border-b-2 border-violet-600 text-violet-700" : "text-slate-500 hover:text-slate-800"
+            activeTab === "其他费用" ? "border-b-2 border-accent text-accentDeep" : "text-slate-500 hover:text-slate-800"
           }`}
         >
           其他费用
@@ -188,7 +190,7 @@ export function FinanceLedgerPage({ user }: Props) {
           <select
             value={cashflowMonth}
             onChange={(e) => { setCashflowMonth(e.target.value); setPage(1); }}
-            className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold outline-none focus:border-violet-600 focus:ring-1 focus:ring-violet-600"
+            className="h-9 rounded-lg border border-line bg-white px-3 text-xs font-semibold outline-none focus:border-accent focus:ring-1 focus:ring-accent"
           >
             <option value="all">全部月份</option>
             {uniqueMonths.map((m) => (
@@ -209,15 +211,22 @@ export function FinanceLedgerPage({ user }: Props) {
           <EmptyPanel label="暂无收支流水数据" />
         ) : (
           <>
-            <FinanceTable>
+            <StandardTable
+              page={paginated.page}
+              pageSize={pageSize}
+              totalPages={paginated.totalPages}
+              totalRecordCount={paginated.total}
+              onPageChange={setPage}
+              onPageSizeChange={setPageSize}
+            >
               <thead>
                 <tr>
-                  <th>交易日期</th>
-                  <th>流水类型</th>
-                  <th>收支流向</th>
-                  <th>流水对象 / 单号</th>
-                  <th className="number-cell">流出/流入金额</th>
-                  <th>流水详情说明</th>
+                  <th className="bg-slate-50">交易日期</th>
+                  <th className="bg-slate-50">流水类型</th>
+                  <th className="bg-slate-50">收支流向</th>
+                  <th className="bg-slate-50">流水对象 / 单号</th>
+                  <th className="number-cell bg-slate-50">流出/流入金额</th>
+                  <th className="bg-slate-50">流水详情说明</th>
                 </tr>
               </thead>
               <tbody>
@@ -239,7 +248,7 @@ export function FinanceLedgerPage({ user }: Props) {
                 ))}
               </tbody>
               <tfoot>
-                <tr className="bg-slate-50 font-bold border-t-2 border-slate-200">
+                <tr className="bg-slate-50 font-bold border-t-2 border-line">
                   <td colSpan={4} className="text-right text-slate-600 pr-4">筛选汇总 (净额: <span className={totalIncome - totalExpense >= 0 ? "text-emerald-600" : "text-rose-600"}>{formatCurrency(totalIncome - totalExpense)}</span>)</td>
                   <td className="number-cell text-xs leading-5">
                     <div className="text-emerald-700">+ {formatCurrency(totalIncome)}</div>
@@ -248,17 +257,7 @@ export function FinanceLedgerPage({ user }: Props) {
                   <td></td>
                 </tr>
               </tfoot>
-            </FinanceTable>
-            
-            {renderPaginationControls(
-              "ledger",
-              paginated.page,
-              paginated.totalPages,
-              paginated.total,
-              setPage,
-              pageSize,
-              setPageSize
-            )}
+            </StandardTable>
           </>
         )}
       </div>

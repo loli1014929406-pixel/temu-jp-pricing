@@ -1,6 +1,6 @@
 import { getSupabaseClient } from "./supabase";
 import { defaultSettings } from "./defaults";
-import type { PricingSettings } from "../types";
+import type { LogisticsMethodConfig, PricingSettings } from "../types";
 import {
   fetchCurrentAccountPermission,
   getPermissionCapabilities,
@@ -10,8 +10,85 @@ type FetchSettingsOptions = {
   createIfMissing?: boolean;
 };
 
-const pricingSettingsSelectFields =
+const basePricingSettingsSelectFields =
   "id, owner_id, packaging_cost_rmb, exchange_rate_rmb_per_jpy, temu_shipping_subsidy_jpy, sf_first_weight_kg, sf_first_price_rmb, sf_extra_price_per_kg_rmb, huaian_air_price_per_kg_rmb, ocs_price_per_kg_rmb, osaka_lastmile_jpy, fukuoka_lastmile_jpy, test_ocs_3cm_first_price_rmb, test_ocs_3cm_extra_price_per_100g_rmb, test_ocs_small_parcel_first_price_rmb, test_ocs_small_parcel_extra_price_per_500g_rmb, target_profit_rate, target_post_ad_profit_rate, ocs_tariff_rate";
+
+const pricingSettingsSelectFields = `${basePricingSettingsSelectFields}, first_leg_methods, last_leg_methods`;
+
+const logisticsFormulas = [
+  "sf",
+  "flat_rmb",
+  "flat_rmb_tariff",
+  "flat_jpy",
+  "fixed_rmb",
+  "ocs_3cm",
+  "ocs_small",
+] as const satisfies readonly LogisticsMethodConfig["formula"][];
+
+function isDynamicSettingsColumnError(error: unknown) {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "object" && error !== null && "message" in error
+        ? String((error as { message?: unknown }).message ?? "")
+        : String(error ?? "");
+  const lowerMessage = message.toLowerCase();
+  return (
+    (lowerMessage.includes("first_leg_methods") ||
+      lowerMessage.includes("last_leg_methods")) &&
+    (lowerMessage.includes("schema cache") ||
+      lowerMessage.includes("column") ||
+      lowerMessage.includes("could not find"))
+  );
+}
+
+function normalizeLogisticsMethodConfigs(
+  value: unknown,
+  fallback: LogisticsMethodConfig[] | undefined,
+  type: LogisticsMethodConfig["type"],
+): LogisticsMethodConfig[] {
+  if (!Array.isArray(value)) {
+    return (fallback ?? []).map((method) => ({ ...method, params: { ...method.params } }));
+  }
+
+  return value
+    .map((row, index): LogisticsMethodConfig | null => {
+      if (typeof row !== "object" || row === null) return null;
+      const item = row as Partial<LogisticsMethodConfig>;
+      const formula = logisticsFormulas.includes(item.formula as LogisticsMethodConfig["formula"])
+        ? (item.formula as LogisticsMethodConfig["formula"])
+        : null;
+      if (!formula) return null;
+
+      const params = (
+        typeof item.params === "object" && item.params !== null
+          ? item.params
+          : {}
+      ) as LogisticsMethodConfig["params"];
+      return {
+        id:
+          typeof item.id === "string" && item.id.trim()
+            ? item.id
+            : `${type}-${index + 1}`,
+        db_method_id:
+          typeof item.db_method_id === "string" && item.db_method_id.trim()
+            ? item.db_method_id
+            : undefined,
+        name: String(item.name ?? ""),
+        type,
+        formula,
+        params: {
+          price: typeof params.price === "number" ? params.price : undefined,
+          tariffRate: typeof params.tariffRate === "number" ? params.tariffRate : undefined,
+          firstWeight: typeof params.firstWeight === "number" ? params.firstWeight : undefined,
+          firstPrice: typeof params.firstPrice === "number" ? params.firstPrice : undefined,
+          extraPrice: typeof params.extraPrice === "number" ? params.extraPrice : undefined,
+        },
+        isActive: item.isActive ?? true,
+      };
+    })
+    .filter((method): method is LogisticsMethodConfig => Boolean(method));
+}
 
 function normalizeSettings(settings: Partial<PricingSettings>): PricingSettings {
   const normalized: PricingSettings = {
@@ -56,6 +133,16 @@ function normalizeSettings(settings: Partial<PricingSettings>): PricingSettings 
     target_post_ad_profit_rate:
       settings.target_post_ad_profit_rate ??
       defaultSettings.target_post_ad_profit_rate,
+    first_leg_methods: normalizeLogisticsMethodConfigs(
+      settings.first_leg_methods,
+      defaultSettings.first_leg_methods,
+      "first_leg",
+    ),
+    last_leg_methods: normalizeLogisticsMethodConfigs(
+      settings.last_leg_methods,
+      defaultSettings.last_leg_methods,
+      "last_leg",
+    ),
   };
 
   if (settings.id) normalized.id = settings.id;
@@ -72,11 +159,23 @@ export async function fetchSettings(
   options: FetchSettingsOptions = {},
 ) {
   const supabase = getSupabaseClient();
-  const { data, error } = await supabase
+  const settingsResult = await supabase
     .from("pricing_settings")
     .select(pricingSettingsSelectFields)
     .eq("owner_id", userId)
     .maybeSingle();
+  let data: unknown = settingsResult.data;
+  let error = settingsResult.error;
+
+  if (error && isDynamicSettingsColumnError(error)) {
+    const fallbackResult = await supabase
+      .from("pricing_settings")
+      .select(basePricingSettingsSelectFields)
+      .eq("owner_id", userId)
+      .maybeSingle();
+    data = fallbackResult.data;
+    error = fallbackResult.error;
+  }
 
   if (error) throw error;
 
@@ -92,13 +191,31 @@ export async function fetchSettings(
     return normalizeSettings({ ...defaultSettings, owner_id: userId });
   }
 
-  const { data: created, error: insertError } = await supabase
+  const insertResult = await supabase
     .from("pricing_settings")
     .insert({
       ...defaultSettings,
     })
     .select(pricingSettingsSelectFields)
     .single();
+  let created: unknown = insertResult.data;
+  let insertError = insertResult.error;
+
+  if (insertError && isDynamicSettingsColumnError(insertError)) {
+    const { first_leg_methods, last_leg_methods, ...baseDefaultSettings } = defaultSettings;
+    void first_leg_methods;
+    void last_leg_methods;
+
+    const fallbackResult = await supabase
+      .from("pricing_settings")
+      .insert({
+        ...baseDefaultSettings,
+      })
+      .select(basePricingSettingsSelectFields)
+      .single();
+    created = fallbackResult.data;
+    insertError = fallbackResult.error;
+  }
 
   if (insertError) throw insertError;
   return normalizeSettings(created as PricingSettings);
@@ -106,13 +223,29 @@ export async function fetchSettings(
 
 export async function saveSettings(userId: string, settings: PricingSettings) {
   const supabase = getSupabaseClient();
+  const normalizedSettings = normalizeSettings(settings);
   const { error } = await supabase.from("pricing_settings").upsert(
     {
-      ...normalizeSettings(settings),
+      ...normalizedSettings,
       owner_id: userId,
     },
     { onConflict: "owner_id" },
   );
 
-  if (error) throw error;
+  if (!error) return;
+  if (!isDynamicSettingsColumnError(error)) throw error;
+
+  const { first_leg_methods, last_leg_methods, ...baseSettings } = normalizedSettings;
+  void first_leg_methods;
+  void last_leg_methods;
+
+  const { error: fallbackError } = await supabase.from("pricing_settings").upsert(
+    {
+      ...baseSettings,
+      owner_id: userId,
+    },
+    { onConflict: "owner_id" },
+  );
+
+  if (fallbackError) throw fallbackError;
 }

@@ -5,6 +5,7 @@ import { fetchProducts, fetchProductItemsByProductIds, fetchProductSkusByProduct
 import { fetchWarehouses, fetchWarehouseSkus } from "../../lib/inventory";
 import { fetchSettings } from "../../lib/settings";
 import { fetchExpenses } from "../../lib/expenses";
+import { useAutoDismiss } from "../../hooks/use-auto-dismiss";
 import { getErrorMessage } from "../../utils/errors";
 import type { FinanceExpense } from "../../types";
 import type { FinanceData } from "./shared";
@@ -33,6 +34,7 @@ export function useFinanceData(userId: string, options: FetchOptions) {
   const [settings, setSettings] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  useAutoDismiss(error, () => setError(""));
 
   const load = async () => {
     setLoading(true);
