@@ -1,6 +1,7 @@
 import type { User } from "@supabase/supabase-js";
 import { useMemo } from "react";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, TrendingUp, AlertCircle, ArrowRight } from "lucide-react";
+import { Link } from "react-router-dom";
 import { PageHeader, StatCard, Badge } from "../../components/ui";
 import { useFinanceData } from "./use-finance-data";
 import {
@@ -54,7 +55,7 @@ export function FinanceOverviewPage({ user }: Props) {
       const shippingFeeSource = (actualShippingFeeRmb > 0 ? "actual" : estimatedShippingRmb > 0 ? "estimated" : "missing") as "actual" | "estimated" | "missing";
       const shippingFeeRmb = roundMoney(shippingFeeSource === "actual" ? actualShippingFeeRmb : estimatedShippingRmb);
       
-      const { actualSalesRevenueRmb, actualFreightRevenueRmb, isSettled, matchType } = getResolvedSettlementMetrics(order, quantity, settlementLookup);
+      const { actualSalesRevenueRmb, actualFreightRevenueRmb, isSettled } = getResolvedSettlementMetrics(order, quantity, settlementLookup);
 
       const actualRevenueRmb = roundMoney(actualSalesRevenueRmb + actualFreightRevenueRmb);
 
@@ -97,18 +98,16 @@ export function FinanceOverviewPage({ user }: Props) {
   const orderProfit = totals.actualRevenueAmount - totals.orderProductCost - totals.orderShippingFee - totalOtherExpenses;
   const cashMarginRate = calculateMarginRate(cashProfit, totals.actualRevenueAmount);
   const orderMarginRate = calculateMarginRate(orderProfit, totals.actualRevenueAmount);
-  const isCashLoss = cashProfit < 0;
-  const isOrderLoss = orderProfit < 0;
-
+  
   const pendingReconciliations = useMemo(() => {
     return orderRows.filter((row: any) => getReconciliationIssues(row).length > 0).slice(0, 5);
   }, [orderRows]);
 
   return (
-    <section className="grid gap-5">
+    <section className="grid gap-6">
       <PageHeader
         title="财务总览"
-        description="集中查看回款、成本、费用、利润和待处理对账风险"
+        description="集中查看核心指标、资金健康状态和待处理财务事项"
         actions={
           <button type="button" className="btn-secondary" disabled={loading} onClick={() => void reload()}>
             <RefreshCw size={18} />
@@ -126,136 +125,112 @@ export function FinanceOverviewPage({ user }: Props) {
       {loading && orderRows.length === 0 ? (
         <EmptyPanel label="加载中..." />
       ) : (
-        <div className="flex flex-col items-start gap-5">
-          <div className="grid w-full min-w-0 flex-1 gap-4">
-            
-            {/* Stat Cards Grid */}
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-              <StatCard label="实际结算总回款" value={formatCurrency(totals.actualRevenueAmount)} />
+        <div className="grid gap-6">
+          {/* Level 1: Core Metrics */}
+          <section>
+            <h2 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
+              <TrendingUp size={16} className="text-violet-600" />
+              核心财务指标
+            </h2>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              <StatCard label="总销售结算回款" value={formatCurrency(totals.actualRevenueAmount)} />
+              <StatCard label="订单商品总成本" value={formatCurrency(totals.orderProductCost)} />
               <StatCard label="订单核算总运费" value={formatCurrency(totals.orderShippingFee)} />
-              <StatCard label="订单商品成本" value={formatCurrency(totals.orderProductCost)} />
-              <StatCard label="当前库存商品金额" value={formatCurrency(inventoryValueRmb)} />
-              <StatCard label="期间采购付款" value={formatCurrency(totals.purchasePayment)} />
-              <StatCard label="其他扣减费用" value={formatCurrency(totalOtherExpenses)} />
+              <StatCard label="其他扣减杂费" value={formatCurrency(totalOtherExpenses)} />
             </div>
+          </section>
 
-            {/* Net Profit and Margin overview */}
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <div className={`col-span-1 md:col-span-2 rounded-2xl border border-slate-100 p-6 text-white shadow-lg ${
-                isOrderLoss ? "bg-gradient-to-br from-rose-500 to-red-600 shadow-rose-500/20" : "bg-gradient-to-br from-emerald-500 to-teal-600 shadow-emerald-500/20"
-              }`}>
-                <div className={`text-xs font-bold uppercase tracking-wider ${isOrderLoss ? "text-rose-100" : "text-emerald-100"}`}>实际订单利润（经营层）</div>
-                <div className="mt-2 text-3xl font-black tabular-nums">{formatCurrency(orderProfit)}</div>
-                <div className={`mt-3 border-t ${isOrderLoss ? "border-rose-400/30" : "border-emerald-400/30"} pt-3 flex items-center gap-2`}>
-                   <span className="text-sm font-semibold">本期采购占用资金 {formatCurrency(totals.purchasePayment)}</span>
-                   <span className={`px-2 py-0.5 rounded text-xs font-bold ${isOrderLoss ? "bg-rose-400/20 text-rose-50" : "bg-emerald-400/20 text-emerald-50"}`}>
-                     现金利润 {formatCurrency(cashProfit)}
-                   </span>
+          {/* Level 2: Cash Health */}
+          <section>
+            <h2 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
+              <div className="flex h-4 w-4 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
+                <span className="text-[10px] font-black">¥</span>
+              </div>
+              资金与利润健康
+            </h2>
+            <div className="grid gap-4 lg:grid-cols-3">
+              {/* Cash Flow Profit */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">整体现金利润</div>
+                <div className={`text-3xl font-black tabular-nums ${cashProfit >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                  {formatCurrency(cashProfit)}
+                </div>
+                <div className="mt-3 text-xs font-medium text-slate-500 space-y-1">
+                  <div className="flex justify-between"><span>+ 销售回款</span> <span className="text-slate-800">{formatCurrency(totals.actualRevenueAmount)}</span></div>
+                  <div className="flex justify-between"><span>- 采购付款</span> <span className="text-slate-800">{formatCurrency(totals.purchasePayment)}</span></div>
+                  <div className="flex justify-between"><span>- 核算运费</span> <span className="text-slate-800">{formatCurrency(totals.orderShippingFee)}</span></div>
+                  <div className="flex justify-between"><span>- 其他杂费</span> <span className="text-slate-800">{formatCurrency(totalOtherExpenses)}</span></div>
+                </div>
+                <div className="mt-4 pt-3 border-t border-slate-100 flex justify-between items-center text-xs">
+                  <span className="text-slate-500 font-semibold">现金回款率</span>
+                  <span className={`font-bold ${cashProfit >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{cashMarginRate.toFixed(2)}%</span>
                 </div>
               </div>
-              <div className={`rounded-2xl border border-slate-100 p-6 text-white shadow-lg ${
-                isOrderLoss ? "bg-gradient-to-br from-rose-400 to-red-500 shadow-rose-500/15" : "bg-gradient-to-br from-emerald-400 to-teal-500 shadow-emerald-500/15"
-              }`}>
-                <div className={`text-xs font-bold uppercase tracking-wider ${isOrderLoss ? "text-rose-100" : "text-emerald-100"}`}>订单销售利润率</div>
-                <div className="mt-2 text-3xl font-black tabular-nums">{orderMarginRate.toFixed(2)}%</div>
-                <p className={`mt-2 text-[11px] ${isOrderLoss ? "text-rose-100/75" : "text-emerald-100/75"}`}>实际订单利润 / 实际结算总回款</p>
-              </div>
-              <div className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm flex flex-col justify-between">
-                <div>
-                  <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">结算回款状态</div>
-                  <div className="mt-2 flex items-baseline gap-2">
-                    <span className="text-3xl font-black tabular-nums text-slate-800">{orderRows.length - totals.unsettledCount}</span>
-                    <span className="text-sm font-semibold text-slate-400">/ {orderRows.length} 笔已结算</span>
-                  </div>
+
+              {/* Order Based Profit */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">订单核算利润</div>
+                <div className={`text-3xl font-black tabular-nums ${orderProfit >= 0 ? "text-violet-600" : "text-rose-600"}`}>
+                  {formatCurrency(orderProfit)}
                 </div>
-                <div className="mt-3 flex flex-col gap-1.5">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-500">预估待结金额</span>
-                    <span className="font-bold text-slate-700">{formatCurrency(totals.estimatedBillAmount - totals.actualRevenueAmount)}</span>
+                <div className="mt-3 text-xs font-medium text-slate-500 space-y-1">
+                  <div className="flex justify-between"><span>+ 销售回款</span> <span className="text-slate-800">{formatCurrency(totals.actualRevenueAmount)}</span></div>
+                  <div className="flex justify-between"><span>- 商品成本</span> <span className="text-slate-800">{formatCurrency(totals.orderProductCost)}</span></div>
+                  <div className="flex justify-between"><span>- 核算运费</span> <span className="text-slate-800">{formatCurrency(totals.orderShippingFee)}</span></div>
+                  <div className="flex justify-between"><span>- 其他杂费</span> <span className="text-slate-800">{formatCurrency(totalOtherExpenses)}</span></div>
+                </div>
+                <div className="mt-4 pt-3 border-t border-slate-100 flex justify-between items-center text-xs">
+                  <span className="text-slate-500 font-semibold">订单利润率</span>
+                  <span className={`font-bold ${orderProfit >= 0 ? "text-violet-600" : "text-rose-600"}`}>{orderMarginRate.toFixed(2)}%</span>
+                </div>
+              </div>
+
+              {/* Assets & Settlement Status */}
+              <div className="grid grid-rows-2 gap-4">
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm flex flex-col justify-center">
+                  <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">当前存货资产估值</div>
+                  <div className="text-2xl font-black tabular-nums text-slate-800">{formatCurrency(inventoryValueRmb)}</div>
+                  <p className="text-[10px] text-slate-400 mt-1">基于当前实时库存及入库批次成本加权计算</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm flex flex-col justify-center">
+                  <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">预估待结金额</div>
+                  <div className="text-2xl font-black tabular-nums text-indigo-600">{formatCurrency(totals.estimatedBillAmount - totals.actualRevenueAmount)}</div>
+                  <div className="mt-2 h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${orderRows.length > 0 ? ((orderRows.length - totals.unsettledCount) / orderRows.length) * 100 : 0}%` }} />
                   </div>
-                  <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
-                    <div className="h-full bg-violet-500 rounded-full" style={{ width: `${orderRows.length > 0 ? ((orderRows.length - totals.unsettledCount) / orderRows.length) * 100 : 0}%` }} />
-                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1 text-right">{orderRows.length - totals.unsettledCount} / {orderRows.length} 笔订单已结</p>
                 </div>
               </div>
             </div>
+          </section>
 
-            {/* Cost Breakdown Visual */}
-            <section className="surface-card p-5">
-              <h3 className="text-sm font-bold text-slate-800 mb-4">订单财务收支与成本占比</h3>
-              <div className="flex flex-col gap-4">
-                <div className="h-6 w-full overflow-hidden rounded-full bg-slate-100 flex shadow-inner">
-                  {totals.actualRevenueAmount > 0 ? (
-                    <>
-                      <div
-                        style={{ width: `${(totals.orderProductCost / totals.actualRevenueAmount) * 100}%` }}
-                        className="bg-amber-400 transition-all duration-300"
-                      />
-                      <div
-                        style={{ width: `${(totals.orderShippingFee / totals.actualRevenueAmount) * 100}%` }}
-                        className="bg-sky-400 transition-all duration-300"
-                      />
-                      <div
-                        style={{ width: `${(totalOtherExpenses / totals.actualRevenueAmount) * 100}%` }}
-                        className="bg-rose-400 transition-all duration-300"
-                      />
-                      {orderProfit > 0 && (
-                        <div
-                          style={{ width: `${(orderProfit / totals.actualRevenueAmount) * 100}%` }}
-                          className="bg-emerald-500 transition-all duration-300"
-                        />
-                      )}
-                    </>
-                  ) : (
-                    <div className="w-full text-center text-xs text-slate-400 leading-6">暂无结算回款数据，无法计算占比</div>
-                  )}
-                </div>
-                {totals.actualRevenueAmount > 0 && (
-                  <div className="flex flex-wrap items-center justify-between gap-4 text-xs font-semibold text-slate-500 pt-1">
-                    <div className="flex items-center gap-2">
-                      <span className="h-3 w-3 rounded-full bg-amber-400 block" />
-                      <span>商品采购成本 ({((totals.orderProductCost / totals.actualRevenueAmount) * 100).toFixed(1)}%)</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="h-3 w-3 rounded-full bg-sky-400 block" />
-                      <span>核算运费 ({((totals.orderShippingFee / totals.actualRevenueAmount) * 100).toFixed(1)}%)</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="h-3 w-3 rounded-full bg-rose-400 block" />
-                      <span>其他杂项费用 ({((totalOtherExpenses / totals.actualRevenueAmount) * 100).toFixed(1)}%)</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className={`h-3 w-3 rounded-full block ${isOrderLoss ? "bg-rose-500" : "bg-emerald-500"}`} />
-                      <span className={isOrderLoss ? "text-rose-700" : "text-emerald-700"}>
-                        {isOrderLoss ? "实际订单亏损" : "实际订单利润"} ({orderMarginRate.toFixed(1)}%)
-                      </span>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </section>
-
-            {/* Pending Reconciliation Summary */}
-            <section className="surface-card grid gap-4 p-5">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
-                <h2 className="text-base font-bold text-slate-900">待处理对账 (最新)</h2>
-                <div className="flex flex-wrap gap-2">
-                  <Badge tone={totals.missingShippingFeeCount > 0 ? "warning" : "success"}>
-                    缺运费 {totals.missingShippingFeeCount}
-                  </Badge>
-                  <Badge tone={totals.unmatchedCount > 0 ? "warning" : "success"}>
-                    未匹配 {totals.unmatchedCount}
-                  </Badge>
-                </div>
+          {/* Level 3: Action Items */}
+          <section>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                <AlertCircle size={16} className="text-rose-500" />
+                待处理行动项
+              </h2>
+              <Link to="/finance/settlement" className="text-xs font-semibold text-violet-600 hover:text-violet-700 flex items-center gap-1 transition-colors">
+                前往对账中心处理 <ArrowRight size={14} />
+              </Link>
+            </div>
+            
+            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+              <div className="bg-slate-50 px-5 py-3 border-b border-slate-100 flex items-center gap-4">
+                 <Badge tone={totals.unmatchedCount > 0 ? "danger" : "success"}>未匹配商品: {totals.unmatchedCount} 单</Badge>
+                 <Badge tone={totals.missingShippingFeeCount > 0 ? "warning" : "success"}>缺失运费: {totals.missingShippingFeeCount} 单</Badge>
               </div>
               
               {pendingReconciliations.length === 0 ? (
-                 <EmptyPanel label="暂无需要人工对账的订单数据" />
+                 <div className="p-8 text-center text-slate-500 font-semibold text-sm">
+                   太棒了！所有订单对账正常，暂无需要处理的异常。
+                 </div>
               ) : (
                 <FinanceTable minWidth="min-w-[800px]" tableClassName="finance-freeze-reconciliation">
                   <thead>
                     <tr>
-                      <th>订单编号</th>
+                      <th>异常订单号</th>
                       <th>Temu SKU Code</th>
                       <th>系统商品 SKU</th>
                       <th className="text-center">对账状态</th>
@@ -280,8 +255,9 @@ export function FinanceOverviewPage({ user }: Props) {
                   </tbody>
                 </FinanceTable>
               )}
-            </section>
-          </div>
+            </div>
+          </section>
+
         </div>
       )}
     </section>

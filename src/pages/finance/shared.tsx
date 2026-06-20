@@ -381,8 +381,66 @@ export function getPaginatedRows<T>(key: string, rows: T[], page: number, pageSi
   };
 }
 
-export function renderPaginationControls(key: string, page: number, totalPages: number, total: number) {
-  return null;
+export const financePageSizeOptions = [20, 30, 50, 100] as const;
+
+export function renderPaginationControls(
+  key: string,
+  page: number,
+  totalPages: number,
+  total: number,
+  setPage: (p: number | ((prev: number) => number)) => void,
+  pageSize: number = 20,
+  setPageSize?: (s: number) => void
+) {
+  if (total === 0) return null;
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 pt-4 text-xs text-slate-500">
+      <div className="flex items-center gap-4">
+        <span>
+          共 <strong className="font-bold text-slate-700">{total}</strong> 条
+        </span>
+        {setPageSize && (
+          <div className="flex items-center gap-2">
+            <span>每页展示:</span>
+            <select
+              value={pageSize}
+              onChange={(e) => setPageSize(Number(e.target.value))}
+              className="h-7 rounded border border-slate-200 bg-white px-1 text-xs font-semibold outline-none focus:border-violet-600"
+            >
+              {financePageSizeOptions.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt} 条
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center gap-3">
+        <span className="font-medium text-slate-600">
+          第 {page} / {totalPages} 页
+        </span>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setPage((p) => p - 1)}
+            disabled={page <= 1}
+            className="btn-secondary h-7 px-2.5 text-xs"
+          >
+            上一页
+          </button>
+          <button
+            onClick={() => setPage((p) => p + 1)}
+            disabled={page >= totalPages}
+            className="btn-secondary h-7 px-2.5 text-xs"
+          >
+            下一页
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function getResolvedSettlementMetrics(

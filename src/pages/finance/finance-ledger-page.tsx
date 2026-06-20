@@ -44,10 +44,10 @@ export function FinanceLedgerPage({ user }: Props) {
 
   const settlementLookup = useMemo(() => buildSettlementLookup(settlementFiles || []), [settlementFiles]);
   
-  const [cashflowDirection, setCashflowDirection] = useState<"all" | "收入" | "支出">("all");
-  const [cashflowType, setCashflowType] = useState<string>("all");
+  const [activeTab, setActiveTab] = useState<"all" | "订单回款" | "采购付款" | "其他费用">("all");
   const [cashflowMonth, setCashflowMonth] = useState<string>("all");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
 
   const ledgerRows = useMemo<LedgerRow[]>(() => {
     // 1. Order Income
@@ -117,14 +117,13 @@ export function FinanceLedgerPage({ user }: Props) {
 
   const filteredLedgerRows = useMemo(() => {
     return ledgerRows.filter((row) => {
-      if (cashflowDirection !== "all" && row.direction !== cashflowDirection) return false;
-      if (cashflowType !== "all" && row.type !== cashflowType) return false;
+      if (activeTab !== "all" && row.type !== activeTab) return false;
       if (cashflowMonth !== "all" && !row.date.startsWith(cashflowMonth)) return false;
       return true;
     });
-  }, [ledgerRows, cashflowDirection, cashflowType, cashflowMonth]);
+  }, [ledgerRows, activeTab, cashflowMonth]);
 
-  const paginated = getPaginatedRows("finance-cashflow", filteredLedgerRows, page);
+  const paginated = getPaginatedRows("finance-cashflow", filteredLedgerRows, page, pageSize);
 
   const totalIncome = useMemo(() => filteredLedgerRows.filter(r => r.direction === "收入").reduce((sum, r) => sum + r.amountRmb, 0), [filteredLedgerRows]);
   const totalExpense = useMemo(() => filteredLedgerRows.filter(r => r.direction === "支出").reduce((sum, r) => sum + Math.abs(r.amountRmb), 0), [filteredLedgerRows]);
@@ -148,38 +147,53 @@ export function FinanceLedgerPage({ user }: Props) {
         </div>
       )}
 
+      {/* Tabs */}
+      <div className="flex items-center gap-6 border-b border-slate-200 px-1">
+        <button
+          onClick={() => { setActiveTab("all"); setPage(1); }}
+          className={`pb-3 text-sm font-bold transition-colors ${
+            activeTab === "all" ? "border-b-2 border-violet-600 text-violet-700" : "text-slate-500 hover:text-slate-800"
+          }`}
+        >
+          全部流水
+        </button>
+        <button
+          onClick={() => { setActiveTab("订单回款"); setPage(1); }}
+          className={`pb-3 text-sm font-bold transition-colors ${
+            activeTab === "订单回款" ? "border-b-2 border-violet-600 text-violet-700" : "text-slate-500 hover:text-slate-800"
+          }`}
+        >
+          订单回款
+        </button>
+        <button
+          onClick={() => { setActiveTab("采购付款"); setPage(1); }}
+          className={`pb-3 text-sm font-bold transition-colors ${
+            activeTab === "采购付款" ? "border-b-2 border-violet-600 text-violet-700" : "text-slate-500 hover:text-slate-800"
+          }`}
+        >
+          采购付款
+        </button>
+        <button
+          onClick={() => { setActiveTab("其他费用"); setPage(1); }}
+          className={`pb-3 text-sm font-bold transition-colors ${
+            activeTab === "其他费用" ? "border-b-2 border-violet-600 text-violet-700" : "text-slate-500 hover:text-slate-800"
+          }`}
+        >
+          其他费用
+        </button>
+      </div>
+
       <div className="surface-card p-5">
-        <div className="flex flex-wrap items-center gap-3 border-b border-slate-150 pb-4 mb-4">
+        <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 pb-4 mb-4">
           <select
             value={cashflowMonth}
             onChange={(e) => { setCashflowMonth(e.target.value); setPage(1); }}
-            className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold outline-none focus:border-violet-600"
+            className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold outline-none focus:border-violet-600 focus:ring-1 focus:ring-violet-600"
           >
             <option value="all">全部月份</option>
             {uniqueMonths.map((m) => (
               <option key={m} value={m}>{m}</option>
             ))}
-          </select>
-
-          <select
-            value={cashflowDirection}
-            onChange={(e) => { setCashflowDirection(e.target.value as any); setPage(1); }}
-            className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold outline-none focus:border-violet-600"
-          >
-            <option value="all">全部收支方向</option>
-            <option value="收入">收入流水</option>
-            <option value="支出">支出流水</option>
-          </select>
-
-          <select
-            value={cashflowType}
-            onChange={(e) => { setCashflowType(e.target.value); setPage(1); }}
-            className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold outline-none focus:border-violet-600"
-          >
-            <option value="all">全部交易类型</option>
-            <option value="订单回款">订单回款</option>
-            <option value="采购付款">采购付款</option>
-            <option value="其他费用">其他费用</option>
           </select>
 
           <div className="ml-auto flex gap-2">
@@ -236,13 +250,15 @@ export function FinanceLedgerPage({ user }: Props) {
               </tfoot>
             </FinanceTable>
             
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-3 text-xs text-slate-500">
-               <span>共 {paginated.total} 条，第 {paginated.page} / {paginated.totalPages} 页</span>
-               <div className="flex items-center gap-1.5">
-                  <button onClick={() => setPage(p => p - 1)} disabled={paginated.page <= 1} className="btn-secondary h-8 px-3">上一页</button>
-                  <button onClick={() => setPage(p => p + 1)} disabled={paginated.page >= paginated.totalPages} className="btn-secondary h-8 px-3">下一页</button>
-               </div>
-            </div>
+            {renderPaginationControls(
+              "ledger",
+              paginated.page,
+              paginated.totalPages,
+              paginated.total,
+              setPage,
+              pageSize,
+              setPageSize
+            )}
           </>
         )}
       </div>

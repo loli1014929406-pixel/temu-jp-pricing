@@ -27,12 +27,9 @@ const navSections = [
     items: [
       { to: "/finance", label: "财务总览", icon: CircleDollarSign },
       { to: "/finance/ledger", label: "收支流水", icon: WalletCards },
-      { to: "/finance/purchases", label: "采购付款流水", icon: WalletCards },
       { to: "/finance/expenses", label: "费用管理", icon: WalletCards },
-      { to: "/finance/monthly-profit", label: "月度利润", icon: Calculator },
-      { to: "/finance/product-profit", label: "商品利润", icon: Calculator },
-      { to: "/finance/settlement", label: "对账中心", icon: ClipboardList },
-      { to: "/finance/orders", label: "订单财务明细", icon: ListOrdered }
+      { to: "/finance/profit", label: "利润报表", icon: Calculator },
+      { to: "/finance/settlement", label: "对账中心", icon: ClipboardList }
     ]
   },
   {

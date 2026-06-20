@@ -9,10 +9,7 @@ import { DeclarationPricesPage } from "./pages/declaration-prices-page";
 import { FinanceOverviewPage } from "./pages/finance/finance-overview-page";
 import { FinanceLedgerPage } from "./pages/finance/finance-ledger-page";
 import { FinanceExpensesPage } from "./pages/finance/finance-expenses-page";
-import { FinancePurchasesPage } from "./pages/finance/finance-purchases-page";
-import { FinanceMonthlyProfitPage } from "./pages/finance/finance-monthly-profit-page";
-import { FinanceProductProfitPage } from "./pages/finance/finance-product-profit-page";
-import { FinanceOrdersPage } from "./pages/finance/finance-orders-page";
+import { FinanceProfitPage } from "./pages/finance/finance-profit-page";
 import { FinanceSettlementPage } from "./pages/finance/finance-settlement-page";
 import { InventoryPage } from "./pages/inventory-page";
 import { InventoryTransferPage } from "./pages/inventory-transfer-page";
@@ -75,10 +72,7 @@ export default function App() {
           <Route path="/finance" element={user ? <FinanceOverviewPage user={user} /> : null} />
           <Route path="/finance/ledger" element={user ? <FinanceLedgerPage user={user} /> : null} />
           <Route path="/finance/expenses" element={user ? <FinanceExpensesPage user={user} /> : null} />
-          <Route path="/finance/purchases" element={user ? <FinancePurchasesPage user={user} /> : null} />
-          <Route path="/finance/monthly-profit" element={user ? <FinanceMonthlyProfitPage user={user} /> : null} />
-          <Route path="/finance/product-profit" element={user ? <FinanceProductProfitPage user={user} /> : null} />
-          <Route path="/finance/orders" element={user ? <FinanceOrdersPage user={user} /> : null} />
+          <Route path="/finance/profit" element={user ? <FinanceProfitPage user={user} /> : null} />
           <Route path="/finance/settlement" element={user ? <FinanceSettlementPage user={user} /> : null} />
           <Route
             path="/products/new"
