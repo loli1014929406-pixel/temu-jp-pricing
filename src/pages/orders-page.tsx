@@ -1526,6 +1526,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
   } = useOrders(user);
   const [activeStage, setActiveStage] = useState<OrderStage>("all");
   const [search, setSearch] = useState("");
+  const [warehouseFilter, setWarehouseFilter] = useState("");
+  const [logisticsMethodFilter, setLogisticsMethodFilter] = useState("");
   const [busyKey, setBusyKey] = useState("");
   const [noticeMessage, setNoticeMessage] = useState("");
   const [detailOrder, setDetailOrder] = useState<TemuOrderRecord | null>(null);
@@ -1536,15 +1538,22 @@ export function OrdersPage({ user }: OrdersPageProps) {
 
   const logisticsMethodOptions = useMemo(
     () =>
-      logisticsMethods
-        .filter((method) => method.is_active)
-        .sort((left, right) => {
-          if (left.sort_order !== right.sort_order) return left.sort_order - right.sort_order;
-          return left.created_at.localeCompare(right.created_at);
-        })
-        .map((method) => normalizeLogisticsMethod(method.name))
-        .filter(Boolean),
-    [logisticsMethods],
+      Array.from(
+        new Set([
+          ...logisticsMethods
+            .filter((method) => method.is_active)
+            .sort((left, right) => {
+              if (left.sort_order !== right.sort_order) return left.sort_order - right.sort_order;
+              return left.created_at.localeCompare(right.created_at);
+            })
+            .map((method) => normalizeLogisticsMethod(method.name))
+            .filter(Boolean),
+          ...orders
+            .map((order) => normalizeLogisticsMethod(mergeOrderDraft(order).logistics_method))
+            .filter(Boolean),
+        ]),
+      ),
+    [drafts, logisticsMethods, orders],
   );
 
   const skuOrderLookup = useMemo(
@@ -1611,6 +1620,40 @@ export function OrdersPage({ user }: OrdersPageProps) {
     }
   }, [showUrgentUnuploadedOnly, urgentUnuploadedOrders.length]);
 
+  useEffect(() => {
+    if (warehouseFilter && !warehouses.some((warehouse) => warehouse.id === warehouseFilter)) {
+      setWarehouseFilter("");
+    }
+  }, [warehouseFilter, warehouses]);
+
+  useEffect(() => {
+    if (logisticsMethodFilter && !logisticsMethodOptions.includes(logisticsMethodFilter)) {
+      setLogisticsMethodFilter("");
+    }
+  }, [logisticsMethodFilter, logisticsMethodOptions]);
+
+  function matchesFulfillmentFilters(order: TemuOrderRecord) {
+    const merged = mergeOrderDraft(order);
+    if (warehouseFilter) {
+      const selectedWarehouse = warehouses.find((warehouse) => warehouse.id === warehouseFilter);
+      const selectedWarehouseName = selectedWarehouse?.name.trim().toLowerCase() ?? "";
+      const orderWarehouseName = merged.warehouse_name.trim().toLowerCase();
+      if (
+        merged.warehouse_id !== warehouseFilter &&
+        (!selectedWarehouseName || orderWarehouseName !== selectedWarehouseName)
+      ) {
+        return false;
+      }
+    }
+    if (
+      logisticsMethodFilter &&
+      normalizeLogisticsMethod(merged.logistics_method) !== logisticsMethodFilter
+    ) {
+      return false;
+    }
+    return true;
+  }
+
   const filteredOrders = useMemo(() => {
     const term = search.trim().toLowerCase();
     const nextOrders = orders.filter((order) => {
@@ -1619,6 +1662,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
         return false;
       }
       if (activeStage !== "all" && getOrderStage(merged) !== activeStage) return false;
+      if (!matchesFulfillmentFilters(order)) return false;
       if (!term) return true;
 
       return [
@@ -1677,12 +1721,15 @@ export function OrdersPage({ user }: OrdersPageProps) {
     activeStage,
     currentTime,
     drafts,
+    logisticsMethodFilter,
     orders,
     orderSort,
     productsById,
     search,
     showUrgentUnuploadedOnly,
     skuOrderLookup,
+    warehouseFilter,
+    warehouses,
   ]);
 
   const filteredOrderRows = useMemo(
@@ -1694,14 +1741,23 @@ export function OrdersPage({ user }: OrdersPageProps) {
     const counts = Object.fromEntries(
       stageDefinitions.map((definition) => [definition.key, 0]),
     ) as Record<OrderStage, number>;
-    const rows = buildOrderDisplayRows(orders);
+    const countableOrders = orders.filter((order) => matchesFulfillmentFilters(order));
+    const rows = buildOrderDisplayRows(countableOrders);
 
     counts.all = rows.length;
     rows.forEach((row) => {
       counts[getOrderStage(row.primaryOrder)] += 1;
     });
     return counts;
-  }, [drafts, orders, productsById, skuOrderLookup]);
+  }, [
+    drafts,
+    logisticsMethodFilter,
+    orders,
+    productsById,
+    skuOrderLookup,
+    warehouseFilter,
+    warehouses,
+  ]);
 
   const tableColumns = useMemo(
     () =>
@@ -2836,7 +2892,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
           deductions: stockResult.deductions.map((d) => ({
             stockId: d.stock.id,
             quantity: d.quantity,
-            reason: `出库：${d.orderLineLabel}`,
+            reason: `订单出库：${d.orderLineLabel}`,
             dedupeKey: d.orderLineLabel,
             reversalReason: `删除订单冲回：${d.orderLineLabel}`,
           })),
@@ -4221,6 +4277,10 @@ export function OrdersPage({ user }: OrdersPageProps) {
         stages={stageDefinitions}
         stageCounts={stageCounts}
         search={search}
+        warehouseFilter={warehouseFilter}
+        warehouseOptions={warehouses}
+        logisticsMethodFilter={logisticsMethodFilter}
+        logisticsMethodOptions={logisticsMethodOptions}
         urgentUnuploadedCount={urgentUnuploadedOrders.length}
         showUrgentUnuploadedOnly={showUrgentUnuploadedOnly}
         onSearchChange={setSearch}
@@ -4229,6 +4289,14 @@ export function OrdersPage({ user }: OrdersPageProps) {
           setOrderSort(defaultOrderSort);
           setSelectedOrderIds([]);
           setShowUrgentUnuploadedOnly(false);
+        }}
+        onWarehouseFilterChange={(warehouseId) => {
+          setWarehouseFilter(warehouseId);
+          setSelectedOrderIds([]);
+        }}
+        onLogisticsMethodFilterChange={(method) => {
+          setLogisticsMethodFilter(method);
+          setSelectedOrderIds([]);
         }}
         onShowUrgentUnuploadedOnly={() => {
           setActiveStage("all");

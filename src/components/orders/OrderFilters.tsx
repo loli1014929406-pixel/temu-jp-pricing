@@ -1,4 +1,4 @@
-import { Search } from "lucide-react";
+import { ChevronDown, Search, Truck, Warehouse } from "lucide-react";
 
 type OrderStage = string;
 
@@ -7,15 +7,26 @@ type StageDefinition = {
   label: string;
 };
 
+type WarehouseFilterOption = {
+  id: string;
+  name: string;
+};
+
 type OrderFiltersProps = {
   activeStage: OrderStage;
   stages: StageDefinition[];
   stageCounts: Record<string, number>;
   search: string;
+  warehouseFilter: string;
+  warehouseOptions: WarehouseFilterOption[];
+  logisticsMethodFilter: string;
+  logisticsMethodOptions: string[];
   urgentUnuploadedCount: number;
   showUrgentUnuploadedOnly: boolean;
   onSearchChange: (value: string) => void;
   onStageChange: (stage: OrderStage) => void;
+  onWarehouseFilterChange: (warehouseId: string) => void;
+  onLogisticsMethodFilterChange: (method: string) => void;
   onShowUrgentUnuploadedOnly: () => void;
 };
 
@@ -24,10 +35,16 @@ export function OrderFilters({
   stages,
   stageCounts,
   search,
+  warehouseFilter,
+  warehouseOptions,
+  logisticsMethodFilter,
+  logisticsMethodOptions,
   urgentUnuploadedCount,
   showUrgentUnuploadedOnly,
   onSearchChange,
   onStageChange,
+  onWarehouseFilterChange,
+  onLogisticsMethodFilterChange,
   onShowUrgentUnuploadedOnly,
 }: OrderFiltersProps) {
   return (
@@ -59,7 +76,7 @@ export function OrderFilters({
       )}
 
       <section className="surface-card grid gap-3 p-4">
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(300px,380px)] xl:items-end">
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(520px,720px)] xl:items-end">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
@@ -102,18 +119,60 @@ export function OrderFilters({
             </div>
           </div>
 
-          <label className="grid gap-2">
-            <span className="text-xs font-semibold text-slate-500">快速搜索</span>
-            <div className="relative">
-              <Search size={16} className="absolute left-3 top-3 text-slate-400" />
-              <input
-                value={search}
-                onChange={(event) => onSearchChange(event.target.value)}
-                placeholder="搜索订单号 / 收货人 / 地址 / 物流"
-                className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10"
-              />
-            </div>
-          </label>
+          <div className="grid gap-3 md:grid-cols-3">
+            <label className="grid gap-2">
+              <span className="text-xs font-semibold text-slate-500">发货仓库</span>
+              <div className="relative">
+                <Warehouse size={16} className="absolute left-3 top-3 text-slate-400" />
+                <select
+                  value={warehouseFilter}
+                  onChange={(event) => onWarehouseFilterChange(event.target.value)}
+                  className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-white pl-9 pr-8 text-sm font-medium text-slate-700 outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10"
+                >
+                  <option value="">全部仓库</option>
+                  {warehouseOptions.map((warehouse) => (
+                    <option key={warehouse.id} value={warehouse.id}>
+                      {warehouse.name}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown size={16} className="pointer-events-none absolute right-3 top-3 text-slate-400" />
+              </div>
+            </label>
+
+            <label className="grid gap-2">
+              <span className="text-xs font-semibold text-slate-500">发货方式</span>
+              <div className="relative">
+                <Truck size={16} className="absolute left-3 top-3 text-slate-400" />
+                <select
+                  value={logisticsMethodFilter}
+                  onChange={(event) => onLogisticsMethodFilterChange(event.target.value)}
+                  className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-white pl-9 pr-8 text-sm font-medium text-slate-700 outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10"
+                >
+                  <option value="">全部方式</option>
+                  {logisticsMethodOptions.map((method) => (
+                    <option key={method} value={method}>
+                      {method}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown size={16} className="pointer-events-none absolute right-3 top-3 text-slate-400" />
+              </div>
+            </label>
+
+            <label className="grid gap-2">
+              <span className="text-xs font-semibold text-slate-500">快速搜索</span>
+              <div className="relative">
+                <Search size={16} className="absolute left-3 top-3 text-slate-400" />
+                <input
+                  value={search}
+                  onChange={(event) => onSearchChange(event.target.value)}
+                  placeholder="订单号 / 收货人 / 地址 / 物流"
+                  className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10"
+                />
+              </div>
+            </label>
+          </div>
         </div>
       </section>
     </section>

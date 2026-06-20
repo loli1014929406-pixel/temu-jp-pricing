@@ -20,6 +20,7 @@ import type { ReactNode } from "react";
 import { Badge, PageHeader, StatCard } from "../components/ui";
 import { addObjectSheet, createWorkbook, downloadWorkbook } from "../lib/excel";
 import { fetchTemuOrders, updateTemuOrder } from "../lib/orders";
+import { fetchWarehouses, fetchWarehouseSkus } from "../lib/inventory";
 import {
   fetchProducts,
   fetchProductItemsByProductIds,
@@ -46,6 +47,8 @@ import type {
   PurchaseOrder,
   TemuOrderRecord,
   PricingSettings,
+  Warehouse,
+  WarehouseSku,
 } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { calculatePurchaseShippingRmb, calculateDynamicMethodCost } from "../utils/shipping-costs";
@@ -75,6 +78,38 @@ function getTodayInputValue() {
   const now = new Date();
   const localDate = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
   return localDate.toISOString().slice(0, 10);
+}
+
+function getCurrentMonthInputValue() {
+  return getTodayInputValue().slice(0, 7);
+}
+
+function getMonthStart(month: string) {
+  return month ? `${month}-01` : "";
+}
+
+function getMonthEnd(month: string) {
+  if (!month) return "";
+  const [year, monthNumber] = month.split("-").map(Number);
+  if (!year || !monthNumber) return "";
+  return new Date(Date.UTC(year, monthNumber, 0)).toISOString().slice(0, 10);
+}
+
+function getDateKey(value: string) {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+  const direct = value.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(direct) ? direct : "";
+}
+
+function isDateInPeriod(value: string, period: FinancePeriod) {
+  if (period.mode === "all") return true;
+  const dateKey = getDateKey(value);
+  if (!dateKey) return false;
+  if (period.start && dateKey < period.start) return false;
+  if (period.end && dateKey > period.end) return false;
+  return true;
 }
 
 
@@ -124,6 +159,8 @@ type FinanceData = {
   products: Product[];
   productItems: ProductItem[];
   productSkus: ProductSku[];
+  warehouses: Warehouse[];
+  warehouseSkus: WarehouseSku[];
 };
 
 type FinanceOrderRow = {
@@ -134,8 +171,9 @@ type FinanceOrderRow = {
   productCostRmb: number;
   shippingFeeRmb: number;
   estimatedShippingRmb: number;
+  shippingFeeSource: ShippingFeeSource;
   isShippingFeeEstimated: boolean;
-  billAmountRmb: number; // For reference/estimated
+  billAmountRmb: number; // Product cost + accounting shipping fee
   actualSalesRevenueRmb: number; // From settlement
   actualFreightRevenueRmb: number; // From settlement
   actualRevenueRmb: number; // Actual total revenue from settlement
@@ -154,7 +192,28 @@ type LedgerRow = {
 };
 
 type FinanceBadgeTone = "success" | "warning" | "danger" | "neutral" | "info";
-type ReconciliationIssue = "unmatched" | "shipping-estimated" | "shipping-missing";
+type ShippingFeeSource = "actual" | "estimated" | "missing";
+type ReconciliationIssue = "unmatched" | "shipping-missing";
+type FinancePeriodMode = "all" | "month" | "custom";
+type FinancePeriod = {
+  mode: FinancePeriodMode;
+  start: string;
+  end: string;
+  label: string;
+};
+
+type InventoryValueRow = {
+  productId: string;
+  productCode: string;
+  productName: string;
+  skuId: string;
+  skuCode: string;
+  skuSpec: string;
+  stockQuantity: number;
+  unitCostRmb: number;
+  inventoryValueRmb: number;
+  warehouseSummary: string;
+};
 
 function getSignedAmountClass(value: number, neutralClass = "text-slate-700") {
   if (value < 0) return "text-rose-700";
@@ -182,15 +241,19 @@ function hasShippingActivity(row: FinanceOrderRow) {
 }
 
 function needsShippingFeeAttention(row: FinanceOrderRow) {
-  return !hasActualShippingFee(row) && (row.isShippingFeeEstimated || hasShippingActivity(row));
+  return row.shippingFeeSource === "missing" && hasShippingActivity(row);
+}
+
+function getShippingFeeSourceLabel(source: ShippingFeeSource) {
+  if (source === "actual") return "实际";
+  if (source === "estimated") return "自动估算";
+  return "缺失";
 }
 
 function getReconciliationIssues(row: FinanceOrderRow): ReconciliationIssue[] {
   const issues: ReconciliationIssue[] = [];
   if (!row.matched) issues.push("unmatched");
-  if (row.isShippingFeeEstimated) {
-    issues.push("shipping-estimated");
-  } else if (needsShippingFeeAttention(row)) {
+  if (needsShippingFeeAttention(row)) {
     issues.push("shipping-missing");
   }
   return issues;
@@ -200,7 +263,6 @@ function getAccountingStatus(row: FinanceOrderRow): { label: string; tone: Finan
   const issues = getReconciliationIssues(row);
   if (issues.includes("unmatched")) return { label: "异常(未匹配)", tone: "danger" };
   if (issues.includes("shipping-missing")) return { label: "待处理(缺运费)", tone: "danger" };
-  if (issues.includes("shipping-estimated")) return { label: "待确认(预估运费)", tone: "warning" };
   return { label: "对账成功", tone: "success" };
 }
 
@@ -210,6 +272,8 @@ const emptyData: FinanceData = {
   products: [],
   productItems: [],
   productSkus: [],
+  warehouses: [],
+  warehouseSkus: [],
 };
 
 function normalizeSkuCode(value: string) {
@@ -390,6 +454,30 @@ function getPurchaseTotalRmb(purchase: PurchaseOrder) {
   return Number(purchase.total_cost_rmb || 0);
 }
 
+function calculateFinanceTotals(orderRows: FinanceOrderRow[], purchases: PurchaseOrder[]) {
+  const estimatedBillAmount = orderRows.reduce((sum, row) => sum + row.billAmountRmb, 0);
+  const actualRevenueAmount = orderRows.reduce((sum, row) => sum + row.actualRevenueRmb, 0);
+  const orderShippingFee = orderRows.reduce((sum, row) => sum + row.shippingFeeRmb, 0);
+  const orderProductCost = orderRows.reduce((sum, row) => sum + row.productCostRmb, 0);
+  const purchasePayment = purchases.reduce(
+    (sum, purchase) => sum + getPurchaseTotalRmb(purchase),
+    0,
+  );
+  const missingShippingFeeCount = orderRows.filter(needsShippingFeeAttention).length;
+  const unmatchedCount = orderRows.filter((row) => !row.matched).length;
+  const unsettledCount = orderRows.filter((row) => !row.isSettled).length;
+  return {
+    estimatedBillAmount: roundMoney(estimatedBillAmount),
+    actualRevenueAmount: roundMoney(actualRevenueAmount),
+    orderShippingFee: roundMoney(orderShippingFee),
+    orderProductCost: roundMoney(orderProductCost),
+    purchasePayment: roundMoney(purchasePayment),
+    missingShippingFeeCount,
+    unmatchedCount,
+    unsettledCount,
+  };
+}
+
 function EmptyPanel({ label, compact = false }: { label: string; compact?: boolean }) {
   return (
     <div className={`rounded-lg border border-dashed border-slate-200 bg-slate-50/70 text-center text-sm font-medium text-slate-500 ${compact ? "p-4" : "p-8"}`}>
@@ -424,6 +512,10 @@ export function FinancePage({ user, view }: FinancePageProps) {
   const [busy, setBusy] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [search, setSearch] = useState("");
+  const [periodMode, setPeriodMode] = useState<FinancePeriodMode>("all");
+  const [periodMonth, setPeriodMonth] = useState(getCurrentMonthInputValue());
+  const [periodStart, setPeriodStart] = useState(getMonthStart(getCurrentMonthInputValue()));
+  const [periodEnd, setPeriodEnd] = useState(getTodayInputValue());
 
   // Settlement Data state
   const [settlementFiles, setSettlementFiles] = useState<SettlementFile[]>([]);
@@ -449,7 +541,7 @@ export function FinancePage({ user, view }: FinancePageProps) {
   // Order income filter states
   const [orderStatusFilter, setOrderStatusFilter] = useState<string>("all");
   const [orderMatchFilter, setOrderMatchFilter] = useState<"all" | "matched" | "unmatched">("all");
-  const [orderShippingFilter, setOrderShippingFilter] = useState<"all" | "missing" | "filled">("all");
+  const [orderShippingFilter, setOrderShippingFilter] = useState<"all" | ShippingFeeSource>("all");
 
   // Inline shipping fee editing state
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
@@ -491,10 +583,11 @@ export function FinancePage({ user, view }: FinancePageProps) {
     setLoading(true);
     setErrorMessage("");
     try {
-      const [orders, purchases, products, fetchedSettings] = await Promise.all([
+      const [orders, purchases, products, warehouses, fetchedSettings] = await Promise.all([
         fetchTemuOrders(),
         fetchPurchaseOrders(),
         fetchProducts({ includeNotSelling: true }),
+        fetchWarehouses(),
         fetchSettings(user.id).catch((err) => {
           console.error("Failed to fetch settings:", err);
           return null;
@@ -505,7 +598,8 @@ export function FinancePage({ user, view }: FinancePageProps) {
         fetchProductItemsByProductIds(productIds),
         fetchProductSkusByProductIds(productIds),
       ]);
-      setData({ orders, purchases, products, productItems, productSkus });
+      const warehouseSkus = await fetchWarehouseSkus(warehouses.map((warehouse) => warehouse.id));
+      setData({ orders, purchases, products, productItems, productSkus, warehouses, warehouseSkus });
       setSettings(fetchedSettings);
     } catch (error) {
       setErrorMessage(getErrorMessage(error, "加载财务数据失败"));
@@ -537,6 +631,32 @@ export function FinancePage({ user, view }: FinancePageProps) {
     [data.products, data.productSkus],
   );
 
+  const skusById = useMemo(
+    () => new Map(data.productSkus.flatMap((sku) => (sku.id ? [[sku.id, sku] as const] : []))),
+    [data.productSkus],
+  );
+
+  const warehousesById = useMemo(
+    () => new Map(data.warehouses.map((warehouse) => [warehouse.id, warehouse])),
+    [data.warehouses],
+  );
+
+  const selectedPeriod = useMemo<FinancePeriod>(() => {
+    if (periodMode === "month") {
+      return {
+        mode: periodMode,
+        start: getMonthStart(periodMonth),
+        end: getMonthEnd(periodMonth),
+        label: periodMonth ? `${periodMonth} 月` : "未选择月份",
+      };
+    }
+    if (periodMode === "custom") {
+      const label = `${periodStart || "开始"} ~ ${periodEnd || "结束"}`;
+      return { mode: periodMode, start: periodStart, end: periodEnd, label };
+    }
+    return { mode: "all", start: "", end: "", label: "全部累计" };
+  }, [periodMode, periodMonth, periodStart, periodEnd]);
+
   const settlementLookup = useMemo(() => buildSettlementLookup(settlementFiles), [settlementFiles]);
 
   const orderRows = useMemo<FinanceOrderRow[]>(
@@ -548,10 +668,14 @@ export function FinancePage({ user, view }: FinancePageProps) {
         const unitCost = sku ? getSkuUnitCostRmb(sku, productItemsById) : 0;
         const productCostRmb = roundMoney(unitCost * quantity);
 
-        // Auto-estimate shipping fee
         const estimatedShippingRmb = estimateOrderShippingFee(order, product, settings);
-        const isEstimated = !order.actual_shipping_fee_rmb || order.actual_shipping_fee_rmb <= 0;
-        const shippingFeeRmb = roundMoney(isEstimated ? estimatedShippingRmb : Number(order.actual_shipping_fee_rmb));
+        const actualShippingFeeRmb = Number(order.actual_shipping_fee_rmb || 0);
+        const shippingFeeSource: ShippingFeeSource = actualShippingFeeRmb > 0
+          ? "actual"
+          : estimatedShippingRmb > 0
+            ? "estimated"
+            : "missing";
+        const shippingFeeRmb = roundMoney(shippingFeeSource === "actual" ? actualShippingFeeRmb : estimatedShippingRmb);
 
         // Get actual settlement revenue (matching by PO number first, fallback to SKU averages if needed, but here we match PO from settlement lookup)
         let actualSalesRevenueRmb = 0;
@@ -586,8 +710,9 @@ export function FinancePage({ user, view }: FinancePageProps) {
           productCostRmb,
           shippingFeeRmb,
           estimatedShippingRmb,
-          isShippingFeeEstimated: isEstimated && estimatedShippingRmb > 0,
-          billAmountRmb: roundMoney(productCostRmb + shippingFeeRmb), // Estimated bill
+          shippingFeeSource,
+          isShippingFeeEstimated: shippingFeeSource === "estimated",
+          billAmountRmb: roundMoney(productCostRmb + shippingFeeRmb),
           actualSalesRevenueRmb,
           actualFreightRevenueRmb,
           actualRevenueRmb,
@@ -599,8 +724,23 @@ export function FinancePage({ user, view }: FinancePageProps) {
     [data.orders, productItemsById, productsById, skuLookup, settings, settlementLookup],
   );
 
+  const periodOrderRows = useMemo(
+    () => orderRows.filter((row) => isDateInPeriod(getOrderDate(row.order), selectedPeriod)),
+    [orderRows, selectedPeriod],
+  );
+
+  const periodPurchases = useMemo(
+    () => data.purchases.filter((purchase) => isDateInPeriod(purchase.purchased_at, selectedPeriod)),
+    [data.purchases, selectedPeriod],
+  );
+
+  const periodOtherExpenses = useMemo(
+    () => otherExpenses.filter((expense) => isDateInPeriod(expense.date, selectedPeriod)),
+    [otherExpenses, selectedPeriod],
+  );
+
   const filteredOrderRows = useMemo(() => {
-    let rows = orderRows;
+    let rows = periodOrderRows;
     const keyword = search.trim().toLowerCase();
     if (keyword) {
       rows = rows.filter((row) => getOrderSearchText(row).includes(keyword));
@@ -613,16 +753,14 @@ export function FinancePage({ user, view }: FinancePageProps) {
         if (orderMatchFilter === "unmatched" && isMatched) return false;
       }
       if (orderShippingFilter !== "all") {
-        const isMissing = !row.order.actual_shipping_fee_rmb || row.order.actual_shipping_fee_rmb <= 0;
-        if (orderShippingFilter === "missing" && !isMissing) return false;
-        if (orderShippingFilter === "filled" && isMissing) return false;
+        if (row.shippingFeeSource !== orderShippingFilter) return false;
       }
       return true;
     });
-  }, [orderRows, search, orderStatusFilter, orderMatchFilter, orderShippingFilter]);
+  }, [periodOrderRows, search, orderStatusFilter, orderMatchFilter, orderShippingFilter]);
 
   const ledgerRows = useMemo<LedgerRow[]>(() => {
-    const orderLedgerRows = orderRows
+    const orderLedgerRows = periodOrderRows
       .filter((row) => row.actualRevenueRmb > 0)
       .map((row) => ({
         date: formatDate(getOrderDate(row.order)),
@@ -633,7 +771,7 @@ export function FinancePage({ user, view }: FinancePageProps) {
         remark: `销售回款 ${formatCurrency(row.actualSalesRevenueRmb)} / 运费回款 ${formatCurrency(row.actualFreightRevenueRmb)}`,
       }));
 
-    const purchaseLedgerRows = data.purchases.map((purchase) => ({
+    const purchaseLedgerRows = periodPurchases.map((purchase) => ({
       date: formatDate(purchase.purchased_at),
       type: "采购付款",
       direction: "支出" as const,
@@ -642,7 +780,7 @@ export function FinancePage({ user, view }: FinancePageProps) {
       remark: purchase.warehouse_name,
     }));
 
-    const otherExpensesLedgerRows = otherExpenses.map((expense) => ({
+    const otherExpensesLedgerRows = periodOtherExpenses.map((expense) => ({
       date: formatDate(expense.date),
       type: "其他费用",
       direction: "支出" as const,
@@ -654,7 +792,7 @@ export function FinancePage({ user, view }: FinancePageProps) {
     return [...orderLedgerRows, ...purchaseLedgerRows, ...otherExpensesLedgerRows].sort((left, right) =>
       right.date.localeCompare(left.date),
     );
-  }, [data.purchases, orderRows, otherExpenses]);
+  }, [periodPurchases, periodOrderRows, periodOtherExpenses]);
 
   const uniqueMonths = useMemo(() => {
     const months = new Set<string>();
@@ -683,36 +821,75 @@ export function FinancePage({ user, view }: FinancePageProps) {
     return Array.from(statuses);
   }, [orderRows]);
 
-  const totals = useMemo(() => {
-    const estimatedBillAmount = orderRows.reduce((sum, row) => sum + row.billAmountRmb, 0);
-    const actualRevenueAmount = orderRows.reduce((sum, row) => sum + row.actualRevenueRmb, 0);
-    const orderShippingFee = orderRows.reduce((sum, row) => sum + row.shippingFeeRmb, 0);
-    const orderProductCost = orderRows.reduce((sum, row) => sum + row.productCostRmb, 0);
-    const purchasePayment = data.purchases.reduce(
-      (sum, purchase) => sum + getPurchaseTotalRmb(purchase),
-      0,
-    );
-    const missingShippingFeeCount = orderRows.filter(needsShippingFeeAttention).length;
-    const unmatchedCount = orderRows.filter((row) => !row.matched).length;
-    const unsettledCount = orderRows.filter((row) => !row.isSettled).length;
+  const totals = useMemo(
+    () => calculateFinanceTotals(periodOrderRows, periodPurchases),
+    [periodOrderRows, periodPurchases],
+  );
+
+  const allTotals = useMemo(
+    () => calculateFinanceTotals(orderRows, data.purchases),
+    [orderRows, data.purchases],
+  );
+
+  const inventoryRows = useMemo<InventoryValueRow[]>(() => {
+    const groups = new Map<string, InventoryValueRow & { warehouseParts: string[] }>();
+
+    data.warehouseSkus.forEach((stock) => {
+      const stockQuantity = Math.max(0, Number(stock.stock_quantity || 0));
+      if (stockQuantity <= 0) return;
+
+      const sku = skusById.get(stock.sku_id);
+      const product = productsById.get(stock.product_id) ?? (sku?.product_id ? productsById.get(sku.product_id) : null);
+      const unitCostRmb = sku ? roundMoney(getSkuUnitCostRmb(sku, productItemsById)) : 0;
+      const key = `${stock.product_id}:${stock.sku_id}`;
+      const warehouseName = warehousesById.get(stock.warehouse_id)?.name ?? "未知仓库";
+      const current = groups.get(key) ?? {
+        productId: stock.product_id,
+        productCode: product?.product_code ?? "--",
+        productName: product?.product_name_cn ?? "未匹配商品",
+        skuId: stock.sku_id,
+        skuCode: sku?.sku_code ?? "--",
+        skuSpec: sku ? formatSkuSalesSpec(sku) : "--",
+        stockQuantity: 0,
+        unitCostRmb,
+        inventoryValueRmb: 0,
+        warehouseSummary: "",
+        warehouseParts: [],
+      };
+
+      current.stockQuantity += stockQuantity;
+      current.inventoryValueRmb += stockQuantity * unitCostRmb;
+      current.warehouseParts.push(`${warehouseName} ${stockQuantity}`);
+      groups.set(key, current);
+    });
+
+    return Array.from(groups.values())
+      .map(({ warehouseParts, ...row }) => ({
+        ...row,
+        stockQuantity: Math.trunc(row.stockQuantity),
+        unitCostRmb: roundMoney(row.unitCostRmb),
+        inventoryValueRmb: roundMoney(row.inventoryValueRmb),
+        warehouseSummary: warehouseParts.join(" / "),
+      }))
+      .sort((left, right) => right.inventoryValueRmb - left.inventoryValueRmb);
+  }, [data.warehouseSkus, productItemsById, productsById, skusById, warehousesById]);
+
+  const inventoryTotals = useMemo(() => {
+    const productIds = new Set(inventoryRows.map((row) => row.productId));
     return {
-      estimatedBillAmount: roundMoney(estimatedBillAmount),
-      actualRevenueAmount: roundMoney(actualRevenueAmount),
-      orderShippingFee: roundMoney(orderShippingFee),
-      orderProductCost: roundMoney(orderProductCost),
-      purchasePayment: roundMoney(purchasePayment),
-      missingShippingFeeCount,
-      unmatchedCount,
-      unsettledCount,
+      productCount: productIds.size,
+      skuCount: inventoryRows.length,
+      stockQuantity: inventoryRows.reduce((sum, row) => sum + row.stockQuantity, 0),
+      inventoryValueRmb: roundMoney(inventoryRows.reduce((sum, row) => sum + row.inventoryValueRmb, 0)),
     };
-  }, [data.purchases, orderRows]);
+  }, [inventoryRows]);
 
   const monthlyRows = useMemo(() => {
     const groups = new Map<
       string,
       { month: string; income: number; purchase: number; productCost: number; shipping: number; otherExpense: number }
     >();
-    orderRows.forEach((row) => {
+    periodOrderRows.forEach((row) => {
       const month = getMonthKey(getOrderDate(row.order));
       const group = groups.get(month) ?? {
         month,
@@ -727,7 +904,7 @@ export function FinancePage({ user, view }: FinancePageProps) {
       group.shipping += row.shippingFeeRmb;
       groups.set(month, group);
     });
-    data.purchases.forEach((purchase) => {
+    periodPurchases.forEach((purchase) => {
       const month = getMonthKey(purchase.purchased_at);
       const group = groups.get(month) ?? {
         month,
@@ -740,7 +917,7 @@ export function FinancePage({ user, view }: FinancePageProps) {
       group.purchase += getPurchaseTotalRmb(purchase);
       groups.set(month, group);
     });
-    otherExpenses.forEach((expense) => {
+    periodOtherExpenses.forEach((expense) => {
       const month = getMonthKey(expense.date);
       const group = groups.get(month) ?? {
         month,
@@ -761,10 +938,11 @@ export function FinancePage({ user, view }: FinancePageProps) {
         productCost: roundMoney(row.productCost),
         shipping: roundMoney(row.shipping),
         otherExpense: roundMoney(row.otherExpense),
-        balance: roundMoney(row.income - row.productCost - row.shipping - row.otherExpense),
+        cashProfit: roundMoney(row.income - row.purchase - row.shipping - row.otherExpense),
+        orderProfit: roundMoney(row.income - row.productCost - row.shipping - row.otherExpense),
       }))
       .sort((left, right) => right.month.localeCompare(left.month));
-  }, [data.purchases, orderRows, otherExpenses]);
+  }, [periodPurchases, periodOrderRows, periodOtherExpenses]);
 
   const productRows = useMemo(() => {
     const groups = new Map<
@@ -781,7 +959,7 @@ export function FinancePage({ user, view }: FinancePageProps) {
         margin: number;
       }
     >();
-    orderRows.forEach((row) => {
+    periodOrderRows.forEach((row) => {
       const key = row.product?.id ?? `unmatched:${row.order.sku_code}:${row.order.product_attributes}`;
       const group = groups.get(key) ?? {
         productCode: row.product?.product_code ?? "--",
@@ -814,7 +992,7 @@ export function FinancePage({ user, view }: FinancePageProps) {
         margin,
       };
     });
-  }, [orderRows]);
+  }, [periodOrderRows]);
 
   const filteredProductRows = useMemo(() => {
     let rows = productRows;
@@ -948,8 +1126,11 @@ export function FinancePage({ user, view }: FinancePageProps) {
         销售规格: row.order.product_attributes,
         数量: row.quantity,
         商品成本: row.productCostRmb,
-        实际运费: row.shippingFeeRmb,
-        账单金额: row.billAmountRmb,
+        核算运费: row.shippingFeeRmb,
+        运费口径: getShippingFeeSourceLabel(row.shippingFeeSource),
+        上传实际运费: Number(row.order.actual_shipping_fee_rmb || 0),
+        自动估算运费: row.estimatedShippingRmb,
+        核算账单金额: row.billAmountRmb,
         仓库: row.order.warehouse_name,
         发货方式: row.order.logistics_method,
         物流单号: row.order.logistics_tracking_no,
@@ -1035,44 +1216,141 @@ export function FinancePage({ user, view }: FinancePageProps) {
     );
   }
 
+  function updatePeriodMode(nextMode: FinancePeriodMode) {
+    setPeriodMode(nextMode);
+    setFinancePages({});
+  }
+
+  function renderPeriodControls() {
+    return (
+      <section className="surface-card flex flex-col gap-3 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">财务时间口径</h3>
+            <p className="mt-1 text-xs text-slate-500">当前报表：{selectedPeriod.label}；库存金额显示当前库存余额。</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {[
+              ["all", "全部累计"],
+              ["month", "按月"],
+              ["custom", "自定义"],
+            ].map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => updatePeriodMode(mode as FinancePeriodMode)}
+                className={`h-9 rounded-lg px-3 text-xs font-bold transition ${
+                  periodMode === mode
+                    ? "bg-violet-600 text-white shadow-sm"
+                    : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600">
+            <span>月份</span>
+            <input
+              type="month"
+              value={periodMonth}
+              onChange={(event) => {
+                setPeriodMonth(event.target.value);
+                setPeriodMode("month");
+                setFinancePages({});
+              }}
+              className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs outline-none focus:border-violet-600"
+            />
+          </label>
+          <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600">
+            <span>开始</span>
+            <input
+              type="date"
+              value={periodStart}
+              onChange={(event) => {
+                setPeriodStart(event.target.value);
+                setPeriodMode("custom");
+                setFinancePages({});
+              }}
+              className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs outline-none focus:border-violet-600"
+            />
+          </label>
+          <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600">
+            <span>结束</span>
+            <input
+              type="date"
+              value={periodEnd}
+              onChange={(event) => {
+                setPeriodEnd(event.target.value);
+                setPeriodMode("custom");
+                setFinancePages({});
+              }}
+              className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs outline-none focus:border-violet-600"
+            />
+          </label>
+        </div>
+      </section>
+    );
+  }
+
   function renderOverview() {
-    const totalOtherExpenses = otherExpenses.reduce((sum, e) => sum + e.amount, 0);
-    const netProfit = totals.actualRevenueAmount - totals.orderProductCost - totals.orderShippingFee - totalOtherExpenses;
-    const marginRate = calculateMarginRate(netProfit, totals.actualRevenueAmount);
-    const isLoss = netProfit < 0;
+    const totalOtherExpenses = periodOtherExpenses.reduce((sum, e) => sum + e.amount, 0);
+    const allOtherExpenses = otherExpenses.reduce((sum, e) => sum + e.amount, 0);
+    const cashProfit = totals.actualRevenueAmount - totals.purchasePayment - totals.orderShippingFee - totalOtherExpenses;
+    const orderProfit = totals.actualRevenueAmount - totals.orderProductCost - totals.orderShippingFee - totalOtherExpenses;
+    const allCashProfit = allTotals.actualRevenueAmount - allTotals.purchasePayment - allTotals.orderShippingFee - allOtherExpenses;
+    const allOrderProfit = allTotals.actualRevenueAmount - allTotals.orderProductCost - allTotals.orderShippingFee - allOtherExpenses;
+    const cashMarginRate = calculateMarginRate(cashProfit, totals.actualRevenueAmount);
+    const orderMarginRate = calculateMarginRate(orderProfit, totals.actualRevenueAmount);
+    const isCashLoss = cashProfit < 0;
+    const isOrderLoss = orderProfit < 0;
 
     return (
       <>
         {/* Stat Cards Grid */}
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
           <StatCard label="实际结算总回款" value={formatCurrency(totals.actualRevenueAmount)} />
-          <StatCard label="订单总运费" value={formatCurrency(totals.orderShippingFee)} />
-          <StatCard label="采购商品成本" value={formatCurrency(totals.orderProductCost)} />
+          <StatCard label="订单核算总运费" value={formatCurrency(totals.orderShippingFee)} />
+          <StatCard label="订单商品成本" value={formatCurrency(totals.orderProductCost)} />
+          <StatCard label="当前库存商品金额" value={formatCurrency(inventoryTotals.inventoryValueRmb)} />
+          <StatCard label="期间采购付款" value={formatCurrency(totals.purchasePayment)} />
           <StatCard label="其他扣减费用" value={formatCurrency(totalOtherExpenses)} />
         </div>
 
         {/* Net Profit and Margin overview */}
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <div className={`rounded-2xl border border-slate-100 p-6 text-white shadow-lg ${
-            isLoss ? "bg-gradient-to-br from-rose-500 to-red-600 shadow-rose-500/20" : "bg-gradient-to-br from-emerald-500 to-teal-600 shadow-emerald-500/20"
+            isCashLoss ? "bg-gradient-to-br from-rose-500 to-red-600 shadow-rose-500/20" : "bg-gradient-to-br from-emerald-500 to-teal-600 shadow-emerald-500/20"
           }`}>
-            <div className={`text-xs font-bold uppercase tracking-wider ${isLoss ? "text-rose-100" : "text-emerald-100"}`}>实际纯利润 (已核算)</div>
-            <div className="mt-2 text-3xl font-black tabular-nums">{formatCurrency(netProfit)}</div>
-            <p className={`mt-2 text-[11px] ${isLoss ? "text-rose-100/75" : "text-emerald-100/75"}`}>计算公式：实际回款 - 采购成本 - 运费 - 其他费用</p>
+            <div className={`text-xs font-bold uppercase tracking-wider ${isCashLoss ? "text-rose-100" : "text-emerald-100"}`}>实际现金利润（按收付）</div>
+            <div className="mt-2 text-3xl font-black tabular-nums">{formatCurrency(cashProfit)}</div>
+            <p className={`mt-2 text-[11px] ${isCashLoss ? "text-rose-100/75" : "text-emerald-100/75"}`}>
+              回款 - 当月采购付款 - 运费 - 其他费用，利润率 {cashMarginRate.toFixed(2)}%
+            </p>
           </div>
           <div className={`rounded-2xl border border-slate-100 p-6 text-white shadow-lg ${
-            isLoss ? "bg-gradient-to-br from-rose-400 to-red-500 shadow-rose-500/15" : "bg-gradient-to-br from-emerald-400 to-teal-500 shadow-emerald-500/15"
+            isOrderLoss ? "bg-gradient-to-br from-rose-500 to-red-600 shadow-rose-500/20" : "bg-gradient-to-br from-emerald-500 to-teal-600 shadow-emerald-500/20"
           }`}>
-            <div className={`text-xs font-bold uppercase tracking-wider ${isLoss ? "text-rose-100" : "text-emerald-100"}`}>实际销售利润率</div>
-            <div className="mt-2 text-3xl font-black tabular-nums">{marginRate.toFixed(2)}%</div>
-            <p className={`mt-2 text-[11px] ${isLoss ? "text-rose-100/75" : "text-emerald-100/75"}`}>计算公式：实际纯利润 / 实际结算总回款</p>
+            <div className={`text-xs font-bold uppercase tracking-wider ${isOrderLoss ? "text-rose-100" : "text-emerald-100"}`}>实际订单利润（不含库存）</div>
+            <div className="mt-2 text-3xl font-black tabular-nums">{formatCurrency(orderProfit)}</div>
+            <p className={`mt-2 text-[11px] ${isOrderLoss ? "text-rose-100/75" : "text-emerald-100/75"}`}>回款 - 订单商品成本 - 运费 - 其他费用</p>
+          </div>
+          <div className={`rounded-2xl border border-slate-100 p-6 text-white shadow-lg ${
+            isOrderLoss ? "bg-gradient-to-br from-rose-400 to-red-500 shadow-rose-500/15" : "bg-gradient-to-br from-emerald-400 to-teal-500 shadow-emerald-500/15"
+          }`}>
+            <div className={`text-xs font-bold uppercase tracking-wider ${isOrderLoss ? "text-rose-100" : "text-emerald-100"}`}>订单销售利润率</div>
+            <div className="mt-2 text-3xl font-black tabular-nums">{orderMarginRate.toFixed(2)}%</div>
+            <p className={`mt-2 text-[11px] ${isOrderLoss ? "text-rose-100/75" : "text-emerald-100/75"}`}>实际订单利润 / 实际结算总回款</p>
           </div>
           <div className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm flex flex-col justify-between">
             <div>
               <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">结算回款状态</div>
               <div className="mt-2 flex items-baseline gap-2">
-                <span className="text-3xl font-black tabular-nums text-slate-800">{orderRows.length - totals.unsettledCount}</span>
-                <span className="text-sm font-semibold text-slate-400">/ {orderRows.length} 笔订单已结算</span>
+                <span className="text-3xl font-black tabular-nums text-slate-800">{periodOrderRows.length - totals.unsettledCount}</span>
+                <span className="text-sm font-semibold text-slate-400">/ {periodOrderRows.length} 笔订单已结算</span>
               </div>
             </div>
             <div className="mt-3 flex flex-col gap-1.5">
@@ -1081,11 +1359,27 @@ export function FinancePage({ user, view }: FinancePageProps) {
                 <span className="font-bold text-slate-700">{formatCurrency(totals.estimatedBillAmount - totals.actualRevenueAmount)}</span>
               </div>
               <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
-                <div className="h-full bg-violet-500 rounded-full" style={{ width: `${orderRows.length > 0 ? ((orderRows.length - totals.unsettledCount) / orderRows.length) * 100 : 0}%` }} />
+                <div className="h-full bg-violet-500 rounded-full" style={{ width: `${periodOrderRows.length > 0 ? ((periodOrderRows.length - totals.unsettledCount) / periodOrderRows.length) * 100 : 0}%` }} />
               </div>
             </div>
           </div>
         </div>
+
+        <section className="surface-card p-5">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <h3 className="text-sm font-bold text-slate-800">全部累计对照</h3>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500">
+              当前筛选：{selectedPeriod.label}
+            </span>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+            <StatCard label="累计实际回款" value={formatCurrency(allTotals.actualRevenueAmount)} />
+            <StatCard label="累计现金利润" value={formatCurrency(allCashProfit)} tone={allCashProfit < 0 ? "danger" : "success"} />
+            <StatCard label="累计实际订单利润" value={formatCurrency(allOrderProfit)} tone={allOrderProfit < 0 ? "danger" : "success"} />
+            <StatCard label="当前库存商品金额" value={formatCurrency(inventoryTotals.inventoryValueRmb)} />
+            <StatCard label="累计订单数" value={String(orderRows.length)} />
+          </div>
+        </section>
 
         {/* Cost Breakdown Visual */}
         <section className="surface-card p-5">
@@ -1102,18 +1396,18 @@ export function FinancePage({ user, view }: FinancePageProps) {
                   <div
                     style={{ width: `${(totals.orderShippingFee / totals.actualRevenueAmount) * 100}%` }}
                     className="bg-sky-400 transition-all duration-300"
-                    title={`实际运费: ${((totals.orderShippingFee / totals.actualRevenueAmount) * 100).toFixed(1)}%`}
+                    title={`核算运费: ${((totals.orderShippingFee / totals.actualRevenueAmount) * 100).toFixed(1)}%`}
                   />
                   <div
                     style={{ width: `${(totalOtherExpenses / totals.actualRevenueAmount) * 100}%` }}
                     className="bg-rose-400 transition-all duration-300"
                     title={`其他费用: ${((totalOtherExpenses / totals.actualRevenueAmount) * 100).toFixed(1)}%`}
                   />
-                  {netProfit > 0 && (
+                  {orderProfit > 0 && (
                     <div
-                      style={{ width: `${(netProfit / totals.actualRevenueAmount) * 100}%` }}
+                      style={{ width: `${(orderProfit / totals.actualRevenueAmount) * 100}%` }}
                       className="bg-emerald-500 transition-all duration-300"
-                      title={`纯利润: ${(marginRate).toFixed(1)}%`}
+                      title={`实际订单利润: ${(orderMarginRate).toFixed(1)}%`}
                     />
                   )}
                 </>
@@ -1129,16 +1423,16 @@ export function FinancePage({ user, view }: FinancePageProps) {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="h-3 w-3 rounded-full bg-sky-400 block" />
-                  <span>实际运费 ({((totals.orderShippingFee / totals.actualRevenueAmount) * 100).toFixed(1)}%)</span>
+                  <span>核算运费 ({((totals.orderShippingFee / totals.actualRevenueAmount) * 100).toFixed(1)}%)</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="h-3 w-3 rounded-full bg-rose-400 block" />
                   <span>其他杂项费用 ({((totalOtherExpenses / totals.actualRevenueAmount) * 100).toFixed(1)}%)</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className={`h-3 w-3 rounded-full block ${isLoss ? "bg-rose-500" : "bg-emerald-500"}`} />
-                  <span className={isLoss ? "text-rose-700" : "text-emerald-700"}>
-                    {isLoss ? "实际纯亏损" : "实际纯利润"} ({marginRate.toFixed(1)}%)
+                  <span className={`h-3 w-3 rounded-full block ${isOrderLoss ? "bg-rose-500" : "bg-emerald-500"}`} />
+                  <span className={isOrderLoss ? "text-rose-700" : "text-emerald-700"}>
+                    {isOrderLoss ? "实际订单亏损" : "实际订单利润"} ({orderMarginRate.toFixed(1)}%)
                   </span>
                 </div>
               </div>
@@ -1159,7 +1453,7 @@ export function FinancePage({ user, view }: FinancePageProps) {
               </Badge>
             </div>
           </div>
-          {renderReconciliationTable(orderRows.filter((row) => getReconciliationIssues(row).length > 0).slice(0, 5))}
+          {renderReconciliationTable(periodOrderRows.filter((row) => getReconciliationIssues(row).length > 0).slice(0, 5))}
         </section>
       </>
     );
@@ -1207,9 +1501,10 @@ export function FinancePage({ user, view }: FinancePageProps) {
               onChange={(e) => setOrderShippingFilter(e.target.value as any)}
               className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold outline-none focus:border-violet-600"
             >
-              <option value="all">所有运费状态</option>
-              <option value="missing">缺实际运费</option>
-              <option value="filled">已填实际运费</option>
+              <option value="all">所有运费口径</option>
+              <option value="actual">已上传实际运费</option>
+              <option value="estimated">自动估算运费</option>
+              <option value="missing">缺失运费</option>
             </select>
           </div>
 
@@ -1243,8 +1538,8 @@ export function FinancePage({ user, view }: FinancePageProps) {
               <th>系统商品 SKU</th>
               <th>数量</th>
               <th className="number-cell">采购商品成本</th>
-              <th className="number-cell">实际运费</th>
-              <th className="number-cell">预估账单金额</th>
+              <th className="number-cell">核算运费</th>
+              <th className="number-cell">核算账单金额</th>
               <th className="number-cell">实际结算回款</th>
               <th>发货物流方式</th>
               <th>结算状态</th>
@@ -1308,7 +1603,7 @@ export function FinancePage({ user, view }: FinancePageProps) {
                     </div>
                   ) : (
                     <div className="flex items-center gap-1.5 group justify-end">
-                      {row.shippingFeeRmb <= 0 ? (
+                      {row.shippingFeeSource === "missing" ? (
                         <span className="text-rose-600 font-bold" title="商品未匹配或发货方式未知，无法自动计算">
                           缺失
                         </span>
@@ -1317,9 +1612,13 @@ export function FinancePage({ user, view }: FinancePageProps) {
                           <span className={row.isShippingFeeEstimated ? "text-violet-600 font-semibold" : "font-bold text-slate-900"}>
                             {formatCurrency(row.shippingFeeRmb)}
                           </span>
-                          {row.isShippingFeeEstimated && (
+                          {row.shippingFeeSource === "actual" ? (
+                            <span className="rounded bg-emerald-50 border border-emerald-100 px-1 py-0.2 text-[9px] font-black text-emerald-600 cursor-help" title="已录入实际每单运费，财务核算优先使用该金额">
+                              实际
+                            </span>
+                          ) : (
                             <span className="rounded bg-violet-50 border border-violet-100 px-1 py-0.2 text-[9px] font-black text-violet-600 cursor-help" title="已基于发货物流公式与商品重量自动估算">
-                              自动
+                              自动估算
                             </span>
                           )}
                         </>
@@ -1332,7 +1631,7 @@ export function FinancePage({ user, view }: FinancePageProps) {
                             setEditingFeeValue(row.shippingFeeRmb > 0 ? String(row.shippingFeeRmb) : "");
                           }}
                           className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-700 p-1 transition"
-                          title="修改运费"
+                          title="录入/修改实际运费"
                         >
                           <Edit2 size={12} />
                         </button>
@@ -1452,8 +1751,8 @@ export function FinancePage({ user, view }: FinancePageProps) {
   }
 
   function renderPurchases() {
-    if (data.purchases.length === 0) return <EmptyPanel label="暂无采购付款记录" />;
-    const paginated = getPaginatedRows("finance-purchases", data.purchases);
+    if (periodPurchases.length === 0) return <EmptyPanel label="当前时间范围暂无采购付款记录" />;
+    const paginated = getPaginatedRows("finance-purchases", periodPurchases);
     return (
       <section className="surface-card grid gap-4 p-5">
         <FinanceTable>
@@ -1497,7 +1796,7 @@ export function FinancePage({ user, view }: FinancePageProps) {
     const width = 500;
     const padding = { top: 20, right: 20, bottom: 30, left: 50 };
     const chartHeight = height - padding.top - padding.bottom;
-    const values = chartData.flatMap((d) => [d.income, d.balance]);
+    const values = chartData.flatMap((d) => [d.income, d.cashProfit, d.orderProfit]);
     const rawMax = Math.max(0, ...values);
     const rawMin = Math.min(0, ...values);
     const maxVal = rawMax > 0 ? rawMax * 1.1 : 1000;
@@ -1541,34 +1840,56 @@ export function FinancePage({ user, view }: FinancePageProps) {
               const incomeBarH = Math.abs(incomeValueY - y0);
               const incomeY = Math.min(incomeValueY, y0);
 
-              const balanceValueY = yForValue(d.balance);
-              const balanceBarH = Math.abs(balanceValueY - y0);
-              const balanceY = Math.min(balanceValueY, y0);
-              const balanceFill = d.balance >= 0 ? "#34d399" : "#fb7185";
-              const balanceHover = d.balance >= 0 ? "hover:fill-emerald-500" : "hover:fill-rose-500";
+              const cashValueY = yForValue(d.cashProfit);
+              const cashBarH = Math.abs(cashValueY - y0);
+              const cashY = Math.min(cashValueY, y0);
+              const cashFill = d.cashProfit >= 0 ? "#f59e0b" : "#fb7185";
+              const cashHover = d.cashProfit >= 0 ? "hover:fill-amber-500" : "hover:fill-rose-500";
+
+              const orderValueY = yForValue(d.orderProfit);
+              const orderBarH = Math.abs(orderValueY - y0);
+              const orderY = Math.min(orderValueY, y0);
+              const orderFill = d.orderProfit >= 0 ? "#34d399" : "#fb7185";
+              const orderHover = d.orderProfit >= 0 ? "hover:fill-emerald-500" : "hover:fill-rose-500";
 
               return (
                 <g key={d.month} className="group">
                   {/* Revenue Bar (violet) */}
                   <rect
-                    x={x - 14}
+                    x={x - 17}
                     y={incomeY}
-                    width={10}
+                    width={8}
                     height={Math.max(2, incomeBarH)}
                     fill="#818cf8"
                     rx={2}
                     className="transition-all duration-300 hover:fill-indigo-500"
-                  />
-                  {/* Net Profit Bar (emerald or rose) */}
+                  >
+                    <title>{`${d.month} 实际回款 ${formatCurrency(d.income)}`}</title>
+                  </rect>
+                  {/* Cash Profit Bar (amber or rose) */}
                   <rect
-                    x={x + 4}
-                    y={balanceY}
-                    width={10}
-                    height={Math.max(2, balanceBarH)}
-                    fill={balanceFill}
+                    x={x - 4}
+                    y={cashY}
+                    width={8}
+                    height={Math.max(2, cashBarH)}
+                    fill={cashFill}
                     rx={2}
-                    className={`transition-all duration-300 ${balanceHover}`}
-                  />
+                    className={`transition-all duration-300 ${cashHover}`}
+                  >
+                    <title>{`${d.month} 实际现金利润 ${formatCurrency(d.cashProfit)}`}</title>
+                  </rect>
+                  {/* Order Profit Bar (emerald or rose) */}
+                  <rect
+                    x={x + 9}
+                    y={orderY}
+                    width={8}
+                    height={Math.max(2, orderBarH)}
+                    fill={orderFill}
+                    rx={2}
+                    className={`transition-all duration-300 ${orderHover}`}
+                  >
+                    <title>{`${d.month} 实际订单利润 ${formatCurrency(d.orderProfit)}`}</title>
+                  </rect>
                   {/* Month Label */}
                   <text
                     x={x}
@@ -1586,11 +1907,19 @@ export function FinancePage({ user, view }: FinancePageProps) {
         <div className="flex items-center gap-4 mt-2 justify-center text-xs font-semibold">
           <div className="flex items-center gap-1.5">
             <span className="h-3 w-3 rounded bg-indigo-400 block" />
-            <span className="text-slate-500">订单账单金额</span>
+            <span className="text-slate-500">实际回款</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="h-3 w-3 rounded bg-amber-400 block" />
+            <span className="text-slate-500">实际现金利润</span>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="h-3 w-3 rounded bg-emerald-400 block" />
-            <span className="text-slate-500">账面核算利润</span>
+            <span className="text-slate-500">实际订单利润</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="h-3 w-3 rounded bg-rose-400 block" />
+            <span className="text-slate-500">负数向下</span>
           </div>
         </div>
       </div>
@@ -1599,46 +1928,60 @@ export function FinancePage({ user, view }: FinancePageProps) {
 
   function renderMonthlyProfit() {
     if (monthlyRows.length === 0) return <EmptyPanel label="暂无月度利润利润表数据" />;
+    const paginated = getPaginatedRows("finance-monthly-profit", monthlyRows);
     return (
       <div className="grid gap-5">
         <MonthlyProfitChart />
 
         <section className="surface-card grid gap-4 p-5">
-          <h3 className="text-sm font-bold text-slate-800">月度收支与账面利润核算表</h3>
-          <FinanceTable>
+          <h3 className="text-sm font-bold text-slate-800">月度实际利润与订单利润表</h3>
+          <FinanceTable minWidth="min-w-[1160px]">
             <thead>
               <tr>
                 <th>月份</th>
                 <th className="number-cell">实际结算回款 (+)</th>
-                <th className="number-cell">采购商品成本 (-)</th>
-                <th className="number-cell">实际运费支出 (-)</th>
+                <th className="number-cell">当月采购付款 (-)</th>
+                <th className="number-cell">订单商品成本 (-)</th>
+                <th className="number-cell">核算运费支出 (-)</th>
                 <th className="number-cell">其他杂项费用 (-)</th>
-                <th className="number-cell">当月实际净利润</th>
-                <th className="number-cell">月度净利润率</th>
+                <th className="number-cell">实际现金利润</th>
+                <th className="number-cell">实际订单利润 (不含库存)</th>
+                <th className="number-cell">现金利润率</th>
+                <th className="number-cell">订单利润率</th>
               </tr>
             </thead>
             <tbody>
-              {monthlyRows.map((row) => {
-                const margin = calculateMarginRate(row.balance, row.income);
-                const balanceClass = getSignedAmountClass(row.balance);
+              {paginated.rows.map((row) => {
+                const cashMargin = calculateMarginRate(row.cashProfit, row.income);
+                const orderMargin = calculateMarginRate(row.orderProfit, row.income);
+                const cashClass = getSignedAmountClass(row.cashProfit);
+                const orderClass = getSignedAmountClass(row.orderProfit);
                 return (
                   <tr key={row.month} className="hover:bg-slate-50/50">
                     <td className="font-bold text-slate-900">{row.month}</td>
                     <td className="money text-emerald-700">{formatCurrency(row.income)}</td>
+                    <td className="money text-rose-700">{formatCurrency(row.purchase)}</td>
                     <td className="money text-slate-700">{formatCurrency(row.productCost)}</td>
                     <td className="money text-slate-700">{formatCurrency(row.shipping)}</td>
                     <td className="money text-slate-700">{formatCurrency(row.otherExpense)}</td>
-                    <td className={`money ${balanceClass}`}>
-                      {formatCurrency(row.balance)}
+                    <td className={`money ${cashClass}`}>
+                      {formatCurrency(row.cashProfit)}
                     </td>
-                    <td className={`number-cell font-bold ${balanceClass}`}>
-                      {margin.toFixed(2)}%
+                    <td className={`money ${orderClass}`}>
+                      {formatCurrency(row.orderProfit)}
+                    </td>
+                    <td className={`number-cell font-bold ${cashClass}`}>
+                      {cashMargin.toFixed(2)}%
+                    </td>
+                    <td className={`number-cell font-bold ${orderClass}`}>
+                      {orderMargin.toFixed(2)}%
                     </td>
                   </tr>
                 );
               })}
             </tbody>
           </FinanceTable>
+          {renderPaginationControls("finance-monthly-profit", paginated.page, paginated.totalPages, paginated.total)}
         </section>
       </div>
     );
@@ -1694,7 +2037,7 @@ export function FinancePage({ user, view }: FinancePageProps) {
                 采购总成本 {renderSortIcon("productCost")}
               </th>
               <th className="number-cell cursor-pointer hover:bg-slate-100 transition rounded" onClick={() => handleSort("shipping")}>
-                实际总运费 {renderSortIcon("shipping")}
+                核算总运费 {renderSortIcon("shipping")}
               </th>
               <th className="number-cell cursor-pointer hover:bg-slate-100 transition rounded" onClick={() => handleSort("billAmount")}>
                 实际结算总回款 {renderSortIcon("billAmount")}
@@ -1735,6 +2078,63 @@ export function FinancePage({ user, view }: FinancePageProps) {
     );
   }
 
+  function renderInventoryValue() {
+    if (inventoryRows.length === 0) return <EmptyPanel label="暂无库存商品金额数据" />;
+    const paginated = getPaginatedRows("finance-inventory-value", inventoryRows);
+
+    return (
+      <section className="surface-card grid gap-4 p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
+          <div>
+            <h3 className="text-sm font-bold text-slate-800">库存商品金额（按商品 / SKU）</h3>
+            <p className="mt-1 text-xs text-slate-500">当前库存余额，不随财务时间范围变化；金额 = SKU 库存数量 x SKU 单位成本。</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500">
+              商品 {inventoryTotals.productCount}
+            </span>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500">
+              SKU {inventoryTotals.skuCount}
+            </span>
+            <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-bold text-sky-700">
+              库存金额 {formatCurrency(inventoryTotals.inventoryValueRmb)}
+            </span>
+          </div>
+        </div>
+
+        <FinanceTable minWidth="min-w-[1180px]" tableClassName="finance-freeze-product">
+          <thead>
+            <tr>
+              <th>商品编码</th>
+              <th>商品名称</th>
+              <th>SKU</th>
+              <th>规格</th>
+              <th className="number-cell">库存数量</th>
+              <th className="number-cell">SKU 单位成本</th>
+              <th className="number-cell">库存商品金额</th>
+              <th>仓库分布</th>
+            </tr>
+          </thead>
+          <tbody>
+            {paginated.rows.map((row) => (
+              <tr key={`${row.productId}-${row.skuId}`} className="hover:bg-slate-50/50">
+                <td className="font-bold text-slate-900">{row.productCode}</td>
+                <td className="max-w-xs truncate font-medium text-slate-700" title={row.productName}>{row.productName}</td>
+                <td className="font-mono text-slate-600">{row.skuCode}</td>
+                <td className="max-w-xs truncate text-slate-500" title={row.skuSpec}>{row.skuSpec}</td>
+                <td className="number-cell font-semibold">{row.stockQuantity}</td>
+                <td className="money">{formatCurrency(row.unitCostRmb)}</td>
+                <td className="money text-sky-700">{formatCurrency(row.inventoryValueRmb)}</td>
+                <td className="max-w-sm truncate text-xs font-medium text-slate-500" title={row.warehouseSummary}>{row.warehouseSummary}</td>
+              </tr>
+            ))}
+          </tbody>
+        </FinanceTable>
+        {renderPaginationControls("finance-inventory-value", paginated.page, paginated.totalPages, paginated.total)}
+      </section>
+    );
+  }
+
   function renderReconciliationTable(rows: FinanceOrderRow[]) {
     if (rows.length === 0) return <EmptyPanel label="暂无需要人工对账的订单数据" />;
     const paginated = getPaginatedRows("finance-reconciliation", rows);
@@ -1747,7 +2147,7 @@ export function FinancePage({ user, view }: FinancePageProps) {
               <th>Temu SKU Code</th>
               <th>系统商品 SKU</th>
               <th>待处理问题</th>
-              <th className="number-cell">实际运费</th>
+              <th className="number-cell">核算运费</th>
               <th className="text-center">操作对账</th>
             </tr>
           </thead>
@@ -1764,18 +2164,10 @@ export function FinancePage({ user, view }: FinancePageProps) {
                     </span>
                   );
                 }
-                if (issue === "shipping-estimated") {
-                  return (
-                    <span key="shipping-estimated" className="inline-flex items-center gap-1 rounded bg-amber-50 px-2 py-0.5 text-xs font-bold text-amber-700">
-                      <AlertTriangle size={12} />
-                      运费未填写 (当前为估算)
-                    </span>
-                  );
-                }
                 return (
                   <span key="shipping-missing" className="inline-flex items-center gap-1 rounded bg-rose-50 px-2 py-0.5 text-xs font-bold text-rose-600">
                     <AlertTriangle size={12} />
-                    运费未填写 (无法估算)
+                    运费缺失 (无法自动估算)
                   </span>
                 );
               });
@@ -1834,16 +2226,20 @@ export function FinancePage({ user, view }: FinancePageProps) {
                     </div>
                   ) : (
                     <div className="flex items-center gap-1.5 group justify-end">
-                      {row.shippingFeeRmb <= 0 ? (
+                      {row.shippingFeeSource === "missing" ? (
                         <span className="text-rose-600 font-bold">缺失运费</span>
                       ) : (
                         <>
                           <span className={row.isShippingFeeEstimated ? "text-violet-600 font-semibold" : "font-bold text-slate-900"}>
                             {formatCurrency(row.shippingFeeRmb)}
                           </span>
-                          {row.isShippingFeeEstimated && (
+                          {row.shippingFeeSource === "actual" ? (
+                            <span className="rounded bg-emerald-50 border border-emerald-100 px-1 py-0.2 text-[9px] font-black text-emerald-600 cursor-help" title="已录入实际每单运费，财务核算优先使用该金额">
+                              实际
+                            </span>
+                          ) : (
                             <span className="rounded bg-violet-50 border border-violet-100 px-1 py-0.2 text-[9px] font-black text-violet-600 cursor-help" title="已基于发货物流公式与商品重量自动估算">
-                              自动
+                              自动估算
                             </span>
                           )}
                         </>
@@ -1857,7 +2253,7 @@ export function FinancePage({ user, view }: FinancePageProps) {
                           }}
                           className="rounded bg-sky-50 border border-sky-200 px-2 py-0.5 text-sky-600 hover:bg-sky-100 text-[10px] font-bold transition opacity-0 group-hover:opacity-100"
                         >
-                          填运费
+                          填实际
                         </button>
                       )}
                     </div>
@@ -1933,7 +2329,7 @@ export function FinancePage({ user, view }: FinancePageProps) {
   }
 
   function renderReconciliation() {
-    const unmatched = orderRows.filter((row) => getReconciliationIssues(row).length > 0);
+    const unmatched = periodOrderRows.filter((row) => getReconciliationIssues(row).length > 0);
     return (
       <section className="surface-card grid gap-4 p-5">
         <div className="flex items-center gap-3 border-b border-slate-100 pb-3">
@@ -1949,13 +2345,13 @@ export function FinancePage({ user, view }: FinancePageProps) {
 
   function renderExpenses() {
     const shippingTotal = totals.orderShippingFee;
-    const totalOtherExpenses = otherExpenses.reduce((sum, e) => sum + e.amount, 0);
+    const totalOtherExpenses = periodOtherExpenses.reduce((sum, e) => sum + e.amount, 0);
 
     return (
       <div className="grid gap-5">
         {/* Stat summaries */}
         <div className="grid gap-4 md:grid-cols-3">
-          <StatCard label="订单实际总运费" value={formatCurrency(shippingTotal)} />
+          <StatCard label="订单核算总运费" value={formatCurrency(shippingTotal)} />
           <StatCard label="采购付款" value={formatCurrency(totals.purchasePayment)} />
           <StatCard label="其他扣减费用" value={formatCurrency(totalOtherExpenses)} />
         </div>
@@ -1973,8 +2369,8 @@ export function FinancePage({ user, view }: FinancePageProps) {
               新增费用
             </button>
           </div>
-          {otherExpenses.length === 0 ? (
-            <EmptyPanel compact label="暂无其他核算杂费记录" />
+          {periodOtherExpenses.length === 0 ? (
+            <EmptyPanel compact label="当前时间范围暂无其他核算杂费记录" />
           ) : (
             <FinanceTable minWidth="min-w-[720px]">
               <thead>
@@ -1987,7 +2383,7 @@ export function FinancePage({ user, view }: FinancePageProps) {
                 </tr>
               </thead>
               <tbody>
-                {otherExpenses.map((expense) => (
+                {periodOtherExpenses.map((expense) => (
                   <tr key={expense.id} className="hover:bg-slate-50/50">
                     <td className="text-slate-500 font-mono">{expense.date}</td>
                     <td>
@@ -2210,6 +2606,7 @@ export function FinancePage({ user, view }: FinancePageProps) {
       <div className="grid gap-5">
         {renderMonthlyProfit()}
         {renderProductProfit()}
+        {renderInventoryValue()}
       </div>
     );
   }
@@ -2272,6 +2669,7 @@ export function FinancePage({ user, view }: FinancePageProps) {
 
       <div className="flex flex-col items-start gap-5">
         <div className="grid w-full min-w-0 flex-1 gap-4">
+          {renderPeriodControls()}
           {renderCurrentView()}
         </div>
       </div>

@@ -1044,6 +1044,40 @@ type WarehouseItemStockInventoryChange = {
   adjustment: WarehouseItemStockAdjustment;
 };
 
+const orderOutboundReasonPrefix = "订单出库：";
+const legacyOrderOutboundReasonPrefix = "出库：";
+
+function getOrderOutboundReasonCandidates(outboundReason: string) {
+  const reason = outboundReason.trim();
+  if (!reason) return [];
+
+  const legacyLabel = reason.startsWith(legacyOrderOutboundReasonPrefix)
+    ? reason.slice(legacyOrderOutboundReasonPrefix.length)
+    : "";
+  if (legacyLabel) {
+    return Array.from(
+      new Set([
+        `${orderOutboundReasonPrefix}${legacyLabel}`,
+        `${legacyOrderOutboundReasonPrefix}${legacyLabel}`,
+      ]),
+    );
+  }
+
+  const standardLabel = reason.startsWith(orderOutboundReasonPrefix)
+    ? reason.slice(orderOutboundReasonPrefix.length)
+    : "";
+  if (standardLabel) {
+    return Array.from(
+      new Set([
+        `${orderOutboundReasonPrefix}${standardLabel}`,
+        `${legacyOrderOutboundReasonPrefix}${standardLabel}`,
+      ]),
+    );
+  }
+
+  return [reason];
+}
+
 export type AtomicDeductionGroup = {
   groupId: string;
   dedupeKey?: string;
@@ -1253,10 +1287,11 @@ export async function restoreWarehouseItemStockDeductions(
       restorations
         .map((restoration) => ({
           outboundReason: restoration.outboundReason.trim(),
+          outboundReasons: getOrderOutboundReasonCandidates(restoration.outboundReason),
           reversalReason: restoration.reversalReason.trim(),
           expectedDeductionCount: restoration.expectedDeductionCount,
         }))
-        .filter((restoration) => restoration.outboundReason && restoration.reversalReason)
+        .filter((restoration) => restoration.outboundReasons.length > 0 && restoration.reversalReason)
         .map((restoration) => [
           `${restoration.outboundReason}\u0000${restoration.reversalReason}`,
           restoration,
@@ -1272,7 +1307,7 @@ export async function restoreWarehouseItemStockDeductions(
   const reasons = Array.from(
     new Set(
       normalizedRestorations.flatMap((restoration) => [
-        restoration.outboundReason,
+        ...restoration.outboundReasons,
         restoration.reversalReason,
       ]),
     ),
@@ -1303,7 +1338,7 @@ export async function restoreWarehouseItemStockDeductions(
 
     adjustments.forEach((adjustment) => {
       if (
-        adjustment.reason !== restoration.outboundReason &&
+        !restoration.outboundReasons.includes(adjustment.reason) &&
         adjustment.reason !== restoration.reversalReason
       ) {
         return;

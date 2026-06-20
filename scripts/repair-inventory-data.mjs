@@ -165,6 +165,7 @@ function parseOutboundOrderIdentity(reason) {
   const text = String(reason ?? "").trim();
   const label =
     text.match(/^订单出库：(.+)$/)?.[1]?.trim() ||
+    text.match(/^出库：(.+)$/)?.[1]?.trim() ||
     text.match(/^删除订单冲回：(.+)$/)?.[1]?.trim() ||
     "";
   if (!label) return { orderNo: "", orderLineKey: "" };
@@ -738,6 +739,7 @@ function isSourceManagedAdjustment(adjustment) {
     Boolean(adjustment.purchase_order_id || adjustment.purchase_package_id) ||
     reason.startsWith("采购入库") ||
     reason.startsWith("订单出库：") ||
+    reason.startsWith("出库：") ||
     reason.startsWith("删除订单冲回：") ||
     reason.startsWith("删除采购单冲回：") ||
     reason.startsWith("库存校准：")
