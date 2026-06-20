@@ -18,9 +18,13 @@ import { useAuth } from "../hooks/use-auth";
 const navItems = [
   { to: "/orders", label: "订单管理", module: "销售履约", icon: ListOrdered },
   { to: "/finance", label: "财务总览", module: "财务管理", icon: CircleDollarSign },
-  { to: "/finance/books", label: "流水账本", module: "财务管理", icon: WalletCards },
-  { to: "/finance/profit", label: "利润报表", module: "财务管理", icon: Calculator },
-  { to: "/finance/settlement", label: "结算对账", module: "财务管理", icon: ClipboardList },
+  { to: "/finance/ledger", label: "收支流水", module: "财务管理", icon: WalletCards },
+  { to: "/finance/expenses", label: "费用管理", module: "财务管理", icon: WalletCards },
+  { to: "/finance/purchases", label: "采购付款", module: "财务管理", icon: WalletCards },
+  { to: "/finance/monthly-profit", label: "月度利润", module: "财务管理", icon: Calculator },
+  { to: "/finance/product-profit", label: "商品利润", module: "财务管理", icon: Calculator },
+  { to: "/finance/orders", label: "订单明细", module: "财务管理", icon: ListOrdered },
+  { to: "/finance/settlement", label: "对账中心", module: "财务管理", icon: ClipboardList },
   { to: "/products", label: "商品管理", module: "商品资料", icon: PackageSearch },
   { to: "/declaration-prices", label: "核算定价", module: "定价中心", icon: ClipboardList },
   { to: "/profit-calculation", label: "利润分析", module: "经营分析", icon: Calculator },
@@ -39,12 +43,15 @@ const navSections = [
     ]
   },
   {
-    title: "财务管理",
+    title: "财务与报表",
     items: [
       { to: "/finance", label: "财务总览", icon: CircleDollarSign },
-      { to: "/finance/books", label: "流水账本", icon: WalletCards },
-      { to: "/finance/profit", label: "利润报表", icon: Calculator },
-      { to: "/finance/settlement", label: "结算对账", icon: ClipboardList }
+      { to: "/finance/ledger", label: "收支流水", icon: WalletCards },
+      { to: "/finance/expenses", label: "费用管理", icon: WalletCards },
+      { to: "/finance/monthly-profit", label: "月度利润", icon: Calculator },
+      { to: "/finance/product-profit", label: "商品利润", icon: Calculator },
+      { to: "/finance/settlement", label: "对账中心", icon: ClipboardList },
+      { to: "/finance/orders", label: "订单财务明细", icon: ListOrdered }
     ]
   },
   {
@@ -60,6 +67,7 @@ const navSections = [
     title: "仓储管理",
     items: [
       { to: "/purchases/records", label: "采购管理", icon: ShoppingCart },
+      { to: "/finance/purchases", label: "采购付款流水", icon: WalletCards },
       { to: "/inventory", label: "仓储库存", icon: Warehouse },
       { to: "/inventory/transfer", label: "库存调拨", icon: Warehouse }
     ]
@@ -72,26 +80,8 @@ const navSections = [
   }
 ] as const;
 
-const legacyFinanceNavGroups = [
-  {
-    canonicalTo: "/finance/books",
-    paths: ["/finance/cashflow", "/finance/purchases", "/finance/expenses"],
-  },
-  {
-    canonicalTo: "/finance/profit",
-    paths: ["/finance/monthly-profit", "/finance/product-profit"],
-  },
-  {
-    canonicalTo: "/finance/settlement",
-    paths: ["/finance/orders", "/finance/reconciliation"],
-  },
-] as const;
-
 function getCanonicalNavPath(pathname: string) {
-  const legacyGroup = legacyFinanceNavGroups.find((group) =>
-    group.paths.some((path) => pathname === path || pathname.startsWith(`${path}/`)),
-  );
-  return legacyGroup?.canonicalTo ?? pathname;
+  return pathname;
 }
 
 function getActiveModule(pathname: string) {

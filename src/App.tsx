@@ -6,7 +6,14 @@ import { useAuth } from "./hooks/use-auth";
 import { PermissionGate, PermissionProvider } from "./hooks/use-permissions";
 import { AuthPage } from "./pages/auth-page";
 import { DeclarationPricesPage } from "./pages/declaration-prices-page";
-import { FinancePage, type FinanceView } from "./pages/finance-page";
+import { FinanceOverviewPage } from "./pages/finance/finance-overview-page";
+import { FinanceLedgerPage } from "./pages/finance/finance-ledger-page";
+import { FinanceExpensesPage } from "./pages/finance/finance-expenses-page";
+import { FinancePurchasesPage } from "./pages/finance/finance-purchases-page";
+import { FinanceMonthlyProfitPage } from "./pages/finance/finance-monthly-profit-page";
+import { FinanceProductProfitPage } from "./pages/finance/finance-product-profit-page";
+import { FinanceOrdersPage } from "./pages/finance/finance-orders-page";
+import { FinanceSettlementPage } from "./pages/finance/finance-settlement-page";
 import { InventoryPage } from "./pages/inventory-page";
 import { InventoryTransferPage } from "./pages/inventory-transfer-page";
 import { OrdersPage } from "./pages/orders-page";
@@ -34,20 +41,6 @@ function NotFoundPage() {
     </section>
   );
 }
-
-const financeRoutes: Array<{ path: string; view: FinanceView }> = [
-  { path: "/finance", view: "overview" },
-  { path: "/finance/books", view: "ledger" },
-  { path: "/finance/profit", view: "profit" },
-  { path: "/finance/settlement", view: "settlement" },
-  { path: "/finance/cashflow", view: "ledger" },
-  { path: "/finance/purchases", view: "ledger" },
-  { path: "/finance/expenses", view: "ledger" },
-  { path: "/finance/monthly-profit", view: "profit" },
-  { path: "/finance/product-profit", view: "profit" },
-  { path: "/finance/orders", view: "settlement" },
-  { path: "/finance/reconciliation", view: "settlement" },
-];
 
 export default function App() {
   const { user, loading } = useAuth();
@@ -79,13 +72,14 @@ export default function App() {
               ) : null
             }
           />
-          {financeRoutes.map((route) => (
-            <Route
-              key={route.path}
-              path={route.path}
-              element={user ? <FinancePage user={user} view={route.view} /> : null}
-            />
-          ))}
+          <Route path="/finance" element={user ? <FinanceOverviewPage user={user} /> : null} />
+          <Route path="/finance/ledger" element={user ? <FinanceLedgerPage user={user} /> : null} />
+          <Route path="/finance/expenses" element={user ? <FinanceExpensesPage user={user} /> : null} />
+          <Route path="/finance/purchases" element={user ? <FinancePurchasesPage user={user} /> : null} />
+          <Route path="/finance/monthly-profit" element={user ? <FinanceMonthlyProfitPage user={user} /> : null} />
+          <Route path="/finance/product-profit" element={user ? <FinanceProductProfitPage user={user} /> : null} />
+          <Route path="/finance/orders" element={user ? <FinanceOrdersPage user={user} /> : null} />
+          <Route path="/finance/settlement" element={user ? <FinanceSettlementPage user={user} /> : null} />
           <Route
             path="/products/new"
             element={

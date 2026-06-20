@@ -1,0 +1,92 @@
+import { getSupabaseClient } from "./supabase";
+import type { FinanceExpense } from "../types";
+
+export async function fetchExpenses(): Promise<FinanceExpense[]> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from("finance_expenses")
+    .select("*")
+    .order("expense_date", { ascending: false });
+
+  if (error) {
+    throw error;
+  }
+  return data as FinanceExpense[];
+}
+
+export async function addExpense(
+  expense: Omit<FinanceExpense, "id" | "user_id" | "created_at" | "updated_at">
+): Promise<FinanceExpense> {
+  const supabase = getSupabaseClient();
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+  if (userError || !userData?.user) throw new Error("Unauthorized");
+
+  const { data, error } = await supabase
+    .from("finance_expenses")
+    .insert([
+      {
+        ...expense,
+        user_id: userData.user.id,
+      },
+    ])
+    .select()
+    .single();
+
+  if (error) {
+    throw error;
+  }
+  return data as FinanceExpense;
+}
+
+export async function addExpensesBulk(
+  expenses: Omit<FinanceExpense, "id" | "user_id" | "created_at" | "updated_at">[]
+): Promise<FinanceExpense[]> {
+  const supabase = getSupabaseClient();
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+  if (userError || !userData?.user) throw new Error("Unauthorized");
+
+  const records = expenses.map(expense => ({
+    ...expense,
+    user_id: userData.user.id,
+  }));
+
+  const { data, error } = await supabase
+    .from("finance_expenses")
+    .insert(records)
+    .select();
+
+  if (error) {
+    throw error;
+  }
+  return data as FinanceExpense[];
+}
+
+export async function updateExpense(
+  id: string,
+  expense: Partial<Omit<FinanceExpense, "id" | "user_id" | "created_at" | "updated_at">>
+): Promise<FinanceExpense> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from("finance_expenses")
+    .update(expense)
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error) {
+    throw error;
+  }
+  return data as FinanceExpense;
+}
+
+export async function deleteExpense(id: string): Promise<void> {
+  const supabase = getSupabaseClient();
+  const { error } = await supabase
+    .from("finance_expenses")
+    .delete()
+    .eq("id", id);
+
+  if (error) {
+    throw error;
+  }
+}

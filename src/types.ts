@@ -381,3 +381,14 @@ export type TemuOrderRecord = {
   created_at: string;
   updated_at: string;
 };
+
+export type FinanceExpense = {
+  id: string;
+  user_id: string;
+  expense_date: string;
+  category: "ad" | "customs" | "packaging" | "platform_commission" | "refund_loss" | "other";
+  amount_rmb: number;
+  remark: string;
+  created_at: string;
+  updated_at: string;
+};
