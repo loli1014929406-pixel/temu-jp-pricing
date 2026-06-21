@@ -85,4 +85,3 @@ const suffix = `
 }
 `;
 fs.writeFileSync('src/pages/purchases-page.tsx', goodLines.join('\n') + suffix);
-console.log('done!');
