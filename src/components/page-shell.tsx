@@ -101,11 +101,6 @@ export function PageShell() {
   const [profile, setProfile] = useState<AccountProfile | null>(null);
   const activeModule = getActiveModule(location.pathname);
 
-  const activeSection = navSections.find((sec) =>
-    sec.items.some((item) => item.to === activeModule.to)
-  );
-  const sectionLabel = activeSection?.title || "运营系统";
-
   async function handleSignOut() {
     await getSupabaseClient().auth.signOut();
   }
@@ -207,25 +202,6 @@ export function PageShell() {
       </aside>
 
       <div className="erp-workspace">
-        <header className="erp-workspace-topbar flex items-center justify-between">
-          {/* Breadcrumbs Navigation */}
-          <div className="flex items-center gap-2 text-xs font-semibold text-slate-400">
-            <span>系统控制台</span>
-            <span className="text-[10px] text-slate-300">/</span>
-            <span>{sectionLabel}</span>
-            <span className="text-[10px] text-slate-300">/</span>
-            <span className="text-slate-900 font-bold text-sm">{activeModule.label}</span>
-          </div>
-
-          <div className="flex items-center gap-4">
-            {/* Live Database Sync Badge */}
-            <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-100 px-3 py-1 text-[11px] font-semibold text-emerald-700 shadow-sm">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span>Supabase 联机</span>
-            </div>
-          </div>
-        </header>
-
         <main className="erp-main">
           <Outlet />
         </main>
