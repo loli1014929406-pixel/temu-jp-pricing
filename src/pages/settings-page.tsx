@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import type { User } from "@supabase/supabase-js";
-import { Pencil, Plus, Trash2, X } from "lucide-react";
+import { Pencil, Plus, Trash2, X, Save } from "lucide-react";
 import { Field, TextInput } from "../components/form-controls";
 import {
   clearDraft,
@@ -745,40 +745,65 @@ export function SettingsPage({ user }: SettingsPageProps) {
   }
 
   return (
-    <section className="flex flex-col gap-6 p-4 sm:p-6">
-      <PageHeader title="参数设置" description="独立配置系统参数及多维度物流规则" />
-      {canEdit && (
-        <div className="flex justify-end gap-2">
-          {isEditing ? (
-            <button type="button" className="btn-secondary" onClick={handleCancelEdit}>
-              <X size={16} />
-              取消
-            </button>
-          ) : (
-            <button type="button" className="btn-secondary" onClick={handleStartEdit}>
-              <Pencil size={16} />
-              修改
-            </button>
-          )}
-        </div>
-      )}
-      {!canEdit && (
-        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-          当前账号为只读权限，可以查看设置，不能保存修改。
-        </div>
-      )}
-      {errorMessage && (
-        <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
-          {errorMessage}
-        </div>
-      )}
-      {draftNotice && (
-        <div className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-700">
-          {draftNotice}
-        </div>
-      )}
+    <section className="flex flex-col p-4 sm:p-6 relative">
+      <div className="sticky top-0 z-10 -mx-4 px-4 sm:-mx-6 sm:px-6 py-4 mb-6 bg-slate-50/90 backdrop-blur-sm border-b border-line shadow-sm">
+        <PageHeader 
+          title="参数设置" 
+          description="独立配置系统参数及多维度物流规则" 
+          actions={
+            canEdit && (
+              <div className="flex justify-end gap-2">
+                {isEditing ? (
+                  <>
+                    <button type="button" className="btn-secondary" onClick={handleCancelEdit}>
+                      <X size={16} />
+                      取消
+                    </button>
+                    <button 
+                      type="submit" 
+                      form="settings-form"
+                      disabled={busy} 
+                      className="btn-primary"
+                    >
+                      <Save size={16} />
+                      {busy ? "保存中..." : "保存"}
+                    </button>
+                  </>
+                ) : (
+                  <button type="button" className="btn-secondary" onClick={handleStartEdit}>
+                    <Pencil size={16} />
+                    修改
+                  </button>
+                )}
+              </div>
+            )
+          }
+        />
+      </div>
 
-      <form onSubmit={handleSubmit} className="grid gap-6">
+      <div className="flex flex-col gap-6">
+        {!canEdit && (
+          <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            当前账号为只读权限，可以查看设置，不能保存修改。
+          </div>
+        )}
+        {errorMessage && (
+          <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+            {errorMessage}
+          </div>
+        )}
+        {draftNotice && (
+          <div className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-700">
+            {draftNotice}
+          </div>
+        )}
+        {saved && (
+          <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
+            已成功保存参数配置。
+          </div>
+        )}
+
+        <form id="settings-form" onSubmit={handleSubmit} className="grid gap-6">
         <div className="rounded-lg bg-panel p-5 shadow-soft">
           <div className="grid gap-5">
             {fieldGroups.map((group) => (
@@ -868,19 +893,8 @@ export function SettingsPage({ user }: SettingsPageProps) {
           />
         </div>
 
-        <div className="flex items-center justify-between gap-3 rounded-lg bg-panel p-5 shadow-soft">
-          <span className="text-sm font-semibold text-emerald-700">
-            {saved ? "已成功保存参数配置。" : ""}
-          </span>
-          <button
-            type="submit"
-            disabled={busy || !canEdit || !isEditing}
-            className="btn-primary inline-flex h-10 px-8 font-medium shadow-soft"
-          >
-            {busy ? "保存中..." : "保存设置"}
-          </button>
-        </div>
-      </form>
+        </form>
+      </div>
     </section>
   );
 }
