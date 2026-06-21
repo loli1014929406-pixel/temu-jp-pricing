@@ -74,27 +74,27 @@ function hasPurchaseCreateDraft(draft: PurchaseCreateDraft | null | undefined) {
 
   return Boolean(
     draft.warehouseId ||
-      draft.purchasedAt !== localDate() ||
-      draft.notes.trim() ||
-      Object.values(draft.linkMetaDrafts).some(
-        (value) => value.alibabaOrderNo.trim() || value.freightRmb.trim(),
-      ) ||
-      draft.draftProducts.some(
-        (product) =>
-          product.productId ||
-          product.skuId ||
-          (product.skuQuantity ?? "1").trim() !== "1" ||
-          (product.skuSelections ?? []).some(
-            (selection) =>
-              selection.skuId || (selection.quantity ?? "1").trim() !== "1",
-          ) ||
-          product.items.some(
-            (item) =>
-              item.itemId ||
-              item.unitPriceRmb.trim() ||
-              (item.quantity.trim() && item.quantity !== "1"),
-          ),
-      ),
+    draft.purchasedAt !== localDate() ||
+    draft.notes.trim() ||
+    Object.values(draft.linkMetaDrafts).some(
+      (value) => value.alibabaOrderNo.trim() || value.freightRmb.trim(),
+    ) ||
+    draft.draftProducts.some(
+      (product) =>
+        product.productId ||
+        product.skuId ||
+        (product.skuQuantity ?? "1").trim() !== "1" ||
+        (product.skuSelections ?? []).some(
+          (selection) =>
+            selection.skuId || (selection.quantity ?? "1").trim() !== "1",
+        ) ||
+        product.items.some(
+          (item) =>
+            item.itemId ||
+            item.unitPriceRmb.trim() ||
+            (item.quantity.trim() && item.quantity !== "1"),
+        ),
+    ),
   );
 }
 
@@ -103,8 +103,8 @@ function hasPurchaseRecordsDraft(draft: PurchaseRecordsDraft | null | undefined)
 
   return Boolean(
     Object.values(draft.packageTrackingDrafts).some((value) => value.trim()) ||
-      Object.keys(draft.existingPackageTrackingDrafts).length > 0 ||
-      Object.keys(draft.sourceDrafts).length > 0,
+    Object.keys(draft.existingPackageTrackingDrafts).length > 0 ||
+    Object.keys(draft.sourceDrafts).length > 0,
   );
 }
 
@@ -240,20 +240,20 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
         setSkus(nextSkus);
         setOrders(nextOrders);
         const serverPackageTrackingDrafts = Object.fromEntries(
-            nextOrders.flatMap((order) =>
-              order.packages.map((pkg) => [pkg.id, pkg.tracking_no]),
-            ),
+          nextOrders.flatMap((order) =>
+            order.packages.map((pkg) => [pkg.id, pkg.tracking_no]),
+          ),
         );
         const serverSourceDrafts = Object.fromEntries(
-            nextOrders.flatMap((order) =>
-              order.sources.map((source) => [
-                source.id,
-                {
-                  alibabaOrderNo: source.alibaba_order_no,
-                  freightRmb: String(source.freight_rmb),
-                },
-              ]),
-            ),
+          nextOrders.flatMap((order) =>
+            order.sources.map((source) => [
+              source.id,
+              {
+                alibabaOrderNo: source.alibaba_order_no,
+                freightRmb: String(source.freight_rmb),
+              },
+            ]),
+          ),
         );
         const latestRecordsDraft = readDraft<PurchaseRecordsDraft>(recordsDraftKey);
         setExistingPackageTrackingDrafts({
@@ -312,7 +312,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
   const filteredOrders = useMemo(() => {
     const term = search.trim().toLowerCase();
     let result = orders;
-    
+
     if (term) {
       result = orders.filter(
         (order) =>
@@ -435,7 +435,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
             const source = sourcesById.get(sourceId);
             return source
               ? value.alibabaOrderNo !== source.alibaba_order_no ||
-                  Number(value.freightRmb || 0) !== source.freight_rmb
+              Number(value.freightRmb || 0) !== source.freight_rmb
               : false;
           }),
         ),
@@ -483,7 +483,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
         totalsByUrl.set(
           purchaseUrl,
           (totalsByUrl.get(purchaseUrl) ?? 0) +
-            Number(item.quantity || 0) * Number(item.unitPriceRmb || 0),
+          Number(item.quantity || 0) * Number(item.unitPriceRmb || 0),
         );
       }
 
@@ -546,7 +546,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
         quantityByItemId.set(
           link.item_id,
           (quantityByItemId.get(link.item_id) ?? 0) +
-            Number(link.quantity || 0) * skuPurchaseQuantity,
+          Number(link.quantity || 0) * skuPurchaseQuantity,
         );
       });
     }
@@ -576,13 +576,13 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
       current.map((product) =>
         product.id === productId
           ? {
-              ...product,
-              productId: nextProductId,
-              skuId: "",
-              skuQuantity: "1",
-              skuSelections: [createDraftSkuSelection()],
-              items: product.items.map((item) => ({ ...item, itemId: "", unitPriceRmb: "" })),
-            }
+            ...product,
+            productId: nextProductId,
+            skuId: "",
+            skuQuantity: "1",
+            skuSelections: [createDraftSkuSelection()],
+            items: product.items.map((item) => ({ ...item, itemId: "", unitPriceRmb: "" })),
+          }
           : product,
       ),
     );
@@ -593,11 +593,11 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
       current.map((product) =>
         product.id === productId
           ? {
-              ...product,
-              skuId: "",
-              skuQuantity: "1",
-              skuSelections: [...getDraftSkuSelections(product), createDraftSkuSelection()],
-            }
+            ...product,
+            skuId: "",
+            skuQuantity: "1",
+            skuSelections: [...getDraftSkuSelections(product), createDraftSkuSelection()],
+          }
           : product,
       ),
     );
@@ -611,10 +611,10 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
         const skuSelections = getDraftSkuSelections(product).map((selection) =>
           selection.id === selectionId
             ? {
-                ...selection,
-                skuId: nextSkuId,
-                quantity: normalizePositiveIntegerInput(selection.quantity),
-              }
+              ...selection,
+              skuId: nextSkuId,
+              quantity: normalizePositiveIntegerInput(selection.quantity),
+            }
             : selection,
         );
         return {
@@ -684,18 +684,18 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
       current.map((product) =>
         product.id === productId
           ? {
-              ...product,
-              items: product.items.map((item) => {
-                if (item.id !== itemId) return item;
-                if (field !== "itemId") return { ...item, [field]: value };
-                const component = itemsById[value];
-                return {
-                  ...item,
-                  itemId: value,
-                  unitPriceRmb: component ? String(component.purchase_price_rmb) : "",
-                };
-              }),
-            }
+            ...product,
+            items: product.items.map((item) => {
+              if (item.id !== itemId) return item;
+              if (field !== "itemId") return { ...item, [field]: value };
+              const component = itemsById[value];
+              return {
+                ...item,
+                itemId: value,
+                unitPriceRmb: component ? String(component.purchase_price_rmb) : "",
+              };
+            }),
+          }
           : product,
       ),
     );
@@ -730,10 +730,10 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
       const meta = linkMetaDrafts[purchaseUrl];
       return meta?.alibabaOrderNo.trim()
         ? [{
-            purchase_url: purchaseUrl,
-            alibaba_order_no: meta.alibabaOrderNo.trim(),
-            freight_rmb: Number(meta.freightRmb || 0),
-          }]
+          purchase_url: purchaseUrl,
+          alibaba_order_no: meta.alibabaOrderNo.trim(),
+          freight_rmb: Number(meta.freightRmb || 0),
+        }]
         : [];
     });
     if (!warehouse || preparedItems.length === 0 || preparedSources.length !== activePurchaseUrls.length) return;
@@ -781,16 +781,16 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
         current.map((item) =>
           item.id === order.id
             ? {
-                ...item,
-                total_cost_rmb:
-                  item.items_total_rmb +
-                  item.sources.reduce(
-                    (sum, source) =>
-                      sum + (source.id === sourceId ? next.freight_rmb : source.freight_rmb),
-                    0,
-                  ),
-                sources: item.sources.map((source) => (source.id === sourceId ? next : source)),
-              }
+              ...item,
+              total_cost_rmb:
+                item.items_total_rmb +
+                item.sources.reduce(
+                  (sum, source) =>
+                    sum + (source.id === sourceId ? next.freight_rmb : source.freight_rmb),
+                  0,
+                ),
+              sources: item.sources.map((source) => (source.id === sourceId ? next : source)),
+            }
             : item,
         ),
       );
@@ -851,13 +851,13 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
         current.map((item) =>
           item.id === order.id
             ? {
-                ...item,
-                ...result.order,
-                items: item.items,
-                packages: item.packages.map((entry) =>
-                  entry.id === pkg.id ? result.package : entry,
-                ),
-              }
+              ...item,
+              ...result.order,
+              items: item.items,
+              packages: item.packages.map((entry) =>
+                entry.id === pkg.id ? result.package : entry,
+              ),
+            }
             : item,
         ),
       );
@@ -896,11 +896,11 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
         current.map((item) =>
           item.id === order.id
             ? {
-                ...item,
-                ...result.order,
-                items: item.items,
-                packages: [...item.packages, ...result.packages],
-              }
+              ...item,
+              ...result.order,
+              items: item.items,
+              packages: [...item.packages, ...result.packages],
+            }
             : item,
         ),
       );
@@ -974,9 +974,12 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
         await receivePurchasePackage(order, pkg);
       }
       setReceiveConfirmOrder(null);
-      window.location.reload();
+      const nextOrders = await fetchPurchaseOrders();
+      setOrders(nextOrders);
+      setNoticeMessage("签收成功");
     } catch (error) {
       setErrorMessage(getErrorMessage(error, "签收失败"));
+    } finally {
       setBusyKey("");
     }
   }
@@ -997,11 +1000,11 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
         current.map((item) =>
           item.id === order.id
             ? {
-                ...item,
-                packages: item.packages.map((entry) =>
-                  entry.id === pkg.id ? { ...entry, ...next } : entry,
-                ),
-              }
+              ...item,
+              packages: item.packages.map((entry) =>
+                entry.id === pkg.id ? { ...entry, ...next } : entry,
+              ),
+            }
             : item,
         ),
       );
@@ -1111,213 +1114,213 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
             const productSkus = skusByProductId[draftProduct.productId] ?? [];
 
             return (
-            <div key={draftProduct.id} className="grid gap-3 rounded-2xl border border-line bg-slate-50/60 p-4">
-              <div className="flex flex-wrap items-end gap-2">
-                <div className="min-w-0 flex-1">
-                  <Field label={`商品 ${productIndex + 1}`}>
-                    <select value={draftProduct.productId} onChange={(event) => updateDraftProduct(draftProduct.id, event.target.value)} className="h-11 w-full rounded-xl border border-line bg-white px-3 text-sm">
-                      <option value="">选择商品</option>
-                      {products.map((item) => <option key={item.id} value={item.id}>{item.product_code} · {item.product_name_cn}</option>)}
-                    </select>
-                  </Field>
-                </div>
-                <button type="button" onClick={() => setDraftProducts((current) => current.map((item) => item.id === draftProduct.id ? { ...item, items: [...item.items, createDraftItem()] } : item))} className="btn-secondary h-10 shrink-0 px-3"><Plus size={16} />增加配件</button>
-                <button type="button" disabled={draftProducts.length === 1} onClick={() => setDraftProducts((current) => current.filter((item) => item.id !== draftProduct.id))} className="icon-btn-danger h-10 w-10"><Trash2 size={16} /></button>
-              </div>
-              {draftProduct.productId && (
-                <div className="grid gap-3 rounded-xl border border-line bg-white p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-sm font-semibold text-slate-700">按 SKU 采购</span>
-                    <button
-                      type="button"
-                      onClick={() => addDraftProductSkuSelection(draftProduct.id)}
-                      className="btn-secondary h-9 px-3"
-                    >
-                      <Plus size={16} />
-                      增加 SKU
-                    </button>
+              <div key={draftProduct.id} className="grid gap-3 rounded-2xl border border-line bg-slate-50/60 p-4">
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="min-w-0 flex-1">
+                    <Field label={`商品 ${productIndex + 1}`}>
+                      <select value={draftProduct.productId} onChange={(event) => updateDraftProduct(draftProduct.id, event.target.value)} className="h-11 w-full rounded-xl border border-line bg-white px-3 text-sm">
+                        <option value="">选择商品</option>
+                        {products.map((item) => <option key={item.id} value={item.id}>{item.product_code} · {item.product_name_cn}</option>)}
+                      </select>
+                    </Field>
                   </div>
-                  {draftSkuSelections.map((selection, selectionIndex) => (
-                    <div
-                      key={selection.id}
-                      className="grid gap-3 rounded-xl border border-line bg-slate-50/60 p-3 md:grid-cols-[minmax(0,1fr)_160px_44px]"
-                    >
-                      <Field label={`SKU ${selectionIndex + 1}`}>
-                        <select
-                          value={selection.skuId}
-                          onChange={(event) =>
-                            updateDraftProductSku(
-                              draftProduct.id,
-                              selection.id,
-                              event.target.value,
-                            )
-                          }
-                          className="h-11 w-full rounded-xl border border-line bg-white px-3 text-sm"
-                        >
-                          <option value="">
-                            {productSkus.length === 0 ? "该商品暂无 SKU" : "选择 SKU"}
-                          </option>
-                          {productSkus.map((sku) => (
-                            <option key={sku.id} value={sku.id}>
-                              {formatSkuLabel(sku)}
-                            </option>
-                          ))}
-                        </select>
-                      </Field>
-                      <Field label="采购数量">
-                        <TextInput
-                          type="number"
-                          min="1"
-                          step="1"
-                          disabled={!selection.skuId}
-                          value={selection.quantity}
-                          onChange={(event) =>
-                            updateDraftProductSkuQuantity(
-                              draftProduct.id,
-                              selection.id,
-                              event.target.value,
-                            )
-                          }
-                          onBlur={(event) =>
-                            updateDraftProductSkuQuantity(
-                              draftProduct.id,
-                              selection.id,
-                              normalizePositiveIntegerInput(event.target.value),
-                            )
-                          }
-                        />
-                      </Field>
-                      <div className="flex items-end justify-end">
-                        <button
-                          type="button"
-                          disabled={draftSkuSelections.length === 1}
-                          onClick={() =>
-                            removeDraftProductSkuSelection(draftProduct.id, selection.id)
-                          }
-                          className="icon-btn-danger h-11 w-11"
-                          aria-label={`删除 SKU ${selectionIndex + 1}`}
-                          title="删除 SKU"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                      {selection.skuId &&
-                        (skusById[selection.skuId]?.component_links.length ?? 0) === 0 && (
-                          <p className="text-sm text-amber-700 md:col-span-3">
-                            该 SKU 未维护配件映射。
-                          </p>
-                        )}
+                  <button type="button" onClick={() => setDraftProducts((current) => current.map((item) => item.id === draftProduct.id ? { ...item, items: [...item.items, createDraftItem()] } : item))} className="btn-secondary h-10 shrink-0 px-3"><Plus size={16} />增加配件</button>
+                  <button type="button" disabled={draftProducts.length === 1} onClick={() => setDraftProducts((current) => current.filter((item) => item.id !== draftProduct.id))} className="icon-btn-danger h-10 w-10"><Trash2 size={16} /></button>
+                </div>
+                {draftProduct.productId && (
+                  <div className="grid gap-3 rounded-xl border border-line bg-white p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-sm font-semibold text-slate-700">按 SKU 采购</span>
+                      <button
+                        type="button"
+                        onClick={() => addDraftProductSkuSelection(draftProduct.id)}
+                        className="btn-secondary h-9 px-3"
+                      >
+                        <Plus size={16} />
+                        增加 SKU
+                      </button>
                     </div>
-                  ))}
-                </div>
-              )}
-              {draftProduct.items.map((draftItem, itemIndex) => (
-                <div key={draftItem.id} className="grid gap-3 rounded-xl border border-line bg-white p-3 md:grid-cols-[minmax(0,1fr)_110px_130px_44px]">
-                  <Field label={`配件 ${itemIndex + 1}`}>
-                    <select value={draftItem.itemId} onChange={(event) => updateDraftItem(draftProduct.id, draftItem.id, "itemId", event.target.value)} className="h-11 w-full rounded-xl border border-line bg-white px-3 text-sm">
-                      <option value="">选择配件</option>
-                      {items.filter((item) => item.product_id === draftProduct.productId).map((item) => <option key={item.id} value={item.id}>{item.item_name}{item.item_spec ? ` · ${item.item_spec}` : ""}</option>)}
-                    </select>
-                  </Field>
-                  <Field label="采购数量"><TextInput type="number" min="1" step="1" value={draftItem.quantity} onChange={(event) => updateDraftItem(draftProduct.id, draftItem.id, "quantity", event.target.value)} /></Field>
-                  <Field label="采购单价"><TextInput type="number" min="0" step="0.01" value={draftItem.unitPriceRmb} onChange={(event) => updateDraftItem(draftProduct.id, draftItem.id, "unitPriceRmb", event.target.value)} /></Field>
-                  <div className="flex items-end justify-end"><button type="button" disabled={draftProduct.items.length === 1} onClick={() => setDraftProducts((current) => current.map((item) => item.id === draftProduct.id ? { ...item, items: item.items.filter((entry) => entry.id !== draftItem.id) } : item))} className="icon-btn-danger h-11 w-11"><Trash2 size={16} /></button></div>
-                </div>
-              ))}
-              {getProductPurchaseUrls(draftProduct).length > 0 && (
-                <div className="grid gap-3 rounded-2xl border border-line bg-white p-4">
-                  <h4 className="text-sm font-semibold text-ink">
-                    商品 {productIndex + 1} 的 1688 采购链接信息
-                  </h4>
-                  <div className="grid gap-3">
-                    {getProductPurchaseUrls(draftProduct).map((purchaseUrl) => {
-                      const groupedItems = getDraftItemsByPurchaseUrl(draftProduct, purchaseUrl);
-                      return (
-                        <section
-                          key={purchaseUrl}
-                          className="grid gap-4 rounded-xl border border-line bg-slate-50/60 p-4"
-                        >
-                          <div className="grid gap-1">
-                            <p className="text-sm font-medium text-ink">采购链接</p>
-                            <p className="break-all text-sm text-slate-500">{purchaseUrl}</p>
-                          </div>
+                    {draftSkuSelections.map((selection, selectionIndex) => (
+                      <div
+                        key={selection.id}
+                        className="grid gap-3 rounded-xl border border-line bg-slate-50/60 p-3 md:grid-cols-[minmax(0,1fr)_160px_44px]"
+                      >
+                        <Field label={`SKU ${selectionIndex + 1}`}>
+                          <select
+                            value={selection.skuId}
+                            onChange={(event) =>
+                              updateDraftProductSku(
+                                draftProduct.id,
+                                selection.id,
+                                event.target.value,
+                              )
+                            }
+                            className="h-11 w-full rounded-xl border border-line bg-white px-3 text-sm"
+                          >
+                            <option value="">
+                              {productSkus.length === 0 ? "该商品暂无 SKU" : "选择 SKU"}
+                            </option>
+                            {productSkus.map((sku) => (
+                              <option key={sku.id} value={sku.id}>
+                                {formatSkuLabel(sku)}
+                              </option>
+                            ))}
+                          </select>
+                        </Field>
+                        <Field label="采购数量">
+                          <TextInput
+                            type="number"
+                            min="1"
+                            step="1"
+                            disabled={!selection.skuId}
+                            value={selection.quantity}
+                            onChange={(event) =>
+                              updateDraftProductSkuQuantity(
+                                draftProduct.id,
+                                selection.id,
+                                event.target.value,
+                              )
+                            }
+                            onBlur={(event) =>
+                              updateDraftProductSkuQuantity(
+                                draftProduct.id,
+                                selection.id,
+                                normalizePositiveIntegerInput(event.target.value),
+                              )
+                            }
+                          />
+                        </Field>
+                        <div className="flex items-end justify-end">
+                          <button
+                            type="button"
+                            disabled={draftSkuSelections.length === 1}
+                            onClick={() =>
+                              removeDraftProductSkuSelection(draftProduct.id, selection.id)
+                            }
+                            className="icon-btn-danger h-11 w-11"
+                            aria-label={`删除 SKU ${selectionIndex + 1}`}
+                            title="删除 SKU"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                        {selection.skuId &&
+                          (skusById[selection.skuId]?.component_links.length ?? 0) === 0 && (
+                            <p className="text-sm text-amber-700 md:col-span-3">
+                              该 SKU 未维护配件映射。
+                            </p>
+                          )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {draftProduct.items.map((draftItem, itemIndex) => (
+                  <div key={draftItem.id} className="grid gap-3 rounded-xl border border-line bg-white p-3 md:grid-cols-[minmax(0,1fr)_110px_130px_44px]">
+                    <Field label={`配件 ${itemIndex + 1}`}>
+                      <select value={draftItem.itemId} onChange={(event) => updateDraftItem(draftProduct.id, draftItem.id, "itemId", event.target.value)} className="h-11 w-full rounded-xl border border-line bg-white px-3 text-sm">
+                        <option value="">选择配件</option>
+                        {items.filter((item) => item.product_id === draftProduct.productId).map((item) => <option key={item.id} value={item.id}>{item.item_name}{item.item_spec ? ` · ${item.item_spec}` : ""}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="采购数量"><TextInput type="number" min="1" step="1" value={draftItem.quantity} onChange={(event) => updateDraftItem(draftProduct.id, draftItem.id, "quantity", event.target.value)} /></Field>
+                    <Field label="采购单价"><TextInput type="number" min="0" step="0.01" value={draftItem.unitPriceRmb} onChange={(event) => updateDraftItem(draftProduct.id, draftItem.id, "unitPriceRmb", event.target.value)} /></Field>
+                    <div className="flex items-end justify-end"><button type="button" disabled={draftProduct.items.length === 1} onClick={() => setDraftProducts((current) => current.map((item) => item.id === draftProduct.id ? { ...item, items: item.items.filter((entry) => entry.id !== draftItem.id) } : item))} className="icon-btn-danger h-11 w-11"><Trash2 size={16} /></button></div>
+                  </div>
+                ))}
+                {getProductPurchaseUrls(draftProduct).length > 0 && (
+                  <div className="grid gap-3 rounded-2xl border border-line bg-white p-4">
+                    <h4 className="text-sm font-semibold text-ink">
+                      商品 {productIndex + 1} 的 1688 采购链接信息
+                    </h4>
+                    <div className="grid gap-3">
+                      {getProductPurchaseUrls(draftProduct).map((purchaseUrl) => {
+                        const groupedItems = getDraftItemsByPurchaseUrl(draftProduct, purchaseUrl);
+                        return (
+                          <section
+                            key={purchaseUrl}
+                            className="grid gap-4 rounded-xl border border-line bg-slate-50/60 p-4"
+                          >
+                            <div className="grid gap-1">
+                              <p className="text-sm font-medium text-ink">采购链接</p>
+                              <p className="break-all text-sm text-slate-500">{purchaseUrl}</p>
+                            </div>
 
-                          <div className="overflow-hidden rounded-xl border border-line bg-white">
-                            <table className="data-table">
-                              <thead>
-                                <tr>
-                                  <th className="px-3 py-2 font-medium">配件名称</th>
-                                  <th className="px-3 py-2 font-medium">数量</th>
-                                  <th className="px-3 py-2 font-medium">单价</th>
-                                  <th className="px-3 py-2 font-medium">金额</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {groupedItems.map(({ component, draftItem }) => (
-                                  <tr key={draftItem.id} className="border-t border-line">
-                                    <td className="px-3 py-2">{component.item_name}</td>
-                                    <td className="px-3 py-2">{draftItem.quantity}</td>
-                                    <td className="px-3 py-2">¥{Number(draftItem.unitPriceRmb || 0).toFixed(2)}</td>
-                                    <td className="px-3 py-2">
-                                      ¥
-                                      {(
-                                        Number(draftItem.quantity || 0) *
-                                        Number(draftItem.unitPriceRmb || 0)
-                                      ).toFixed(2)}
-                                    </td>
+                            <div className="overflow-hidden rounded-xl border border-line bg-white">
+                              <table className="data-table">
+                                <thead>
+                                  <tr>
+                                    <th className="px-3 py-2 font-medium">配件名称</th>
+                                    <th className="px-3 py-2 font-medium">数量</th>
+                                    <th className="px-3 py-2 font-medium">单价</th>
+                                    <th className="px-3 py-2 font-medium">金额</th>
                                   </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
+                                </thead>
+                                <tbody>
+                                  {groupedItems.map(({ component, draftItem }) => (
+                                    <tr key={draftItem.id} className="border-t border-line">
+                                      <td className="px-3 py-2">{component.item_name}</td>
+                                      <td className="px-3 py-2">{draftItem.quantity}</td>
+                                      <td className="px-3 py-2">¥{Number(draftItem.unitPriceRmb || 0).toFixed(2)}</td>
+                                      <td className="px-3 py-2">
+                                        ¥
+                                        {(
+                                          Number(draftItem.quantity || 0) *
+                                          Number(draftItem.unitPriceRmb || 0)
+                                        ).toFixed(2)}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
 
-                          <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_160px_170px]">
-                            <Field label="1688 订单号">
-                              <TextInput
-                                value={linkMetaDrafts[purchaseUrl]?.alibabaOrderNo ?? ""}
-                                onChange={(event) =>
-                                  setLinkMetaDrafts((current) => ({
-                                    ...current,
-                                    [purchaseUrl]: {
-                                      alibabaOrderNo: event.target.value,
-                                      freightRmb: current[purchaseUrl]?.freightRmb ?? "0",
-                                    },
-                                  }))
-                                }
-                              />
-                            </Field>
-                            <Field label="运费">
-                              <TextInput
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                value={linkMetaDrafts[purchaseUrl]?.freightRmb ?? "0"}
-                                onChange={(event) =>
-                                  setLinkMetaDrafts((current) => ({
-                                    ...current,
-                                    [purchaseUrl]: {
-                                      alibabaOrderNo:
-                                        current[purchaseUrl]?.alibabaOrderNo ?? "",
-                                      freightRmb: event.target.value,
-                                    },
-                                  }))
-                                }
-                              />
-                            </Field>
-                            <div className="grid content-end gap-2 text-sm xl:min-w-[170px]">
-                              <span className="font-medium text-teal-800">链接总费用</span>
-                              <div className="flex h-11 items-center rounded-xl border border-teal-200 bg-teal-50 px-3 text-base font-bold text-teal-900 shadow-sm tabular-nums">
-                                ¥{getDraftPurchaseUrlTotal(draftProduct, purchaseUrl).toFixed(2)}
+                            <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_160px_170px]">
+                              <Field label="1688 订单号">
+                                <TextInput
+                                  value={linkMetaDrafts[purchaseUrl]?.alibabaOrderNo ?? ""}
+                                  onChange={(event) =>
+                                    setLinkMetaDrafts((current) => ({
+                                      ...current,
+                                      [purchaseUrl]: {
+                                        alibabaOrderNo: event.target.value,
+                                        freightRmb: current[purchaseUrl]?.freightRmb ?? "0",
+                                      },
+                                    }))
+                                  }
+                                />
+                              </Field>
+                              <Field label="运费">
+                                <TextInput
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={linkMetaDrafts[purchaseUrl]?.freightRmb ?? "0"}
+                                  onChange={(event) =>
+                                    setLinkMetaDrafts((current) => ({
+                                      ...current,
+                                      [purchaseUrl]: {
+                                        alibabaOrderNo:
+                                          current[purchaseUrl]?.alibabaOrderNo ?? "",
+                                        freightRmb: event.target.value,
+                                      },
+                                    }))
+                                  }
+                                />
+                              </Field>
+                              <div className="grid content-end gap-2 text-sm xl:min-w-[170px]">
+                                <span className="font-medium text-teal-800">链接总费用</span>
+                                <div className="flex h-11 items-center rounded-xl border border-teal-200 bg-teal-50 px-3 text-base font-bold text-teal-900 shadow-sm tabular-nums">
+                                  ¥{getDraftPurchaseUrlTotal(draftProduct, purchaseUrl).toFixed(2)}
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        </section>
-                      );
-                    })}
+                          </section>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
             );
           })}
           <div className="flex justify-end border-t border-dashed border-line pt-3">
@@ -1478,6 +1481,23 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                             {order.packages.length}
                           </span>
                         </div>
+                        {order.items.length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {order.items.slice(0, 4).map((item) => (
+                              <span
+                                key={item.id}
+                                className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600"
+                              >
+                                {item.product_name_cn} x {item.quantity}
+                              </span>
+                            ))}
+                            {order.items.length > 4 && (
+                              <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-500">
+                                等 {order.items.length} 种明细...
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
@@ -1578,27 +1598,6 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                         )}
                       </div>
                     </div>
-
-                    {order.items.length > 0 && (
-                      <div className="mt-3 border-t border-slate-100 pt-3 w-full">
-                        <div className="flex flex-wrap gap-2">
-                          {order.items.slice(0, 10).map((item) => (
-                            <span
-                              key={item.id}
-                              className="rounded-md bg-slate-100 px-2.5 py-1 text-xs text-slate-700"
-                            >
-                              {item.product_name_cn} x {item.quantity}
-                            </span>
-                          ))}
-                          {order.items.length > 10 && (
-                            <span className="rounded-md bg-slate-100 px-2.5 py-1 text-xs text-slate-500">
-                              等 {order.items.length} 种明细...
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
                     {expandedOrderIds[order.id] && (
                       <div className="mt-4 grid gap-4 border-t border-slate-100 pt-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(360px,1.05fr)]">
                         <div className="grid min-w-0 content-start gap-3">
@@ -1706,9 +1705,20 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                                         <span className="text-sm font-semibold text-ink">
                                           1688 订单号
                                         </span>
-                                        <span className="rounded-md bg-white px-2 py-1 text-sm font-semibold text-accent ring-1 ring-line">
-                                          {group.orderNo || "未填写"}
-                                        </span>
+                                        {group.orderNo ? (
+                                          <a
+                                            href={`https://air.1688.com/app/ctf-page/trade-order-detail/index.html?orderId=${group.orderNo}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="rounded-md bg-white px-2 py-1 text-sm font-semibold text-blue-600 ring-1 ring-blue-200 hover:bg-blue-50 hover:underline transition-colors"
+                                          >
+                                            {group.orderNo}
+                                          </a>
+                                        ) : (
+                                          <span className="rounded-md bg-white px-2 py-1 text-sm font-semibold text-accent ring-1 ring-line">
+                                            未填写
+                                          </span>
+                                        )}
                                       </div>
                                       <div className="mt-2 grid gap-1">
                                         {group.urls.map((url) => (
@@ -1829,7 +1839,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                                                 onClick={() =>
                                                   openTrackingLookup(
                                                     existingPackageTrackingDrafts[pkg.id] ??
-                                                      pkg.tracking_no,
+                                                    pkg.tracking_no,
                                                   )
                                                 }
                                                 className="btn-secondary h-10 px-3"
@@ -1985,7 +1995,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                   采购单 {receiveConfirmOrder.order_code} 的剩余未签收明细如下，请核对并填写本次实到的数量（如果缺货请改为 0）：
                 </p>
               </div>
-              
+
               <div className="overflow-y-auto rounded-xl border border-line bg-white">
                 <table className="data-table">
                   <thead>
