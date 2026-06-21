@@ -306,19 +306,32 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
       }, {}),
     [skus],
   );
+  const [receiveConfirmOrder, setReceiveConfirmOrder] = useState<PurchaseOrder | null>(null);
+
   const filteredOrders = useMemo(() => {
     const term = search.trim().toLowerCase();
-    if (!term) return orders;
-    return orders.filter(
-      (order) =>
-        order.order_code.toLowerCase().includes(term) ||
-        order.sources.some((source) => source.alibaba_order_no.toLowerCase().includes(term)) ||
-        order.items.some(
-          (item) =>
-            item.product_code.toLowerCase().includes(term) ||
-            item.product_name_cn.toLowerCase().includes(term),
-        ),
-    );
+    let result = orders;
+    
+    if (term) {
+      result = orders.filter(
+        (order) =>
+          order.order_code.toLowerCase().includes(term) ||
+          order.sources.some((source) => source.alibaba_order_no.toLowerCase().includes(term)) ||
+          order.items.some(
+            (item) =>
+              item.product_code.toLowerCase().includes(term) ||
+              item.product_name_cn.toLowerCase().includes(term),
+          ),
+      );
+    }
+
+    return [...result].sort((a, b) => {
+      const weight: Record<string, number> = { pending: 0, partially_received: 0, received: 1 };
+      const weightA = weight[a.status] ?? 0;
+      const weightB = weight[b.status] ?? 0;
+      if (weightA !== weightB) return weightA - weightB;
+      return new Date(b.purchased_at).getTime() - new Date(a.purchased_at).getTime();
+    });
   }, [orders, search]);
 
   const recordStats = useMemo(() => {
@@ -854,13 +867,14 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
     }
   }
 
-  async function handleReceiveRemainingOrder(order: PurchaseOrder) {
+  async function handleReceiveRemainingOrder(order: PurchaseOrder, skipConfirm = false) {
     if (!canEdit) {
       setErrorMessage("当前账号没有编辑权限，不能签收入库。");
       return;
     }
 
     if (
+      !skipConfirm &&
       !confirmAction(
         `确认将采购管理单“${order.order_code}”剩余未签收明细全部签收，并增加库存吗？`,
       )
@@ -1351,6 +1365,13 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                   }, {}),
                 );
 
+                const canQuickReceive =
+                  canEdit &&
+                  order.status !== "received" &&
+                  order.sources.length > 0 &&
+                  order.sources.every((s) => s.alibaba_order_no.trim()) &&
+                  order.packages.length > 0;
+
                 return (
                   <article
                     key={order.id}
@@ -1387,6 +1408,23 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                             {order.packages.length}
                           </span>
                         </div>
+                        {order.items.length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {order.items.slice(0, 5).map((item) => (
+                              <span
+                                key={item.id}
+                                className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600"
+                              >
+                                {item.product_name_cn} x {item.quantity}
+                              </span>
+                            ))}
+                            {order.items.length > 5 && (
+                              <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-500">
+                                等 {order.items.length} 种明细...
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
@@ -1423,15 +1461,25 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                       </div>
 
                       <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
-                        {canEdit && order.status === "partially_received" && (
+                        {canEdit && order.status === "partially_received" && !canQuickReceive && (
                           <button
                             type="button"
                             disabled={busyKey === `receive-order-${order.id}`}
-                            onClick={() => void handleReceiveRemainingOrder(order)}
+                            onClick={() => setReceiveConfirmOrder(order)}
                             className="btn-primary h-10 flex-1 px-3 sm:flex-none"
                           >
                             <CheckCircle2 size={16} />
                             签收剩余
+                          </button>
+                        )}
+                        {canQuickReceive && (
+                          <button
+                            type="button"
+                            onClick={() => setReceiveConfirmOrder(order)}
+                            className="btn-primary h-10 flex-1 bg-emerald-600 hover:bg-emerald-700 ring-emerald-600 px-3 sm:flex-none"
+                          >
+                            <CheckCircle2 size={16} />
+                            快捷签收
                           </button>
                         )}
                         <button
@@ -1856,6 +1904,134 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
             </div>
           )}
         </section>
+      )}
+
+      {receiveConfirmOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
+          <div className="grid w-full max-w-4xl max-h-[90vh] grid-rows-[auto_minmax(0,1fr)_auto] gap-4 rounded-2xl bg-white p-6 shadow-xl">
+            <div>
+              <h2 className="text-xl font-bold text-ink">确认签收入库</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                采购单 {receiveConfirmOrder.order_code} 的包裹明细如下，请核对实物数量是否正确：
+              </p>
+            </div>
+            
+            <div className="overflow-y-auto rounded-xl border border-line bg-white">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>商品</th>
+                    <th>配件</th>
+                    <th>规格</th>
+                    <th className="number-cell">数量</th>
+                    <th className="number-cell">单价</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {receiveConfirmOrder.items.map((item) => (
+                    <tr key={item.id}>
+                      <td>
+                        <div className="font-semibold text-ink">{item.product_code}</div>
+                        <div className="mt-0.5 text-xs text-slate-500">{item.product_name_cn}</div>
+                      </td>
+                      <td>{item.item_name}</td>
+                      <td>{item.item_spec || "--"}</td>
+                      <td className="number-cell font-bold">{item.quantity}</td>
+                      <td className="number-cell">¥{item.unit_price_rmb.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setReceiveConfirmOrder(null)}
+                className="btn-secondary h-11 px-6"
+              >
+                返回修改
+              </button>
+              <button
+                type="button"
+                disabled={busyKey === `receive-order-${receiveConfirmOrder.id}`}
+                onClick={() => {
+                  void handleReceiveRemainingOrder(receiveConfirmOrder, true).then(() => {
+                    setReceiveConfirmOrder(null);
+                  });
+                }}
+                className="btn-primary h-11 px-6 bg-emerald-600 hover:bg-emerald-700"
+              >
+                <CheckCircle2 size={18} />
+                {busyKey === `receive-order-${receiveConfirmOrder.id}` ? "处理中..." : "确认无误，全部签收"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {receiveConfirmOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
+          <div className="grid w-full max-w-4xl max-h-[90vh] grid-rows-[auto_minmax(0,1fr)_auto] gap-4 rounded-2xl bg-white p-6 shadow-xl">
+            <div>
+              <h2 className="text-xl font-bold text-ink">确认签收入库</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                采购单 {receiveConfirmOrder.order_code} 的包裹明细如下，请核对实物数量是否正确：
+              </p>
+            </div>
+            
+            <div className="overflow-y-auto rounded-xl border border-line bg-white">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>商品</th>
+                    <th>配件</th>
+                    <th>规格</th>
+                    <th className="number-cell">数量</th>
+                    <th className="number-cell">单价</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {receiveConfirmOrder.items.map((item) => (
+                    <tr key={item.id}>
+                      <td>
+                        <div className="font-semibold text-ink">{item.product_code}</div>
+                        <div className="mt-0.5 text-xs text-slate-500">{item.product_name_cn}</div>
+                      </td>
+                      <td>{item.item_name}</td>
+                      <td>{item.item_spec || "--"}</td>
+                      <td className="number-cell font-bold">{item.quantity}</td>
+                      <td className="number-cell">¥{item.unit_price_rmb.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setReceiveConfirmOrder(null)}
+                className="btn-secondary h-11 px-6"
+              >
+                返回修改
+              </button>
+              <button
+                type="button"
+                disabled={busyKey === `receive-order-${receiveConfirmOrder.id}`}
+                onClick={() => {
+                  void handleReceiveRemainingOrder(receiveConfirmOrder, true).then(() => {
+                    setReceiveConfirmOrder(null);
+                  });
+                }}
+                className="btn-primary h-11 px-6 bg-emerald-600 hover:bg-emerald-700"
+              >
+                <CheckCircle2 size={18} />
+                {busyKey === `receive-order-${receiveConfirmOrder.id}` ? "处理中..." : "确认无误，全部签收"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </section>
   );
