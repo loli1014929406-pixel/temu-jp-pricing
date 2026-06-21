@@ -74,9 +74,9 @@ async function resolvePackageItems(
   const { data: productItems, error: productItemsError } = missingProductIds.length === 0
     ? { data: [] as Array<{ id: string; product_id: string; item_name: string; item_spec: string }>, error: null }
     : await supabase
-        .from("product_items")
-        .select("id, product_id, item_name, item_spec")
-        .in("product_id", missingProductIds);
+      .from("product_items")
+      .select("id, product_id, item_name, item_spec")
+      .in("product_id", missingProductIds);
   if (productItemsError) throw productItemsError;
 
   const productItemsByKey = (productItems ?? []).reduce<Record<string, string>>((items, item) => {
@@ -93,10 +93,10 @@ async function resolvePackageItems(
       : productItemsByKey[`${item.product_id}\u0000${getItemIdentity(item)}`];
     return itemId
       ? [{
-          packageItem,
-          orderItem: { ...item, product_id: item.product_id, item_id: itemId },
-          resolvedMissingItemId,
-        }]
+        packageItem,
+        orderItem: { ...item, product_id: item.product_id, item_id: itemId },
+        resolvedMissingItemId,
+      }]
       : [];
   });
 }
@@ -307,10 +307,10 @@ async function loadPurchaseOrderForDeletion(
   const { data: packageItemData, error: packageItemError } = packages.length === 0
     ? { data: [] as PurchasePackageItem[], error: null }
     : await supabase
-        .from("purchase_package_items")
-        .select("package_id, order_item_id, quantity")
-        .in("package_id", packages.map((item) => item.id))
-        .eq("owner_id", ownerId);
+      .from("purchase_package_items")
+      .select("package_id, order_item_id, quantity")
+      .in("package_id", packages.map((item) => item.id))
+      .eq("owner_id", ownerId);
   if (packageItemError) throw packageItemError;
 
   const packageItemsByPackage = (packageItemData as PurchasePackageItem[]).reduce<
@@ -546,11 +546,11 @@ async function ensureWarehouseProductInventory(
   const skuRows = (skuData ?? []).flatMap((sku) =>
     sku.id && sku.product_id
       ? [{
-          warehouse_id: warehouseId,
-          product_id: sku.product_id,
-          sku_id: sku.id,
-          owner_id: session.user.id,
-        }]
+        warehouse_id: warehouseId,
+        product_id: sku.product_id,
+        sku_id: sku.id,
+        owner_id: session.user.id,
+      }]
       : [],
   );
   const productsWithSkus = new Set(skuRows.map((row) => row.product_id));
@@ -721,10 +721,10 @@ export async function receivePurchasePackage(order: PurchaseOrder, pkg: Purchase
   const { data: allPackageItemData, error: allPackageItemError } = allPackageRows.length === 0
     ? { data: [] as PurchasePackageItem[], error: null }
     : await supabase
-        .from("purchase_package_items")
-        .select("package_id, order_item_id, quantity")
-        .in("package_id", allPackageRows.map((item) => item.id))
-        .eq("owner_id", session.user.id);
+      .from("purchase_package_items")
+      .select("package_id, order_item_id, quantity")
+      .in("package_id", allPackageRows.map((item) => item.id))
+      .eq("owner_id", session.user.id);
   if (allPackageItemError) throw allPackageItemError;
   const packageItemsByPackage = (allPackageItemData as PurchasePackageItem[]).reduce<Record<string, PurchasePackageItem[]>>((acc, row) => ((acc[row.package_id] ??= []).push(row), acc), {});
   const allPackages = allPackageRows.map((item) => ({ ...item, items: packageItemsByPackage[item.id] ?? [] })) as PurchasePackage[];

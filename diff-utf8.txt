@@ -1,0 +1,1069 @@
+﻿diff --git a/src/pages/settings-page.tsx b/src/pages/settings-page.tsx
+index 493f98a..810a3d2 100644
+--- a/src/pages/settings-page.tsx
++++ b/src/pages/settings-page.tsx
+@@ -1,4 +1,4 @@
+-import { useEffect, useState, type FormEvent } from "react";
++import { useEffect, useRef, useState, type FormEvent } from "react";
+ import type { User } from "@supabase/supabase-js";
+ import { Plus, Trash2 } from "lucide-react";
+ import { Field, TextInput } from "../components/form-controls";
+@@ -8,9 +8,11 @@ import {
+   readDraft,
+   useDraftPersistence,
+ } from "../hooks/use-draft-persistence";
++import { useAutoDismiss } from "../hooks/use-auto-dismiss";
+ import { usePermissions } from "../hooks/use-permissions";
+ import { fetchSettings, saveSettings } from "../lib/settings";
+ import { defaultFirstLegMethods, defaultLastLegMethods } from "../lib/defaults";
++import { syncLogisticsMethodsFromSettings } from "../lib/logistics-methods";
+ import type { PricingSettings, LogisticsMethodConfig } from "../types";
+ import { getErrorMessage } from "../utils/errors";
+ import { PageHeader } from "../components/ui";
+@@ -27,26 +29,432 @@ const fieldGroups: Array<{
+     step: string;
+   }>;
+ }> = [
+-  {
+-    title: "鍩虹鍙傛暟璁剧疆",
+-    fields: [
+-      { key: "packaging_cost_rmb", label: "鍖呰鎴愭湰 RMB", step: "0.01" },
+-      { key: "exchange_rate_rmb_per_jpy", label: "姹囩巼 RMB/JPY", step: "0.0001" },
+-      { key: "temu_shipping_subsidy_jpy", label: "Temu 杩愯垂琛ヨ创 JPY", step: "1" },
+-    ],
+-  },
+-  {
+-    title: "鐩爣鍒╂鼎璁剧疆",
+-    fields: [
+-      { key: "target_profit_rate", label: "鐩爣鍒╂鼎鐜?%", step: "0.01" },
+-      { key: "target_post_ad_profit_rate", label: "鐩爣骞垮憡鍚庡埄娑︾巼 %", step: "0.01" },
+-    ],
+-  },
+-];
++    {
++      title: "鍩虹鍙傛暟璁剧疆",
++      fields: [
++        { key: "packaging_cost_rmb", label: "鍖呰鎴愭湰 RMB", step: "0.01" },
++        { key: "exchange_rate_rmb_per_jpy", label: "姹囩巼 RMB/JPY", step: "0.0001" },
++        { key: "temu_shipping_subsidy_jpy", label: "Temu 杩愯垂琛ヨ创 JPY", step: "1" },
++      ],
++    },
++    {
++      title: "鐩爣鍒╂鼎璁剧疆",
++      fields: [
++        { key: "target_profit_rate", label: "鐩爣鍒╂鼎鐜?%", step: "0.01" },
++        { key: "target_post_ad_profit_rate", label: "鐩爣骞垮憡鍚庡埄娑︾巼 %", step: "0.01" },
++      ],
++    },
++  ];
++
++type FormulaOption = {
++  value: LogisticsMethodConfig["formula"];
++  label: string;
++  currency: "RMB" | "JPY";
++  unit: string;
++};
++
++type ParameterField = {
++  key: keyof LogisticsMethodConfig["params"];
++  label: string;
++  step: string;
++};
++
++const inputClassName =
++  "h-10 w-full rounded-xl border border-line bg-white px-3 text-sm font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-accent focus:ring-4 focus:ring-accent/10 disabled:bg-slate-100 disabled:text-slate-500";
++
++const selectClassName =
++  "h-10 w-full rounded-xl border border-line bg-white px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-accent focus:ring-4 focus:ring-accent/10 disabled:bg-slate-100 disabled:text-slate-500";
++
++const formulaOptionsByType: Record<LogisticsMethodConfig["type"], FormulaOption[]> = {
++  first_leg: [
++    { value: "sf", label: "棣栭噸缁噸", currency: "RMB", unit: "kg" },
++    { value: "flat_rmb", label: "鎸夊叕鏂よ璐?, currency: "RMB", unit: "kg" },
++    { value: "flat_rmb_tariff", label: "鎸夊叕鏂よ璐?+ 鍏崇◣", currency: "RMB", unit: "kg" },
++    { value: "fixed_rmb", label: "鍥哄畾杩愯垂", currency: "RMB", unit: "鍗曠エ" },
++  ],
++  last_leg: [
++    { value: "flat_jpy", label: "鍥哄畾杩愯垂", currency: "JPY", unit: "鍗曠エ" },
++    { value: "fixed_rmb", label: "鍥哄畾杩愯垂", currency: "RMB", unit: "鍗曠エ" },
++    { value: "ocs_3cm", label: "棣栭噸缁噸", currency: "RMB", unit: "100g" },
++    { value: "ocs_small", label: "棣栭噸缁噸", currency: "RMB", unit: "500g" },
++  ],
++};
++
++function getFormulaOption(type: LogisticsMethodConfig["type"], formula: LogisticsMethodConfig["formula"]) {
++  return (
++    formulaOptionsByType[type].find((option) => option.value === formula) ??
++    formulaOptionsByType[type][0]
++  );
++}
++
++function getDefaultParamsForFormula(formula: LogisticsMethodConfig["formula"]) {
++  switch (formula) {
++    case "sf":
++      return { firstWeight: 1, firstPrice: 8, extraPrice: 2 };
++    case "flat_rmb":
++      return { price: 20 };
++    case "flat_rmb_tariff":
++      return { price: 20, tariffRate: 0 };
++    case "flat_jpy":
++      return { price: 200 };
++    case "fixed_rmb":
++      return { price: 20 };
++    case "ocs_3cm":
++      return { firstPrice: 16.5, extraPrice: 1.5 };
++    case "ocs_small":
++      return { firstPrice: 36.5, extraPrice: 6 };
++    default:
++      return { price: 0 };
++  }
++}
++
++function getParameterFields(formula: LogisticsMethodConfig["formula"]): ParameterField[] {
++  switch (formula) {
++    case "sf":
++      return [
++        { key: "firstWeight", label: "棣栭噸 (kg)", step: "0.01" },
++        { key: "firstPrice", label: "棣栭噸浠锋牸 (RMB)", step: "0.01" },
++        { key: "extraPrice", label: "缁噸浠锋牸 (RMB/kg)", step: "0.01" },
++      ];
++    case "flat_rmb":
++      return [{ key: "price", label: "浠锋牸 (RMB/kg)", step: "0.01" }];
++    case "flat_rmb_tariff":
++      return [
++        { key: "price", label: "浠锋牸 (RMB/kg)", step: "0.01" },
++        { key: "tariffRate", label: "鍏崇◣鐜?(濡?0.1)", step: "0.001" },
++      ];
++    case "flat_jpy":
++      return [{ key: "price", label: "鍥哄畾浠锋牸 (JPY)", step: "1" }];
++    case "fixed_rmb":
++      return [{ key: "price", label: "鍥哄畾浠锋牸 (RMB)", step: "0.01" }];
++    case "ocs_3cm":
++      return [
++        { key: "firstPrice", label: "棣栭噸浠锋牸 (RMB)", step: "0.01" },
++        { key: "extraPrice", label: "缁噸浠锋牸 (RMB/100g)", step: "0.01" },
++      ];
++    case "ocs_small":
++      return [
++        { key: "firstPrice", label: "棣栭噸浠锋牸 (RMB)", step: "0.01" },
++        { key: "extraPrice", label: "缁噸浠锋牸 (RMB/500g)", step: "0.01" },
++      ];
++    default:
++      return [];
++  }
++}
++
++function createLogisticsConfigId(type: LogisticsMethodConfig["type"]) {
++  const prefix = type === "first_leg" ? "first-leg" : "last-leg";
++  return `${prefix}-${typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : Date.now()}`;
++}
++
++function ReadonlyInfoField({ label, value }: { label: string; value: string }) {
++  return (
++    <div className="grid gap-2 text-sm text-slate-700">
++      <span className="font-semibold">{label}</span>
++      <div className="flex h-10 items-center rounded-xl border border-line bg-slate-50 px-3 text-sm font-medium text-slate-600">
++        {value}
++      </div>
++    </div>
++  );
++}
++
++type ParameterInputsProps = {
++  formula: LogisticsMethodConfig["formula"];
++  params: LogisticsMethodConfig["params"];
++  disabled: boolean;
++  onChange: (params: LogisticsMethodConfig["params"]) => void;
++};
++
++function ParameterInputs({ formula, params, disabled, onChange }: ParameterInputsProps) {
++  return (
++    <>
++      {getParameterFields(formula).map((field) => (
++        <label key={field.key} className="grid gap-2 text-sm text-slate-700">
++          <span className="font-semibold">{field.label}</span>
++          <input
++            type="number"
++            required
++            disabled={disabled}
++            step={field.step}
++            className={inputClassName}
++            value={params[field.key] ?? ""}
++            onChange={(event) =>
++              onChange({
++                ...params,
++                [field.key]: Number(event.target.value || 0),
++              })
++            }
++          />
++        </label>
++      ))}
++    </>
++  );
++}
++
++type LogisticsMethodCardProps = {
++  method: LogisticsMethodConfig;
++  canEdit: boolean;
++  onUpdate: (id: string, updates: Partial<LogisticsMethodConfig>) => void;
++  onDelete: (id: string) => void;
++};
++
++function LogisticsMethodCard({
++  method,
++  canEdit,
++  onUpdate,
++  onDelete,
++}: LogisticsMethodCardProps) {
++  const option = getFormulaOption(method.type, method.formula);
++
++  return (
++    <article className="rounded-lg border border-line bg-white p-4 shadow-sm">
++      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
++        <label className="grid min-w-0 flex-1 gap-2 text-sm text-slate-700">
++          <span className="font-semibold">鍚嶇О</span>
++          <input
++            type="text"
++            required
++            disabled={!canEdit}
++            className={inputClassName}
++            value={method.name}
++            onChange={(event) => onUpdate(method.id, { name: event.target.value })}
++          />
++        </label>
++
++        <div className="flex items-center gap-3 pt-0 lg:pt-8">
++          <label className="inline-flex h-10 items-center gap-2 rounded-xl border border-line bg-slate-50 px-3 text-sm font-medium text-slate-700">
++            <input
++              type="checkbox"
++              disabled={!canEdit}
++              checked={method.isActive}
++              onChange={(event) => onUpdate(method.id, { isActive: event.target.checked })}
++            />
++            鍚敤
++          </label>
++          {canEdit && (
++            <button
++              type="button"
++              onClick={() => onDelete(method.id)}
++              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-line bg-white text-slate-500 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
++              aria-label={`鍒犻櫎${method.name}`}
++              title="鍒犻櫎"
++            >
++              <Trash2 size={17} />
++            </button>
++          )}
++        </div>
++      </div>
++
++      <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
++        <label className="grid gap-2 text-sm text-slate-700">
++          <span className="font-semibold">杩愯垂鏂瑰紡</span>
++          <select
++            disabled={!canEdit}
++            className={selectClassName}
++            value={method.formula}
++            onChange={(event) => {
++              const formula = event.target.value as LogisticsMethodConfig["formula"];
++              onUpdate(method.id, {
++                formula,
++                params: getDefaultParamsForFormula(formula),
++              });
++            }}
++          >
++            {formulaOptionsByType[method.type].map((item) => (
++              <option key={item.value} value={item.value}>
++                {item.label}
++              </option>
++            ))}
++          </select>
++        </label>
++        <ReadonlyInfoField label="璐у竵鍗曚綅" value={option.currency} />
++        <ReadonlyInfoField label="璁¤垂鍗曚綅" value={option.unit} />
++        <ParameterInputs
++          formula={method.formula}
++          params={method.params}
++          disabled={!canEdit}
++          onChange={(params) => onUpdate(method.id, { params })}
++        />
++      </div>
++    </article>
++  );
++}
++
++type NewMethodPanelProps = {
++  type: LogisticsMethodConfig["type"];
++  name: string;
++  formula: LogisticsMethodConfig["formula"];
++  params: LogisticsMethodConfig["params"];
++  onNameChange: (name: string) => void;
++  onFormulaChange: (formula: LogisticsMethodConfig["formula"]) => void;
++  onParamsChange: (params: LogisticsMethodConfig["params"]) => void;
++  onCancel: () => void;
++  onAdd: () => void;
++};
++
++function NewMethodPanel({
++  type,
++  name,
++  formula,
++  params,
++  onNameChange,
++  onFormulaChange,
++  onParamsChange,
++  onCancel,
++  onAdd,
++}: NewMethodPanelProps) {
++  const option = getFormulaOption(type, formula);
++
++  return (
++    <article className="rounded-lg border border-dashed border-accent/40 bg-sky-50/40 p-4">
++      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
++        <label className="grid gap-2 text-sm text-slate-700">
++          <span className="font-semibold">鍚嶇О</span>
++          <input
++            type="text"
++            className={inputClassName}
++            placeholder={type === "first_leg" ? "濡? OCS Air" : "濡? JP Post"}
++            value={name}
++            onChange={(event) => onNameChange(event.target.value)}
++          />
++        </label>
++        <label className="grid gap-2 text-sm text-slate-700">
++          <span className="font-semibold">杩愯垂鏂瑰紡</span>
++          <select
++            className={selectClassName}
++            value={formula}
++            onChange={(event) => {
++              const nextFormula = event.target.value as LogisticsMethodConfig["formula"];
++              onFormulaChange(nextFormula);
++            }}
++          >
++            {formulaOptionsByType[type].map((item) => (
++              <option key={item.value} value={item.value}>
++                {item.label}
++              </option>
++            ))}
++          </select>
++        </label>
++        <ReadonlyInfoField label="璐у竵鍗曚綅" value={option.currency} />
++        <ReadonlyInfoField label="璁¤垂鍗曚綅" value={option.unit} />
++        <ParameterInputs
++          formula={formula}
++          params={params}
++          disabled={false}
++          onChange={onParamsChange}
++        />
++      </div>
++
++      <div className="mt-4 flex flex-wrap justify-end gap-2">
++        <button type="button" className="btn-secondary h-10 px-4" onClick={onCancel}>
++          鍙栨秷
++        </button>
++        <button type="button" className="btn-primary h-10 px-4" onClick={onAdd}>
++          <Plus size={16} />
++          纭鏂板
++        </button>
++      </div>
++    </article>
++  );
++}
++
++type LogisticsSectionProps = {
++  type: LogisticsMethodConfig["type"];
++  title: string;
++  description: string;
++  methods: LogisticsMethodConfig[];
++  canEdit: boolean;
++  isAdding: boolean;
++  newName: string;
++  newFormula: LogisticsMethodConfig["formula"];
++  newParams: LogisticsMethodConfig["params"];
++  onStartAdd: () => void;
++  onCancelAdd: () => void;
++  onNewNameChange: (name: string) => void;
++  onNewFormulaChange: (formula: LogisticsMethodConfig["formula"]) => void;
++  onNewParamsChange: (params: LogisticsMethodConfig["params"]) => void;
++  onAdd: () => void;
++  onUpdate: (id: string, updates: Partial<LogisticsMethodConfig>) => void;
++  onDelete: (id: string) => void;
++};
++
++function LogisticsSection({
++  type,
++  title,
++  description,
++  methods,
++  canEdit,
++  isAdding,
++  newName,
++  newFormula,
++  newParams,
++  onStartAdd,
++  onCancelAdd,
++  onNewNameChange,
++  onNewFormulaChange,
++  onNewParamsChange,
++  onAdd,
++  onUpdate,
++  onDelete,
++}: LogisticsSectionProps) {
++  return (
++    <section className="grid gap-4 rounded-lg bg-panel p-5 shadow-soft">
++      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-line pb-4">
++        <div>
++          <h2 className="text-base font-semibold text-ink">{title}</h2>
++          <p className="mt-1 text-sm text-slate-500">{description}</p>
++        </div>
++        {canEdit && (
++          <button
++            type="button"
++            className="btn-primary h-10 px-4"
++            onClick={onStartAdd}
++          >
++            <Plus size={16} />
++            鏂板
++          </button>
++        )}
++      </div>
++
++      {isAdding && (
++        <NewMethodPanel
++          type={type}
++          name={newName}
++          formula={newFormula}
++          params={newParams}
++          onNameChange={onNewNameChange}
++          onFormulaChange={onNewFormulaChange}
++          onParamsChange={onNewParamsChange}
++          onCancel={onCancelAdd}
++          onAdd={onAdd}
++        />
++      )}
++
++      <div className="grid gap-4">
++        {methods.length === 0 ? (
++          <div className="rounded-lg border border-dashed border-line bg-white p-6 text-center text-sm text-slate-500">
++            鏆傛棤鐗╂祦鏂瑰紡
++          </div>
++        ) : (
++          methods.map((method) => (
++            <LogisticsMethodCard
++              key={method.id}
++              method={method}
++              canEdit={canEdit}
++              onUpdate={onUpdate}
++              onDelete={onDelete}
++            />
++          ))
++        )}
++      </div>
++    </section>
++  );
++}
+ 
+ export function SettingsPage({ user }: SettingsPageProps) {
+   const { canEdit } = usePermissions();
+   const draftKey = `settings-draft:v3:${user.id}`;
++  const persistedSettingsRef = useRef<PricingSettings | null>(null);
+   const [settings, setSettings] = useState<PricingSettings | null>(null);
+   const [loading, setLoading] = useState(true);
+   const [busy, setBusy] = useState(false);
+@@ -54,14 +462,24 @@ export function SettingsPage({ user }: SettingsPageProps) {
+   const [errorMessage, setErrorMessage] = useState("");
+   const [draftNotice, setDraftNotice] = useState("");
+ 
+-  // UI state for adding new methods
+   const [newFirstLegFormula, setNewFirstLegFormula] = useState<LogisticsMethodConfig["formula"]>("flat_rmb");
+   const [newFirstLegName, setNewFirstLegName] = useState("");
++  const [newFirstLegParams, setNewFirstLegParams] = useState<LogisticsMethodConfig["params"]>(
++    () => getDefaultParamsForFormula("flat_rmb"),
++  );
++  const [addingFirstLeg, setAddingFirstLeg] = useState(false);
+ 
+   const [newLastLegFormula, setNewLastLegFormula] = useState<LogisticsMethodConfig["formula"]>("flat_jpy");
+   const [newLastLegName, setNewLastLegName] = useState("");
++  const [newLastLegParams, setNewLastLegParams] = useState<LogisticsMethodConfig["params"]>(
++    () => getDefaultParamsForFormula("flat_jpy"),
++  );
++  const [addingLastLeg, setAddingLastLeg] = useState(false);
+ 
+   useDraftPersistence(draftKey, settings, { enabled: Boolean(canEdit && settings) });
++  useAutoDismiss(errorMessage, () => setErrorMessage(""));
++  useAutoDismiss(draftNotice, () => setDraftNotice(""));
++  useAutoDismiss(saved, () => setSaved(false));
+ 
+   useEffect(() => {
+     let active = true;
+@@ -91,6 +509,7 @@ export function SettingsPage({ user }: SettingsPageProps) {
+         const restoredSettings = cachedDraft ?? mergedSettings;
+ 
+         if (active) {
++          persistedSettingsRef.current = mergedSettings;
+           setSettings(restoredSettings);
+           setDraftNotice(
+             cachedDraft && !isSameDraft(cachedDraft, mergedSettings)
+@@ -127,14 +546,25 @@ export function SettingsPage({ user }: SettingsPageProps) {
+     setErrorMessage("");
+ 
+     try {
+-      await saveSettings(user.id, settings);
++      const syncedLogisticsConfig = await syncLogisticsMethodsFromSettings(
++        settings,
++        persistedSettingsRef.current ?? undefined,
++      );
++      const syncedSettings: PricingSettings = {
++        ...settings,
++        ...syncedLogisticsConfig,
++      };
++
++      await saveSettings(user.id, syncedSettings);
+ 
+       const dynamicConfig = {
+-        first_leg_methods: settings.first_leg_methods || defaultFirstLegMethods,
+-        last_leg_methods: settings.last_leg_methods || defaultLastLegMethods,
++        first_leg_methods: syncedSettings.first_leg_methods || defaultFirstLegMethods,
++        last_leg_methods: syncedSettings.last_leg_methods || defaultLastLegMethods,
+       };
+       localStorage.setItem(`pricing-logistics-config:v1:${user.id}`, JSON.stringify(dynamicConfig));
+ 
++      setSettings(syncedSettings);
++      persistedSettingsRef.current = syncedSettings;
+       clearDraft(draftKey);
+       setDraftNotice("");
+       setSaved(true);
+@@ -150,16 +580,11 @@ export function SettingsPage({ user }: SettingsPageProps) {
+     if (!settings || !newFirstLegName.trim()) return;
+     const name = newFirstLegName.trim();
+     const newMethod: LogisticsMethodConfig = {
+-      id: `first-leg-${Date.now()}`,
++      id: createLogisticsConfigId("first_leg"),
+       name,
+       type: "first_leg",
+       formula: newFirstLegFormula,
+-      params:
+-        newFirstLegFormula === "sf"
+-          ? { firstWeight: 1, firstPrice: 8, extraPrice: 2 }
+-          : newFirstLegFormula === "flat_rmb_tariff"
+-            ? { price: 20, tariffRate: 0 }
+-            : { price: 20 },
++      params: newFirstLegParams,
+       isActive: true,
+     };
+     setSettings({
+@@ -167,6 +592,9 @@ export function SettingsPage({ user }: SettingsPageProps) {
+       first_leg_methods: [...(settings.first_leg_methods || []), newMethod],
+     });
+     setNewFirstLegName("");
++    setNewFirstLegFormula("flat_rmb");
++    setNewFirstLegParams(getDefaultParamsForFormula("flat_rmb"));
++    setAddingFirstLeg(false);
+     setSaved(false);
+   };
+ 
+@@ -174,16 +602,11 @@ export function SettingsPage({ user }: SettingsPageProps) {
+     if (!settings || !newLastLegName.trim()) return;
+     const name = newLastLegName.trim();
+     const newMethod: LogisticsMethodConfig = {
+-      id: `last-leg-${Date.now()}`,
++      id: createLogisticsConfigId("last_leg"),
+       name,
+       type: "last_leg",
+       formula: newLastLegFormula,
+-      params:
+-        newLastLegFormula === "ocs_3cm"
+-          ? { firstPrice: 16.5, extraPrice: 1.5 }
+-          : newLastLegFormula === "ocs_small"
+-            ? { firstPrice: 36.5, extraPrice: 6 }
+-            : { price: 200 },
++      params: newLastLegParams,
+       isActive: true,
+     };
+     setSettings({
+@@ -191,6 +614,9 @@ export function SettingsPage({ user }: SettingsPageProps) {
+       last_leg_methods: [...(settings.last_leg_methods || []), newMethod],
+     });
+     setNewLastLegName("");
++    setNewLastLegFormula("flat_jpy");
++    setNewLastLegParams(getDefaultParamsForFormula("flat_jpy"));
++    setAddingLastLeg(false);
+     setSaved(false);
+   };
+ 
+@@ -247,7 +673,7 @@ export function SettingsPage({ user }: SettingsPageProps) {
+   }
+ 
+   return (
+-    <section className="grid gap-5">
++    <section className="flex flex-col gap-6 p-4 sm:p-6">
+       <PageHeader title="鍙傛暟璁剧疆" description="鐙珛閰嶇疆绯荤粺鍙傛暟鍙婂缁村害鐗╂祦瑙勫垯" />
+       {!canEdit && (
+         <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+@@ -265,7 +691,7 @@ export function SettingsPage({ user }: SettingsPageProps) {
+         </div>
+       )}
+       <form onSubmit={handleSubmit} className="grid gap-6">
+-        <div className="surface-card p-5 grid gap-5">
++        <div className="grid gap-5 rounded-lg bg-panel p-5 shadow-soft">
+           {fieldGroups.map((group) => (
+             <section key={group.title} className="grid gap-4 border-b border-line pb-5 last:border-0 last:pb-0">
+               <h2 className="text-base font-semibold text-ink">{group.title}</h2>
+@@ -280,7 +706,7 @@ export function SettingsPage({ user }: SettingsPageProps) {
+                       type="number"
+                       value={
+                         field.key === "target_profit_rate" ||
+-                        field.key === "target_post_ad_profit_rate"
++                          field.key === "target_post_ad_profit_rate"
+                           ? (settings[field.key] as number) * 100
+                           : (settings[field.key] as string | number) ?? ""
+                       }
+@@ -290,7 +716,7 @@ export function SettingsPage({ user }: SettingsPageProps) {
+                           ...settings,
+                           [field.key]:
+                             field.key === "target_profit_rate" ||
+-                            field.key === "target_post_ad_profit_rate"
++                              field.key === "target_post_ad_profit_rate"
+                               ? Number(event.target.value || 0) / 100
+                               : Number(event.target.value || 0),
+                         });
+@@ -303,383 +729,65 @@ export function SettingsPage({ user }: SettingsPageProps) {
+           ))}
+         </div>
+ 
+-        {/* Dynamic logistics configurations */}
+-        <div className="grid gap-6 md:grid-cols-2">
+-          {/* First Leg settings card */}
+-          <div className="surface-card p-5 grid gap-4">
+-            <div className="flex items-center justify-between border-b border-line pb-3">
+-              <h2 className="text-base font-bold text-ink">澶寸▼鐗╂祦璁剧疆</h2>
+-              <span className="text-xs text-slate-500">鐢ㄤ簬璁＄畻浠庡彂璐у湴鍒扮洰鐨勫浗鎴栧垎鎷ㄤ粨鐨勫ご绋嬫垚鏈?/span>
+-            </div>
+-            
+-            <div className="grid gap-4 max-h-[500px] overflow-y-auto pr-1">
+-              {(settings.first_leg_methods || []).map((method) => (
+-                <div key={method.id} className="p-4 rounded-lg border border-line bg-slate-50 relative group">
+-                  <div className="flex items-center justify-between gap-3 mb-3">
+-                    <input
+-                      type="text"
+-                      required
+-                      disabled={!canEdit}
+-                      className="bg-transparent border-0 border-b border-transparent focus:border-ink font-semibold text-sm text-ink w-2/3"
+-                      value={method.name}
+-                      onChange={(e) => handleUpdateFirstLeg(method.id, { name: e.target.value })}
+-                    />
+-                    <div className="flex items-center gap-3">
+-                      <label className="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer">
+-                        <input
+-                          type="checkbox"
+-                          disabled={!canEdit}
+-                          checked={method.isActive}
+-                          onChange={(e) => handleUpdateFirstLeg(method.id, { isActive: e.target.checked })}
+-                        />
+-                        鍚敤
+-                      </label>
+-                      {canEdit && (
+-                        <button
+-                          type="button"
+-                          onClick={() => handleDeleteFirstLeg(method.id)}
+-                          className="text-slate-400 hover:text-rose-600 transition-colors"
+-                        >
+-                          <Trash2 size={16} />
+-                        </button>
+-                      )}
+-                    </div>
+-                  </div>
+-
+-                  {/* Formula specific dynamic parameters input fields */}
+-                  <div className="grid gap-3 grid-cols-2 text-xs">
+-                    {method.formula === "sf" && (
+-                      <>
+-                        <label className="flex flex-col gap-1 text-slate-500">
+-                          棣栭噸 (kg)
+-                          <input
+-                            type="number"
+-                            required
+-                            disabled={!canEdit}
+-                            step="0.01"
+-                            className="text-input text-xs"
+-                            value={method.params.firstWeight ?? ""}
+-                            onChange={(e) =>
+-                              handleUpdateFirstLeg(method.id, {
+-                                params: { ...method.params, firstWeight: Number(e.target.value || 0) },
+-                              })
+-                            }
+-                          />
+-                        </label>
+-                        <label className="flex flex-col gap-1 text-slate-500">
+-                          棣栭噸浠锋牸 (RMB)
+-                          <input
+-                            type="number"
+-                            required
+-                            disabled={!canEdit}
+-                            step="0.01"
+-                            className="text-input text-xs"
+-                            value={method.params.firstPrice ?? ""}
+-                            onChange={(e) =>
+-                              handleUpdateFirstLeg(method.id, {
+-                                params: { ...method.params, firstPrice: Number(e.target.value || 0) },
+-                              })
+-                            }
+-                          />
+-                        </label>
+-                        <label className="flex flex-col gap-1 text-slate-500 col-span-2">
+-                          缁噸浠锋牸 (RMB/kg)
+-                          <input
+-                            type="number"
+-                            required
+-                            disabled={!canEdit}
+-                            step="0.01"
+-                            className="text-input text-xs"
+-                            value={method.params.extraPrice ?? ""}
+-                            onChange={(e) =>
+-                              handleUpdateFirstLeg(method.id, {
+-                                params: { ...method.params, extraPrice: Number(e.target.value || 0) },
+-                              })
+-                            }
+-                          />
+-                        </label>
+-                      </>
+-                    )}
+-
+-                    {method.formula === "flat_rmb" && (
+-                      <label className="flex flex-col gap-1 text-slate-500 col-span-2">
+-                        浠锋牸 (RMB/kg)
+-                        <input
+-                          type="number"
+-                          required
+-                          disabled={!canEdit}
+-                          step="0.01"
+-                          className="text-input text-xs"
+-                          value={method.params.price ?? ""}
+-                          onChange={(e) =>
+-                            handleUpdateFirstLeg(method.id, {
+-                              params: { ...method.params, price: Number(e.target.value || 0) },
+-                            })
+-                          }
+-                        />
+-                      </label>
+-                    )}
+-
+-                    {method.formula === "flat_rmb_tariff" && (
+-                      <>
+-                        <label className="flex flex-col gap-1 text-slate-500">
+-                          浠锋牸 (RMB/kg)
+-                          <input
+-                            type="number"
+-                            required
+-                            disabled={!canEdit}
+-                            step="0.01"
+-                            className="text-input text-xs"
+-                            value={method.params.price ?? ""}
+-                            onChange={(e) =>
+-                              handleUpdateFirstLeg(method.id, {
+-                                params: { ...method.params, price: Number(e.target.value || 0) },
+-                              })
+-                            }
+-                          />
+-                        </label>
+-                        <label className="flex flex-col gap-1 text-slate-500">
+-                          鍏崇◣鐜?(姣旂巼, 濡?.1)
+-                          <input
+-                            type="number"
+-                            required
+-                            disabled={!canEdit}
+-                            step="0.001"
+-                            className="text-input text-xs"
+-                            value={method.params.tariffRate ?? ""}
+-                            onChange={(e) =>
+-                              handleUpdateFirstLeg(method.id, {
+-                                params: { ...method.params, tariffRate: Number(e.target.value || 0) },
+-                              })
+-                            }
+-                          />
+-                        </label>
+-                      </>
+-                    )}
+-                  </div>
+-                </div>
+-              ))}
+-            </div>
+-
+-            {/* Form to add a new First Leg */}
+-            {canEdit && (
+-              <div className="border-t border-line pt-4 mt-2">
+-                <p className="text-xs font-semibold text-slate-500 mb-2">娣诲姞澶寸▼杩愯緭鏂瑰紡</p>
+-                <div className="grid gap-3 grid-cols-[1.5fr_1fr_auto] items-end">
+-                  <label className="flex flex-col gap-1 text-xs text-slate-500">
+-                    鍚嶇О
+-                    <input
+-                      type="text"
+-                      className="text-input"
+-                      placeholder="濡? OCS Air"
+-                      value={newFirstLegName}
+-                      onChange={(e) => setNewFirstLegName(e.target.value)}
+-                    />
+-                  </label>
+-                  <label className="flex flex-col gap-1 text-xs text-slate-500">
+-                    绫诲瀷/鍏紡
+-                    <select
+-                      className="text-input"
+-                      value={newFirstLegFormula}
+-                      onChange={(e) => setNewFirstLegFormula(e.target.value as LogisticsMethodConfig["formula"])}
+-                    >
+-                      <option value="flat_rmb">鎸夊叕鏂よ璐?(RMB/kg)</option>
+-                      <option value="flat_rmb_tariff">鍗曚环+鍏崇◣ (RMB/kg)</option>
+-                      <option value="sf">棣栭噸缁噸鍒?(RMB)</option>
+-                    </select>
+-                  </label>
+-                  <button
+-                    type="button"
+-                    onClick={handleAddFirstLeg}
+-                    className="inline-flex h-11 items-center justify-center rounded-md bg-ink px-4 text-white hover:bg-slate-900 transition-colors"
+-                  >
+-                    <Plus size={16} />
+-                  </button>
+-                </div>
+-              </div>
+-            )}
+-          </div>
+-
+-          {/* Last Leg settings card */}
+-          <div className="surface-card p-5 grid gap-4">
+-            <div className="flex items-center justify-between border-b border-line pb-3">
+-              <h2 className="text-base font-bold text-ink">灏剧▼鐗╂祦璁剧疆</h2>
+-              <span className="text-xs text-slate-500">鐢ㄤ簬璁＄畻娲鹃€佺粰涔板鐨勬渶鍚庝竴鍏噷鎴愭湰</span>
+-            </div>
+-
+-            <div className="grid gap-4 max-h-[500px] overflow-y-auto pr-1">
+-              {(settings.last_leg_methods || []).map((method) => (
+-                <div key={method.id} className="p-4 rounded-lg border border-line bg-slate-50 relative group">
+-                  <div className="flex items-center justify-between gap-3 mb-3">
+-                    <input
+-                      type="text"
+-                      required
+-                      disabled={!canEdit}
+-                      className="bg-transparent border-0 border-b border-transparent focus:border-ink font-semibold text-sm text-ink w-2/3"
+-                      value={method.name}
+-                      onChange={(e) => handleUpdateLastLeg(method.id, { name: e.target.value })}
+-                    />
+-                    <div className="flex items-center gap-3">
+-                      <label className="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer">
+-                        <input
+-                          type="checkbox"
+-                          disabled={!canEdit}
+-                          checked={method.isActive}
+-                          onChange={(e) => handleUpdateLastLeg(method.id, { isActive: e.target.checked })}
+-                        />
+-                        鍚敤
+-                      </label>
+-                      {canEdit && (
+-                        <button
+-                          type="button"
+-                          onClick={() => handleDeleteLastLeg(method.id)}
+-                          className="text-slate-400 hover:text-rose-600 transition-colors"
+-                        >
+-                          <Trash2 size={16} />
+-                        </button>
+-                      )}
+-                    </div>
+-                  </div>
+-
+-                  <div className="grid gap-3 grid-cols-2 text-xs">
+-                    {method.formula === "flat_jpy" && (
+-                      <label className="flex flex-col gap-1 text-slate-500 col-span-2">
+-                        鍥哄畾浠锋牸 (JPY)
+-                        <input
+-                          type="number"
+-                          required
+-                          disabled={!canEdit}
+-                          step="1"
+-                          className="text-input text-xs"
+-                          value={method.params.price ?? ""}
+-                          onChange={(e) =>
+-                            handleUpdateLastLeg(method.id, {
+-                              params: { ...method.params, price: Number(e.target.value || 0) },
+-                            })
+-                          }
+-                        />
+-                      </label>
+-                    )}
+-
+-                    {method.formula === "ocs_3cm" && (
+-                      <>
+-                        <label className="flex flex-col gap-1 text-slate-500">
+-                          OCS Yamato 棣栭噸浠锋牸 (RMB)
+-                          <input
+-                            type="number"
+-                            required
+-                            disabled={!canEdit}
+-                            step="0.01"
+-                            className="text-input text-xs"
+-                            value={method.params.firstPrice ?? ""}
+-                            onChange={(e) =>
+-                              handleUpdateLastLeg(method.id, {
+-                                params: { ...method.params, firstPrice: Number(e.target.value || 0) },
+-                              })
+-                            }
+-                          />
+-                        </label>
+-                        <label className="flex flex-col gap-1 text-slate-500">
+-                          缁噸浠锋牸 (RMB/100g)
+-                          <input
+-                            type="number"
+-                            required
+-                            disabled={!canEdit}
+-                            step="0.01"
+-                            className="text-input text-xs"
+-                            value={method.params.extraPrice ?? ""}
+-                            onChange={(e) =>
+-                              handleUpdateLastLeg(method.id, {
+-                                params: { ...method.params, extraPrice: Number(e.target.value || 0) },
+-                              })
+-                            }
+-                          />
+-                        </label>
+-                      </>
+-                    )}
+-
+-                    {method.formula === "ocs_small" && (
+-                      <>
+-                        <label className="flex flex-col gap-1 text-slate-500">
+-                          OCS 灏忓寘棣栭噸浠锋牸 (RMB)
+-                          <input
+-                            type="number"
+-                            required
+-                            disabled={!canEdit}
+-                            step="0.01"
+-                            className="text-input text-xs"
+-                            value={method.params.firstPrice ?? ""}
+-                            onChange={(e) =>
+-                              handleUpdateLastLeg(method.id, {
+-                                params: { ...method.params, firstPrice: Number(e.target.value || 0) },
+-                              })
+-                            }
+-                          />
+-                        </label>
+-                        <label className="flex flex-col gap-1 text-slate-500">
+-                          缁噸浠锋牸 (RMB/500g)
+-                          <input
+-                            type="number"
+-                            required
+-                            disabled={!canEdit}
+-                            step="0.01"
+-                            className="text-input text-xs"
+-                            value={method.params.extraPrice ?? ""}
+-                            onChange={(e) =>
+-                              handleUpdateLastLeg(method.id, {
+-                                params: { ...method.params, extraPrice: Number(e.target.value || 0) },
+-                              })
+-                            }
+-                          />
+-                        </label>
+-                      </>
+-                    )}
+-                  </div>
+-                </div>
+-              ))}
+-            </div>
+-
+-            {/* Form to add a new Last Leg */}
+-            {canEdit && (
+-              <div className="border-t border-line pt-4 mt-2">
+-                <p className="text-xs font-semibold text-slate-500 mb-2">娣诲姞灏剧▼杩愯緭鏂瑰紡</p>
+-                <div className="grid gap-3 grid-cols-[1.5fr_1fr_auto] items-end">
+-                  <label className="flex flex-col gap-1 text-xs text-slate-500">
+-                    鍚嶇О
+-                    <input
+-                      type="text"
+-                      className="text-input"
+-                      placeholder="濡? JP Post"
+-                      value={newLastLegName}
+-                      onChange={(e) => setNewLastLegName(e.target.value)}
+-                    />
+-                  </label>
+-                  <label className="flex flex-col gap-1 text-xs text-slate-500">
+-                    绫诲瀷/鍏紡
+-                    <select
+-                      className="text-input"
+-                      value={newLastLegFormula}
+-                      onChange={(e) => setNewLastLegFormula(e.target.value as LogisticsMethodConfig["formula"])}
+-                    >
+-                      <option value="flat_jpy">鍥哄畾鏃ュ厓 (JPY)</option>
+-                      <option value="ocs_3cm">OCS Yamato 3cm鍒?(RMB)</option>
+-                      <option value="ocs_small">OCS 灏忓寘鍒?(RMB)</option>
+-                    </select>
+-                  </label>
+-                  <button
+-                    type="button"
+-                    onClick={handleAddLastLeg}
+-                    className="inline-flex h-11 items-center justify-center rounded-md bg-ink px-4 text-white hover:bg-slate-900 transition-colors"
+-                  >
+-                    <Plus size={16} />
+-                  </button>
+-                </div>
+-              </div>
+-            )}
+-          </div>
++        <div className="grid gap-6 xl:grid-cols-2">
++          <LogisticsSection
++            type="first_leg"
++            title="澶寸▼鐗╂祦璁剧疆"
++            description="鐢ㄤ簬璁＄畻浠庡彂璐у湴鍒扮洰鐨勫浗鎴栧垎鎷ㄤ粨鐨勫ご绋嬫垚鏈?
++            methods={settings.first_leg_methods || []}
++            canEdit={canEdit}
++            isAdding={addingFirstLeg}
++            newName={newFirstLegName}
++            newFormula={newFirstLegFormula}
++            newParams={newFirstLegParams}
++            onStartAdd={() => setAddingFirstLeg(true)}
++            onCancelAdd={() => {
++              setAddingFirstLeg(false);
++              setNewFirstLegName("");
++              setNewFirstLegFormula("flat_rmb");
++              setNewFirstLegParams(getDefaultParamsForFormula("flat_rmb"));
++            }}
++            onNewNameChange={setNewFirstLegName}
++            onNewFormulaChange={(formula) => {
++              setNewFirstLegFormula(formula);
++              setNewFirstLegParams(getDefaultParamsForFormula(formula));
++            }}
++            onNewParamsChange={setNewFirstLegParams}
++            onAdd={handleAddFirstLeg}
++            onUpdate={handleUpdateFirstLeg}
++            onDelete={handleDeleteFirstLeg}
++          />
++
++          <LogisticsSection
++            type="last_leg"
++            title="灏剧▼鐗╂祦璁剧疆"
++            description="鐢ㄤ簬璁＄畻娲鹃€佺粰涔板鐨勬渶鍚庝竴鍏噷鎴愭湰"
++            methods={settings.last_leg_methods || []}
++            canEdit={canEdit}
++            isAdding={addingLastLeg}
++            newName={newLastLegName}
++            newFormula={newLastLegFormula}
++            newParams={newLastLegParams}
++            onStartAdd={() => setAddingLastLeg(true)}
++            onCancelAdd={() => {
++              setAddingLastLeg(false);
++              setNewLastLegName("");
++              setNewLastLegFormula("flat_jpy");
++              setNewLastLegParams(getDefaultParamsForFormula("flat_jpy"));
++            }}
++            onNewNameChange={setNewLastLegName}
++            onNewFormulaChange={(formula) => {
++              setNewLastLegFormula(formula);
++              setNewLastLegParams(getDefaultParamsForFormula(formula));
++            }}
++            onNewParamsChange={setNewLastLegParams}
++            onAdd={handleAddLastLeg}
++            onUpdate={handleUpdateLastLeg}
++            onDelete={handleDeleteLastLeg}
++          />
+         </div>
+ 
+-        <div className="flex items-center justify-between gap-3 surface-card p-5">
++        <div className="flex items-center justify-between gap-3 rounded-lg bg-panel p-5 shadow-soft">
+           <span className="text-sm font-semibold text-emerald-700">{saved ? "宸叉垚鍔熶繚瀛樺弬鏁伴厤缃€? : ""}</span>
+           <button
+             type="submit"

@@ -128,6 +128,7 @@ type UseOrdersResult = {
   replaceDraftsFromOrders: (nextOrders: TemuOrderRecord[]) => void;
   clearDrafts: (orderIds?: string[]) => void;
   applyWarehouseItemStockUpdates: (nextStocks: WarehouseItemStock[]) => void;
+  applyWarehouseSkuStockUpdates: (nextStocks: WarehouseSku[]) => void;
   fetchLatestOrders: () => Promise<TemuOrderRecord[]>;
   fetchLatestProductsAndSkus: () => Promise<{
     products: Product[];
@@ -664,6 +665,16 @@ export function useOrders(user: User, options: UseOrdersOptions) {
     );
   }
 
+  function applyWarehouseSkuStockUpdates(nextStocks: WarehouseSku[]) {
+    if (nextStocks.length === 0) return;
+
+    setWarehouseSkus((current) =>
+      current.map(
+        (item) => nextStocks.find((nextItem) => nextItem.id === item.id) ?? item,
+      ),
+    );
+  }
+
   async function fetchLatestOrders() {
     const { orders } = await loadLatestOrders(options);
     return orders;
@@ -706,6 +717,7 @@ export function useOrders(user: User, options: UseOrdersOptions) {
     replaceDraftsFromOrders,
     clearDrafts,
     applyWarehouseItemStockUpdates,
+    applyWarehouseSkuStockUpdates,
     fetchLatestOrders,
     fetchLatestProductsAndSkus,
   } satisfies UseOrdersResult;

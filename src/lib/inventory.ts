@@ -738,6 +738,36 @@ export async function transferWarehouseInventory(
 
   const { supabase } = await requireSession();
   const itemIds = transferItems.map((item) => item.itemId);
+  const skuIds = transferLines.map((line) => line.skuId);
+
+  const { data: sourceSkuData, error: sourceSkuError } = await withTimeout(
+    supabase
+      .from("warehouse_skus")
+      .select("id, warehouse_id, product_id, sku_id, owner_id, stock_quantity, created_at, updated_at")
+      .eq("warehouse_id", sourceWarehouseId)
+      .in("sku_id", skuIds),
+    "读取调出仓库 SKU 库存",
+  );
+  if (sourceSkuError) throw sourceSkuError;
+  const sourceSkusBySkuId = new Map(
+    ((sourceSkuData ?? []) as WarehouseSku[]).map((item) => [item.sku_id, item]),
+  );
+  const missingSourceSku = transferLines.find(
+    (line) => !sourceSkusBySkuId.has(line.skuId),
+  );
+  if (missingSourceSku) {
+    throw new Error("调出仓库缺少对应 SKU 库存，请先检查库存商品");
+  }
+  const insufficientSkuStock = transferLines.find((line) => {
+    const stock = sourceSkusBySkuId.get(line.skuId);
+    return !stock || stock.stock_quantity < line.quantity;
+  });
+  if (insufficientSkuStock) {
+    const stock = sourceSkusBySkuId.get(insufficientSkuStock.skuId);
+    throw new Error(
+      `调出仓库 SKU 库存不足：当前 ${stock?.stock_quantity ?? 0}，需要 ${insufficientSkuStock.quantity}`,
+    );
+  }
 
   const { data: sourceStockData, error: sourceStockError } = await withTimeout(
     supabase
@@ -771,8 +801,29 @@ export async function transferWarehouseInventory(
   }
 
   const reasonLabel = buildTransferReasonLabel(input, transferLines);
+  const updatedSkus: WarehouseSku[] = [];
   const updatedStocks: WarehouseItemStock[] = [];
   const adjustments: WarehouseItemStockAdjustment[] = [];
+
+  for (const transferLine of transferLines) {
+    const sourceSku = sourceSkusBySkuId.get(transferLine.skuId);
+    if (!sourceSku) continue;
+
+    const nextSourceQuantity = sourceSku.stock_quantity - transferLine.quantity;
+    const { data: nextSourceSkuData, error: sourceSkuUpdateError } = await withTimeout(
+      supabase
+        .from("warehouse_skus")
+        .update({ stock_quantity: nextSourceQuantity })
+        .eq("id", sourceSku.id)
+        .eq("stock_quantity", sourceSku.stock_quantity)
+        .select("id, warehouse_id, product_id, sku_id, owner_id, stock_quantity, created_at, updated_at")
+        .maybeSingle(),
+      "扣减调出仓库 SKU 库存",
+    );
+    if (sourceSkuUpdateError) throw sourceSkuUpdateError;
+    if (!nextSourceSkuData) throw new Error("库存已被其他操作更新，请刷新后重试");
+    updatedSkus.push(nextSourceSkuData as WarehouseSku);
+  }
 
   for (const transferItem of transferItems) {
     const sourceStock = sourceStocksByItemId.get(transferItem.itemId);
@@ -818,7 +869,7 @@ export async function transferWarehouseInventory(
   }
 
   return {
-    warehouseSkus: [],
+    warehouseSkus: updatedSkus,
     itemStocks: updatedStocks,
     adjustments,
   };
@@ -964,6 +1015,41 @@ export async function receiveWarehouseTransferInventory(
 
   const updatedStocks: WarehouseItemStock[] = [];
   const adjustments: WarehouseItemStockAdjustment[] = [];
+  const updatedSkus: WarehouseSku[] = [];
+
+  const destinationSkusBySkuId = new Map(
+    ((destinationSkuData ?? []) as WarehouseSku[]).map((item) => [item.sku_id, item]),
+  );
+  for (const transferLine of transferLines) {
+    const currentSkuStock = destinationSkusBySkuId.get(transferLine.skuId);
+    if (!currentSkuStock) continue;
+
+    const alreadyReceivedQuantity = Math.max(
+      0,
+      Math.min(
+        ...transferLine.items.map(
+          (item) => receivedQuantityByItemId.get(item.itemId) ?? 0,
+        ),
+      ),
+    );
+    const receiveSkuQuantity = transferLine.quantity - alreadyReceivedQuantity;
+    if (receiveSkuQuantity <= 0) continue;
+
+    const nextSkuQuantity = currentSkuStock.stock_quantity + receiveSkuQuantity;
+    const { data: nextSkuData, error: skuUpdateError } = await withTimeout(
+      supabase
+        .from("warehouse_skus")
+        .update({ stock_quantity: nextSkuQuantity })
+        .eq("id", currentSkuStock.id)
+        .eq("stock_quantity", currentSkuStock.stock_quantity)
+        .select("id, warehouse_id, product_id, sku_id, owner_id, stock_quantity, created_at, updated_at")
+        .maybeSingle(),
+      "增加签收仓库 SKU 库存",
+    );
+    if (skuUpdateError) throw skuUpdateError;
+    if (!nextSkuData) throw new Error("库存已被其他操作更新，请刷新后重试");
+    updatedSkus.push(nextSkuData as WarehouseSku);
+  }
 
   for (const transferItem of transferItems) {
     const alreadyReceivedQuantity =
@@ -1025,7 +1111,7 @@ export async function receiveWarehouseTransferInventory(
   }
 
   return {
-    warehouseSkus: (destinationSkuData ?? []) as WarehouseSku[],
+    warehouseSkus: updatedSkus.length > 0 ? updatedSkus : (destinationSkuData ?? []) as WarehouseSku[],
     itemStocks: updatedStocks,
     adjustments,
   };
@@ -1038,6 +1124,154 @@ export type WarehouseItemStockDeductionInput = {
   dedupeKey?: string;
   reversalReason?: string;
 };
+
+export type WarehouseSkuStockDeductionInput = {
+  stockId: string;
+  quantity: number;
+};
+
+type WarehouseSkuStockInventoryChange = {
+  sku: WarehouseSku;
+  previous_quantity: number;
+  change_quantity: number;
+};
+
+export async function updateWarehouseSkuStockQuantity(
+  skuStock: WarehouseSku,
+  stockQuantity: number,
+) {
+  const { supabase } = await requireSession();
+  const { data, error } = await withTimeout(
+    supabase
+      .from("warehouse_skus")
+      .update({ stock_quantity: stockQuantity })
+      .eq("id", skuStock.id)
+      .eq("stock_quantity", skuStock.stock_quantity)
+      .select("id, warehouse_id, product_id, sku_id, owner_id, stock_quantity, created_at, updated_at")
+      .maybeSingle(),
+    "更新 SKU 库存",
+  );
+
+  if (error) throw error;
+  if (!data) throw new Error("库存已被其他操作更新，请刷新后重试");
+  return data as WarehouseSku;
+}
+
+export async function deductWarehouseSkuStocks(
+  deductions: WarehouseSkuStockDeductionInput[],
+) {
+  const normalizedDeductions = deductions
+    .map((deduction) => ({
+      stockId: deduction.stockId,
+      quantity: Math.trunc(Number(deduction.quantity) || 0),
+    }))
+    .filter((deduction) => deduction.quantity > 0);
+
+  if (normalizedDeductions.length === 0) {
+    return [] as WarehouseSkuStockInventoryChange[];
+  }
+
+  const { supabase } = await requireSession();
+  const stockIds = Array.from(new Set(normalizedDeductions.map((item) => item.stockId)));
+  const { data: stockData, error: stockLoadError } = await withTimeout(
+    supabase
+      .from("warehouse_skus")
+      .select("id, warehouse_id, product_id, sku_id, owner_id, stock_quantity, created_at, updated_at")
+      .in("id", stockIds),
+    "读取 SKU 库存",
+  );
+
+  if (stockLoadError) throw stockLoadError;
+
+  const stocksById = new Map(
+    ((stockData ?? []) as WarehouseSku[]).map((item) => [item.id, item]),
+  );
+  const quantityByStockId = normalizedDeductions.reduce<Record<string, number>>(
+    (totals, deduction) => {
+      totals[deduction.stockId] = (totals[deduction.stockId] ?? 0) + deduction.quantity;
+      return totals;
+    },
+    {},
+  );
+
+  for (const [stockId, quantity] of Object.entries(quantityByStockId)) {
+    const current = stocksById.get(stockId);
+    if (!current) throw new Error("仓库 SKU 库存不存在，请刷新后重试");
+    if (current.stock_quantity < quantity) {
+      throw new Error(`仓库 SKU 库存不足：当前 ${current.stock_quantity}，需要 ${quantity}`);
+    }
+  }
+
+  const inventory: WarehouseSkuStockInventoryChange[] = [];
+  for (const [stockId, quantity] of Object.entries(quantityByStockId)) {
+    const current = stocksById.get(stockId);
+    if (!current) throw new Error("仓库 SKU 库存不存在，请刷新后重试");
+
+    const nextQuantity = current.stock_quantity - quantity;
+    const nextSku = await updateWarehouseSkuStockQuantity(current, nextQuantity);
+    inventory.push({
+      sku: nextSku,
+      previous_quantity: current.stock_quantity,
+      change_quantity: -quantity,
+    });
+  }
+
+  return inventory;
+}
+
+export async function restoreWarehouseSkuStocks(
+  restorations: WarehouseSkuStockDeductionInput[],
+) {
+  const normalizedRestorations = restorations
+    .map((restoration) => ({
+      stockId: restoration.stockId,
+      quantity: Math.trunc(Number(restoration.quantity) || 0),
+    }))
+    .filter((restoration) => restoration.quantity > 0);
+
+  if (normalizedRestorations.length === 0) {
+    return [] as WarehouseSkuStockInventoryChange[];
+  }
+
+  const { supabase } = await requireSession();
+  const stockIds = Array.from(new Set(normalizedRestorations.map((item) => item.stockId)));
+  const { data: stockData, error: stockLoadError } = await withTimeout(
+    supabase
+      .from("warehouse_skus")
+      .select("id, warehouse_id, product_id, sku_id, owner_id, stock_quantity, created_at, updated_at")
+      .in("id", stockIds),
+    "读取 SKU 库存",
+  );
+
+  if (stockLoadError) throw stockLoadError;
+
+  const stocksById = new Map(
+    ((stockData ?? []) as WarehouseSku[]).map((item) => [item.id, item]),
+  );
+  const quantityByStockId = normalizedRestorations.reduce<Record<string, number>>(
+    (totals, restoration) => {
+      totals[restoration.stockId] = (totals[restoration.stockId] ?? 0) + restoration.quantity;
+      return totals;
+    },
+    {},
+  );
+
+  const inventory: WarehouseSkuStockInventoryChange[] = [];
+  for (const [stockId, quantity] of Object.entries(quantityByStockId)) {
+    const current = stocksById.get(stockId);
+    if (!current) throw new Error("仓库 SKU 库存不存在，请刷新后重试");
+
+    const nextQuantity = current.stock_quantity + quantity;
+    const nextSku = await updateWarehouseSkuStockQuantity(current, nextQuantity);
+    inventory.push({
+      sku: nextSku,
+      previous_quantity: current.stock_quantity,
+      change_quantity: quantity,
+    });
+  }
+
+  return inventory;
+}
 
 type WarehouseItemStockInventoryChange = {
   item: WarehouseItemStock;

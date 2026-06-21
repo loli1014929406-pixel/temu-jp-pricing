@@ -282,6 +282,14 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
     [warehouseItemStocks],
   );
 
+  const warehouseSkusByKey = useMemo(
+    () =>
+      Object.fromEntries(
+        warehouseSkus.map((item) => [`${item.warehouse_id}:${item.sku_id}`, item]),
+      ),
+    [warehouseSkus],
+  );
+
   const warehouseSkusByWarehouseId = useMemo(
     () =>
       warehouseSkus.reduce<Record<string, WarehouseSku[]>>((groups, item) => {
@@ -322,15 +330,8 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
   );
 
   function getSkuAvailableStock(warehouseId: string, sku?: ProductSku) {
-    if (!sku || sku.component_links.length === 0) return 0;
-
-    const possibleStocks = sku.component_links.flatMap((link) => {
-      if (link.quantity <= 0) return [];
-      const itemStock = warehouseItemStocksByKey[`${warehouseId}:${link.item_id}`];
-      return [Math.floor((itemStock?.stock_quantity ?? 0) / link.quantity)];
-    });
-
-    return possibleStocks.length > 0 ? Math.min(...possibleStocks) : 0;
+    if (!sku?.id) return 0;
+    return warehouseSkusByKey[`${warehouseId}:${sku.id}`]?.stock_quantity ?? 0;
   }
 
   function handleTransferSourceWarehouseChange(warehouseId: string) {
@@ -394,32 +395,32 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
     canEdit &&
     Boolean(
       selectedTransferWarehouseSku &&
-        selectedTransferSku &&
-        selectedTransferProduct &&
-        selectedTransferQuantity > 0 &&
-        selectedTransferAvailableQuantity >=
-          selectedTransferQuantity +
-            transferSkuLines
-              .filter((line) => line.skuId === transferSkuId)
-              .reduce((total, line) => total + Math.trunc(Number(line.quantity) || 0), 0),
+      selectedTransferSku &&
+      selectedTransferProduct &&
+      selectedTransferQuantity > 0 &&
+      selectedTransferAvailableQuantity >=
+      selectedTransferQuantity +
+      transferSkuLines
+        .filter((line) => line.skuId === transferSkuId)
+        .reduce((total, line) => total + Math.trunc(Number(line.quantity) || 0), 0),
     );
 
   const canSubmitTransfer =
     canEdit &&
     Boolean(
       transferSourceWarehouse &&
-        transferDestinationWarehouse &&
-        transferSourceWarehouse.id !== transferDestinationWarehouse.id &&
-        transferSkuLineDetails.length > 0 &&
-        transferSkuLineDetails.length === transferSkuLines.length &&
-        transferDate &&
-        transferTrackingNo.trim() &&
-        transferSkuLineDetails.every(
-          (line) =>
-            line.quantity > 0 &&
-            line.availableQuantity >= line.quantity &&
-            line.sku.component_links.length > 0,
-        ),
+      transferDestinationWarehouse &&
+      transferSourceWarehouse.id !== transferDestinationWarehouse.id &&
+      transferSkuLineDetails.length > 0 &&
+      transferSkuLineDetails.length === transferSkuLines.length &&
+      transferDate &&
+      transferTrackingNo.trim() &&
+      transferSkuLineDetails.every(
+        (line) =>
+          line.quantity > 0 &&
+          line.availableQuantity >= line.quantity &&
+          line.sku.component_links.length > 0,
+      ),
     );
 
   const transferRecords = useMemo(() => {
@@ -486,7 +487,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
       );
       const status: TransferRecord["status"] =
         itemSummaries.length > 0 &&
-        itemSummaries.every((item) => item.receivedQuantity >= item.transferQuantity)
+          itemSummaries.every((item) => item.receivedQuantity >= item.transferQuantity)
           ? "received"
           : "in_transit";
 
@@ -1092,22 +1093,20 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
             <button
               type="button"
               onClick={() => setRecordFilter("all")}
-              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                recordFilter === "all"
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${recordFilter === "all"
                   ? "bg-white text-slate-900 shadow-sm"
                   : "text-slate-500 hover:text-slate-800"
-              }`}
+                }`}
             >
               全部
             </button>
             <button
               type="button"
               onClick={() => setRecordFilter("in_transit")}
-              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                recordFilter === "in_transit"
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${recordFilter === "in_transit"
                   ? "bg-white text-slate-900 shadow-sm"
                   : "text-slate-500 hover:text-slate-800"
-              }`}
+                }`}
             >
               <span>运输中</span>
               {inTransitTransferRecordCount > 0 && (
@@ -1119,11 +1118,10 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
             <button
               type="button"
               onClick={() => setRecordFilter("received")}
-              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                recordFilter === "received"
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${recordFilter === "received"
                   ? "bg-white text-slate-900 shadow-sm"
                   : "text-slate-500 hover:text-slate-800"
-              }`}
+                }`}
             >
               已签收
             </button>
@@ -1159,11 +1157,10 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
                   <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-4">
                     <div className="flex flex-wrap items-center gap-3">
                       <span
-                        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${
-                          isReceived
+                        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${isReceived
                             ? "bg-emerald-50 text-emerald-700"
                             : "bg-amber-50 text-amber-700"
-                        }`}
+                          }`}
                       >
                         {isReceived ? <PackageCheck size={14} /> : <PackageOpen size={14} />}
                         {isReceived ? "已签收" : "运输中"}
@@ -1206,9 +1203,8 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
                     <div className="relative flex gap-3.5 md:flex-col md:items-start">
                       <div className="flex flex-col items-center">
                         <div
-                          className={`flex h-9 w-9 items-center justify-center rounded-full ring-4 ring-white ${
-                            isReceived ? "bg-accentSoft text-accent" : "bg-amber-50 text-amber-600 animate-pulse"
-                          }`}
+                          className={`flex h-9 w-9 items-center justify-center rounded-full ring-4 ring-white ${isReceived ? "bg-accentSoft text-accent" : "bg-amber-50 text-amber-600 animate-pulse"
+                            }`}
                         >
                           <Truck size={18} />
                         </div>
@@ -1250,9 +1246,8 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
                     <div className="relative flex gap-3.5 md:flex-col md:items-start">
                       <div className="flex flex-col items-center">
                         <div
-                          className={`flex h-9 w-9 items-center justify-center rounded-full ring-4 ring-white ${
-                            isReceived ? "bg-emerald-600 text-white shadow-sm" : "bg-slate-100 text-slate-400"
-                          }`}
+                          className={`flex h-9 w-9 items-center justify-center rounded-full ring-4 ring-white ${isReceived ? "bg-emerald-600 text-white shadow-sm" : "bg-slate-100 text-slate-400"
+                            }`}
                         >
                           <CheckCircle2 size={18} />
                         </div>
@@ -1315,11 +1310,10 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
                             className="grid gap-2 rounded-xl border border-line bg-white px-4 py-3 text-xs text-slate-700 sm:grid-cols-[64px_minmax(0,1fr)_auto] sm:items-center shadow-sm"
                           >
                             <span
-                              className={`inline-flex w-fit rounded-lg px-2 py-0.5 text-[10px] font-bold ${
-                                direction === "out"
+                              className={`inline-flex w-fit rounded-lg px-2 py-0.5 text-[10px] font-bold ${direction === "out"
                                   ? "bg-rose-50 text-rose-600"
                                   : "bg-emerald-50 text-emerald-600"
-                              }`}
+                                }`}
                             >
                               {flowLabel}
                             </span>
@@ -1334,11 +1328,10 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
                             </div>
                             <div className="flex flex-wrap items-center gap-3 sm:justify-end">
                               <span
-                                className={`font-bold ${
-                                  adjustment.change_quantity < 0
+                                className={`font-bold ${adjustment.change_quantity < 0
                                     ? "text-rose-600"
                                     : "text-emerald-600"
-                                }`}
+                                  }`}
                               >
                                 {changeLabel}
                               </span>

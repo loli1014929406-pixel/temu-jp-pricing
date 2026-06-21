@@ -236,6 +236,8 @@ create table if not exists public.purchase_order_items (
   owner_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
   product_id uuid references public.products(id) on delete set null,
   item_id uuid references public.product_items(id) on delete set null,
+  sku_id uuid references public.product_skus(id) on delete set null,
+  sku_quantity integer check (sku_quantity is null or sku_quantity > 0),
   source_id uuid not null references public.purchase_order_sources(id) on delete cascade,
   product_code text not null,
   product_name_cn text not null,

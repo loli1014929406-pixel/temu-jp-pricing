@@ -11,7 +11,7 @@ import {
   fetchWarehouses,
   removeWarehouseProduct,
   updateWarehouse,
-  updateWarehouseItemStock,
+  updateWarehouseSkuStockQuantity,
 } from "../lib/inventory";
 import {
   createLogisticsMethod,
@@ -177,7 +177,7 @@ function getInventoryErrorMessage(error: unknown, fallback: string) {
     : message;
 }
 
-function parseStockDraftValue(item: WarehouseItemStock, value: string) {
+function parseStockDraftValue(item: Pick<WarehouseItemStock, "stock_quantity">, value: string) {
   const text = value.trim();
   if (!text) {
     return { stockQuantity: item.stock_quantity, errorMessage: "" };
@@ -852,7 +852,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
     }
   }
 
-  async function handleSaveItemStock(item: WarehouseItemStock) {
+  async function handleSaveSkuStock(item: WarehouseSku) {
     if (!canEdit) {
       setErrorMessage("当前账号没有编辑权限，不能更新库存。");
       return;
@@ -867,26 +867,21 @@ export function InventoryPage({ user }: InventoryPageProps) {
 
     const reason = itemStockReasonDrafts[item.id]?.trim() ?? "";
     if (!reason) return;
-    if (!confirmSave("确认保存本次库存修改吗？")) return;
-    setBusyKey(`item-stock-${item.id}`);
+    if (!confirmSave("确认保存本次 SKU 库存修改吗？")) return;
+    setBusyKey(`sku-stock-${item.id}`);
     setErrorMessage("");
     try {
-      const { item: nextItem, adjustment } = await updateWarehouseItemStock(
-        item,
-        nextStock,
-        reason,
-      );
-      setWarehouseItemStocks((current) =>
+      const nextItem = await updateWarehouseSkuStockQuantity(item, nextStock);
+      setWarehouseSkus((current) =>
         current.map((entry) => (entry.id === item.id ? nextItem : entry)),
       );
-      setWarehouseItemStockAdjustments((current) => [adjustment, ...current]);
       setItemStockDrafts((current) => ({
         ...current,
         [item.id]: String(nextItem.stock_quantity),
       }));
       setItemStockReasonDrafts((current) => ({ ...current, [item.id]: "" }));
     } catch (error) {
-      setErrorMessage(getInventoryErrorMessage(error, "更新库存失败"));
+      setErrorMessage(getInventoryErrorMessage(error, "更新 SKU 库存失败"));
     } finally {
       setBusyKey("");
     }
@@ -921,18 +916,6 @@ export function InventoryPage({ user }: InventoryPageProps) {
     } finally {
       setAdjustmentsLoadingKeys((current) => ({ ...current, [item.id]: false }));
     }
-  }
-
-  function getSkuAvailableStock(warehouseId: string, sku?: ProductSku) {
-    if (!sku || sku.component_links.length === 0) return 0;
-
-    const possibleStocks = sku.component_links.flatMap((link) => {
-      if (link.quantity <= 0) return [];
-      const itemStock = warehouseItemStocksByKey[`${warehouseId}:${link.item_id}`];
-      return [Math.floor((itemStock?.stock_quantity ?? 0) / link.quantity)];
-    });
-
-    return possibleStocks.length > 0 ? Math.min(...possibleStocks) : 0;
   }
 
   const findDbMethod = useCallback(
@@ -1656,8 +1639,53 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                           <span className="text-slate-400">无规格</span>
                                         )}
                                       </td>
-                                      <td className="px-4 py-3 font-semibold text-ink">
-                                        {getSkuAvailableStock(warehouse.id, sku)}
+                                      <td className="px-4 py-3">
+                                        <div className="flex flex-col gap-2">
+                                          <div className="flex items-center gap-2">
+                                            <input
+                                              step="1"
+                                              type="number"
+                                              placeholder="+/- 调整"
+                                              disabled={!canEdit}
+                                              value={
+                                                itemStockDrafts[item.id] ??
+                                                String(item.stock_quantity)
+                                              }
+                                              onChange={(event) =>
+                                                setItemStockDrafts((current) => ({
+                                                  ...current,
+                                                  [item.id]: event.target.value,
+                                                }))
+                                              }
+                                              className="h-9 w-24 rounded-lg border border-line bg-white px-2 text-xs font-semibold text-ink outline-none transition focus:border-violet-600"
+                                            />
+                                            {canEdit && (
+                                              <button
+                                                type="button"
+                                                onClick={() => void handleSaveSkuStock(item)}
+                                                disabled={
+                                                  busyKey === `sku-stock-${item.id}` ||
+                                                  !itemStockReasonDrafts[item.id]?.trim()
+                                                }
+                                                className="h-9 rounded-lg bg-violet-600 px-3 text-xs font-semibold text-white shadow-sm hover:bg-violet-700 transition disabled:opacity-60"
+                                              >
+                                                保存
+                                              </button>
+                                            )}
+                                          </div>
+                                          <input
+                                            value={itemStockReasonDrafts[item.id] ?? ""}
+                                            onChange={(event) =>
+                                              setItemStockReasonDrafts((current) => ({
+                                                ...current,
+                                                [item.id]: event.target.value,
+                                              }))
+                                            }
+                                            disabled={!canEdit}
+                                            placeholder="校准原因"
+                                            className="h-8 w-40 rounded-lg border border-line bg-white px-2 text-xs outline-none transition focus:border-violet-600"
+                                          />
+                                        </div>
                                       </td>
                                       <td className="px-4 py-3">
                                         <button
@@ -1706,8 +1734,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                                   <th className="px-4 py-3 font-semibold text-left text-xs">配件名称</th>
                                                   <th className="px-4 py-3 font-semibold text-left text-xs">配件规格</th>
                                                   <th className="px-4 py-3 font-semibold text-left text-xs">SKU用量</th>
-                                                  <th className="px-4 py-3 font-semibold text-left text-xs">配件库存</th>
-                                                  <th className="px-4 py-3 font-semibold text-left text-xs">编辑原因</th>
+                                                  <th className="px-4 py-3 font-semibold text-left text-xs">配件库存参考</th>
                                                   <th className="px-4 py-3 font-semibold text-left text-xs">编辑记录</th>
                                                 </tr>
                                               </thead>
@@ -1734,68 +1761,8 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                                           {component?.item_spec || "--"}
                                                         </td>
                                                         <td className="px-4 py-3 text-sm font-semibold text-slate-700">{link.quantity}</td>
-                                                        <td className="px-4 py-3">
-                                                          {itemStock ? (
-                                                            <div className="flex items-center gap-2">
-                                                              <input
-                                                                step="1"
-                                                                type="number"
-                                                                placeholder="+/- 调整"
-                                                                disabled={!canEdit}
-                                                                value={
-                                                                  itemStockDrafts[itemStock.id] ??
-                                                                  String(itemStock.stock_quantity)
-                                                                }
-                                                                onChange={(event) =>
-                                                                  setItemStockDrafts((current) => ({
-                                                                    ...current,
-                                                                    [itemStock.id]: event.target.value,
-                                                                  }))
-                                                                }
-                                                                className="h-9 w-24 rounded-lg border border-line bg-white px-2 text-xs outline-none transition focus:border-violet-600"
-                                                              />
-                                                              {canEdit && (
-                                                                <button
-                                                                  type="button"
-                                                                  onClick={() =>
-                                                                    void handleSaveItemStock(itemStock)
-                                                                  }
-                                                                  disabled={
-                                                                    busyKey ===
-                                                                      `item-stock-${itemStock.id}` ||
-                                                                    !itemStockReasonDrafts[
-                                                                      itemStock.id
-                                                                    ]?.trim()
-                                                                  }
-                                                                  className="h-9 rounded-lg bg-violet-600 px-3 text-xs font-semibold text-white shadow-sm hover:bg-violet-700 transition disabled:opacity-60"
-                                                                >
-                                                                  保存
-                                                                </button>
-                                                              )}
-                                                            </div>
-                                                          ) : (
-                                                            <span className="text-slate-400 text-sm">0</span>
-                                                          )}
-                                                        </td>
-                                                        <td className="px-4 py-3">
-                                                          {itemStock ? (
-                                                            <input
-                                                              value={
-                                                                itemStockReasonDrafts[itemStock.id] ?? ""
-                                                              }
-                                                              disabled={!canEdit}
-                                                              onChange={(event) =>
-                                                                setItemStockReasonDrafts((current) => ({
-                                                                  ...current,
-                                                                  [itemStock.id]: event.target.value,
-                                                                }))
-                                                              }
-                                                              placeholder="填写调整原因（必填）"
-                                                              className="h-9 min-w-40 rounded-lg border border-line bg-white px-3 text-xs outline-none transition focus:border-violet-600"
-                                                            />
-                                                          ) : (
-                                                            <span className="text-slate-400">--</span>
-                                                          )}
+                                                        <td className="px-4 py-3 text-sm font-semibold text-slate-700">
+                                                          {itemStock?.stock_quantity ?? 0}
                                                         </td>
                                                         <td className="px-4 py-3 align-top">
                                                           {itemStock ? (

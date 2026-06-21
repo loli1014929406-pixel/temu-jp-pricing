@@ -26,11 +26,8 @@ import {
   readTabularFileObjects,
 } from "../lib/excel";
 import {
-  deductWarehouseItemStocksLegacy,
-  deductWarehouseItemStocksAtomic,
-  type AtomicDeductionGroup,
-  restoreWarehouseItemStockDeductions,
-  type WarehouseItemStockRestorationInput,
+  deductWarehouseSkuStocks,
+  restoreWarehouseSkuStocks,
 } from "../lib/inventory";
 import {
   getWarehouseLogisticsMethodNames,
@@ -50,7 +47,6 @@ import type {
   LogisticsMethod,
   TemuOrderRecord,
   Warehouse,
-  WarehouseItemStock,
   WarehouseLogisticsMethod,
   WarehouseSku,
 } from "../types";
@@ -108,9 +104,8 @@ type TrackingImportRecord = {
 type TrackingCarrier = "yamato" | "japan_post";
 
 type OrderStockDeduction = {
-  stock: WarehouseItemStock;
+  stock: WarehouseSku;
   quantity: number;
-  itemName: string;
   warehouseName: string;
   orderNo: string;
   orderLineLabel: string;
@@ -1554,7 +1549,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
     logisticsMethods,
     warehouseLogisticsMethods,
     warehouseSkus,
-    warehouseItemStocks,
     settings,
     drafts,
     selectedOrderIds,
@@ -1573,7 +1567,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
     removeOrders,
     mergeOrders: updateOrdersState,
     clearDrafts,
-    applyWarehouseItemStockUpdates,
+    applyWarehouseSkuStockUpdates,
     fetchLatestProductsAndSkus,
   } = useOrders(user, { page: 1, pageSize: 20 });
   const [activeStage, setActiveStage] = useState<OrderStage>("all");
@@ -1628,12 +1622,12 @@ export function OrdersPage({ user }: OrdersPageProps) {
     [productItems],
   );
 
-  const warehouseItemStocksByKey = useMemo(
+  const warehouseSkusByKey = useMemo(
     () =>
       new Map(
-        warehouseItemStocks.map((item) => [`${item.warehouse_id}:${item.item_id}`, item]),
+        warehouseSkus.map((item) => [`${item.warehouse_id}:${item.sku_id}`, item]),
       ),
-    [warehouseItemStocks],
+    [warehouseSkus],
   );
 
   const selectedBulkWarehouse = useMemo(
@@ -1963,49 +1957,26 @@ export function OrdersPage({ user }: OrdersPageProps) {
     };
   }
 
-  function buildOrderInventoryRestorationInputs(
-    targetOrders: TemuOrderRecord[],
-  ): WarehouseItemStockRestorationInput[] {
-    const selectedOrderNoCounts = targetOrders.reduce<Record<string, number>>(
-      (counts, order) => {
-        const key = getOrderNoKey(order.order_no);
-        if (key) counts[key] = (counts[key] ?? 0) + 1;
-        return counts;
-      },
-      {},
-    );
-    const orderNoCounts = allOrders.reduce<Record<string, number>>((counts, order) => {
-      const key = getOrderNoKey(order.order_no);
-      if (key) counts[key] = (counts[key] ?? 0) + 1;
-      return counts;
-    }, {});
-    const inputsByReason = new Map<string, WarehouseItemStockRestorationInput>();
+  function buildOrderInventoryRestorationInputs(targetOrders: TemuOrderRecord[]) {
+    const restorations: Array<{ stockId: string; quantity: number }> = [];
 
-    const addInput = (label: string) => {
-      const normalizedLabel = label.trim();
-      if (!normalizedLabel) return;
-      const input = {
-        outboundReason: `订单出库：${normalizedLabel}`,
-        reversalReason: `删除订单冲回：${normalizedLabel}`,
-      };
-      inputsByReason.set(`${input.outboundReason}\u0000${input.reversalReason}`, input);
-    };
+    for (const order of targetOrders) {
+      const warehouseId = order.warehouse_id;
+      if (!warehouseId) continue;
 
-    targetOrders.forEach((order) => {
-      addInput(getOrderLineLabel(order));
+      const sku = getOrderSku(order);
+      if (!sku?.id) continue;
 
-      const orderNo = order.order_no.trim();
-      const orderNoKey = getOrderNoKey(orderNo);
-      if (
-        orderNo &&
-        orderNoKey &&
-        (orderNoCounts[orderNoKey] ?? 0) === (selectedOrderNoCounts[orderNoKey] ?? 0)
-      ) {
-        addInput(orderNo);
-      }
-    });
+      const stock = warehouseSkusByKey.get(`${warehouseId}:${sku.id}`);
+      if (!stock) continue;
 
-    return Array.from(inputsByReason.values());
+      restorations.push({
+        stockId: stock.id,
+        quantity: getOrderFulfillmentQuantity(order),
+      });
+    }
+
+    return restorations;
   }
 
   function handleWarehouseChangeForOrders(orderIds: string[], warehouseId: string) {
@@ -2254,7 +2225,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
           [
             `已自动完成 ${nextOrders.length} 条配達完了订单`,
             inventoryChanges.length > 0
-              ? `扣减 ${inventoryChanges.length} 项配件库存`
+              ? `扣减 ${inventoryChanges.length} 项 SKU 库存`
               : "",
             failures.length > 0 ? `${failures.length} 条更新失败` : "",
           ].filter(Boolean).join("，"),
@@ -2332,37 +2303,17 @@ export function OrdersPage({ user }: OrdersPageProps) {
     return best.record;
   }
 
-  function getAvailableItemStockQuantity(
-    warehouseId: string,
-    itemId: string,
-    availableStockByKey?: Map<string, number>,
-  ) {
-    const stockKey = `${warehouseId}:${itemId}`;
-    if (availableStockByKey) {
-      return availableStockByKey.get(stockKey) ?? 0;
-    }
-
-    return warehouseItemStocksByKey.get(stockKey)?.stock_quantity ?? 0;
-  }
-
   function getSkuAvailableStock(
     warehouseId: string,
     sku: ProductSku,
     availableStockByKey?: Map<string, number>,
   ) {
-    if (sku.component_links.length === 0) return 0;
-
-    const possibleStocks = sku.component_links.flatMap((link) => {
-      if (link.quantity <= 0) return [];
-      return [
-        Math.floor(
-          getAvailableItemStockQuantity(warehouseId, link.item_id, availableStockByKey) /
-            link.quantity,
-        ),
-      ];
-    });
-
-    return possibleStocks.length > 0 ? Math.min(...possibleStocks) : 0;
+    if (!sku.id) return 0;
+    const stockKey = `${warehouseId}:${sku.id}`;
+    if (availableStockByKey) {
+      return availableStockByKey.get(stockKey) ?? 0;
+    }
+    return warehouseSkusByKey.get(stockKey)?.stock_quantity ?? 0;
   }
 
   function reserveOrderInventory(
@@ -2371,30 +2322,10 @@ export function OrdersPage({ user }: OrdersPageProps) {
     orderQuantity: number,
     availableStockByKey: Map<string, number>,
   ) {
-    const requiredByStockKey = sku.component_links.reduce<Record<string, number>>(
-      (requirements, link) => {
-        const requiredQuantity = Math.max(0, link.quantity) * orderQuantity;
-        if (requiredQuantity <= 0) return requirements;
-
-        const stockKey = `${warehouseId}:${link.item_id}`;
-        requirements[stockKey] = (requirements[stockKey] ?? 0) + requiredQuantity;
-        return requirements;
-      },
-      {},
-    );
-
-    for (const [stockKey, requiredQuantity] of Object.entries(requiredByStockKey)) {
-      if ((availableStockByKey.get(stockKey) ?? 0) < requiredQuantity) {
-        return false;
-      }
-    }
-
-    Object.entries(requiredByStockKey).forEach(([stockKey, requiredQuantity]) => {
-      availableStockByKey.set(
-        stockKey,
-        (availableStockByKey.get(stockKey) ?? 0) - requiredQuantity,
-      );
-    });
+    if (!sku.id) return false;
+    const stockKey = `${warehouseId}:${sku.id}`;
+    if ((availableStockByKey.get(stockKey) ?? 0) < orderQuantity) return false;
+    availableStockByKey.set(stockKey, (availableStockByKey.get(stockKey) ?? 0) - orderQuantity);
     return true;
   }
 
@@ -2784,7 +2715,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
         [
           `已匹配物流单号 ${nextOrders.length} 条并转入已发货`,
           inventoryChanges.length > 0
-            ? `扣减 ${inventoryChanges.length} 项配件库存`
+            ? `扣减 ${inventoryChanges.length} 项 SKU 库存`
             : "",
           `未处理 ${pendingOrders.length - nextOrders.length} 条继续留在待发货`,
         ].filter(Boolean).join("，"),
@@ -2855,7 +2786,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
               ? `已查询 ${nextOrders.length} 条物流状态，自动完成 ${completedCount} 条订单`
               : `已查询 ${nextOrders.length} 条物流状态`,
             inventoryChanges.length > 0
-              ? `扣减 ${inventoryChanges.length} 项配件库存`
+              ? `扣减 ${inventoryChanges.length} 项 SKU 库存`
               : "",
             failures.length > 0 ? `${failures.length} 条更新失败` : "",
           ].filter(Boolean).join("，"),
@@ -2924,77 +2855,19 @@ export function OrdersPage({ user }: OrdersPageProps) {
       return !hadReservedInventory && shouldReserveInventory;
     });
 
-    const atomicGroups: AtomicDeductionGroup[] = [];
     for (const entry of deductionEntries) {
-      const stockResult = buildOrderStockDeductions([entry.nextOrder]);
-      if (stockResult.errorMessage) {
-        failures.push({ order: entry.order, error: new Error(stockResult.errorMessage) });
-      } else if (stockResult.deductions.length > 0) {
-        atomicGroups.push({
-          groupId: entry.order.id,
-          dedupeKey: entry.order.order_no,
-          deductions: stockResult.deductions.map((d) => ({
-            stockId: d.stock.id,
-            quantity: d.quantity,
-            reason: `订单出库：${d.orderLineLabel}`,
-            dedupeKey: d.orderLineLabel,
-            reversalReason: `删除订单冲回：${d.orderLineLabel}`,
-          })),
-        });
-      }
-    }
-
-    const failedGroupIds = new Set<string>();
-    if (atomicGroups.length > 0) {
       try {
-        const atomicResults = await deductWarehouseItemStocksAtomic(atomicGroups);
-        
-        // 记录明确失败的记录
-        for (const failure of atomicResults.failures) {
-          failedGroupIds.add(failure.groupId);
-          const entry = entries.find((e) => e.order.id === failure.groupId);
-          if (entry) {
-            failures.push({ order: entry.order, error: new Error(failure.detail.message || "库存不足") });
-          }
-        }
-
-        // 记录成功的记录
-        if (atomicResults.results.length > 0) {
-          const successfulChanges = atomicResults.results.map((r) => ({
-            item: {
-              id: r.id,
-              warehouse_id: r.warehouse_id,
-              item_id: r.item_id,
-              stock_quantity: r.stock_quantity,
-            } as any,
-            adjustment: {
-              id: r.adjustment_id,
-              warehouse_id: r.warehouse_id,
-              item_id: r.item_id,
-              previous_quantity: r.previous_quantity,
-              change_quantity: r.change_quantity,
-              next_quantity: r.stock_quantity,
-              reason: r.reason,
-            } as any,
-          }));
-          applyWarehouseItemStockUpdates(successfulChanges.map((c) => c.item));
-          inventoryChanges.push(...successfulChanges);
-          deductedInventoryChanges.push(...successfulChanges);
-        }
+        const entryChanges = await deductInventoryForOrders([entry.nextOrder]);
+        inventoryChanges.push(...entryChanges);
+        deductedInventoryChanges.push(...entryChanges);
       } catch (error) {
-        // 如果外层网络报错或严重异常，整个批次都算失败
-        for (const entry of deductionEntries) {
-          if (!failedGroupIds.has(entry.order.id) && !failures.some((f) => f.order.id === entry.order.id)) {
-            failedGroupIds.add(entry.order.id);
-            failures.push({ order: entry.order, error });
-          }
-        }
+        failures.push({ order: entry.order, error });
       }
     }
 
     // 第二阶段：逐个处理订单的状态更新、冲回逻辑及异常回滚
     for (const entry of entries) {
-      if (failedGroupIds.has(entry.order.id) || failures.some((f) => f.order.id === entry.order.id)) {
+      if (failures.some((f) => f.order.id === entry.order.id)) {
         continue;
       }
 
@@ -3007,12 +2880,10 @@ export function OrdersPage({ user }: OrdersPageProps) {
 
       try {
         if (shouldRestoreInventory) {
-          entryRestoredChanges = await restoreWarehouseItemStockDeductions(
+          entryRestoredChanges = await restoreWarehouseSkuStocks(
             buildOrderInventoryRestorationInputs([entry.order]),
           );
-          applyWarehouseItemStockUpdates(
-            entryRestoredChanges.map((change: any) => change.item),
-          );
+          applyWarehouseSkuStockUpdates(entryRestoredChanges.map((change) => change.sku));
         }
 
         const nextOrder = await updateTemuOrder(
@@ -3039,10 +2910,10 @@ export function OrdersPage({ user }: OrdersPageProps) {
         // 如果我们刚才在这个批次里对它执行了扣减，因为保存订单失败了，所以必须将其冲回！
         else if (!hadReservedInventory && shouldReserveInventory) {
           try {
-            const rollbackRestored = await restoreWarehouseItemStockDeductions(
+            const rollbackRestored = await restoreWarehouseSkuStocks(
               buildOrderInventoryRestorationInputs([entry.nextOrder]),
             );
-            applyWarehouseItemStockUpdates(rollbackRestored.map((change) => change.item));
+            applyWarehouseSkuStockUpdates(rollbackRestored.map((change) => change.sku));
           } catch (restoreError) {
             throw new Error(
               `${getOrdersErrorMessage(error, "保存订单失败")}；由于保存失败尝试冲回刚才扣除的库存也失败了：${getOrdersErrorMessage(
@@ -3071,10 +2942,10 @@ export function OrdersPage({ user }: OrdersPageProps) {
   ) {
     return [
       changes.deductedInventoryChanges.length > 0
-        ? `扣减 ${changes.deductedInventoryChanges.length} 项配件库存`
+        ? `扣减 ${changes.deductedInventoryChanges.length} 项 SKU 库存`
         : "",
       changes.restoredInventoryChanges.length > 0
-        ? `回补 ${changes.restoredInventoryChanges.length} 项配件库存`
+        ? `回补 ${changes.restoredInventoryChanges.length} 项 SKU 库存`
         : "",
     ].filter(Boolean).join("，");
   }
@@ -3150,7 +3021,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
     setNoticeMessage("");
 
     try {
-      const inventoryChanges = await restoreWarehouseItemStockDeductions(
+      const inventoryChanges = await restoreWarehouseSkuStocks(
         inventoryRestorations,
       );
 
@@ -3177,7 +3048,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
         throw error;
       }
 
-      applyWarehouseItemStockUpdates(inventoryChanges.map((change) => change.item));
+      applyWarehouseSkuStockUpdates(inventoryChanges.map((change) => change.sku));
       updateOrdersState(nextOrders);
       clearDrafts(Array.from(targetIds));
       setSelectedOrderIds((current) => current.filter((id) => !targetIds.has(id)));
@@ -3186,7 +3057,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
         [
           `已退回待分配 ${nextOrders.length} 条订单`,
           inventoryChanges.length > 0
-            ? `回补 ${inventoryChanges.length} 项配件库存`
+            ? `回补 ${inventoryChanges.length} 项 SKU 库存`
             : "",
         ].filter(Boolean).join("，"),
       );
@@ -3292,7 +3163,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
         [
           `已保存 ${nextOrders.length} 条订单明细的实际发货时间`,
           inventoryChanges.length > 0
-            ? `扣减 ${inventoryChanges.length} 项配件库存`
+            ? `扣减 ${inventoryChanges.length} 项 SKU 库存`
             : "",
           failures.length > 0 ? `${failures.length} 条保存失败` : "",
         ].filter(Boolean).join("，"),
@@ -3330,16 +3201,12 @@ export function OrdersPage({ user }: OrdersPageProps) {
         const stage = getOrderStage(order);
         return shouldReserveOrderInventory(stage);
       });
-      // 为每条冲回输入标记"预期有库存扣减"，确保匹配失败时报错而非静默跳过
       const inventoryRestorations = buildOrderInventoryRestorationInputs(
         ordersToRestoreInventory,
-      ).map((restoration) => ({
-        ...restoration,
-        expectedDeductionCount: 1,
-      }));
+      );
 
       // 第一步：先回补库存，失败则阻止删除
-      const inventoryChanges = await restoreWarehouseItemStockDeductions(
+      const inventoryChanges = await restoreWarehouseSkuStocks(
         inventoryRestorations,
       );
 
@@ -3347,13 +3214,13 @@ export function OrdersPage({ user }: OrdersPageProps) {
       await Promise.all(selectedOrdersInView.map((order) => deleteTemuOrder(order.id)));
 
       // 第三步：所有数据库操作成功后再更新 UI
-      applyWarehouseItemStockUpdates(inventoryChanges.map((change) => change.item));
+      applyWarehouseSkuStockUpdates(inventoryChanges.map((change) => change.sku));
       removeOrders(Array.from(targetIds));
       setSelectedOrderIds((current) => current.filter((id) => !targetIds.has(id)));
       clearDrafts(Array.from(targetIds));
       setNoticeMessage(
         inventoryChanges.length > 0
-          ? `已删除 ${targetIds.size} 条订单，并回补 ${inventoryChanges.length} 项配件库存`
+          ? `已删除 ${targetIds.size} 条订单，并回补 ${inventoryChanges.length} 项 SKU 库存`
           : `已删除 ${targetIds.size} 条订单`,
       );
     } catch (error) {
@@ -3457,7 +3324,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
         [
           `已批量分配 ${nextOrders.length} 条订单`,
           inventoryChanges.length > 0
-            ? `扣减 ${inventoryChanges.length} 项配件库存`
+            ? `扣减 ${inventoryChanges.length} 项 SKU 库存`
             : "",
           failures.length > 0 ? `${failures.length} 条因库存或保存失败未分配` : "",
         ].filter(Boolean).join("，"),
@@ -3486,11 +3353,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
       setNoticeMessage("没有读取到仓库 SKU 库存，请先确认库存资料或执行库存共享迁移。");
       return;
     }
-    if (warehouseItemStocks.length === 0) {
-      setNoticeMessage("没有读取到仓库配件库存，请先在库存页维护配件库存。");
-      return;
-    }
-
     const targetOrders = (
       selectedOrderLineInViewCount > 0 ? selectedOrdersInView : filteredOrders
     ).filter((order) => getOrderStage(mergeOrderDraft(order)) === "pending_assignment");
@@ -3500,8 +3362,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
     }
 
     const availableStockByKey = new Map(
-      warehouseItemStocks.map((stock) => [
-        `${stock.warehouse_id}:${stock.item_id}`,
+      warehouseSkus.map((stock) => [
+        `${stock.warehouse_id}:${stock.sku_id}`,
         stock.stock_quantity,
       ]),
     );
@@ -3554,7 +3416,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
         );
         if (!reserved) {
           blockedReasons.push(
-            `订单 ${orderLabel} 的 ${getOrderLineLabel(order)} 配件库存不足，整单保持未匹配。`,
+            `订单 ${orderLabel} 的 ${getOrderLineLabel(order)} SKU 库存不足，整单保持未匹配。`,
           );
           return;
         }
@@ -3613,7 +3475,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
         [
           `已自动匹配 ${matchedOrderGroupCount} 个订单（${nextOrders.length} 条明细）`,
           inventoryChanges.length > 0
-            ? `扣减 ${inventoryChanges.length} 项配件库存`
+            ? `扣减 ${inventoryChanges.length} 项 SKU 库存`
             : "",
           skippedCount > 0 ? `${skippedCount} 条因 SKU、库存、尺寸或保存失败未匹配` : "",
         ].filter(Boolean).join("，"),
@@ -3827,47 +3689,32 @@ export function OrdersPage({ user }: OrdersPageProps) {
           deductions: [] as OrderStockDeduction[],
         };
       }
-      if (sku.component_links.length === 0) {
-        return {
-          errorMessage: `订单 ${order.order_no} 对应 SKU 没有维护配件组成，不能扣减库存。`,
-          deductions: [] as OrderStockDeduction[],
-        };
-      }
-
       const orderQuantity = getOrderFulfillmentQuantity(order);
       const warehouseName =
         order.warehouse_name ||
         warehouses.find((warehouse) => warehouse.id === warehouseId)?.name ||
         "未命名仓库";
 
-      for (const link of sku.component_links) {
-        const requiredQuantity = Math.max(0, link.quantity) * orderQuantity;
-        if (requiredQuantity <= 0) continue;
-
-        const component = productItemsById.get(link.item_id);
-        const itemName = component?.item_name || component?.item_spec || link.item_id;
-        const stock = warehouseItemStocksByKey.get(`${warehouseId}:${link.item_id}`);
-        if (!stock) {
-          return {
-            errorMessage: `订单 ${order.order_no} 的配件“${itemName}”没有加入 ${warehouseName} 的仓库库存。`,
-            deductions: [] as OrderStockDeduction[],
-          };
-        }
-
-        deductions.push({
-          stock,
-          quantity: requiredQuantity,
-          itemName,
-          warehouseName,
-          orderNo: order.order_no,
-          orderLineLabel: getOrderLineLabel(order),
-        });
+      const stock = warehouseSkusByKey.get(`${warehouseId}:${sku.id}`);
+      if (!stock) {
+        return {
+          errorMessage: `订单 ${order.order_no} 的 SKU 没有加入 ${warehouseName} 的仓库库存。`,
+          deductions: [] as OrderStockDeduction[],
+        };
       }
+
+      deductions.push({
+        stock,
+        quantity: orderQuantity,
+        warehouseName,
+        orderNo: order.order_no,
+        orderLineLabel: getOrderLineLabel(order),
+      });
     }
 
     if (deductions.length === 0) {
       return {
-        errorMessage: "没有找到需要扣减的配件库存，请检查商品 SKU 配件组成。",
+        errorMessage: "没有找到需要扣减的 SKU 库存，请检查商品 SKU 和仓库库存。",
         deductions: [] as OrderStockDeduction[],
       };
     }
@@ -3883,16 +3730,13 @@ export function OrdersPage({ user }: OrdersPageProps) {
       throw new Error(stockDeductionResult.errorMessage);
     }
 
-    const inventoryChanges = await deductWarehouseItemStocksLegacy(
+    const inventoryChanges = await deductWarehouseSkuStocks(
       stockDeductionResult.deductions.map((deduction) => ({
         stockId: deduction.stock.id,
         quantity: deduction.quantity,
-        reason: `订单出库：${deduction.orderLineLabel}`,
-        dedupeKey: deduction.orderLineLabel,
-        reversalReason: `删除订单冲回：${deduction.orderLineLabel}`,
       })),
     );
-    applyWarehouseItemStockUpdates(inventoryChanges.map((change: any) => change.item));
+    applyWarehouseSkuStockUpdates(inventoryChanges.map((change) => change.sku));
     return inventoryChanges;
   }
 
@@ -4078,7 +3922,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
         [
           `已转入待发货 ${buildOrderDisplayRows(nextOrders).length} 行订单，请下载发货表格`,
           inventoryChanges.length > 0
-            ? `扣减 ${inventoryChanges.length} 项配件库存`
+            ? `扣减 ${inventoryChanges.length} 项 SKU 库存`
             : "",
           failures.length > 0 ? `${failures.length} 条转入失败` : "",
         ].filter(Boolean).join("，"),
@@ -4196,7 +4040,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
         [
           `已标记 ${nextOrders.length} 条订单为上传Temu`,
           inventoryChanges.length > 0
-            ? `扣减 ${inventoryChanges.length} 项配件库存`
+            ? `扣减 ${inventoryChanges.length} 项 SKU 库存`
             : "",
           failures.length > 0 ? `${failures.length} 条更新失败` : "",
         ].filter(Boolean).join("，"),
@@ -4248,7 +4092,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
         [
           `已标记签收 ${nextOrders.length} 条订单`,
           inventoryChanges.length > 0
-            ? `扣减 ${inventoryChanges.length} 项配件库存`
+            ? `扣减 ${inventoryChanges.length} 项 SKU 库存`
             : "",
           failures.length > 0 ? `${failures.length} 条更新失败` : "",
         ].filter(Boolean).join("，"),

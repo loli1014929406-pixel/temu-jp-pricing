@@ -33,6 +33,7 @@ import type {
   ProductItem,
   ProductSku,
   PurchaseOrder,
+  PurchaseOrderItem,
   PurchasePackage,
   Warehouse,
 } from "../types";
@@ -42,6 +43,20 @@ import { confirmAction, confirmDelete, confirmSave } from "../utils/confirmation
 type PurchasesPageProps = { user: User; view: "create" | "records" };
 type DraftItem = { id: string; itemId: string; quantity: string; unitPriceRmb: string };
 type DraftSkuSelection = { id: string; skuId: string; quantity: string };
+type PreparedPurchaseItem = Pick<
+  PurchaseOrderItem,
+  | "product_id"
+  | "item_id"
+  | "sku_id"
+  | "sku_quantity"
+  | "product_code"
+  | "product_name_cn"
+  | "item_name"
+  | "item_spec"
+  | "purchase_url"
+  | "quantity"
+  | "unit_price_rmb"
+>;
 type DraftProduct = {
   id: string;
   productId: string;
@@ -708,14 +723,56 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
     }
 
     const warehouse = warehousesById[warehouseId];
-    const preparedItems = draftProducts.flatMap((draftProduct) => {
+    const preparedItems: PreparedPurchaseItem[] = draftProducts.flatMap((draftProduct): PreparedPurchaseItem[] => {
       const product = productsById[draftProduct.productId];
+      if (!warehouse || !product) return [];
+
+      const draftItemByItemId = new Map(
+        draftProduct.items.map((draftItem) => [draftItem.itemId, draftItem]),
+      );
+      const skuSelections = getDraftSkuSelections(draftProduct)
+        .map((selection) => ({
+          sku: skusById[selection.skuId],
+          quantity: Number(normalizePositiveIntegerInput(selection.quantity)),
+        }))
+        .filter((selection) => selection.sku?.id && selection.quantity > 0);
+
+      if (skuSelections.length > 0) {
+        return skuSelections.flatMap(({ sku, quantity: skuQuantity }) => {
+          if (!sku?.id) return [];
+
+          return sku.component_links.flatMap((link) => {
+            const component = itemsById[link.item_id];
+            if (!component?.id || component.product_id !== product.id || link.quantity <= 0) {
+              return [];
+            }
+
+            const draftItem = draftItemByItemId.get(component.id);
+            return [{
+              product_id: product.id,
+              item_id: component.id,
+              sku_id: sku.id ?? null,
+              sku_quantity: skuQuantity,
+              product_code: product.product_code,
+              product_name_cn: product.product_name_cn,
+              item_name: component.item_name,
+              item_spec: component.item_spec,
+              purchase_url: component.purchase_url,
+              quantity: link.quantity * skuQuantity,
+              unit_price_rmb: Number(draftItem?.unitPriceRmb || component.purchase_price_rmb || 0),
+            }];
+          });
+        });
+      }
+
       return draftProduct.items.flatMap((draftItem) => {
         const component = itemsById[draftItem.itemId];
-        if (!warehouse || !product || !component?.id || component.product_id !== product.id) return [];
+        if (!component?.id || component.product_id !== product.id) return [];
         return [{
           product_id: product.id,
           item_id: component.id,
+          sku_id: null,
+          sku_quantity: null,
           product_code: product.product_code,
           product_name_cn: product.product_name_cn,
           item_name: component.item_name,

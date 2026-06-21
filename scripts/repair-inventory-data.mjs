@@ -561,303 +561,186 @@ for (const adjustment of data.warehouse_item_stock_adjustments) {
     existingOutboundLegacyCounts.set(key, (existingOutboundLegacyCounts.get(key) ?? 0) + 1);
   }
 }
+const statsByStockKey = new Map();
+
+function getStockStats(warehouseId, itemId) {
+  const key = stockKey(warehouseId, itemId);
+  if (!statsByStockKey.has(key)) {
+    const stockRow = stocksByKey.get(key);
+    statsByStockKey.set(key, {
+      warehouseId,
+      itemId,
+      current: stockRow?.stock_quantity ?? 0,
+      expected: 0,
+      diff: 0,
+      purchaseInbound: 0,
+      orderOutbound: 0,
+      transferIn: 0,
+      transferOut: 0,
+      manualAdjustment: 0,
+    });
+  }
+  return statsByStockKey.get(key);
+}
+
+for (const event of inboundEvents.values()) {
+  getStockStats(event.warehouse_id, event.item_id).purchaseInbound += event.quantity;
+}
+
+for (const event of outboundEvents.values()) {
+  getStockStats(event.warehouse_id, event.item_id).orderOutbound += event.quantity;
+}
+
+for (const adjustment of data.warehouse_item_stock_adjustments) {
+  const reason = String(adjustment.reason ?? "").trim();
+  const quantity = Number(adjustment.change_quantity) || 0;
+  const stats = getStockStats(adjustment.warehouse_id, adjustment.item_id);
+
+  if (reason.startsWith("库存调拨入库：")) {
+    stats.transferIn += quantity;
+  } else if (reason.startsWith("库存调拨出库：")) {
+    stats.transferOut += quantity;
+  } else {
+    let isAuto = false;
+
+    if (adjustment.purchase_order_id || adjustment.purchase_package_id) {
+      isAuto = true;
+    } else if (
+      reason.startsWith("删除订单冲回：") || 
+      reason.startsWith("删除采购单冲回：") || 
+      reason.startsWith("库存重算校准") || 
+      reason.startsWith("库存校准：按有效采购和订单重算")
+    ) {
+      isAuto = true;
+    } else {
+      const identity = parseOutboundOrderIdentity(reason);
+      if (identity.orderNo) {
+        const isCurrentOrderLine = identity.orderLineKey
+          ? validTemuOrderLineKeys.has(identity.orderLineKey)
+          : validTemuOrderNos.has(identity.orderNo);
+        
+        if (isCurrentOrderLine) {
+          isAuto = true;
+        } else if (identity.orderNo.toLowerCase().startsWith("po-")) {
+          isAuto = true;
+        }
+      }
+    }
+
+    if (!isAuto) {
+      stats.manualAdjustment += quantity;
+    }
+  }
+}
+
 const adjustmentRows = [];
 const stockUpdateDrafts = new Map();
 
-function applyStockChange(change) {
-  if (change.change_quantity === 0) return;
+for (const stats of statsByStockKey.values()) {
+  stats.expected =
+    stats.purchaseInbound -
+    stats.orderOutbound +
+    stats.transferIn +
+    stats.transferOut +
+    stats.manualAdjustment;
+  stats.diff = stats.expected - stats.current;
 
-  const key = stockKey(change.warehouse_id, change.item_id);
-  const stock = stocksByKey.get(key);
-  if (!stock) {
-    throw new Error(`缺少库存行：${key}`);
-  }
-
-  const previous = runningLedgerByKey.get(key) ?? 0;
-  const next = previous + change.change_quantity;
-  if (next < 0) {
-    const item = itemById.get(change.item_id);
-    const sku = change.order_no ? `，订单 ${change.order_no}` : "";
-    throw new Error(`库存不足，无法校准：${item?.item_name ?? change.item_id}${sku}`);
-  }
-
-  runningLedgerByKey.set(key, next);
-  adjustmentRows.push({
-    warehouse_id: change.warehouse_id,
-    item_id: change.item_id,
-    owner_id: stock.owner_id,
-    previous_quantity: previous,
-    next_quantity: next,
-    change_quantity: change.change_quantity,
-    reason: change.reason,
-    purchase_order_id: change.purchase_order_id ?? null,
-    purchase_package_id: change.purchase_package_id ?? null,
-  });
-}
-
-function applyAdjustmentEvent(event) {
-  if (event.quantity <= 0) return;
-
-  applyStockChange({
-    ...event,
-    change_quantity: event.direction === "in" ? event.quantity : -event.quantity,
-  });
-}
-
-for (const event of Array.from(inboundEvents.values())) {
-  const key = `${event.warehouse_id}:${event.item_id}:${event.purchase_package_id}`;
-  const existingQuantity = existingInboundQuantities.get(key) ?? 0;
-  if (existingQuantity >= event.quantity) continue;
-
-  const legacyKey = `${event.warehouse_id}:${event.item_id}:${event.purchase_order_id}`;
-  const legacyQuantity = existingInboundLegacyQuantities.get(legacyKey) ?? 0;
-  const missingQuantity = event.quantity - existingQuantity;
-  if (legacyQuantity >= missingQuantity) {
-    existingInboundLegacyQuantities.set(legacyKey, legacyQuantity - missingQuantity);
-    continue;
-  }
-
-  existingInboundLegacyQuantities.set(legacyKey, 0);
-  applyAdjustmentEvent({
-    ...event,
-    quantity: missingQuantity - legacyQuantity,
-    direction: "in",
-  });
-}
-
-for (const event of Array.from(outboundEvents.values())) {
-  const lineKey = `${event.warehouse_id}:${event.item_id}:${event.order_line_key}`;
-  const legacyKey = `${event.warehouse_id}:${event.item_id}:${event.order_no}`;
-  if (existingOutboundLineKeys.has(lineKey)) {
-    continue;
-  }
-
-  const legacyCount = existingOutboundLegacyCounts.get(legacyKey) ?? 0;
-  if (legacyCount > 0) {
-    existingOutboundLegacyCounts.set(legacyKey, legacyCount - 1);
-    continue;
-  }
-
-  applyAdjustmentEvent({ ...event, direction: "out" });
-}
-
-const validPurchaseOrderIds = new Set(data.purchase_orders.map((order) => order.id));
-const validPurchasePackageIds = new Set(data.purchase_packages.map((pkg) => pkg.id));
-const assignedTemuOrders = data.temu_orders.filter(
-  (order) => isAssignedOrder(order) && order.warehouse_id,
-);
-const validTemuOrderNos = new Set(
-  assignedTemuOrders.map((order) => String(order.order_no ?? "").trim()).filter(Boolean),
-);
-const validTemuOrderLineKeys = new Set(
-  assignedTemuOrders.map((order) => getOrderLineLabel(order)).filter(Boolean),
-);
-
-const stalePurchaseChanges = new Map();
-for (const adjustment of data.warehouse_item_stock_adjustments) {
-  const purchaseOrderId = adjustment.purchase_order_id ?? "";
-  const purchasePackageId = adjustment.purchase_package_id ?? "";
-  if (!purchaseOrderId && !purchasePackageId) continue;
-
-  const orderMissing = purchaseOrderId && !validPurchaseOrderIds.has(purchaseOrderId);
-  const packageMissing = purchasePackageId && !validPurchasePackageIds.has(purchasePackageId);
-  if (!orderMissing && !packageMissing) continue;
-
-  const key = [
-    adjustment.warehouse_id,
-    adjustment.item_id,
-    adjustment.owner_id,
-    purchaseOrderId,
-    purchasePackageId,
-  ].join("\u0000");
-  const current = stalePurchaseChanges.get(key) ?? {
-    warehouse_id: adjustment.warehouse_id,
-    item_id: adjustment.item_id,
-    owner_id: adjustment.owner_id,
-    purchase_order_id: purchaseOrderId || null,
-    purchase_package_id: purchasePackageId || null,
-    change_quantity: 0,
-  };
-  current.change_quantity += Number(adjustment.change_quantity) || 0;
-  stalePurchaseChanges.set(key, current);
-}
-
-for (const staleChange of stalePurchaseChanges.values()) {
-  if (staleChange.change_quantity === 0) continue;
-
-  applyStockChange({
-    ...staleChange,
-    change_quantity: -staleChange.change_quantity,
-    reason: "删除采购单冲回：已删除采购单",
-  });
-}
-
-const staleOutboundChanges = new Map();
-for (const adjustment of data.warehouse_item_stock_adjustments) {
-  const identity = parseOutboundOrderIdentity(adjustment.reason);
-  if (!identity.orderNo) continue;
-  const isCurrentOrderLine = identity.orderLineKey
-    ? validTemuOrderLineKeys.has(identity.orderLineKey)
-    : validTemuOrderNos.has(identity.orderNo);
-  if (isCurrentOrderLine) continue;
-
-  const key = [
-    adjustment.warehouse_id,
-    adjustment.item_id,
-    adjustment.owner_id,
-    identity.orderLineKey || identity.orderNo,
-  ].join("\u0000");
-  const current = staleOutboundChanges.get(key) ?? {
-    warehouse_id: adjustment.warehouse_id,
-    item_id: adjustment.item_id,
-    owner_id: adjustment.owner_id,
-    order_no: identity.orderNo,
-    order_line_key: identity.orderLineKey,
-    change_quantity: 0,
-  };
-  current.change_quantity += Number(adjustment.change_quantity) || 0;
-  staleOutboundChanges.set(key, current);
-}
-
-for (const staleChange of staleOutboundChanges.values()) {
-  if (staleChange.change_quantity === 0) continue;
-
-  applyStockChange({
-    ...staleChange,
-    change_quantity: -staleChange.change_quantity,
-    reason: `删除订单冲回：${staleChange.order_line_key || staleChange.order_no}`,
-  });
-}
-
-function addQuantity(map, key, quantity) {
-  map.set(key, (map.get(key) ?? 0) + quantity);
-}
-
-function isSourceManagedAdjustment(adjustment) {
-  const reason = String(adjustment.reason ?? "").trim();
-  return (
-    Boolean(adjustment.purchase_order_id || adjustment.purchase_package_id) ||
-    reason.startsWith("采购入库") ||
-    reason.startsWith("订单出库：") ||
-    reason.startsWith("出库：") ||
-    reason.startsWith("删除订单冲回：") ||
-    reason.startsWith("删除采购单冲回：") ||
-    reason.startsWith("库存校准：")
-  );
-}
-
-const canonicalQuantityByStockKey = new Map();
-for (const event of inboundEvents.values()) {
-  addQuantity(
-    canonicalQuantityByStockKey,
-    stockKey(event.warehouse_id, event.item_id),
-    event.quantity,
-  );
-}
-for (const event of outboundEvents.values()) {
-  addQuantity(
-    canonicalQuantityByStockKey,
-    stockKey(event.warehouse_id, event.item_id),
-    -event.quantity,
-  );
-}
-for (const adjustment of data.warehouse_item_stock_adjustments) {
-  if (isSourceManagedAdjustment(adjustment)) continue;
-
-  addQuantity(
-    canonicalQuantityByStockKey,
-    stockKey(adjustment.warehouse_id, adjustment.item_id),
-    Number(adjustment.change_quantity) || 0,
-  );
-}
-
-const ledgerQuantityByStockKey = new Map();
-for (const adjustment of data.warehouse_item_stock_adjustments) {
-  addQuantity(
-    ledgerQuantityByStockKey,
-    stockKey(adjustment.warehouse_id, adjustment.item_id),
-    Number(adjustment.change_quantity) || 0,
-  );
-}
-for (const adjustment of adjustmentRows) {
-  addQuantity(
-    ledgerQuantityByStockKey,
-    stockKey(adjustment.warehouse_id, adjustment.item_id),
-    Number(adjustment.change_quantity) || 0,
-  );
-}
-
-const stockKeysToReconcile = new Set([
-  ...canonicalQuantityByStockKey.keys(),
-  ...ledgerQuantityByStockKey.keys(),
-  ...stockRowsForComputation.map((row) => stockKey(row.warehouse_id, row.item_id)),
-]);
-
-for (const key of stockKeysToReconcile) {
-  const stock = stocksByKey.get(key);
-  if (!stock) throw new Error(`缺少库存行：${key}`);
-
-  const expectedQuantity = canonicalQuantityByStockKey.get(key) ?? 0;
-  if (expectedQuantity < 0) {
-    const item = itemById.get(stock.item_id);
+  if (stats.expected < 0) {
+    const item = itemById.get(stats.itemId);
+    const warehouse = warehouseById.get(stats.warehouseId);
+    console.error(`\n🚨 致命错误: 库存重算结果为负数！无法继续执行。`);
+    console.table([{
+      warehouse: warehouse?.name ?? stats.warehouseId,
+      item: item?.item_name ?? stats.itemId,
+      current: stats.current,
+      expected: stats.expected,
+      diff: stats.diff,
+      purchaseInbound: stats.purchaseInbound,
+      orderOutbound: stats.orderOutbound,
+      transferIn: stats.transferIn,
+      transferOut: stats.transferOut,
+      manualAdjustment: stats.manualAdjustment,
+    }]);
     throw new Error(
-      `库存重算结果为负数，请先检查超卖订单：${item?.item_name ?? stock.item_id}`,
+      `库存重算结果为负数，请先检查超卖订单或缺失的采购记录：${item?.item_name ?? stats.itemId}`,
     );
   }
 
-  const ledgerQuantity = ledgerQuantityByStockKey.get(key) ?? 0;
-  const correctionQuantity = expectedQuantity - ledgerQuantity;
-  if (correctionQuantity !== 0) {
+  if (stats.diff !== 0) {
+    const stockRow = stocksByKey.get(stockKey(stats.warehouseId, stats.itemId));
+    const ownerId = stockRow?.owner_id || warehouseById.get(stats.warehouseId)?.owner_id || null;
+    
+    // 防御性校验，防范 current < 0 导致 previous_quantity < 0
+    const previousQty = Math.max(0, stats.current);
+    const nextQty = stats.expected; // 上面已拦截负数，必 >= 0
+    const changeQty = nextQty - previousQty;
+
+    // 即便因为 Math.max 导致 changeQty === 0，由于我们要修复底层负数库存行，所以 diff != 0 依旧触发
     adjustmentRows.push({
-      warehouse_id: stock.warehouse_id,
-      item_id: stock.item_id,
-      owner_id: stock.owner_id,
-      previous_quantity: ledgerQuantity,
-      next_quantity: expectedQuantity,
-      change_quantity: correctionQuantity,
-      reason: "库存校准：按有效采购和订单重算",
+      warehouse_id: stats.warehouseId,
+      item_id: stats.itemId,
+      owner_id: ownerId, 
+      previous_quantity: previousQty,
+      next_quantity: nextQty,
+      change_quantity: changeQty, // 使用严谨计算后的差额，不直接用 diff
+      reason: "库存重算校准",
       purchase_order_id: null,
       purchase_package_id: null,
     });
-    ledgerQuantityByStockKey.set(key, expectedQuantity);
-  }
 
-  if (stock.stock_quantity !== expectedQuantity) {
-    stockUpdateDrafts.set(key, {
-      id: stock.id,
-      warehouse_id: stock.warehouse_id,
-      item_id: stock.item_id,
-      owner_id: stock.owner_id,
-      stock_quantity: expectedQuantity,
+    stockUpdateDrafts.set(stockKey(stats.warehouseId, stats.itemId), {
+      id: stockRow?.id,
+      warehouse_id: stats.warehouseId,
+      item_id: stats.itemId,
+      owner_id: ownerId,
+      stock_quantity: stats.expected,
     });
-  } else {
-    stockUpdateDrafts.delete(key);
   }
 }
 
-const stockUpdates = Array.from(stockUpdateDrafts.values()).filter((update) => {
-  const current = stocksByKey.get(stockKey(update.warehouse_id, update.item_id));
-  return current && current.stock_quantity !== update.stock_quantity;
-});
-const stockChangeSummary = summarizeStockChanges(
-  stockUpdates,
-  stocksByKey,
-  itemById,
-  productById,
-);
+const stockUpdates = Array.from(stockUpdateDrafts.values()).filter(update => update.id); 
 
-console.log(dryRun ? "库存校准预览：" : "开始库存校准：");
+const stockChangeSummary = Array.from(statsByStockKey.values())
+  .filter(stats => stats.diff !== 0)
+  .map(stats => {
+    const item = itemById.get(stats.itemId);
+    const product = productById.get(item?.product_id);
+    const warehouse = warehouseById.get(stats.warehouseId);
+    return {
+      warehouse: warehouse?.name ?? stats.warehouseId,
+      product: product?.product_code ?? "",
+      item: item?.item_name ?? stats.itemId,
+      current: stats.current,
+      expected: stats.expected,
+      diff: stats.diff,
+      purchaseInbound: stats.purchaseInbound,
+      orderOutbound: stats.orderOutbound,
+      transferIn: stats.transferIn,
+      transferOut: stats.transferOut,
+      manualAdjustment: stats.manualAdjustment,
+    };
+  })
+  .sort((left, right) =>
+    left.product.localeCompare(right.product, "zh-CN", { numeric: true }) ||
+    left.item.localeCompare(right.item, "zh-CN", { numeric: true }),
+  );
+
+console.log(dryRun ? "库存重算校准预览：" : "开始库存校准：");
 console.log(`补齐仓库 SKU：${skuRowsToInsert.length}`);
 console.log(`补齐配件库存行：${stockRowsToInsert.length}`);
 console.log(`回写采购明细配件：${purchaseItemIdUpdates.size}`);
-console.log(`补齐库存流水：${adjustmentRows.length}`);
-console.log(`更新库存数量：${stockUpdates.length}`);
-if (stockChangeSummary.length > 0) console.table(stockChangeSummary);
+console.log(`将插入的校准流水：${adjustmentRows.length}`);
+console.log(`将更新的库存数量：${stockUpdates.length}`);
 
-await updatePurchaseOrderItemRows(supabase, Array.from(purchaseItemIdUpdates.values()));
-await insertRows(supabase, "warehouse_item_stock_adjustments", adjustmentRows);
-await updateStockRows(supabase, stockUpdates);
+if (stockChangeSummary.length > 0) {
+    console.table(stockChangeSummary);
+} else {
+    console.log("所有配件库存账实相符，无需校准。");
+}
 
 if (!dryRun) {
+  await updatePurchaseOrderItemRows(supabase, Array.from(purchaseItemIdUpdates.values()));
+  await insertRows(supabase, "warehouse_item_stock_adjustments", adjustmentRows);
+  await updateStockRows(supabase, stockUpdates);
   console.log("库存校准完成。");
 }

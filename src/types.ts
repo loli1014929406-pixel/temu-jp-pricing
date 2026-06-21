@@ -345,6 +345,8 @@ export type PurchaseOrderItem = {
   owner_id: string;
   product_id: string | null;
   item_id: string | null;
+  sku_id: string | null;
+  sku_quantity: number | null;
   source_id: string;
   product_code: string;
   product_name_cn: string;

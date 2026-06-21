@@ -10,7 +10,8 @@
     "repair:inventory": "node scripts/repair-inventory-data.mjs",
     "sync:data": "node scripts/sync-codex-data.mjs",
     "sync:backend-context": "node scripts/sync-backend-context.mjs",
-    "test": "vitest run"
+    "test": "vitest run",
+    "convert:diff": "node C:/Users/ning/.gemini/antigravity-ide/scratch/convert_diff.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.4",
