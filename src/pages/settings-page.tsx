@@ -745,10 +745,9 @@ export function SettingsPage({ user }: SettingsPageProps) {
   }
 
   return (
-    <section className="flex flex-col p-4 sm:p-6 relative">
-      <div className="sticky top-0 z-10 -mx-4 px-4 sm:-mx-6 sm:px-6 py-4 mb-6 bg-slate-50/90 backdrop-blur-sm border-b border-line shadow-sm">
-        <PageHeader 
-          title="参数设置" 
+    <section className="flex flex-col relative">
+      <PageHeader 
+        title="参数设置" 
           description="独立配置系统参数及多维度物流规则" 
           actions={
             canEdit && (
@@ -779,7 +778,6 @@ export function SettingsPage({ user }: SettingsPageProps) {
             )
           }
         />
-      </div>
 
       <div className="flex flex-col gap-6">
         {!canEdit && (
