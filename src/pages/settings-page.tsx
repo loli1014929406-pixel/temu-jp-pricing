@@ -1,6 +1,6 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import type { User } from "@supabase/supabase-js";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, X } from "lucide-react";
 import { Field, TextInput } from "../components/form-controls";
 import {
   clearDraft,
@@ -8,16 +8,24 @@ import {
   readDraft,
   useDraftPersistence,
 } from "../hooks/use-draft-persistence";
+import { useAutoDismiss } from "../hooks/use-auto-dismiss";
 import { usePermissions } from "../hooks/use-permissions";
 import { fetchSettings, saveSettings } from "../lib/settings";
 import { defaultFirstLegMethods, defaultLastLegMethods } from "../lib/defaults";
-import type { PricingSettings, LogisticsMethodConfig } from "../types";
+import type { LogisticsMethodConfig, PricingSettings } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { PageHeader } from "../components/ui";
 
 type SettingsPageProps = {
   user: User;
 };
+
+type LogisticsSectionType = LogisticsMethodConfig["type"];
+type LogisticsFormula = LogisticsMethodConfig["formula"];
+type LogisticsParams = LogisticsMethodConfig["params"];
+type LogisticsParamKey = keyof LogisticsParams;
+type LogisticsCurrency = NonNullable<LogisticsParams["currency"]>;
+type LogisticsBillingUnit = NonNullable<LogisticsParams["billingUnit"]>;
 
 const fieldGroups: Array<{
   title: string;
@@ -44,6 +52,475 @@ const fieldGroups: Array<{
   },
 ];
 
+const formulaOptionsByType = {
+  first_leg: [
+    { value: "flat_rmb", label: "按重量计费" },
+    { value: "fixed_rmb", label: "固定运费" },
+    { value: "flat_rmb_tariff", label: "单价+关税" },
+    { value: "sf", label: "首重续重" },
+  ],
+  last_leg: [
+    { value: "flat_jpy", label: "固定日元" },
+    { value: "fixed_rmb", label: "固定运费" },
+    { value: "ocs_3cm", label: "OCS Yamato 3cm" },
+    { value: "ocs_small", label: "OCS 小包" },
+  ],
+} satisfies Record<LogisticsSectionType, Array<{ value: LogisticsFormula; label: string }>>;
+
+const currencyOptions: Array<{ value: LogisticsCurrency; label: string }> = [
+  { value: "RMB", label: "RMB" },
+  { value: "JPY", label: "JPY" },
+];
+
+const billingUnitOptions: Array<{ value: LogisticsBillingUnit; label: string }> = [
+  { value: "ticket", label: "单票" },
+  { value: "kg", label: "kg" },
+  { value: "100g", label: "100g" },
+  { value: "500g", label: "500g" },
+];
+
+function getFormulaLabel(type: LogisticsSectionType, formula: LogisticsFormula) {
+  return formulaOptionsByType[type].find((option) => option.value === formula)?.label ?? formula;
+}
+
+function getDefaultFormula(type: LogisticsSectionType): LogisticsFormula {
+  return type === "first_leg" ? "flat_rmb" : "flat_jpy";
+}
+
+function getDefaultParamsForFormula(formula: LogisticsFormula): LogisticsParams {
+  if (formula === "sf") {
+    return { firstWeight: 1, firstPrice: 8, extraPrice: 2, currency: "RMB", billingUnit: "kg" };
+  }
+  if (formula === "flat_rmb_tariff") {
+    return { price: 20, tariffRate: 0, currency: "RMB", billingUnit: "kg" };
+  }
+  if (formula === "ocs_3cm") {
+    return { firstPrice: 16.5, extraPrice: 1.5, currency: "RMB", billingUnit: "100g" };
+  }
+  if (formula === "ocs_small") {
+    return { firstPrice: 36.5, extraPrice: 6, currency: "RMB", billingUnit: "500g" };
+  }
+  if (formula === "flat_jpy") {
+    return { price: 200, currency: "JPY", billingUnit: "ticket" };
+  }
+  if (formula === "fixed_rmb") {
+    return { price: 20, currency: "RMB", billingUnit: "ticket" };
+  }
+  return { price: 20, currency: "RMB", billingUnit: "kg" };
+}
+
+function getParamFields(formula: LogisticsFormula, params: LogisticsParams) {
+  const fields: Array<{ key: LogisticsParamKey; label: string; step: string }> = [];
+  const currency = params.currency ?? (formula === "flat_jpy" ? "JPY" : "RMB");
+  const billingUnit = params.billingUnit ?? "kg";
+  const unitLabel = billingUnit === "ticket" ? "单票" : billingUnit;
+
+  if (formula === "sf") {
+    fields.push(
+      { key: "firstWeight", label: "首重 (kg)", step: "0.01" },
+      { key: "firstPrice", label: `首重价格 (${currency})`, step: "0.01" },
+      { key: "extraPrice", label: `续重价格 (${currency}/${unitLabel})`, step: "0.01" },
+    );
+  } else if (formula === "flat_rmb") {
+    fields.push({ key: "price", label: `单价 (${currency}/${unitLabel})`, step: "0.01" });
+  } else if (formula === "flat_rmb_tariff") {
+    fields.push(
+      { key: "price", label: `单价 (${currency}/${unitLabel})`, step: "0.01" },
+      { key: "tariffRate", label: "关税率 (比率, 如 0.1)", step: "0.001" },
+    );
+  } else if (formula === "flat_jpy") {
+    fields.push({ key: "price", label: `固定运费 (${currency})`, step: "1" });
+  } else if (formula === "fixed_rmb") {
+    fields.push({ key: "price", label: `固定运费 (${currency})`, step: "0.01" });
+  } else if (formula === "ocs_3cm") {
+    fields.push(
+      { key: "firstPrice", label: `首重价格 (${currency})`, step: "0.01" },
+      { key: "extraPrice", label: `续重价格 (${currency}/${unitLabel})`, step: "0.01" },
+    );
+  } else if (formula === "ocs_small") {
+    fields.push(
+      { key: "firstPrice", label: `首重价格 (${currency})`, step: "0.01" },
+      { key: "extraPrice", label: `续重价格 (${currency}/${unitLabel})`, step: "0.01" },
+    );
+  }
+
+  return fields;
+}
+
+function SelectInput({
+  children,
+  disabled,
+  onChange,
+  value,
+}: {
+  children: ReactNode;
+  disabled?: boolean;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  return (
+    <select
+      disabled={disabled}
+      className="h-10 rounded-xl border border-line bg-white px-3.5 text-sm outline-none transition focus:border-accent focus:ring-4 focus:ring-accent/10 disabled:bg-slate-100 disabled:text-slate-500"
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+    >
+      {children}
+    </select>
+  );
+}
+
+function createLogisticsMethod(
+  type: LogisticsSectionType,
+  name: string,
+  formula: LogisticsFormula,
+  params: LogisticsParams,
+): LogisticsMethodConfig {
+  return {
+    id: `${type}-${Date.now()}`,
+    name,
+    type,
+    formula,
+    params: { ...params },
+    isActive: true,
+  };
+}
+
+function LogisticsParamFields({
+  disabled,
+  formula,
+  params,
+  onChange,
+}: {
+  disabled: boolean;
+  formula: LogisticsFormula;
+  params: LogisticsParams;
+  onChange: (params: LogisticsParams) => void;
+}) {
+  const fields = getParamFields(formula, params);
+
+  return (
+    <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
+      {fields.map((field) => (
+        <Field key={field.key} label={field.label}>
+          <TextInput
+            required
+            disabled={disabled}
+            min="0"
+            step={field.step}
+            type="number"
+            value={params[field.key] ?? ""}
+            onChange={(event) =>
+              onChange({
+                ...params,
+                [field.key]: Number(event.target.value || 0),
+              })
+            }
+          />
+        </Field>
+      ))}
+    </div>
+  );
+}
+
+function LogisticsMetaFields({
+  disabled,
+  formula,
+  params,
+  type,
+  onFormulaChange,
+  onParamsChange,
+}: {
+  disabled: boolean;
+  formula: LogisticsFormula;
+  params: LogisticsParams;
+  type: LogisticsSectionType;
+  onFormulaChange: (formula: LogisticsFormula) => void;
+  onParamsChange: (params: LogisticsParams) => void;
+}) {
+  return (
+    <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
+      <Field label="运费方式">
+        <SelectInput
+          disabled={disabled}
+          value={formula}
+          onChange={(value) => onFormulaChange(value as LogisticsFormula)}
+        >
+          {formulaOptionsByType[type].map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </SelectInput>
+      </Field>
+      <Field label="货币单位">
+        <SelectInput
+          disabled={disabled}
+          value={params.currency ?? "RMB"}
+          onChange={(value) =>
+            onParamsChange({ ...params, currency: value as LogisticsCurrency })
+          }
+        >
+          {currencyOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </SelectInput>
+      </Field>
+      <Field label="计费单位">
+        <SelectInput
+          disabled={disabled}
+          value={params.billingUnit ?? "ticket"}
+          onChange={(value) =>
+            onParamsChange({ ...params, billingUnit: value as LogisticsBillingUnit })
+          }
+        >
+          {billingUnitOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </SelectInput>
+      </Field>
+    </div>
+  );
+}
+
+function LogisticsMethodCard({
+  canEdit,
+  method,
+  onDelete,
+  onUpdate,
+}: {
+  canEdit: boolean;
+  method: LogisticsMethodConfig;
+  onDelete: (id: string) => void;
+  onUpdate: (id: string, updates: Partial<LogisticsMethodConfig>) => void;
+}) {
+  return (
+    <article className="grid gap-5 rounded-lg border border-line bg-slate-50 p-4">
+      <div className="grid gap-4 lg:grid-cols-[minmax(220px,1fr)_auto] lg:items-end">
+        <Field label="名称">
+          <TextInput
+            required
+            disabled={!canEdit}
+            type="text"
+            value={method.name}
+            onChange={(event) => onUpdate(method.id, { name: event.target.value })}
+          />
+        </Field>
+        <div className="flex h-10 items-center justify-between gap-3 lg:justify-end">
+          <span className="inline-flex h-8 items-center rounded-full border border-line bg-white px-3 text-sm font-semibold text-slate-700">
+            {getFormulaLabel(method.type, method.formula)}
+          </span>
+          <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-600">
+            <input
+              disabled={!canEdit}
+              type="checkbox"
+              className="h-4 w-4 accent-accent"
+              checked={method.isActive}
+              onChange={(event) => onUpdate(method.id, { isActive: event.target.checked })}
+            />
+            启用
+          </label>
+          {canEdit && (
+            <button
+              type="button"
+              title="删除"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"
+              onClick={() => onDelete(method.id)}
+            >
+              <Trash2 size={17} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      <LogisticsMetaFields
+        disabled={!canEdit}
+        formula={method.formula}
+        params={method.params}
+        type={method.type}
+        onFormulaChange={(formula) =>
+          onUpdate(method.id, {
+            formula,
+            params: getDefaultParamsForFormula(formula),
+          })
+        }
+        onParamsChange={(params) => onUpdate(method.id, { params })}
+      />
+
+      <LogisticsParamFields
+        disabled={!canEdit}
+        formula={method.formula}
+        params={method.params}
+        onChange={(params) => onUpdate(method.id, { params })}
+      />
+    </article>
+  );
+}
+
+function NewLogisticsMethodPanel({
+  canEdit,
+  name,
+  formula,
+  params,
+  type,
+  onAdd,
+  onCancel,
+  onFormulaChange,
+  onNameChange,
+  onParamsChange,
+}: {
+  canEdit: boolean;
+  name: string;
+  formula: LogisticsFormula;
+  params: LogisticsParams;
+  type: LogisticsSectionType;
+  onAdd: () => void;
+  onCancel: () => void;
+  onFormulaChange: (formula: LogisticsFormula) => void;
+  onNameChange: (name: string) => void;
+  onParamsChange: (params: LogisticsParams) => void;
+}) {
+  return (
+    <div className="grid gap-4 rounded-lg border border-dashed border-accent/40 bg-accent/5 p-4">
+      <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
+        <Field label="名称">
+          <TextInput
+            autoFocus
+            disabled={!canEdit}
+            type="text"
+            placeholder={type === "first_leg" ? "如: OCS Air" : "如: JP Post"}
+            value={name}
+            onChange={(event) => onNameChange(event.target.value)}
+          />
+        </Field>
+      </div>
+
+      <LogisticsMetaFields
+        disabled={!canEdit}
+        formula={formula}
+        params={params}
+        type={type}
+        onFormulaChange={(nextFormula) => onFormulaChange(nextFormula)}
+        onParamsChange={onParamsChange}
+      />
+
+      <LogisticsParamFields
+        disabled={!canEdit}
+        formula={formula}
+        params={params}
+        onChange={onParamsChange}
+      />
+
+      <div className="flex flex-wrap justify-end gap-2">
+        <button type="button" className="btn-secondary h-10 px-4" onClick={onCancel}>
+          取消
+        </button>
+        <button type="button" className="btn-primary h-10 px-5" onClick={onAdd}>
+          保存新增
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function LogisticsSection({
+  canEdit,
+  description,
+  isAdding,
+  methods,
+  newFormula,
+  newName,
+  newParams,
+  onAdd,
+  onCancelAdd,
+  onDelete,
+  onNewFormulaChange,
+  onNewNameChange,
+  onNewParamsChange,
+  onStartAdd,
+  onUpdate,
+  title,
+  type,
+}: {
+  canEdit: boolean;
+  description: string;
+  isAdding: boolean;
+  methods: LogisticsMethodConfig[];
+  newFormula: LogisticsFormula;
+  newName: string;
+  newParams: LogisticsParams;
+  onAdd: () => void;
+  onCancelAdd: () => void;
+  onDelete: (id: string) => void;
+  onNewFormulaChange: (formula: LogisticsFormula) => void;
+  onNewNameChange: (name: string) => void;
+  onNewParamsChange: (params: LogisticsParams) => void;
+  onStartAdd: () => void;
+  onUpdate: (id: string, updates: Partial<LogisticsMethodConfig>) => void;
+  title: string;
+  type: LogisticsSectionType;
+}) {
+  const addButtonLabel = type === "first_leg" ? "新增头程方式" : "新增尾程方式";
+
+  return (
+    <section className="rounded-lg bg-panel p-5 shadow-soft">
+      <div className="flex items-start justify-between gap-4 border-b border-line pb-4">
+        <div>
+          <h2 className="text-base font-bold text-ink">{title}</h2>
+          <p className="mt-1 text-sm leading-6 text-slate-500">{description}</p>
+        </div>
+        {canEdit && (
+          <button
+            type="button"
+            className="btn-secondary h-10 shrink-0 px-4"
+            onClick={isAdding ? onCancelAdd : onStartAdd}
+          >
+            {isAdding ? <X size={16} /> : <Plus size={16} />}
+            {isAdding ? "收起" : addButtonLabel}
+          </button>
+        )}
+      </div>
+
+      <div className="mt-4 grid gap-4">
+        {isAdding && (
+          <NewLogisticsMethodPanel
+            canEdit={canEdit}
+            name={newName}
+            formula={newFormula}
+            params={newParams}
+            type={type}
+            onNameChange={onNewNameChange}
+            onFormulaChange={onNewFormulaChange}
+            onParamsChange={onNewParamsChange}
+            onAdd={onAdd}
+            onCancel={onCancelAdd}
+          />
+        )}
+
+        {methods.length === 0 ? (
+          <div className="rounded-md border border-line bg-slate-50 p-4 text-sm text-slate-500">
+            暂无物流方式
+          </div>
+        ) : (
+          methods.map((method) => (
+            <LogisticsMethodCard
+              key={method.id}
+              canEdit={canEdit}
+              method={method}
+              onUpdate={onUpdate}
+              onDelete={onDelete}
+            />
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
 export function SettingsPage({ user }: SettingsPageProps) {
   const { canEdit } = usePermissions();
   const draftKey = `settings-draft:v3:${user.id}`;
@@ -54,13 +531,27 @@ export function SettingsPage({ user }: SettingsPageProps) {
   const [errorMessage, setErrorMessage] = useState("");
   const [draftNotice, setDraftNotice] = useState("");
 
-  // UI state for adding new methods
-  const [newFirstLegFormula, setNewFirstLegFormula] = useState<LogisticsMethodConfig["formula"]>("flat_rmb");
+  const [addingFirstLeg, setAddingFirstLeg] = useState(false);
+  const [newFirstLegFormula, setNewFirstLegFormula] = useState<LogisticsFormula>(
+    getDefaultFormula("first_leg"),
+  );
   const [newFirstLegName, setNewFirstLegName] = useState("");
+  const [newFirstLegParams, setNewFirstLegParams] = useState<LogisticsParams>(
+    getDefaultParamsForFormula(getDefaultFormula("first_leg")),
+  );
 
-  const [newLastLegFormula, setNewLastLegFormula] = useState<LogisticsMethodConfig["formula"]>("flat_jpy");
+  const [addingLastLeg, setAddingLastLeg] = useState(false);
+  const [newLastLegFormula, setNewLastLegFormula] = useState<LogisticsFormula>(
+    getDefaultFormula("last_leg"),
+  );
   const [newLastLegName, setNewLastLegName] = useState("");
+  const [newLastLegParams, setNewLastLegParams] = useState<LogisticsParams>(
+    getDefaultParamsForFormula(getDefaultFormula("last_leg")),
+  );
 
+  useAutoDismiss(errorMessage, () => setErrorMessage(""));
+  useAutoDismiss(draftNotice, () => setDraftNotice(""));
+  useAutoDismiss(saved, () => setSaved(false));
   useDraftPersistence(draftKey, settings, { enabled: Boolean(canEdit && settings) });
 
   useEffect(() => {
@@ -72,28 +563,13 @@ export function SettingsPage({ user }: SettingsPageProps) {
 
       try {
         const nextSettings = await fetchSettings(user.id);
-        const cachedConfig = localStorage.getItem(`pricing-logistics-config:v1:${user.id}`);
-        let dynamicConfig = cachedConfig ? JSON.parse(cachedConfig) : null;
-        if (!dynamicConfig) {
-          dynamicConfig = {
-            first_leg_methods: defaultFirstLegMethods,
-            last_leg_methods: defaultLastLegMethods,
-          };
-        }
-
-        const mergedSettings: PricingSettings = {
-          ...nextSettings,
-          first_leg_methods: dynamicConfig.first_leg_methods,
-          last_leg_methods: dynamicConfig.last_leg_methods,
-        };
-
         const cachedDraft = readDraft<PricingSettings>(draftKey);
-        const restoredSettings = cachedDraft ?? mergedSettings;
+        const restoredSettings = cachedDraft ?? nextSettings;
 
         if (active) {
           setSettings(restoredSettings);
           setDraftNotice(
-            cachedDraft && !isSameDraft(cachedDraft, mergedSettings)
+            cachedDraft && !isSameDraft(cachedDraft, nextSettings)
               ? "已恢复上次未保存的参数草稿。"
               : "",
           );
@@ -115,6 +591,28 @@ export function SettingsPage({ user }: SettingsPageProps) {
     };
   }, [draftKey, user.id]);
 
+  function updateSettings(updates: Partial<PricingSettings>) {
+    if (!settings) return;
+    setSettings({ ...settings, ...updates });
+    setSaved(false);
+  }
+
+  function resetFirstLegAddForm() {
+    const formula = getDefaultFormula("first_leg");
+    setNewFirstLegName("");
+    setNewFirstLegFormula(formula);
+    setNewFirstLegParams(getDefaultParamsForFormula(formula));
+    setAddingFirstLeg(false);
+  }
+
+  function resetLastLegAddForm() {
+    const formula = getDefaultFormula("last_leg");
+    setNewLastLegName("");
+    setNewLastLegFormula(formula);
+    setNewLastLegParams(getDefaultParamsForFormula(formula));
+    setAddingLastLeg(false);
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!settings) return;
@@ -128,13 +626,8 @@ export function SettingsPage({ user }: SettingsPageProps) {
 
     try {
       await saveSettings(user.id, settings);
-
-      const dynamicConfig = {
-        first_leg_methods: settings.first_leg_methods || defaultFirstLegMethods,
-        last_leg_methods: settings.last_leg_methods || defaultLastLegMethods,
-      };
-      localStorage.setItem(`pricing-logistics-config:v1:${user.id}`, JSON.stringify(dynamicConfig));
-
+      const nextSettings = await fetchSettings(user.id);
+      setSettings(nextSettings);
       clearDraft(draftKey);
       setDraftNotice("");
       setSaved(true);
@@ -145,94 +638,71 @@ export function SettingsPage({ user }: SettingsPageProps) {
     }
   }
 
-  // CRUD utilities
-  const handleAddFirstLeg = () => {
-    if (!settings || !newFirstLegName.trim()) return;
+  function handleAddFirstLeg() {
+    if (!settings) return;
     const name = newFirstLegName.trim();
-    const newMethod: LogisticsMethodConfig = {
-      id: `first-leg-${Date.now()}`,
-      name,
-      type: "first_leg",
-      formula: newFirstLegFormula,
-      params:
-        newFirstLegFormula === "sf"
-          ? { firstWeight: 1, firstPrice: 8, extraPrice: 2 }
-          : newFirstLegFormula === "flat_rmb_tariff"
-            ? { price: 20, tariffRate: 0 }
-            : { price: 20 },
-      isActive: true,
-    };
-    setSettings({
-      ...settings,
-      first_leg_methods: [...(settings.first_leg_methods || []), newMethod],
-    });
-    setNewFirstLegName("");
-    setSaved(false);
-  };
+    if (!name) {
+      setErrorMessage("请填写头程物流方式名称。");
+      return;
+    }
 
-  const handleAddLastLeg = () => {
-    if (!settings || !newLastLegName.trim()) return;
+    updateSettings({
+      first_leg_methods: [
+        ...(settings.first_leg_methods || []),
+        createLogisticsMethod("first_leg", name, newFirstLegFormula, newFirstLegParams),
+      ],
+    });
+    resetFirstLegAddForm();
+  }
+
+  function handleAddLastLeg() {
+    if (!settings) return;
     const name = newLastLegName.trim();
-    const newMethod: LogisticsMethodConfig = {
-      id: `last-leg-${Date.now()}`,
-      name,
-      type: "last_leg",
-      formula: newLastLegFormula,
-      params:
-        newLastLegFormula === "ocs_3cm"
-          ? { firstPrice: 16.5, extraPrice: 1.5 }
-          : newLastLegFormula === "ocs_small"
-            ? { firstPrice: 36.5, extraPrice: 6 }
-            : { price: 200 },
-      isActive: true,
-    };
-    setSettings({
-      ...settings,
-      last_leg_methods: [...(settings.last_leg_methods || []), newMethod],
-    });
-    setNewLastLegName("");
-    setSaved(false);
-  };
+    if (!name) {
+      setErrorMessage("请填写尾程物流方式名称。");
+      return;
+    }
 
-  const handleDeleteFirstLeg = (id: string) => {
-    if (!settings) return;
-    setSettings({
-      ...settings,
-      first_leg_methods: (settings.first_leg_methods || []).filter((m) => m.id !== id),
+    updateSettings({
+      last_leg_methods: [
+        ...(settings.last_leg_methods || []),
+        createLogisticsMethod("last_leg", name, newLastLegFormula, newLastLegParams),
+      ],
     });
-    setSaved(false);
-  };
+    resetLastLegAddForm();
+  }
 
-  const handleDeleteLastLeg = (id: string) => {
+  function handleDeleteFirstLeg(id: string) {
     if (!settings) return;
-    setSettings({
-      ...settings,
-      last_leg_methods: (settings.last_leg_methods || []).filter((m) => m.id !== id),
+    updateSettings({
+      first_leg_methods: (settings.first_leg_methods || []).filter((method) => method.id !== id),
     });
-    setSaved(false);
-  };
+  }
 
-  const handleUpdateFirstLeg = (id: string, updates: Partial<LogisticsMethodConfig>) => {
+  function handleDeleteLastLeg(id: string) {
     if (!settings) return;
-    setSettings({
-      ...settings,
-      first_leg_methods: (settings.first_leg_methods || []).map((m) =>
-        m.id === id ? { ...m, ...updates } : m,
+    updateSettings({
+      last_leg_methods: (settings.last_leg_methods || []).filter((method) => method.id !== id),
+    });
+  }
+
+  function handleUpdateFirstLeg(id: string, updates: Partial<LogisticsMethodConfig>) {
+    if (!settings) return;
+    updateSettings({
+      first_leg_methods: (settings.first_leg_methods || []).map((method) =>
+        method.id === id ? { ...method, ...updates } : method,
       ),
     });
-    setSaved(false);
-  };
+  }
 
-  const handleUpdateLastLeg = (id: string, updates: Partial<LogisticsMethodConfig>) => {
+  function handleUpdateLastLeg(id: string, updates: Partial<LogisticsMethodConfig>) {
     if (!settings) return;
-    setSettings({
-      ...settings,
-      last_leg_methods: (settings.last_leg_methods || []).map((m) =>
-        m.id === id ? { ...m, ...updates } : m,
+    updateSettings({
+      last_leg_methods: (settings.last_leg_methods || []).map((method) =>
+        method.id === id ? { ...method, ...updates } : method,
       ),
     });
-    setSaved(false);
-  };
+  }
 
   if (loading) {
     return <div className="text-sm text-slate-500">加载中...</div>;
@@ -247,7 +717,7 @@ export function SettingsPage({ user }: SettingsPageProps) {
   }
 
   return (
-    <section className="grid gap-5">
+    <section className="flex flex-col gap-6 p-4 sm:p-6">
       <PageHeader title="参数设置" description="独立配置系统参数及多维度物流规则" />
       {!canEdit && (
         <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
@@ -264,427 +734,105 @@ export function SettingsPage({ user }: SettingsPageProps) {
           {draftNotice}
         </div>
       )}
+
       <form onSubmit={handleSubmit} className="grid gap-6">
-        <div className="surface-card p-5 grid gap-5">
-          {fieldGroups.map((group) => (
-            <section key={group.title} className="grid gap-4 border-b border-line pb-5 last:border-0 last:pb-0">
-              <h2 className="text-base font-semibold text-ink">{group.title}</h2>
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                {group.fields.map((field) => (
-                  <Field key={field.key} label={field.label}>
-                    <TextInput
-                      required
-                      disabled={!canEdit}
-                      min="0"
-                      step={field.step}
-                      type="number"
-                      value={
-                        field.key === "target_profit_rate" ||
-                        field.key === "target_post_ad_profit_rate"
-                          ? (settings[field.key] as number) * 100
-                          : (settings[field.key] as string | number) ?? ""
-                      }
-                      onChange={(event) => {
-                        setSaved(false);
-                        setSettings({
-                          ...settings,
-                          [field.key]:
-                            field.key === "target_profit_rate" ||
-                            field.key === "target_post_ad_profit_rate"
-                              ? Number(event.target.value || 0) / 100
-                              : Number(event.target.value || 0),
-                        });
-                      }}
-                    />
-                  </Field>
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
-
-        {/* Dynamic logistics configurations */}
-        <div className="grid gap-6 md:grid-cols-2">
-          {/* First Leg settings card */}
-          <div className="surface-card p-5 grid gap-4">
-            <div className="flex items-center justify-between border-b border-line pb-3">
-              <h2 className="text-base font-bold text-ink">头程物流设置</h2>
-              <span className="text-xs text-slate-500">用于计算从发货地到目的国或分拨仓的头程成本</span>
-            </div>
-            
-            <div className="grid gap-4 max-h-[500px] overflow-y-auto pr-1">
-              {(settings.first_leg_methods || []).map((method) => (
-                <div key={method.id} className="p-4 rounded-lg border border-line bg-slate-50 relative group">
-                  <div className="flex items-center justify-between gap-3 mb-3">
-                    <input
-                      type="text"
-                      required
-                      disabled={!canEdit}
-                      className="bg-transparent border-0 border-b border-transparent focus:border-ink font-semibold text-sm text-ink w-2/3"
-                      value={method.name}
-                      onChange={(e) => handleUpdateFirstLeg(method.id, { name: e.target.value })}
-                    />
-                    <div className="flex items-center gap-3">
-                      <label className="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          disabled={!canEdit}
-                          checked={method.isActive}
-                          onChange={(e) => handleUpdateFirstLeg(method.id, { isActive: e.target.checked })}
-                        />
-                        启用
-                      </label>
-                      {canEdit && (
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteFirstLeg(method.id)}
-                          className="text-slate-400 hover:text-rose-600 transition-colors"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Formula specific dynamic parameters input fields */}
-                  <div className="grid gap-3 grid-cols-2 text-xs">
-                    {method.formula === "sf" && (
-                      <>
-                        <label className="flex flex-col gap-1 text-slate-500">
-                          首重 (kg)
-                          <input
-                            type="number"
-                            required
-                            disabled={!canEdit}
-                            step="0.01"
-                            className="text-input text-xs"
-                            value={method.params.firstWeight ?? ""}
-                            onChange={(e) =>
-                              handleUpdateFirstLeg(method.id, {
-                                params: { ...method.params, firstWeight: Number(e.target.value || 0) },
-                              })
-                            }
-                          />
-                        </label>
-                        <label className="flex flex-col gap-1 text-slate-500">
-                          首重价格 (RMB)
-                          <input
-                            type="number"
-                            required
-                            disabled={!canEdit}
-                            step="0.01"
-                            className="text-input text-xs"
-                            value={method.params.firstPrice ?? ""}
-                            onChange={(e) =>
-                              handleUpdateFirstLeg(method.id, {
-                                params: { ...method.params, firstPrice: Number(e.target.value || 0) },
-                              })
-                            }
-                          />
-                        </label>
-                        <label className="flex flex-col gap-1 text-slate-500 col-span-2">
-                          续重价格 (RMB/kg)
-                          <input
-                            type="number"
-                            required
-                            disabled={!canEdit}
-                            step="0.01"
-                            className="text-input text-xs"
-                            value={method.params.extraPrice ?? ""}
-                            onChange={(e) =>
-                              handleUpdateFirstLeg(method.id, {
-                                params: { ...method.params, extraPrice: Number(e.target.value || 0) },
-                              })
-                            }
-                          />
-                        </label>
-                      </>
-                    )}
-
-                    {method.formula === "flat_rmb" && (
-                      <label className="flex flex-col gap-1 text-slate-500 col-span-2">
-                        价格 (RMB/kg)
-                        <input
-                          type="number"
-                          required
-                          disabled={!canEdit}
-                          step="0.01"
-                          className="text-input text-xs"
-                          value={method.params.price ?? ""}
-                          onChange={(e) =>
-                            handleUpdateFirstLeg(method.id, {
-                              params: { ...method.params, price: Number(e.target.value || 0) },
-                            })
-                          }
-                        />
-                      </label>
-                    )}
-
-                    {method.formula === "flat_rmb_tariff" && (
-                      <>
-                        <label className="flex flex-col gap-1 text-slate-500">
-                          价格 (RMB/kg)
-                          <input
-                            type="number"
-                            required
-                            disabled={!canEdit}
-                            step="0.01"
-                            className="text-input text-xs"
-                            value={method.params.price ?? ""}
-                            onChange={(e) =>
-                              handleUpdateFirstLeg(method.id, {
-                                params: { ...method.params, price: Number(e.target.value || 0) },
-                              })
-                            }
-                          />
-                        </label>
-                        <label className="flex flex-col gap-1 text-slate-500">
-                          关税率 (比率, 如0.1)
-                          <input
-                            type="number"
-                            required
-                            disabled={!canEdit}
-                            step="0.001"
-                            className="text-input text-xs"
-                            value={method.params.tariffRate ?? ""}
-                            onChange={(e) =>
-                              handleUpdateFirstLeg(method.id, {
-                                params: { ...method.params, tariffRate: Number(e.target.value || 0) },
-                              })
-                            }
-                          />
-                        </label>
-                      </>
-                    )}
-                  </div>
+        <div className="rounded-lg bg-panel p-5 shadow-soft">
+          <div className="grid gap-5">
+            {fieldGroups.map((group) => (
+              <section
+                key={group.title}
+                className="grid gap-4 border-b border-line pb-5 last:border-0 last:pb-0"
+              >
+                <h2 className="text-base font-semibold text-ink">{group.title}</h2>
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {group.fields.map((field) => (
+                    <Field key={field.key} label={field.label}>
+                      <TextInput
+                        required
+                        disabled={!canEdit}
+                        min="0"
+                        step={field.step}
+                        type="number"
+                        value={
+                          field.key === "target_profit_rate" ||
+                          field.key === "target_post_ad_profit_rate"
+                            ? (settings[field.key] as number) * 100
+                            : (settings[field.key] as string | number) ?? ""
+                        }
+                        onChange={(event) =>
+                          updateSettings({
+                            [field.key]:
+                              field.key === "target_profit_rate" ||
+                              field.key === "target_post_ad_profit_rate"
+                                ? Number(event.target.value || 0) / 100
+                                : Number(event.target.value || 0),
+                          })
+                        }
+                      />
+                    </Field>
+                  ))}
                 </div>
-              ))}
-            </div>
-
-            {/* Form to add a new First Leg */}
-            {canEdit && (
-              <div className="border-t border-line pt-4 mt-2">
-                <p className="text-xs font-semibold text-slate-500 mb-2">添加头程运输方式</p>
-                <div className="grid gap-3 grid-cols-[1.5fr_1fr_auto] items-end">
-                  <label className="flex flex-col gap-1 text-xs text-slate-500">
-                    名称
-                    <input
-                      type="text"
-                      className="text-input"
-                      placeholder="如: OCS Air"
-                      value={newFirstLegName}
-                      onChange={(e) => setNewFirstLegName(e.target.value)}
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1 text-xs text-slate-500">
-                    类型/公式
-                    <select
-                      className="text-input"
-                      value={newFirstLegFormula}
-                      onChange={(e) => setNewFirstLegFormula(e.target.value as LogisticsMethodConfig["formula"])}
-                    >
-                      <option value="flat_rmb">按公斤计费 (RMB/kg)</option>
-                      <option value="flat_rmb_tariff">单价+关税 (RMB/kg)</option>
-                      <option value="sf">首重续重制 (RMB)</option>
-                    </select>
-                  </label>
-                  <button
-                    type="button"
-                    onClick={handleAddFirstLeg}
-                    className="inline-flex h-11 items-center justify-center rounded-md bg-ink px-4 text-white hover:bg-slate-900 transition-colors"
-                  >
-                    <Plus size={16} />
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Last Leg settings card */}
-          <div className="surface-card p-5 grid gap-4">
-            <div className="flex items-center justify-between border-b border-line pb-3">
-              <h2 className="text-base font-bold text-ink">尾程物流设置</h2>
-              <span className="text-xs text-slate-500">用于计算派送给买家的最后一公里成本</span>
-            </div>
-
-            <div className="grid gap-4 max-h-[500px] overflow-y-auto pr-1">
-              {(settings.last_leg_methods || []).map((method) => (
-                <div key={method.id} className="p-4 rounded-lg border border-line bg-slate-50 relative group">
-                  <div className="flex items-center justify-between gap-3 mb-3">
-                    <input
-                      type="text"
-                      required
-                      disabled={!canEdit}
-                      className="bg-transparent border-0 border-b border-transparent focus:border-ink font-semibold text-sm text-ink w-2/3"
-                      value={method.name}
-                      onChange={(e) => handleUpdateLastLeg(method.id, { name: e.target.value })}
-                    />
-                    <div className="flex items-center gap-3">
-                      <label className="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          disabled={!canEdit}
-                          checked={method.isActive}
-                          onChange={(e) => handleUpdateLastLeg(method.id, { isActive: e.target.checked })}
-                        />
-                        启用
-                      </label>
-                      {canEdit && (
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteLastLeg(method.id)}
-                          className="text-slate-400 hover:text-rose-600 transition-colors"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="grid gap-3 grid-cols-2 text-xs">
-                    {method.formula === "flat_jpy" && (
-                      <label className="flex flex-col gap-1 text-slate-500 col-span-2">
-                        固定价格 (JPY)
-                        <input
-                          type="number"
-                          required
-                          disabled={!canEdit}
-                          step="1"
-                          className="text-input text-xs"
-                          value={method.params.price ?? ""}
-                          onChange={(e) =>
-                            handleUpdateLastLeg(method.id, {
-                              params: { ...method.params, price: Number(e.target.value || 0) },
-                            })
-                          }
-                        />
-                      </label>
-                    )}
-
-                    {method.formula === "ocs_3cm" && (
-                      <>
-                        <label className="flex flex-col gap-1 text-slate-500">
-                          OCS Yamato 首重价格 (RMB)
-                          <input
-                            type="number"
-                            required
-                            disabled={!canEdit}
-                            step="0.01"
-                            className="text-input text-xs"
-                            value={method.params.firstPrice ?? ""}
-                            onChange={(e) =>
-                              handleUpdateLastLeg(method.id, {
-                                params: { ...method.params, firstPrice: Number(e.target.value || 0) },
-                              })
-                            }
-                          />
-                        </label>
-                        <label className="flex flex-col gap-1 text-slate-500">
-                          续重价格 (RMB/100g)
-                          <input
-                            type="number"
-                            required
-                            disabled={!canEdit}
-                            step="0.01"
-                            className="text-input text-xs"
-                            value={method.params.extraPrice ?? ""}
-                            onChange={(e) =>
-                              handleUpdateLastLeg(method.id, {
-                                params: { ...method.params, extraPrice: Number(e.target.value || 0) },
-                              })
-                            }
-                          />
-                        </label>
-                      </>
-                    )}
-
-                    {method.formula === "ocs_small" && (
-                      <>
-                        <label className="flex flex-col gap-1 text-slate-500">
-                          OCS 小包首重价格 (RMB)
-                          <input
-                            type="number"
-                            required
-                            disabled={!canEdit}
-                            step="0.01"
-                            className="text-input text-xs"
-                            value={method.params.firstPrice ?? ""}
-                            onChange={(e) =>
-                              handleUpdateLastLeg(method.id, {
-                                params: { ...method.params, firstPrice: Number(e.target.value || 0) },
-                              })
-                            }
-                          />
-                        </label>
-                        <label className="flex flex-col gap-1 text-slate-500">
-                          续重价格 (RMB/500g)
-                          <input
-                            type="number"
-                            required
-                            disabled={!canEdit}
-                            step="0.01"
-                            className="text-input text-xs"
-                            value={method.params.extraPrice ?? ""}
-                            onChange={(e) =>
-                              handleUpdateLastLeg(method.id, {
-                                params: { ...method.params, extraPrice: Number(e.target.value || 0) },
-                              })
-                            }
-                          />
-                        </label>
-                      </>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Form to add a new Last Leg */}
-            {canEdit && (
-              <div className="border-t border-line pt-4 mt-2">
-                <p className="text-xs font-semibold text-slate-500 mb-2">添加尾程运输方式</p>
-                <div className="grid gap-3 grid-cols-[1.5fr_1fr_auto] items-end">
-                  <label className="flex flex-col gap-1 text-xs text-slate-500">
-                    名称
-                    <input
-                      type="text"
-                      className="text-input"
-                      placeholder="如: JP Post"
-                      value={newLastLegName}
-                      onChange={(e) => setNewLastLegName(e.target.value)}
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1 text-xs text-slate-500">
-                    类型/公式
-                    <select
-                      className="text-input"
-                      value={newLastLegFormula}
-                      onChange={(e) => setNewLastLegFormula(e.target.value as LogisticsMethodConfig["formula"])}
-                    >
-                      <option value="flat_jpy">固定日元 (JPY)</option>
-                      <option value="ocs_3cm">OCS Yamato 3cm制 (RMB)</option>
-                      <option value="ocs_small">OCS 小包制 (RMB)</option>
-                    </select>
-                  </label>
-                  <button
-                    type="button"
-                    onClick={handleAddLastLeg}
-                    className="inline-flex h-11 items-center justify-center rounded-md bg-ink px-4 text-white hover:bg-slate-900 transition-colors"
-                  >
-                    <Plus size={16} />
-                  </button>
-                </div>
-              </div>
-            )}
+              </section>
+            ))}
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-3 surface-card p-5">
-          <span className="text-sm font-semibold text-emerald-700">{saved ? "已成功保存参数配置。" : ""}</span>
+        <div className="grid gap-6 xl:grid-cols-2">
+          <LogisticsSection
+            canEdit={canEdit}
+            type="first_leg"
+            title="头程物流设置"
+            description="用于计算从发货地到目的国或分拨仓的头程成本"
+            methods={settings.first_leg_methods || defaultFirstLegMethods}
+            isAdding={addingFirstLeg}
+            newName={newFirstLegName}
+            newFormula={newFirstLegFormula}
+            newParams={newFirstLegParams}
+            onStartAdd={() => setAddingFirstLeg(true)}
+            onCancelAdd={resetFirstLegAddForm}
+            onNewNameChange={setNewFirstLegName}
+            onNewFormulaChange={(formula) => {
+              setNewFirstLegFormula(formula);
+              setNewFirstLegParams(getDefaultParamsForFormula(formula));
+            }}
+            onNewParamsChange={setNewFirstLegParams}
+            onAdd={handleAddFirstLeg}
+            onUpdate={handleUpdateFirstLeg}
+            onDelete={handleDeleteFirstLeg}
+          />
+
+          <LogisticsSection
+            canEdit={canEdit}
+            type="last_leg"
+            title="尾程物流设置"
+            description="用于计算派送给买家的最后一公里成本"
+            methods={settings.last_leg_methods || defaultLastLegMethods}
+            isAdding={addingLastLeg}
+            newName={newLastLegName}
+            newFormula={newLastLegFormula}
+            newParams={newLastLegParams}
+            onStartAdd={() => setAddingLastLeg(true)}
+            onCancelAdd={resetLastLegAddForm}
+            onNewNameChange={setNewLastLegName}
+            onNewFormulaChange={(formula) => {
+              setNewLastLegFormula(formula);
+              setNewLastLegParams(getDefaultParamsForFormula(formula));
+            }}
+            onNewParamsChange={setNewLastLegParams}
+            onAdd={handleAddLastLeg}
+            onUpdate={handleUpdateLastLeg}
+            onDelete={handleDeleteLastLeg}
+          />
+        </div>
+
+        <div className="flex items-center justify-between gap-3 rounded-lg bg-panel p-5 shadow-soft">
+          <span className="text-sm font-semibold text-emerald-700">
+            {saved ? "已成功保存参数配置。" : ""}
+          </span>
           <button
             type="submit"
             disabled={busy || !canEdit}
-            className="btn-primary inline-flex h-11 px-8 font-medium shadow-soft"
+            className="btn-primary inline-flex h-10 px-8 font-medium shadow-soft"
           >
             {busy ? "保存中..." : "保存设置"}
           </button>

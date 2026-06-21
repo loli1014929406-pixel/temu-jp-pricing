@@ -58,6 +58,7 @@ export function ProductsPage({ user }: ProductsPageProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [sellingFilter, setSellingFilter] = useState<ProductSellingFilter>("selling");
   useAutoDismiss(errorMessage, () => setErrorMessage(""));
+  useAutoDismiss(noticeMessage, () => setNoticeMessage(""));
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -131,16 +132,6 @@ export function ProductsPage({ user }: ProductsPageProps) {
     setNoticeMessage(successMessage);
     navigate(location.pathname, { replace: true, state: null });
   }, [location.pathname, navigate, successMessage]);
-
-  useEffect(() => {
-    if (!noticeMessage) return;
-
-    const timer = window.setTimeout(() => {
-      setNoticeMessage("");
-    }, 5000);
-
-    return () => window.clearTimeout(timer);
-  }, [noticeMessage]);
 
   async function handleDelete(product: Product) {
     if (!canDelete) {

@@ -19,6 +19,7 @@ export function UserPage() {
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   useAutoDismiss(errorMessage, () => setErrorMessage(""));
+  useAutoDismiss(message, () => setMessage(""));
 
   useEffect(() => {
     let active = true;
@@ -43,12 +44,6 @@ export function UserPage() {
       active = false;
     };
   }, []);
-
-  useEffect(() => {
-    if (!message) return;
-    const timer = window.setTimeout(() => setMessage(""), 5000);
-    return () => window.clearTimeout(timer);
-  }, [message]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

@@ -20,6 +20,15 @@ export type Product = {
   updated_at: string;
 };
 
+export type AccountProfile = {
+  id?: string;
+  owner_id: string;
+  username: string;
+  user_code: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
 export type ProductSku = {
   id?: string;
   product_id?: string;
@@ -70,11 +79,21 @@ export type ProductSpec = {
 
 export type LogisticsMethodConfig = {
   id: string;
+  db_method_id?: string;
   name: string;
   type: "first_leg" | "last_leg";
-  formula: "sf" | "flat_rmb" | "flat_rmb_tariff" | "flat_jpy" | "ocs_3cm" | "ocs_small";
+  formula:
+    | "sf"
+    | "flat_rmb"
+    | "flat_rmb_tariff"
+    | "flat_jpy"
+    | "fixed_rmb"
+    | "ocs_3cm"
+    | "ocs_small";
   params: {
-    price?: number;        // flat_rmb, flat_jpy
+    price?: number;        // flat_rmb, flat_jpy, fixed_rmb
+    currency?: "RMB" | "JPY";
+    billingUnit?: "kg" | "100g" | "500g" | "ticket";
     tariffRate?: number;   // flat_rmb_tariff
     firstWeight?: number;  // sf
     firstPrice?: number;   // sf, ocs_3cm, ocs_small
@@ -222,6 +241,16 @@ export type Warehouse = {
   name: string;
   created_at: string;
   updated_at: string;
+};
+
+export type ProductWarehouseShippingLimit = {
+  id?: string;
+  owner_id?: string;
+  product_id?: string;
+  warehouse_id: string;
+  max_units_per_parcel: number;
+  created_at?: string;
+  updated_at?: string;
 };
 
 export type LogisticsMethod = {

@@ -17,6 +17,8 @@ export const defaultFirstLegMethods: LogisticsMethodConfig[] = [
       firstWeight: 1,
       firstPrice: 8,
       extraPrice: 2,
+      currency: "RMB",
+      billingUnit: "kg",
     },
     isActive: true,
   },
@@ -27,6 +29,8 @@ export const defaultFirstLegMethods: LogisticsMethodConfig[] = [
     formula: "flat_rmb",
     params: {
       price: 25,
+      currency: "RMB",
+      billingUnit: "kg",
     },
     isActive: true,
   },
@@ -38,6 +42,8 @@ export const defaultFirstLegMethods: LogisticsMethodConfig[] = [
     params: {
       price: 20,
       tariffRate: 0,
+      currency: "RMB",
+      billingUnit: "kg",
     },
     isActive: true,
   },
@@ -52,6 +58,8 @@ export const defaultLastLegMethods: LogisticsMethodConfig[] = [
     params: {
       firstPrice: 16.5,
       extraPrice: 1.5,
+      currency: "RMB",
+      billingUnit: "100g",
     },
     isActive: true,
   },
@@ -63,6 +71,8 @@ export const defaultLastLegMethods: LogisticsMethodConfig[] = [
     params: {
       firstPrice: 36.5,
       extraPrice: 6,
+      currency: "RMB",
+      billingUnit: "500g",
     },
     isActive: true,
   },
@@ -73,6 +83,8 @@ export const defaultLastLegMethods: LogisticsMethodConfig[] = [
     formula: "flat_jpy",
     params: {
       price: 260,
+      currency: "JPY",
+      billingUnit: "ticket",
     },
     isActive: true,
   },
@@ -83,6 +95,8 @@ export const defaultLastLegMethods: LogisticsMethodConfig[] = [
     formula: "flat_jpy",
     params: {
       price: 220,
+      currency: "JPY",
+      billingUnit: "ticket",
     },
     isActive: true,
   },

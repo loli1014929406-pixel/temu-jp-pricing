@@ -1,6 +1,7 @@
 import { getSupabaseClient } from "./supabase";
 import { defaultSettings } from "./defaults";
 import type { LogisticsMethodConfig, PricingSettings } from "../types";
+import { syncLogisticsMethodsFromSettings } from "./logistics-methods";
 import {
   fetchCurrentAccountPermission,
   getPermissionCapabilities,
@@ -79,6 +80,14 @@ function normalizeLogisticsMethodConfigs(
         formula,
         params: {
           price: typeof params.price === "number" ? params.price : undefined,
+          currency: params.currency === "RMB" || params.currency === "JPY" ? params.currency : undefined,
+          billingUnit:
+            params.billingUnit === "kg" ||
+            params.billingUnit === "100g" ||
+            params.billingUnit === "500g" ||
+            params.billingUnit === "ticket"
+              ? params.billingUnit
+              : undefined,
           tariffRate: typeof params.tariffRate === "number" ? params.tariffRate : undefined,
           firstWeight: typeof params.firstWeight === "number" ? params.firstWeight : undefined,
           firstPrice: typeof params.firstPrice === "number" ? params.firstPrice : undefined,
@@ -223,10 +232,19 @@ export async function fetchSettings(
 
 export async function saveSettings(userId: string, settings: PricingSettings) {
   const supabase = getSupabaseClient();
+  const previousSettings = await fetchSettings(userId, { createIfMissing: false });
   const normalizedSettings = normalizeSettings(settings);
+  const syncedMethods = await syncLogisticsMethodsFromSettings(
+    normalizedSettings,
+    previousSettings,
+  );
+  const settingsToSave = normalizeSettings({
+    ...normalizedSettings,
+    ...syncedMethods,
+  });
   const { error } = await supabase.from("pricing_settings").upsert(
     {
-      ...normalizedSettings,
+      ...settingsToSave,
       owner_id: userId,
     },
     { onConflict: "owner_id" },
@@ -235,7 +253,7 @@ export async function saveSettings(userId: string, settings: PricingSettings) {
   if (!error) return;
   if (!isDynamicSettingsColumnError(error)) throw error;
 
-  const { first_leg_methods, last_leg_methods, ...baseSettings } = normalizedSettings;
+  const { first_leg_methods, last_leg_methods, ...baseSettings } = settingsToSave;
   void first_leg_methods;
   void last_leg_methods;
 

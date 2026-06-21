@@ -159,9 +159,14 @@ export function calculatePricing(
 
   // Calculate logisticsCostRmb as maximum of all active pairings of (overseas first leg) + (overseas last leg)
   const overseasFirstLegs = activeFirstLegs.filter(
-    (m) => m.formula === "flat_rmb" || m.formula === "flat_rmb_tariff",
+    (m) =>
+      m.formula === "flat_rmb" ||
+      m.formula === "flat_rmb_tariff" ||
+      m.formula === "fixed_rmb",
   );
-  const overseasLastLegs = activeLastLegs.filter((m) => m.formula === "flat_jpy");
+  const overseasLastLegs = activeLastLegs.filter(
+    (m) => m.formula === "flat_jpy" || m.formula === "fixed_rmb",
+  );
 
   let maxLogisticsCost = 0;
   let pairingsCount = 0;

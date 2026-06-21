@@ -354,17 +354,10 @@ export function InventoryPage({ user }: InventoryPageProps) {
           console.error("Failed to fetch settings in inventory page:", e);
         }
 
-        const cachedConfig = localStorage.getItem(`pricing-logistics-config:v1:${user.id}`);
-        let dynamicConfig = cachedConfig ? JSON.parse(cachedConfig) : null;
-        if (!dynamicConfig) {
-          dynamicConfig = {
-            first_leg_methods: nextSettings?.first_leg_methods || defaultFirstLegMethods,
-            last_leg_methods: nextSettings?.last_leg_methods || defaultLastLegMethods,
-          };
-        }
-
-        const firstLegs: LogisticsMethodConfig[] = dynamicConfig.first_leg_methods || [];
-        const lastLegs: LogisticsMethodConfig[] = dynamicConfig.last_leg_methods || [];
+        const firstLegs: LogisticsMethodConfig[] =
+          nextSettings?.first_leg_methods || defaultFirstLegMethods;
+        const lastLegs: LogisticsMethodConfig[] =
+          nextSettings?.last_leg_methods || defaultLastLegMethods;
         const allSettingsNames = [
           ...firstLegs.map((m) => m.name),
           ...lastLegs.map((m) => m.name),
