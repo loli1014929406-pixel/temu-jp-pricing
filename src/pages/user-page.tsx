@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Save } from "lucide-react";
+import { Pencil, Save, X } from "lucide-react";
 import {
   fetchOrCreateCurrentAccountProfile,
   formatAccountProfileDisplay,
@@ -9,6 +9,7 @@ import { useAutoDismiss } from "../hooks/use-auto-dismiss";
 import { usePermissions } from "../hooks/use-permissions";
 import type { AccountProfile } from "../types";
 import { getErrorMessage } from "../utils/errors";
+import { confirmCancelEdit, confirmSave } from "../utils/confirmations";
 
 export function UserPage() {
   const { label } = usePermissions();
@@ -16,6 +17,7 @@ export function UserPage() {
   const [username, setUsername] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   useAutoDismiss(errorMessage, () => setErrorMessage(""));
@@ -47,6 +49,7 @@ export function UserPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!confirmSave()) return;
     setSaving(true);
     setMessage("");
     setErrorMessage("");
@@ -56,11 +59,18 @@ export function UserPage() {
       setProfile(nextProfile);
       setUsername(nextProfile.username);
       setMessage("保存成功");
+      setIsEditing(false);
     } catch (error) {
       setErrorMessage(getErrorMessage(error, "保存用户名失败"));
     } finally {
       setSaving(false);
     }
+  }
+
+  function handleCancelEdit() {
+    if (!confirmCancelEdit()) return;
+    setUsername(profile?.username ?? "");
+    setIsEditing(false);
   }
 
   if (loading) {
@@ -70,7 +80,7 @@ export function UserPage() {
   return (
     <section className="grid gap-5">
       <div>
-        <h1 className="text-2xl font-semibold text-ink">用户资料</h1>
+        <h1 className="page-title">用户资料</h1>
         <p className="mt-1 text-sm text-slate-500">
           用户ID由系统生成，用户名可修改；商品创建用户显示为“用户名（用户ID）”。
         </p>
@@ -95,6 +105,7 @@ export function UserPage() {
             <input
               value={username}
               onChange={(event) => setUsername(event.target.value)}
+              disabled={!isEditing || saving}
               className="h-11 rounded-xl border border-line bg-white px-3 text-sm font-medium outline-none transition focus:border-accent focus:ring-4 focus:ring-accent/10"
               placeholder="请输入用户名"
             />
@@ -128,15 +139,24 @@ export function UserPage() {
           </label>
         </div>
 
-        <div className="flex justify-end">
-          <button
-            type="submit"
-            disabled={saving}
-            className="btn-primary"
-          >
-            <Save size={18} />
-            {saving ? "保存中..." : "保存"}
-          </button>
+        <div className="flex justify-end gap-2">
+          {isEditing ? (
+            <>
+              <button type="button" disabled={saving} className="btn-secondary" onClick={handleCancelEdit}>
+                <X size={18} />
+                取消
+              </button>
+              <button type="submit" disabled={saving} className="btn-primary">
+                <Save size={18} />
+                {saving ? "保存中..." : "保存"}
+              </button>
+            </>
+          ) : (
+            <button type="button" className="btn-secondary" onClick={() => setIsEditing(true)}>
+              <Pencil size={18} />
+              修改
+            </button>
+          )}
         </div>
       </form>
     </section>

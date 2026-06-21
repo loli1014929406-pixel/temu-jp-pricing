@@ -38,6 +38,7 @@ import type {
   LogisticsMethodConfig,
 } from "../types";
 import { getErrorMessage } from "../utils/errors";
+import { confirmAction, confirmDelete, confirmSave } from "../utils/confirmations";
 import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../utils/sku-code";
 import { PageHeader, StandardTable } from "../components/ui";
 import { readDraft, useDraftPersistence } from "../hooks/use-draft-persistence";
@@ -358,27 +359,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
           nextSettings?.first_leg_methods || defaultFirstLegMethods;
         const lastLegs: LogisticsMethodConfig[] =
           nextSettings?.last_leg_methods || defaultLastLegMethods;
-        const allSettingsNames = [
-          ...firstLegs.map((m) => m.name),
-          ...lastLegs.map((m) => m.name),
-        ];
-
-        let updatedDbLogisticsMethods = [...nextLogisticsMethods];
-        for (const name of allSettingsNames) {
-          const normalized = normalizeLogisticsMethodName(name);
-          if (!normalized) continue;
-          const exists = updatedDbLogisticsMethods.some(
-            (m) => normalizeLogisticsMethodName(m.name).toLowerCase() === normalized.toLowerCase(),
-          );
-          if (!exists) {
-            try {
-              const newMethod = await createLogisticsMethod(name);
-              updatedDbLogisticsMethods.push(newMethod);
-            } catch (e) {
-              console.error("Failed to auto-create logistics method in DB:", name, e);
-            }
-          }
-        }
+        const updatedDbLogisticsMethods = [...nextLogisticsMethods];
 
         if (active) {
           setWarehouses(nextWarehouses);
@@ -642,6 +623,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
       setErrorMessage(`发货方式“${name}”已存在。`);
       return;
     }
+    if (!confirmSave(`确认新增发货方式“${name}”吗？`)) return;
 
     setBusyKey("create-logistics-method");
     setErrorMessage("");
@@ -662,6 +644,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
     checked: boolean,
   ) {
     if (!canEdit) return;
+    if (!confirmSave(`确认更新仓库“${warehouse.name}”的发货方式吗？`)) return;
 
     const currentMethodIds = warehouseLogisticsMethodIdsByWarehouseId[warehouse.id] ?? [];
     const nextMethodIds = checked
@@ -691,6 +674,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
 
     const name = draftWarehouseName.trim();
     if (!name) return;
+    if (!confirmSave(`确认新增仓库“${name}”吗？`)) return;
 
     setBusyKey("create-warehouse");
     setErrorMessage("");
@@ -710,6 +694,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
     updates: Pick<Warehouse, "name">,
   ) {
     if (!canEdit) return;
+    if (!confirmSave(`确认保存仓库“${warehouse.name}”的修改吗？`)) return;
 
     setBusyKey(`warehouse-${warehouse.id}`);
     setErrorMessage("");
@@ -736,8 +721,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
       return;
     }
 
-    const confirmed = window.confirm(`确认删除仓库“${warehouse.name}”吗？`);
-    if (!confirmed) return;
+    if (!confirmDelete(`仓库“${warehouse.name}”`)) return;
 
     setBusyKey(`warehouse-${warehouse.id}`);
     setErrorMessage("");
@@ -775,6 +759,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
 
     const productId = selectedProductIds[warehouseId];
     if (!productId) return;
+    if (!confirmAction("确认添加该商品到库存吗？")) return;
 
     setBusyKey(`add-product-${warehouseId}`);
     setErrorMessage("");
@@ -842,10 +827,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
     }
 
     const product = productsById[productId];
-    const confirmed = window.confirm(
-      `确认从仓库中删除商品编号“${product?.product_code ?? ""}”吗？`,
-    );
-    if (!confirmed) return;
+    if (!confirmDelete(`仓库商品编号“${product?.product_code ?? ""}”`)) return;
 
     setBusyKey(`product-${warehouseId}-${productId}`);
     setErrorMessage("");
@@ -885,6 +867,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
 
     const reason = itemStockReasonDrafts[item.id]?.trim() ?? "";
     if (!reason) return;
+    if (!confirmSave("确认保存本次库存修改吗？")) return;
     setBusyKey(`item-stock-${item.id}`);
     setErrorMessage("");
     try {

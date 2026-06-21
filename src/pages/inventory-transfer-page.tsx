@@ -48,6 +48,7 @@ import { PageHeader } from "../components/ui";
 import { useAutoDismiss } from "../hooks/use-auto-dismiss";
 import { usePermissions } from "../hooks/use-permissions";
 import { getErrorMessage } from "../utils/errors";
+import { confirmAction } from "../utils/confirmations";
 import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../utils/sku-code";
 
 type InventoryTransferPageProps = {
@@ -653,6 +654,13 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
       );
       return;
     }
+    if (
+      !confirmAction(
+        `确认从“${sourceWarehouse.name}”调拨库存到“${destinationWarehouse.name}”吗？`,
+      )
+    ) {
+      return;
+    }
 
     setBusyKey("transfer-inventory");
     setErrorMessage("");
@@ -726,10 +734,13 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
       return;
     }
 
-    const confirmed = window.confirm(
-      `确认签收快递单号“${record.trackingNo}”，并把库存加入“${destinationWarehouse.name}”吗？`,
-    );
-    if (!confirmed) return;
+    if (
+      !confirmAction(
+        `确认签收快递单号“${record.trackingNo}”，并把库存加入“${destinationWarehouse.name}”吗？`,
+      )
+    ) {
+      return;
+    }
 
     const nextBusyKey = getTransferRecordBusyKey(record);
     setBusyKey(nextBusyKey);

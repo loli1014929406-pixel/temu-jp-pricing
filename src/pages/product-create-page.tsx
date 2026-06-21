@@ -27,6 +27,7 @@ import type {
   Warehouse,
 } from "../types";
 import { getErrorMessage } from "../utils/errors";
+import { confirmSave } from "../utils/confirmations";
 
 type ProductCreatePageProps = {
   user: User;
@@ -183,6 +184,7 @@ export function ProductCreatePage({ user }: ProductCreatePageProps) {
       setMessage("当前登录已失效，请重新登录");
       return;
     }
+    if (!confirmSave()) return;
 
     setBusy(true);
     setMessage("");
@@ -203,7 +205,7 @@ export function ProductCreatePage({ user }: ProductCreatePageProps) {
   return (
     <section className="grid gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold text-ink">新增商品</h1>
+        <h1 className="page-title">新增商品</h1>
         <BackToParentAction fallbackTo="/products" />
       </div>
       {message && (

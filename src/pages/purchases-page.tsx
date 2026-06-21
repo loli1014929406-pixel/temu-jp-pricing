@@ -37,6 +37,7 @@ import type {
   Warehouse,
 } from "../types";
 import { getErrorMessage } from "../utils/errors";
+import { confirmAction, confirmDelete, confirmSave } from "../utils/confirmations";
 
 type PurchasesPageProps = { user: User; view: "create" | "records" };
 type DraftItem = { id: string; itemId: string; quantity: string; unitPriceRmb: string };
@@ -722,6 +723,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
         : [];
     });
     if (!warehouse || preparedItems.length === 0 || preparedSources.length !== activePurchaseUrls.length) return;
+    if (!confirmSave("确认保存这张采购管理单吗？")) return;
 
     setBusyKey("create-order");
     try {
@@ -753,6 +755,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
       setErrorMessage("当前账号没有编辑权限，不能更新采购信息。");
       return;
     }
+    if (!confirmSave()) return;
 
     setBusyKey(`source-${sourceId}`);
     try {
@@ -801,6 +804,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
       quantity: item.quantity,
     }));
     if (!trackingNo || itemsPayload.length === 0) return;
+    if (!confirmSave(`确认保存快递单号“${trackingNo}”吗？`)) return;
     setBusyKey(`package-${order.id}`);
     try {
       const pkg = await createPurchasePackage(order.id, sourceId, trackingNo, itemsPayload);
@@ -823,8 +827,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
       return;
     }
 
-    const confirmed = window.confirm(`确认签收快递单号“${pkg.tracking_no}”并增加库存吗？`);
-    if (!confirmed) return;
+    if (!confirmAction(`确认签收快递单号“${pkg.tracking_no}”并增加库存吗？`)) return;
     setBusyKey(`receive-${pkg.id}`);
     setErrorMessage("");
     setNoticeMessage("");
@@ -857,10 +860,13 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
       return;
     }
 
-    const confirmed = window.confirm(
-      `确认将采购管理单“${order.order_code}”剩余未签收明细全部签收，并增加库存吗？`,
-    );
-    if (!confirmed) return;
+    if (
+      !confirmAction(
+        `确认将采购管理单“${order.order_code}”剩余未签收明细全部签收，并增加库存吗？`,
+      )
+    ) {
+      return;
+    }
 
     setBusyKey(`receive-order-${order.id}`);
     setErrorMessage("");
@@ -899,6 +905,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
 
     const trackingNo = existingPackageTrackingDrafts[pkg.id]?.trim();
     if (!trackingNo) return;
+    if (!confirmSave(`确认保存快递单号“${trackingNo}”吗？`)) return;
     setBusyKey(`update-package-${pkg.id}`);
     try {
       const next = await updatePurchasePackageTrackingNo(pkg.id, trackingNo);
@@ -927,8 +934,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
       return;
     }
 
-    const confirmed = window.confirm(`确认删除快递单号“${pkg.tracking_no}”吗？`);
-    if (!confirmed) return;
+    if (!confirmDelete(`快递单号“${pkg.tracking_no}”`)) return;
     setBusyKey(`delete-package-${pkg.id}`);
     try {
       await deletePurchasePackage(pkg.id);
@@ -962,12 +968,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
       return;
     }
 
-    const confirmed = window.confirm(
-      order.packages.some((pkg) => pkg.status === "received")
-        ? "确认删除这张采购管理单吗？已签收入库的数量会同步从库存扣回，删除后无法恢复。"
-        : "确认删除这张采购管理单吗？删除后无法恢复。",
-    );
-    if (!confirmed) return;
+    if (!confirmDelete(`采购管理单“${order.order_code}”`)) return;
     setBusyKey(`delete-order-${order.id}`);
     try {
       await deletePurchaseOrder(order.id);

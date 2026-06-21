@@ -10,6 +10,7 @@ import type {
   Warehouse,
 } from "../types";
 import { buildDefaultSkuCode } from "../utils/sku-code";
+import { confirmDelete } from "../utils/confirmations";
 import { Field, TextArea, TextInput } from "./form-controls";
 
 type ProductFormProps = {
@@ -21,6 +22,7 @@ type ProductFormProps = {
   warehouseShippingLimits?: ProductWarehouseShippingLimit[];
   submitLabel: string;
   busy?: boolean;
+  readOnly?: boolean;
   onProductChange: (next: ProductDraft) => void;
   onItemsChange: (next: ProductItem[]) => void;
   onSpecsChange: (next: ProductSpec[]) => void;
@@ -78,6 +80,7 @@ export function ProductForm({
   warehouseShippingLimits = [],
   submitLabel,
   busy = false,
+  readOnly = false,
   onProductChange,
   onItemsChange,
   onSpecsChange,
@@ -134,8 +137,7 @@ export function ProductForm({
   };
 
   const removeItem = (index: number) => {
-    const confirmed = window.confirm(`确认删除配件 ${index + 1} 吗？`);
-    if (!confirmed) return;
+    if (!confirmDelete(`配件 ${index + 1}`)) return;
     onItemsChange(items.filter((_, itemIndex) => itemIndex !== index));
   };
 
@@ -178,14 +180,12 @@ export function ProductForm({
     );
 
   const removeSpec = (index: number) => {
-    const confirmed = window.confirm(`确认删除规格 ${index + 1} 吗？`);
-    if (!confirmed) return;
+    if (!confirmDelete(`规格 ${index + 1}`)) return;
     onSpecsChange(specs.filter((_, specIndex) => specIndex !== index));
   };
 
   const removeSpecValue = (specIndex: number, valueIndex: number) => {
-    const confirmed = window.confirm(`确认删除规格 ${specIndex + 1} 的值 ${valueIndex + 1} 吗？`);
-    if (!confirmed) return;
+    if (!confirmDelete(`规格 ${specIndex + 1} 的值 ${valueIndex + 1}`)) return;
     onSpecsChange(
       specs.map((spec, currentSpecIndex) =>
         currentSpecIndex === specIndex
@@ -297,6 +297,7 @@ export function ProductForm({
 
   return (
     <form onSubmit={onSubmit} className="grid gap-6">
+      <fieldset disabled={readOnly || busy} className="contents">
       <section className="grid gap-4 rounded-lg bg-white p-5 shadow-panel">
         <h2 className="text-base font-semibold text-ink">商品主信息</h2>
         <div className="grid gap-4 md:grid-cols-2">
@@ -799,12 +800,13 @@ export function ProductForm({
           </div>
         )}
       </section>
+      </fieldset>
 
       <div className="flex justify-end">
         <button
           type="submit"
-          disabled={busy}
-          className="inline-flex h-11 items-center rounded-md bg-ink px-5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={busy || readOnly}
+          className="btn-primary h-10 px-5"
         >
           {busy ? "保存中..." : submitLabel}
         </button>

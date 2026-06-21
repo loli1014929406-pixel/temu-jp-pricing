@@ -30,6 +30,7 @@ import type {
 import { getErrorMessage } from "../utils/errors";
 import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../utils/sku-code";
 import { useAutoDismiss } from "../hooks/use-auto-dismiss";
+import { confirmCancelEdit, confirmSave } from "../utils/confirmations";
 
 type ProductEditDraftCache = {
   productId: string;
@@ -39,6 +40,14 @@ type ProductEditDraftCache = {
   skus: ProductSkuDraft[];
   warehouseShippingLimits: ProductWarehouseShippingLimit[];
   savedAt?: string;
+};
+
+type ProductEditSnapshot = {
+  product: ProductDraft;
+  items: ProductItem[];
+  specs: ProductSpec[];
+  skus: ProductSkuDraft[];
+  warehouseShippingLimits: ProductWarehouseShippingLimit[];
 };
 
 const productEditDraftVersion = 2;
@@ -240,6 +249,7 @@ export function ProductEditPage() {
   const navigate = useNavigate();
   const draftRef = useRef<ProductEditDraftCache | null>(null);
   const draftDirtyRef = useRef(false);
+  const editSnapshotRef = useRef<ProductEditSnapshot | null>(null);
   const [productId, setProductId] = useState("");
   const [product, setProduct] = useState<ProductDraft | null>(null);
   const [items, setItems] = useState<ProductItem[]>([]);
@@ -252,6 +262,7 @@ export function ProductEditPage() {
   const [loadingError, setLoadingError] = useState("");
   const [draftNotice, setDraftNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
   const [message, setMessage] = useState("");
   useAutoDismiss(message, () => setMessage(""));
   useAutoDismiss(draftNotice, () => setDraftNotice(""));
@@ -474,6 +485,7 @@ export function ProductEditPage() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!product || !productId) return;
+    if (!confirmSave()) return;
     setBusy(true);
     setMessage("");
 
@@ -481,13 +493,44 @@ export function ProductEditPage() {
       await updateProduct(productId, product, items, skus, warehouseShippingLimits);
       draftDirtyRef.current = false;
       draftRef.current = null;
+      editSnapshotRef.current = null;
       clearProductEditDraft(productKey);
+      setIsEditing(false);
       navigate("/products");
     } catch (error) {
       setMessage(getErrorMessage(error, "更新商品失败"));
     } finally {
       setBusy(false);
     }
+  }
+
+  function handleStartEdit() {
+    if (!product) return;
+    editSnapshotRef.current = {
+      product,
+      items,
+      specs,
+      skus,
+      warehouseShippingLimits,
+    };
+    setIsEditing(true);
+  }
+
+  function handleCancelEdit() {
+    if (!confirmCancelEdit()) return;
+    const snapshot = editSnapshotRef.current;
+    if (snapshot) {
+      setProduct(snapshot.product);
+      setItems(snapshot.items);
+      setSpecs(snapshot.specs);
+      setSkus(snapshot.skus);
+      setWarehouseShippingLimits(snapshot.warehouseShippingLimits);
+      draftRef.current = null;
+      draftDirtyRef.current = false;
+      clearProductEditDraft(productKey);
+    }
+    editSnapshotRef.current = null;
+    setIsEditing(false);
   }
 
   if (loadingError) {
@@ -505,8 +548,19 @@ export function ProductEditPage() {
   return (
     <section className="flex flex-col gap-6 p-4 sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold text-ink">编辑商品</h1>
-        <BackToParentAction fallbackTo="/products" />
+        <h1 className="page-title">编辑商品</h1>
+        <div className="flex flex-wrap items-center gap-2">
+          {isEditing ? (
+            <button type="button" className="btn-secondary" onClick={handleCancelEdit}>
+              取消
+            </button>
+          ) : (
+            <button type="button" className="btn-secondary" onClick={handleStartEdit}>
+              修改
+            </button>
+          )}
+          <BackToParentAction fallbackTo="/products" />
+        </div>
       </div>
       {message && (
         <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
@@ -526,6 +580,7 @@ export function ProductEditPage() {
         warehouses={warehouses}
         warehouseShippingLimits={warehouseShippingLimits}
         busy={busy}
+        readOnly={!isEditing}
         submitLabel="保存编辑"
         onProductChange={handleProductChange}
         onItemsChange={handleItemsChange}

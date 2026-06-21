@@ -19,6 +19,7 @@ import type {
   TemuOrderRecord,
 } from "../types";
 import { getErrorMessage } from "../utils/errors";
+import { confirmSave } from "../utils/confirmations";
 import { calculatePricing, formatCurrency } from "../utils/pricing";
 import {
   calculateAdFeeRmb,
@@ -679,6 +680,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
       setErrorMessage("流量加速、优惠券价和 ROAS 不能小于 0，活动折扣必须大于 0 且不超过 10");
       return;
     }
+    if (!confirmSave(`确认保存商品“${product.product_name_cn}”的利润测算吗？`)) return;
 
     setSavingProductId(product.id);
     setSavedProductId("");

@@ -9,6 +9,7 @@ import { EmptyPanel, getPaginatedRows } from "./shared";
 import { formatCurrency } from "../../utils/pricing";
 import { StandardTable } from "../../components/ui";
 import type { FinanceExpense } from "../../types";
+import { confirmAction, confirmCancelEdit, confirmDelete, confirmSave } from "../../utils/confirmations";
 
 type Props = {
   user: User;
@@ -57,6 +58,9 @@ export function FinanceExpensesPage({ user }: Props) {
               amount_rmb: Number(p.amount || 0),
               remark: p.remark || "",
             }));
+            if (!confirmAction(`检测到 ${parsed.length} 条本地缓存费用记录，确认迁移到云端数据库吗？`)) {
+              return;
+            }
             await addExpensesBulk(toInsert);
             localStorage.removeItem("codex_finance_other_expenses");
             alert(`成功将 ${parsed.length} 条本地缓存的费用记录迁移至云端数据库！`);
@@ -81,6 +85,11 @@ export function FinanceExpensesPage({ user }: Props) {
     setExpenseRemark("");
   };
 
+  const handleCancelForm = () => {
+    if (!confirmCancelEdit()) return;
+    resetForm();
+  };
+
   const handleEdit = (expense: FinanceExpense) => {
     setEditingId(expense.id);
     setExpenseDate(expense.expense_date);
@@ -97,6 +106,7 @@ export function FinanceExpensesPage({ user }: Props) {
       alert("请输入有效的费用金额");
       return;
     }
+    if (!confirmSave()) return;
 
     try {
       if (editingId) {
@@ -122,7 +132,7 @@ export function FinanceExpensesPage({ user }: Props) {
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm("确定删除该笔费用记录吗？")) return;
+    if (!confirmDelete("该笔费用记录")) return;
     try {
       await deleteExpense(id);
       await reload();
@@ -251,7 +261,7 @@ export function FinanceExpensesPage({ user }: Props) {
           <button
             type="button"
             className="absolute inset-0 h-full w-full cursor-default"
-            onClick={resetForm}
+            onClick={handleCancelForm}
           />
           <section className="relative z-10 h-full w-full max-w-md overflow-y-auto bg-white p-5 shadow-2xl sm:m-4 sm:h-[calc(100%-2rem)] sm:rounded-2xl">
             <div className="mb-5 flex items-center justify-between gap-3 border-b border-slate-100 pb-3">
@@ -261,7 +271,7 @@ export function FinanceExpensesPage({ user }: Props) {
               </h3>
               <button
                 type="button"
-                onClick={resetForm}
+                onClick={handleCancelForm}
                 className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-line bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-800"
               >
                 <X size={16} />

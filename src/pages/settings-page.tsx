@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import type { User } from "@supabase/supabase-js";
-import { Plus, Trash2, X } from "lucide-react";
+import { Pencil, Plus, Trash2, X } from "lucide-react";
 import { Field, TextInput } from "../components/form-controls";
 import {
   clearDraft,
@@ -15,6 +15,7 @@ import { defaultFirstLegMethods, defaultLastLegMethods } from "../lib/defaults";
 import type { LogisticsMethodConfig, PricingSettings } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { PageHeader } from "../components/ui";
+import { confirmCancelEdit, confirmDelete, confirmSave } from "../utils/confirmations";
 
 type SettingsPageProps = {
   user: User;
@@ -527,9 +528,11 @@ export function SettingsPage({ user }: SettingsPageProps) {
   const [settings, setSettings] = useState<PricingSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
   const [saved, setSaved] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [draftNotice, setDraftNotice] = useState("");
+  const [settingsSnapshot, setSettingsSnapshot] = useState<PricingSettings | null>(null);
 
   const [addingFirstLeg, setAddingFirstLeg] = useState(false);
   const [newFirstLegFormula, setNewFirstLegFormula] = useState<LogisticsFormula>(
@@ -620,6 +623,7 @@ export function SettingsPage({ user }: SettingsPageProps) {
       setErrorMessage("当前账号没有编辑权限，不能保存参数设置。");
       return;
     }
+    if (!confirmSave()) return;
 
     setBusy(true);
     setErrorMessage("");
@@ -631,11 +635,31 @@ export function SettingsPage({ user }: SettingsPageProps) {
       clearDraft(draftKey);
       setDraftNotice("");
       setSaved(true);
+      setIsEditing(false);
+      setSettingsSnapshot(null);
     } catch (error) {
       setErrorMessage(getErrorMessage(error, "保存参数失败"));
     } finally {
       setBusy(false);
     }
+  }
+
+  function handleStartEdit() {
+    if (!settings) return;
+    setSettingsSnapshot(settings);
+    setIsEditing(true);
+  }
+
+  function handleCancelEdit() {
+    if (!confirmCancelEdit()) return;
+    if (settingsSnapshot) {
+      setSettings(settingsSnapshot);
+      clearDraft(draftKey);
+    }
+    setSettingsSnapshot(null);
+    resetFirstLegAddForm();
+    resetLastLegAddForm();
+    setIsEditing(false);
   }
 
   function handleAddFirstLeg() {
@@ -674,6 +698,8 @@ export function SettingsPage({ user }: SettingsPageProps) {
 
   function handleDeleteFirstLeg(id: string) {
     if (!settings) return;
+    const method = (settings.first_leg_methods || []).find((item) => item.id === id);
+    if (!confirmDelete(`头程物流方式“${method?.name ?? id}”`)) return;
     updateSettings({
       first_leg_methods: (settings.first_leg_methods || []).filter((method) => method.id !== id),
     });
@@ -681,6 +707,8 @@ export function SettingsPage({ user }: SettingsPageProps) {
 
   function handleDeleteLastLeg(id: string) {
     if (!settings) return;
+    const method = (settings.last_leg_methods || []).find((item) => item.id === id);
+    if (!confirmDelete(`尾程物流方式“${method?.name ?? id}”`)) return;
     updateSettings({
       last_leg_methods: (settings.last_leg_methods || []).filter((method) => method.id !== id),
     });
@@ -719,6 +747,21 @@ export function SettingsPage({ user }: SettingsPageProps) {
   return (
     <section className="flex flex-col gap-6 p-4 sm:p-6">
       <PageHeader title="参数设置" description="独立配置系统参数及多维度物流规则" />
+      {canEdit && (
+        <div className="flex justify-end gap-2">
+          {isEditing ? (
+            <button type="button" className="btn-secondary" onClick={handleCancelEdit}>
+              <X size={16} />
+              取消
+            </button>
+          ) : (
+            <button type="button" className="btn-secondary" onClick={handleStartEdit}>
+              <Pencil size={16} />
+              修改
+            </button>
+          )}
+        </div>
+      )}
       {!canEdit && (
         <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
           当前账号为只读权限，可以查看设置，不能保存修改。
@@ -749,7 +792,7 @@ export function SettingsPage({ user }: SettingsPageProps) {
                     <Field key={field.key} label={field.label}>
                       <TextInput
                         required
-                        disabled={!canEdit}
+                        disabled={!canEdit || !isEditing}
                         min="0"
                         step={field.step}
                         type="number"
@@ -779,7 +822,7 @@ export function SettingsPage({ user }: SettingsPageProps) {
 
         <div className="grid gap-6 xl:grid-cols-2">
           <LogisticsSection
-            canEdit={canEdit}
+            canEdit={canEdit && isEditing}
             type="first_leg"
             title="头程物流设置"
             description="用于计算从发货地到目的国或分拨仓的头程成本"
@@ -802,7 +845,7 @@ export function SettingsPage({ user }: SettingsPageProps) {
           />
 
           <LogisticsSection
-            canEdit={canEdit}
+            canEdit={canEdit && isEditing}
             type="last_leg"
             title="尾程物流设置"
             description="用于计算派送给买家的最后一公里成本"
@@ -831,7 +874,7 @@ export function SettingsPage({ user }: SettingsPageProps) {
           </span>
           <button
             type="submit"
-            disabled={busy || !canEdit}
+            disabled={busy || !canEdit || !isEditing}
             className="btn-primary inline-flex h-10 px-8 font-medium shadow-soft"
           >
             {busy ? "保存中..." : "保存设置"}

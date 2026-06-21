@@ -25,6 +25,7 @@ import type {
   ProfitCalculationResult,
 } from "../types";
 import { getErrorMessage } from "../utils/errors";
+import { confirmSave } from "../utils/confirmations";
 import { calculatePricing, formatCurrency, formatPercent } from "../utils/pricing";
 import {
   buildProfitCalculationInputFromSaved,
@@ -347,6 +348,7 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
 
     const current = calculations[skuId];
     if (!current) return;
+    if (!confirmSave()) return;
 
     setSavingSkuId(skuId);
     setSavedSkuId("");
@@ -374,7 +376,7 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
     <section className="flex flex-col gap-6 p-4 sm:p-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-        <h1 className="text-2xl font-semibold text-ink">利润分析</h1>
+        <h1 className="page-title">利润分析</h1>
           <p className="mt-1 text-sm text-slate-500">
             {product.product_code} · {product.product_name_cn}
           </p>

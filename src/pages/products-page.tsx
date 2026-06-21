@@ -1,4 +1,4 @@
-import { Download, Plus, Trash2, Upload } from "lucide-react";
+import { Download, Plus, Save, Trash2, Upload, X } from "lucide-react";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
@@ -22,6 +22,7 @@ import { downloadWorkbook } from "../lib/excel";
 import { usePermissions } from "../hooks/use-permissions";
 import { useAutoDismiss } from "../hooks/use-auto-dismiss";
 import { getErrorMessage } from "../utils/errors";
+import { confirmAction, confirmCancelEdit, confirmDelete, confirmSave } from "../utils/confirmations";
 import type { AccountProfile, Product } from "../types";
 import type { User } from "@supabase/supabase-js";
 import { PageHeader, StatCard } from "../components/ui";
@@ -43,6 +44,8 @@ export function ProductsPage({ user }: ProductsPageProps) {
   const [errorMessage, setErrorMessage] = useState("");
   const [deletingProductId, setDeletingProductId] = useState("");
   const [updatingSellingProductId, setUpdatingSellingProductId] = useState("");
+  const [editingSellingProductId, setEditingSellingProductId] = useState("");
+  const [sellingDraft, setSellingDraft] = useState(false);
   const [transferring, setTransferring] = useState(false);
   const [noticeMessage, setNoticeMessage] = useState("");
   const [pendingImport, setPendingImport] = useState<{
@@ -139,11 +142,7 @@ export function ProductsPage({ user }: ProductsPageProps) {
       return;
     }
 
-    const firstConfirmed = window.confirm(`确认删除商品“${product.product_name_cn}”吗？`);
-    if (!firstConfirmed) return;
-
-    const secondConfirmed = window.confirm("再次确认：删除后不可恢复，确定继续删除吗？");
-    if (!secondConfirmed) return;
+    if (!confirmDelete(`商品“${product.product_name_cn}”`)) return;
 
     setDeletingProductId(product.id);
     setErrorMessage("");
@@ -165,6 +164,7 @@ export function ProductsPage({ user }: ProductsPageProps) {
       setErrorMessage("当前账号没有编辑权限，不能更新商品售卖状态。");
       return;
     }
+    if (!confirmSave()) return;
 
     setUpdatingSellingProductId(product.id);
     setErrorMessage("");
@@ -174,11 +174,22 @@ export function ProductsPage({ user }: ProductsPageProps) {
       setProducts((current) =>
         current.map((item) => (item.id === product.id ? nextProduct : item)),
       );
+      setEditingSellingProductId("");
     } catch (error) {
       setErrorMessage(getErrorMessage(error, "更新商品售卖状态失败"));
     } finally {
       setUpdatingSellingProductId("");
     }
+  }
+
+  function handleStartSellingEdit(product: Product) {
+    setEditingSellingProductId(product.id);
+    setSellingDraft(product.is_selling);
+  }
+
+  function handleCancelSellingEdit() {
+    if (!confirmCancelEdit()) return;
+    setEditingSellingProductId("");
   }
 
   async function handleExcelExport() {
@@ -233,6 +244,7 @@ export function ProductsPage({ user }: ProductsPageProps) {
       setErrorMessage("当前账号没有编辑权限，不能导入商品。");
       return;
     }
+    if (!confirmAction(`确认导入 ${pendingImport.records.length} 个商品吗？`)) return;
 
     setTransferring(true);
     setErrorMessage("");
@@ -372,7 +384,11 @@ export function ProductsPage({ user }: ProductsPageProps) {
             </button>
             <button
               type="button"
-              onClick={() => setPendingImport(null)}
+              onClick={() => {
+                if (confirmCancelEdit("确认取消本次导入吗？未导入的内容将不会保留。")) {
+                  setPendingImport(null);
+                }
+              }}
               className="btn-secondary"
             >
               取消
@@ -421,14 +437,45 @@ export function ProductsPage({ user }: ProductsPageProps) {
               </p>
               <div className="mobile-summary-actions">
                 {canEdit && (
-                  <button
-                    type="button"
-                    onClick={() => void handleSellingStatusChange(product, !product.is_selling)}
-                    disabled={updatingSellingProductId === product.id}
-                    className="btn-secondary h-9 px-3"
-                  >
-                    {product.is_selling ? "设为不售卖" : "恢复售卖"}
-                  </button>
+                  editingSellingProductId === product.id ? (
+                    <>
+                      <label className="inline-flex h-9 items-center gap-2 rounded-xl border border-line bg-white px-3 text-sm font-medium text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={sellingDraft}
+                          disabled={updatingSellingProductId === product.id}
+                          onChange={(event) => setSellingDraft(event.target.checked)}
+                        />
+                        {sellingDraft ? "售卖" : "不售卖"}
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => void handleSellingStatusChange(product, sellingDraft)}
+                        disabled={updatingSellingProductId === product.id}
+                        className="btn-primary h-9 px-3"
+                      >
+                        <Save size={16} />
+                        保存
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCancelSellingEdit}
+                        disabled={updatingSellingProductId === product.id}
+                        className="btn-secondary h-9 px-3"
+                      >
+                        <X size={16} />
+                        取消
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleStartSellingEdit(product)}
+                      className="btn-secondary h-9 px-3"
+                    >
+                      修改状态
+                    </button>
+                  )
                 )}
                 {canEdit && (
                   <Link className="btn-secondary h-9 px-3" to={getProductRoutePath(product, "/edit")}>
@@ -493,18 +540,16 @@ export function ProductsPage({ user }: ProductsPageProps) {
                     <td className="number-cell">{product.package_height_cm} cm</td>
                     <td className="number-cell">{product.package_weight_g} g</td>
                     <td className="px-4 py-3">
-                      {canEdit ? (
+                      {canEdit && editingSellingProductId === product.id ? (
                         <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
                           <input
                             type="checkbox"
-                            checked={product.is_selling}
+                            checked={sellingDraft}
                             disabled={updatingSellingProductId === product.id}
-                            onChange={(event) =>
-                              void handleSellingStatusChange(product, event.target.checked)
-                            }
+                            onChange={(event) => setSellingDraft(event.target.checked)}
                             aria-label={`${product.product_code} 是否售卖`}
                           />
-                          {product.is_selling ? "售卖" : "不售卖"}
+                          {sellingDraft ? "售卖" : "不售卖"}
                         </label>
                       ) : (
                         product.is_selling ? "售卖" : "不售卖"
@@ -524,6 +569,35 @@ export function ProductsPage({ user }: ProductsPageProps) {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex min-w-28 items-center gap-3">
+                        {canEdit && editingSellingProductId === product.id && (
+                          <>
+                            <button
+                              type="button"
+                              className="text-action"
+                              disabled={updatingSellingProductId === product.id}
+                              onClick={() => void handleSellingStatusChange(product, sellingDraft)}
+                            >
+                              保存
+                            </button>
+                            <button
+                              type="button"
+                              className="text-sm font-semibold text-slate-600 hover:text-slate-900"
+                              disabled={updatingSellingProductId === product.id}
+                              onClick={handleCancelSellingEdit}
+                            >
+                              取消
+                            </button>
+                          </>
+                        )}
+                        {canEdit && editingSellingProductId !== product.id && (
+                          <button
+                            type="button"
+                            className="text-action"
+                            onClick={() => handleStartSellingEdit(product)}
+                          >
+                            修改状态
+                          </button>
+                        )}
                         {canEdit && (
                           <Link className="text-sm font-semibold text-slate-700 hover:text-accent hover:no-underline" to={getProductRoutePath(product, "/edit")}>
                             编辑

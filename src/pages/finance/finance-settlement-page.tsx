@@ -29,6 +29,7 @@ import { buildSettlementLookup } from "../../lib/settlement";
 import { getErrorMessage } from "../../utils/errors";
 import { updateSkuCode } from "../../lib/products";
 import { updateTemuOrder } from "../../lib/orders";
+import { confirmAction, confirmDelete, confirmSave } from "../../utils/confirmations";
 
 type Props = {
   user: User;
@@ -167,10 +168,14 @@ export function FinanceSettlementPage({ user }: Props) {
     // 检查是否覆盖
     const existing = settlementFiles.find(f => f.fileName === file.name);
     if (existing) {
-       if (!window.confirm(`文件 "${file.name}" 已存在。继续导入将覆盖原有数据。是否继续？`)) {
+       if (!confirmAction(`文件 "${file.name}" 已存在。继续导入将覆盖原有数据。是否继续？`)) {
           e.target.value = "";
           return;
        }
+    }
+    if (!confirmAction(`确认导入结算文件 "${file.name}" 吗？`)) {
+      e.target.value = "";
+      return;
     }
 
     setImporting(true);
@@ -194,7 +199,7 @@ export function FinanceSettlementPage({ user }: Props) {
   };
 
   const handleDeleteFile = async (id: string) => {
-    if (!window.confirm("确定删除该结算文件？\n删除后相关的财务利润和对账状态将重新计算。")) return;
+    if (!confirmDelete("该结算文件")) return;
     try {
        await deleteSettlementFile(id);
        await reload();
@@ -206,6 +211,7 @@ export function FinanceSettlementPage({ user }: Props) {
   const handleSaveShippingFee = async (orderId: string, feeStr: string) => {
     const fee = Number(feeStr);
     if (Number.isNaN(fee) || fee < 0) return alert("金额无效");
+    if (!confirmSave()) return;
     setSavingOrderId(orderId);
     try {
       await updateTemuOrder(orderId, { actual_shipping_fee_rmb: fee });
@@ -219,6 +225,7 @@ export function FinanceSettlementPage({ user }: Props) {
   };
 
   const handleLinkSkuCode = async (orderId: string, temuSkuCode: string, skuId: string) => {
+    if (!confirmAction(`确认将 SKU 货号关联为 ${temuSkuCode} 吗？`)) return;
     setLinkingOrderId(orderId);
     try {
       await updateSkuCode(skuId, temuSkuCode);

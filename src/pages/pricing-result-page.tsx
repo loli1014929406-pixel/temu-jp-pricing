@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Save } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import type { User } from "@supabase/supabase-js";
 import {
@@ -15,6 +16,7 @@ import { calculatePricing, formatCurrency, formatPercent } from "../utils/pricin
 import type { PricingResult, Product, ProductSku } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { BackToParentAction } from "../components/ui";
+import { confirmSave } from "../utils/confirmations";
 
 type PricingResultPageProps = {
   user: User;
@@ -28,9 +30,12 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
     Array<{ sku: ProductSku; result: PricingResult }>
   >([]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [savedMessage, setSavedMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [emptyItems, setEmptyItems] = useState(false);
   useAutoDismiss(errorMessage, () => setErrorMessage(""));
+  useAutoDismiss(savedMessage, () => setSavedMessage(""));
 
   useEffect(() => {
     let active = true;
@@ -82,15 +87,6 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
           setSkuResults(nextSkuResults);
         }
 
-        if (canEdit) {
-          await Promise.all(
-            nextSkuResults
-              .filter(({ sku }) => sku.id)
-              .map(({ sku, result }) =>
-                savePricingResult(nextProduct.id, sku.id as string, result),
-              ),
-          );
-        }
       } catch (error) {
         if (active) {
           setErrorMessage(getErrorMessage(error, "加载申报价结果失败"));
@@ -106,7 +102,28 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
     return () => {
       active = false;
     };
-  }, [canEdit, productKey, user.id]);
+  }, [productKey, user.id]);
+
+  async function handleSaveResults() {
+    if (!canEdit || !product) return;
+    if (!confirmSave("确认保存本次核算定价结果吗？")) return;
+
+    setSaving(true);
+    setErrorMessage("");
+    setSavedMessage("");
+    try {
+      await Promise.all(
+        skuResults
+          .filter(({ sku }) => sku.id)
+          .map(({ sku, result }) => savePricingResult(product.id, sku.id as string, result)),
+      );
+      setSavedMessage("已保存核算定价结果。");
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, "保存核算定价结果失败"));
+    } finally {
+      setSaving(false);
+    }
+  }
 
   if (loading) {
     return <div className="text-sm text-slate-500">加载中...</div>;
@@ -123,7 +140,7 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
   if (emptyItems) {
     return (
       <section className="flex flex-col gap-6 p-4 sm:p-6">
-        <h1 className="text-2xl font-semibold text-ink">核算定价结果</h1>
+        <h1 className="page-title">核算定价结果</h1>
         <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
           暂无组合明细，无法计算核算定价
         </div>
@@ -139,7 +156,7 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
     <section className="flex flex-col gap-6 p-4 sm:p-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-ink">核算定价结果</h1>
+          <h1 className="page-title">核算定价结果</h1>
           <p className="mt-1 text-sm text-slate-500">
             {product.product_code} · {product.product_name_cn}
           </p>
@@ -148,6 +165,17 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {canEdit && (
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={saving}
+              onClick={() => void handleSaveResults()}
+            >
+              <Save size={18} />
+              {saving ? "保存中..." : "保存结果"}
+            </button>
+          )}
           <BackToParentAction fallbackTo="/declaration-prices" />
           {canEdit && (
             <Link to={getProductRoutePath(product, "/edit")} className="text-sm text-accent">
@@ -156,6 +184,11 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
           )}
         </div>
       </div>
+      {savedMessage && (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
+          {savedMessage}
+        </div>
+      )}
 
       <div className="flex flex-col gap-5">
         {skuResults.map(({ sku, result }) => {

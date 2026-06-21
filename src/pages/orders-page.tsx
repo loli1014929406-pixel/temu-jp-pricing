@@ -61,6 +61,7 @@ import {
 } from "../utils/shipping-costs";
 import { formatCurrency } from "../utils/pricing";
 import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../utils/sku-code";
+import { confirmAction, confirmDelete, confirmSave } from "../utils/confirmations";
 import type { PricingSettings } from "../types";
 import { defaultLastLegMethods } from "../lib/defaults";
 
@@ -1949,39 +1950,10 @@ export function OrdersPage({ user }: OrdersPageProps) {
 
   useEffect(() => {
     if (!canEdit || loading || !isShippingTrackingStage(activeStage) || busyKey) return;
-
-    const targetOrders = shippedOrdersWithTrackingInView.filter((order) => {
-      const trackingNo = order.logistics_tracking_no.trim();
-      const status = order.logistics_status.trim();
-      return (
-        trackingNo &&
-        !autoQueriedTrackingNosRef.current.has(trackingNo) &&
-        (!status || status === "待查询")
-      );
-    });
-    if (targetOrders.length === 0) return;
-
-    targetOrders.forEach((order) => {
-      autoQueriedTrackingNosRef.current.add(order.logistics_tracking_no.trim());
-    });
-    void queryAndSaveTrackingStatuses(targetOrders, "tracking-status-auto", false);
   }, [activeStage, busyKey, canEdit, loading, shippedOrdersWithTrackingInView]);
 
   useEffect(() => {
     if (!canEdit || loading || busyKey) return;
-
-    const deliveredOrders = allOrders.filter(
-      (order) =>
-        !order.actual_signed_time.trim() &&
-        isDeliveredTrackingStatus(order.logistics_status) &&
-        !autoCompletedDeliveredOrderIdsRef.current.has(order.id),
-    );
-    if (deliveredOrders.length === 0) return;
-
-    deliveredOrders.forEach((order) => {
-      autoCompletedDeliveredOrderIdsRef.current.add(order.id);
-    });
-    void completeDeliveredOrders(deliveredOrders, "delivered-complete-auto", true);
   }, [allOrders, busyKey, canEdit, loading]);
 
   function mergeOrderDraft(order: TemuOrderRecord) {
@@ -2584,6 +2556,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
       return;
     }
     if (!file) return;
+    if (!confirmAction(`确认导入订单文件“${file.name}”吗？`)) return;
 
     setBusyKey("import");
     setErrorMessage("");
@@ -2740,6 +2713,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
       return;
     }
     if (!file) return;
+    if (!confirmAction(`确认导入物流单号文件“${file.name}”吗？`)) return;
 
     setBusyKey("tracking-import");
     setErrorMessage("");
@@ -2836,6 +2810,9 @@ export function OrdersPage({ user }: OrdersPageProps) {
     const queryableOrders = targetOrders.filter(canQueryTrackingStatus);
     if (queryableOrders.length === 0) {
       if (showNotice) setNoticeMessage("当前没有可查询的物流单号。");
+      return;
+    }
+    if (showNotice && !confirmAction(`确认查询并保存 ${queryableOrders.length} 条物流状态吗？`)) {
       return;
     }
 
@@ -3111,6 +3088,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
       setNoticeMessage("请先勾选要保存的订单。");
       return;
     }
+    if (!confirmSave(`确认保存已选中的 ${selectedOrdersInView.length} 条订单吗？`)) return;
 
     setBusyKey("save-selected");
     setErrorMessage("");
@@ -3165,6 +3143,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
       actual_ship_time: "",
       actual_signed_time: "",
     };
+    if (!confirmAction(`确认退回 ${targetOrders.length} 条订单到待分配吗？`)) return;
 
     setBusyKey("new-to-pending-assignment");
     setErrorMessage("");
@@ -3230,6 +3209,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
 
     const targetOrders = selectedPendingShippingOrdersInView.map((order) => mergeOrderDraft(order));
     const targetIds = new Set(targetOrders.map((order) => order.id));
+    if (!confirmAction(`确认退回 ${targetOrders.length} 条订单到新订单吗？`)) return;
 
     setBusyKey("pending-shipping-to-new-order");
     setErrorMessage("");
@@ -3290,6 +3270,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
       return nextActualShipTime !== order.actual_ship_time.trim();
     });
     if (changedOrders.length === 0) return;
+    if (!confirmSave(`确认保存 ${changedOrders.length} 条订单明细的实际发货时间吗？`)) return;
 
     setBusyKey(`actual-ship-time-${changedOrders.map((order) => order.id).join("|")}`);
     setErrorMessage("");
@@ -3337,10 +3318,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
       return;
     }
 
-    const confirmed = window.confirm(
-      `确认删除当前列表中已选中的 ${selectedOrdersInView.length} 条订单吗？`,
-    );
-    if (!confirmed) return;
+    if (!confirmDelete(`当前列表中已选中的 ${selectedOrdersInView.length} 条订单`)) return;
 
     const targetIds = new Set(selectedOrdersInView.map((order) => order.id));
     setBusyKey("delete-selected");
@@ -3426,6 +3404,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
       setErrorMessage(`${selectedWarehouse.name} 不能使用“${logisticsMethod}”发货方式。`);
       return;
     }
+    if (!confirmSave(`确认批量分配 ${pendingSelectedOrders.length} 条订单吗？`)) return;
 
     setBusyKey("bulk-assign");
     setErrorMessage("");
@@ -3599,6 +3578,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
       setNoticeMessage("没有找到 SKU 库存充足且可用发货方式的订单。");
       return;
     }
+    if (!confirmAction(`确认自动匹配并保存 ${matchedOrders.length} 条订单明细吗？`)) return;
 
     setBusyKey("auto-match");
     setErrorMessage("");
@@ -4061,6 +4041,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
       setErrorMessage(validationMessage);
       return;
     }
+    if (!confirmAction(`确认将 ${targetOrders.length} 条订单转入待发货吗？`)) return;
 
     setBusyKey(busyName);
     setErrorMessage("");
@@ -4181,6 +4162,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
       setNoticeMessage("请先勾选要标记已上传 Temu 的已发货订单。");
       return;
     }
+    if (!confirmAction(`确认标记 ${selectedShippedOrdersInView.length} 条订单为上传 Temu 吗？`)) return;
 
     setBusyKey("uploaded-temu-selected");
     setErrorMessage("");
@@ -4235,6 +4217,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
       setNoticeMessage("请先在上传Temu页面勾选要标记签收的订单。");
       return;
     }
+    if (!confirmAction(`确认标记签收 ${selectedCompletableOrdersInView.length} 条订单吗？`)) return;
 
     setBusyKey("complete-selected");
     setErrorMessage("");
