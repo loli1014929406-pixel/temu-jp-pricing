@@ -230,6 +230,19 @@ async function updateStockRows(supabase, rows) {
   }
 }
 
+async function updateWarehouseSkuRows(supabase, rows) {
+  if (rows.length === 0 || dryRun) return;
+
+  for (const row of rows) {
+    const { error } = await supabase
+      .from("warehouse_skus")
+      .update({ stock_quantity: row.stock_quantity })
+      .eq("id", row.id)
+      .eq("owner_id", row.owner_id);
+    if (error) throw new Error(`warehouse_skus: ${error.message}`);
+  }
+}
+
 async function updatePurchaseOrderItemRows(supabase, rows) {
   if (rows.length === 0 || dryRun) return;
 
@@ -490,7 +503,7 @@ await upsertRows(
   { onConflict: "warehouse_id,item_id", ignoreDuplicates: true },
 );
 
-if (!dryRun && stockRowsToInsert.length > 0) {
+if (!dryRun && (stockRowsToInsert.length > 0 || skuRowsToInsert.length > 0)) {
   data = await loadTables(supabase);
 }
 
@@ -522,6 +535,15 @@ const existingInboundQuantities = new Map();
 const existingInboundLegacyQuantities = new Map();
 const existingOutboundLineKeys = new Set();
 const existingOutboundLegacyCounts = new Map();
+const assignedTemuOrders = data.temu_orders.filter(
+  (order) => isAssignedOrder(order) && order.warehouse_id,
+);
+const validTemuOrderNos = new Set(
+  assignedTemuOrders.map((order) => String(order.order_no ?? "").trim()).filter(Boolean),
+);
+const validTemuOrderLineKeys = new Set(
+  assignedTemuOrders.map((order) => getOrderLineLabel(order)).filter(Boolean),
+);
 for (const adjustment of data.warehouse_item_stock_adjustments) {
   const reason = String(adjustment.reason ?? "").trim();
   const purchaseOrderId = adjustment.purchase_order_id ?? "";
@@ -700,6 +722,55 @@ for (const stats of statsByStockKey.values()) {
 
 const stockUpdates = Array.from(stockUpdateDrafts.values()).filter(update => update.id); 
 
+const expectedItemQuantityByKey = new Map(
+  Array.from(statsByStockKey.values()).map((stats) => [
+    stockKey(stats.warehouseId, stats.itemId),
+    stats.expected,
+  ]),
+);
+const skuRowsForComputation = dryRun
+  ? [
+      ...data.warehouse_skus,
+      ...skuRowsToInsert.map((row) => ({
+        id: `dry-run:${row.warehouse_id}:${row.sku_id}`,
+        created_at: "",
+        updated_at: "",
+        stock_quantity: 0,
+        ...row,
+      })),
+    ]
+  : data.warehouse_skus;
+const skuUpdates = [];
+
+for (const warehouseSku of skuRowsForComputation) {
+  const links = linksBySkuId.get(warehouseSku.sku_id) ?? [];
+  if (links.length === 0) continue;
+
+  const possibleQuantities = links.flatMap((link) => {
+    const linkQuantity = Math.max(0, Math.trunc(Number(link.quantity) || 0));
+    if (linkQuantity <= 0) return [];
+
+    const itemQuantity =
+      expectedItemQuantityByKey.get(stockKey(warehouseSku.warehouse_id, link.item_id)) ??
+      stocksByKey.get(stockKey(warehouseSku.warehouse_id, link.item_id))?.stock_quantity ??
+      0;
+    return [Math.floor(itemQuantity / linkQuantity)];
+  });
+  if (possibleQuantities.length === 0) continue;
+
+  const expectedSkuQuantity = Math.max(0, Math.min(...possibleQuantities));
+  if (Math.trunc(Number(warehouseSku.stock_quantity) || 0) === expectedSkuQuantity) continue;
+
+  skuUpdates.push({
+    id: warehouseSku.id,
+    warehouse_id: warehouseSku.warehouse_id,
+    product_id: warehouseSku.product_id,
+    sku_id: warehouseSku.sku_id,
+    owner_id: warehouseSku.owner_id,
+    stock_quantity: expectedSkuQuantity,
+  });
+}
+
 const stockChangeSummary = Array.from(statsByStockKey.values())
   .filter(stats => stats.diff !== 0)
   .map(stats => {
@@ -725,22 +796,53 @@ const stockChangeSummary = Array.from(statsByStockKey.values())
     left.item.localeCompare(right.item, "zh-CN", { numeric: true }),
   );
 
+const skuById = mapById(data.product_skus);
+const skuChangeSummary = skuUpdates
+  .map((update) => {
+    const sku = skuById.get(update.sku_id);
+    const product = productById.get(update.product_id);
+    const warehouse = warehouseById.get(update.warehouse_id);
+    const current = skuRowsForComputation.find((row) => row.id === update.id);
+    return {
+      warehouse: warehouse?.name ?? update.warehouse_id,
+      product: product?.product_code ?? "",
+      sku: sku?.sku_code ?? update.sku_id,
+      before: current?.stock_quantity ?? 0,
+      after: update.stock_quantity,
+      diff: update.stock_quantity - (current?.stock_quantity ?? 0),
+    };
+  })
+  .filter((row) => row.diff !== 0)
+  .sort((left, right) =>
+    left.warehouse.localeCompare(right.warehouse, "zh-CN", { numeric: true }) ||
+    left.product.localeCompare(right.product, "zh-CN", { numeric: true }) ||
+    left.sku.localeCompare(right.sku, "zh-CN", { numeric: true }),
+  );
+
 console.log(dryRun ? "库存重算校准预览：" : "开始库存校准：");
 console.log(`补齐仓库 SKU：${skuRowsToInsert.length}`);
 console.log(`补齐配件库存行：${stockRowsToInsert.length}`);
 console.log(`回写采购明细配件：${purchaseItemIdUpdates.size}`);
 console.log(`将插入的校准流水：${adjustmentRows.length}`);
 console.log(`将更新的库存数量：${stockUpdates.length}`);
+console.log(`将回填的 SKU 库存数量：${skuUpdates.length}`);
 
 if (stockChangeSummary.length > 0) {
     console.table(stockChangeSummary);
 } else {
     console.log("所有配件库存账实相符，无需校准。");
 }
+if (skuChangeSummary.length > 0) {
+  console.log("SKU 库存回填预览：");
+  console.table(skuChangeSummary);
+} else {
+  console.log("所有 SKU 库存无需回填。");
+}
 
 if (!dryRun) {
   await updatePurchaseOrderItemRows(supabase, Array.from(purchaseItemIdUpdates.values()));
   await insertRows(supabase, "warehouse_item_stock_adjustments", adjustmentRows);
   await updateStockRows(supabase, stockUpdates);
+  await updateWarehouseSkuRows(supabase, skuUpdates);
   console.log("库存校准完成。");
 }

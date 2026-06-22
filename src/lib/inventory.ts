@@ -758,16 +758,6 @@ export async function transferWarehouseInventory(
   if (missingSourceSku) {
     throw new Error("调出仓库缺少对应 SKU 库存，请先检查库存商品");
   }
-  const insufficientSkuStock = transferLines.find((line) => {
-    const stock = sourceSkusBySkuId.get(line.skuId);
-    return !stock || stock.stock_quantity < line.quantity;
-  });
-  if (insufficientSkuStock) {
-    const stock = sourceSkusBySkuId.get(insufficientSkuStock.skuId);
-    throw new Error(
-      `调出仓库 SKU 库存不足：当前 ${stock?.stock_quantity ?? 0}，需要 ${insufficientSkuStock.quantity}`,
-    );
-  }
 
   const { data: sourceStockData, error: sourceStockError } = await withTimeout(
     supabase
@@ -799,6 +789,16 @@ export async function transferWarehouseInventory(
       `调出仓库配件库存不足：当前 ${stock?.stock_quantity ?? 0}，需要 ${insufficientStock.quantity}`,
     );
   }
+  const insufficientSkuStock = transferLines.find((line) => {
+    const skuStock = sourceSkusBySkuId.get(line.skuId);
+    return !skuStock || skuStock.stock_quantity < line.quantity;
+  });
+  if (insufficientSkuStock) {
+    const skuStock = sourceSkusBySkuId.get(insufficientSkuStock.skuId);
+    throw new Error(
+      `调出仓库 SKU 库存不足：当前 ${skuStock?.stock_quantity ?? 0}，需要 ${insufficientSkuStock.quantity}`,
+    );
+  }
 
   const reasonLabel = buildTransferReasonLabel(input, transferLines);
   const updatedSkus: WarehouseSku[] = [];
@@ -809,7 +809,7 @@ export async function transferWarehouseInventory(
     const sourceSku = sourceSkusBySkuId.get(transferLine.skuId);
     if (!sourceSku) continue;
 
-    const nextSourceQuantity = sourceSku.stock_quantity - transferLine.quantity;
+    const nextSourceQuantity = Math.max(0, sourceSku.stock_quantity - transferLine.quantity);
     const { data: nextSourceSkuData, error: sourceSkuUpdateError } = await withTimeout(
       supabase
         .from("warehouse_skus")
@@ -1027,9 +1027,16 @@ export async function receiveWarehouseTransferInventory(
     const alreadyReceivedQuantity = Math.max(
       0,
       Math.min(
-        ...transferLine.items.map(
-          (item) => receivedQuantityByItemId.get(item.itemId) ?? 0,
-        ),
+        ...transferLine.items.map((item) => {
+          const perSkuQuantity =
+            transferLine.quantity > 0
+              ? Math.trunc(Number(item.quantity) || 0) / transferLine.quantity
+              : 0;
+          const receivedItemQuantity = receivedQuantityByItemId.get(item.itemId) ?? 0;
+          return perSkuQuantity > 0
+            ? Math.floor(receivedItemQuantity / perSkuQuantity)
+            : 0;
+        }),
       ),
     );
     const receiveSkuQuantity = transferLine.quantity - alreadyReceivedQuantity;

@@ -236,6 +236,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
     restoredDraft?.warehouseNameDrafts ?? {},
   );
   const [expandedSkuIds, setExpandedSkuIds] = useState<Record<string, boolean>>({});
+  const [editingSkuStockIds, setEditingSkuStockIds] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -880,6 +881,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
         [item.id]: String(nextItem.stock_quantity),
       }));
       setItemStockReasonDrafts((current) => ({ ...current, [item.id]: "" }));
+      setEditingSkuStockIds((current) => ({ ...current, [item.id]: false }));
     } catch (error) {
       setErrorMessage(getInventoryErrorMessage(error, "更新 SKU 库存失败"));
     } finally {
@@ -1620,6 +1622,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                               filteredItems.map((item) => {
                                 const product = productsById[item.product_id];
                                 const sku = skusById[item.sku_id];
+                                const isEditingSkuStock = Boolean(editingSkuStockIds[item.id]);
                                 return (
                                   <Fragment key={item.id}>
                                     <tr className="border-t border-line hover:bg-slate-50/50 transition">
@@ -1640,26 +1643,26 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                         )}
                                       </td>
                                       <td className="px-4 py-3">
-                                        <div className="flex flex-col gap-2">
-                                          <div className="flex items-center gap-2">
-                                            <input
-                                              step="1"
-                                              type="number"
-                                              placeholder="+/- 调整"
-                                              disabled={!canEdit}
-                                              value={
-                                                itemStockDrafts[item.id] ??
-                                                String(item.stock_quantity)
-                                              }
-                                              onChange={(event) =>
-                                                setItemStockDrafts((current) => ({
-                                                  ...current,
-                                                  [item.id]: event.target.value,
-                                                }))
-                                              }
-                                              className="h-9 w-24 rounded-lg border border-line bg-white px-2 text-xs font-semibold text-ink outline-none transition focus:border-violet-600"
-                                            />
-                                            {canEdit && (
+                                        {isEditingSkuStock ? (
+                                          <div className="flex flex-col gap-2">
+                                            <div className="flex items-center gap-2">
+                                              <input
+                                                step="1"
+                                                type="number"
+                                                placeholder="+/- 调整"
+                                                disabled={!canEdit}
+                                                value={
+                                                  itemStockDrafts[item.id] ??
+                                                  String(item.stock_quantity)
+                                                }
+                                                onChange={(event) =>
+                                                  setItemStockDrafts((current) => ({
+                                                    ...current,
+                                                    [item.id]: event.target.value,
+                                                  }))
+                                                }
+                                                className="h-9 w-24 rounded-lg border border-line bg-white px-2 text-xs font-semibold text-ink outline-none transition focus:border-violet-600"
+                                              />
                                               <button
                                                 type="button"
                                                 onClick={() => void handleSaveSkuStock(item)}
@@ -1671,21 +1674,47 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                               >
                                                 保存
                                               </button>
+                                            </div>
+                                            <input
+                                              value={itemStockReasonDrafts[item.id] ?? ""}
+                                              onChange={(event) =>
+                                                setItemStockReasonDrafts((current) => ({
+                                                  ...current,
+                                                  [item.id]: event.target.value,
+                                                }))
+                                              }
+                                              disabled={!canEdit}
+                                              placeholder="校准原因"
+                                              className="h-8 w-40 rounded-lg border border-line bg-white px-2 text-xs outline-none transition focus:border-violet-600"
+                                            />
+                                          </div>
+                                        ) : (
+                                          <div className="flex items-center gap-2">
+                                            <span className="min-w-12 text-lg font-bold tabular-nums text-ink">
+                                              {item.stock_quantity}
+                                            </span>
+                                            {canEdit && (
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setItemStockDrafts((current) => ({
+                                                    ...current,
+                                                    [item.id]: String(item.stock_quantity),
+                                                  }));
+                                                  setEditingSkuStockIds((current) => ({
+                                                    ...current,
+                                                    [item.id]: true,
+                                                  }));
+                                                }}
+                                                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-slate-800"
+                                                aria-label={`校准 ${getSkuDisplayCode(sku)} 库存`}
+                                                title="校准库存"
+                                              >
+                                                <Edit3 size={14} />
+                                              </button>
                                             )}
                                           </div>
-                                          <input
-                                            value={itemStockReasonDrafts[item.id] ?? ""}
-                                            onChange={(event) =>
-                                              setItemStockReasonDrafts((current) => ({
-                                                ...current,
-                                                [item.id]: event.target.value,
-                                              }))
-                                            }
-                                            disabled={!canEdit}
-                                            placeholder="校准原因"
-                                            className="h-8 w-40 rounded-lg border border-line bg-white px-2 text-xs outline-none transition focus:border-violet-600"
-                                          />
-                                        </div>
+                                        )}
                                       </td>
                                       <td className="px-4 py-3">
                                         <button

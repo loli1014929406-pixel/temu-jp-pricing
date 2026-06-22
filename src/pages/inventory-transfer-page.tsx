@@ -1,4 +1,5 @@
 import {
+  AlertTriangle,
   ArrowRight,
   Calendar,
   Check,
@@ -126,6 +127,10 @@ function getTransferRecordBusyKey(record: TransferRecord) {
   return `receive-transfer-${record.metadata?.batchId ?? record.key}`;
 }
 
+function getProductCodeFromSkuSummaryLabel(label: string) {
+  return label.trim().split(/\s+/)[0] ?? "";
+}
+
 export function InventoryTransferPage({ user: _user }: InventoryTransferPageProps) {
   void _user;
   const { canEdit } = usePermissions();
@@ -134,7 +139,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
   const [skus, setSkus] = useState<ProductSku[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [warehouseSkus, setWarehouseSkus] = useState<WarehouseSku[]>([]);
-  const [warehouseItemStocks, setWarehouseItemStocks] = useState<WarehouseItemStock[]>([]);
+  const [, setWarehouseItemStocks] = useState<WarehouseItemStock[]>([]);
   const [warehouseItemStockAdjustments, setWarehouseItemStockAdjustments] = useState<
     WarehouseItemStockAdjustment[]
   >([]);
@@ -272,14 +277,6 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
   const warehousesById = useMemo(
     () => Object.fromEntries(warehouses.map((warehouse) => [warehouse.id, warehouse])),
     [warehouses],
-  );
-
-  const warehouseItemStocksByKey = useMemo(
-    () =>
-      Object.fromEntries(
-        warehouseItemStocks.map((item) => [`${item.warehouse_id}:${item.item_id}`, item]),
-      ),
-    [warehouseItemStocks],
   );
 
   const warehouseSkusByKey = useMemo(
@@ -711,6 +708,12 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
     }
     if (record.status === "received") {
       setErrorMessage("该调拨记录已经签收。");
+      return;
+    }
+    if (!record.metadata?.lines.length) {
+      setErrorMessage(
+        "该历史调拨记录缺少结构化 SKU 明细，不能自动签收。请先按实际调拨清单修复库存数据。",
+      );
       return;
     }
 
@@ -1148,6 +1151,27 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
                   Math.min(Math.max(0, item.receivedQuantity), item.transferQuantity),
                 0,
               );
+              const skuSummaryLabels = record.skuSummary
+                .split("；")
+                .map((label) => label.trim())
+                .filter(Boolean);
+              const actualProductCodes = new Set(
+                record.itemSummaries.flatMap((item) => {
+                  const productId = productItemsById[item.itemId]?.product_id;
+                  const productCode = productId ? productsById[productId]?.product_code : "";
+                  return productCode ? [productCode] : [];
+                }),
+              );
+              const textOnlySkuLabels = skuSummaryLabels.filter((label) => {
+                const productCode = getProductCodeFromSkuSummaryLabel(label);
+                return productCode && actualProductCodes.size > 0 && !actualProductCodes.has(productCode);
+              });
+              const visibleSkuLabels =
+                textOnlySkuLabels.length > 0
+                  ? skuSummaryLabels.filter((label) => !textOnlySkuLabels.includes(label))
+                  : skuSummaryLabels;
+              const hasLegacyMissingMetadata = !record.metadata?.lines.length;
+              const hasSummaryMismatch = textOnlySkuLabels.length > 0;
 
               return (
                 <article
@@ -1171,16 +1195,36 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
                     </div>
 
                     <div className="flex max-w-md flex-1 flex-wrap gap-1.5 sm:justify-end">
-                      {record.skuSummary.split("；").map((skuLabel) => (
+                      {visibleSkuLabels.map((skuLabel) => (
                         <span
                           key={skuLabel}
-                          className="rounded-lg bg-slate-50 border border-slate-150 px-2 py-0.5 text-xs font-semibold text-slate-700"
+                          className="rounded-lg border border-slate-150 bg-slate-50 px-2 py-0.5 text-xs font-semibold text-slate-700"
                         >
                           {skuLabel}
                         </span>
                       ))}
                     </div>
                   </div>
+
+                  {(hasLegacyMissingMetadata || hasSummaryMismatch) && (
+                    <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+                        <div className="grid gap-1">
+                          {hasLegacyMissingMetadata && (
+                            <span>
+                              该历史调拨记录缺少结构化 SKU 明细，不能自动签收或作为完整 SKU 入库依据。
+                            </span>
+                          )}
+                          {hasSummaryMismatch && (
+                            <span>
+                              文本摘要包含 {textOnlySkuLabels.join("、")}，但实际库存流水没有对应产品行。
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Visual Stepper Timeline */}
                   <div className="mt-6 grid gap-6 md:grid-cols-3 md:gap-4">
@@ -1262,7 +1306,12 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
                             <button
                               type="button"
                               onClick={() => void handleReceiveTransferRecord(record)}
-                              disabled={busyKey === receiveBusyKey}
+                              disabled={busyKey === receiveBusyKey || hasLegacyMissingMetadata}
+                              title={
+                                hasLegacyMissingMetadata
+                                  ? "历史调拨缺少结构化 SKU 明细，需先修复库存数据"
+                                  : undefined
+                              }
                               className="btn-primary h-8 px-4 text-xs font-bold"
                             >
                               {busyKey === receiveBusyKey ? "签收中..." : "确认签收"}
