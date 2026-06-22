@@ -160,7 +160,7 @@ export async function fetchPurchaseOrders() {
   const orderIds = orders.map((item) => item.id);
   const [{ data: sourcesData, error: sourcesError }, { data: itemsData, error: itemsError }, { data: packagesData, error: packagesError }] = await Promise.all([
     supabase.from("purchase_order_sources").select("id, order_id, purchase_url, alibaba_order_no, freight_rmb").in("order_id", orderIds).eq("owner_id", session.user.id),
-    supabase.from("purchase_order_items").select("id, order_id, source_id, purchase_url, product_code, product_name_cn, item_name, item_spec, quantity, unit_price_rmb, product_id, item_id").in("order_id", orderIds).eq("owner_id", session.user.id),
+    supabase.from("purchase_order_items").select("id, order_id, source_id, purchase_url, product_code, product_name_cn, item_name, item_spec, quantity, unit_price_rmb, product_id, item_id, sku_id, sku_quantity").in("order_id", orderIds).eq("owner_id", session.user.id),
     supabase.from("purchase_packages").select("id, order_id, source_id, tracking_no, status").in("order_id", orderIds).eq("owner_id", session.user.id),
   ]);
   if (sourcesError) throw sourcesError;
@@ -241,7 +241,7 @@ export async function createPurchaseOrder(input: CreatePurchaseOrderInput) {
         order_id: order.id,
         source_id: sourceIdByUrl[item.purchase_url],
         owner_id: session.user.id,
-      }))).select("id, order_id, source_id, purchase_url, product_code, product_name_cn, item_name, item_spec, quantity, unit_price_rmb, product_id, item_id"),
+      }))).select("id, order_id, source_id, purchase_url, product_code, product_name_cn, item_name, item_spec, quantity, unit_price_rmb, product_id, item_id, sku_id, sku_quantity"),
       "保存采购单明细",
     );
     if (itemError) throw itemError;
@@ -291,7 +291,7 @@ async function loadPurchaseOrderForDeletion(
     await Promise.all([
       supabase
         .from("purchase_order_items")
-        .select("id, order_id, product_id, item_id, item_name, item_spec")
+        .select("id, order_id, product_id, item_id, item_name, item_spec, sku_id, sku_quantity")
         .eq("order_id", order.id)
         .eq("owner_id", ownerId),
       supabase
@@ -336,6 +336,30 @@ async function reverseReceivedPurchaseInventory(order: PurchaseOrder) {
   const receivedPackages = order.packages.filter((pkg) => pkg.status === "received");
   if (receivedPackages.length === 0) return;
 
+  const { supabase, session } = await requireSession();
+
+  const skuQtyBefore = getSkuQtyReceived(order.items, order.packages);
+  for (const [skuId, qty] of Object.entries(skuQtyBefore)) {
+    if (qty > 0) {
+      const { data: skuStock, error: skuStockError } = await supabase
+        .from("warehouse_skus")
+        .select("id, stock_quantity")
+        .eq("warehouse_id", order.warehouse_id)
+        .eq("sku_id", skuId)
+        .maybeSingle();
+      if (skuStockError) throw skuStockError;
+      if (skuStock) {
+        const nextStockQty = Math.max(0, skuStock.stock_quantity - qty);
+        const { error: updateSkuError } = await supabase
+          .from("warehouse_skus")
+          .update({ stock_quantity: nextStockQty })
+          .eq("id", skuStock.id)
+          .eq("stock_quantity", skuStock.stock_quantity);
+        if (updateSkuError) throw updateSkuError;
+      }
+    }
+  }
+
   const reversals = new Map<string, PurchaseInventoryReversal>();
   for (const pkg of receivedPackages) {
     const resolvedItems = await resolvePackageItems(order, pkg);
@@ -362,7 +386,6 @@ async function reverseReceivedPurchaseInventory(order: PurchaseOrder) {
   }
   if (reversals.size === 0) return;
 
-  const { supabase, session } = await requireSession();
   const reason = `删除采购单冲回：${order.order_code}`;
   for (const reversal of reversals.values()) {
     if (reversal.quantity <= 0) continue;
@@ -728,6 +751,30 @@ export async function receivePurchasePackage(order: PurchaseOrder, pkg: Purchase
   if (allPackageItemError) throw allPackageItemError;
   const packageItemsByPackage = (allPackageItemData as PurchasePackageItem[]).reduce<Record<string, PurchasePackageItem[]>>((acc, row) => ((acc[row.package_id] ??= []).push(row), acc), {});
   const allPackages = allPackageRows.map((item) => ({ ...item, items: packageItemsByPackage[item.id] ?? [] })) as PurchasePackage[];
+  const skuQtyBefore = getSkuQtyReceived(order.items, order.packages);
+  const skuQtyAfter = getSkuQtyReceived(order.items, allPackages);
+  for (const [skuId, qtyAfter] of Object.entries(skuQtyAfter)) {
+    const qtyBefore = skuQtyBefore[skuId] ?? 0;
+    const diff = qtyAfter - qtyBefore;
+    if (diff > 0) {
+      const { data: skuStock, error: skuStockError } = await supabase
+        .from("warehouse_skus")
+        .select("id, stock_quantity")
+        .eq("warehouse_id", order.warehouse_id)
+        .eq("sku_id", skuId)
+        .maybeSingle();
+      if (skuStockError) throw skuStockError;
+      if (skuStock) {
+        const nextStockQty = skuStock.stock_quantity + diff;
+        const { error: updateSkuError } = await supabase
+          .from("warehouse_skus")
+          .update({ stock_quantity: nextStockQty })
+          .eq("id", skuStock.id)
+          .eq("stock_quantity", skuStock.stock_quantity);
+        if (updateSkuError) throw updateSkuError;
+      }
+    }
+  }
   const status = getReceiptStatus(order.items, allPackages);
   const { data: orderData, error: orderError } = await supabase.from("purchase_orders").update({ status, received_at: status === "received" ? receivedAt : null }).eq("id", order.id).eq("owner_id", session.user.id).select("status").single();
   if (orderError) throw orderError;
@@ -820,6 +867,30 @@ export async function receiveRemainingPurchaseOrder(order: PurchaseOrder) {
   }
 
   const nextPackages = [...order.packages, ...receivedPackages];
+  const skuQtyBefore = getSkuQtyReceived(order.items, order.packages);
+  const skuQtyAfter = getSkuQtyReceived(order.items, nextPackages);
+  for (const [skuId, qtyAfter] of Object.entries(skuQtyAfter)) {
+    const qtyBefore = skuQtyBefore[skuId] ?? 0;
+    const diff = qtyAfter - qtyBefore;
+    if (diff > 0) {
+      const { data: skuStock, error: skuStockError } = await supabase
+        .from("warehouse_skus")
+        .select("id, stock_quantity")
+        .eq("warehouse_id", order.warehouse_id)
+        .eq("sku_id", skuId)
+        .maybeSingle();
+      if (skuStockError) throw skuStockError;
+      if (skuStock) {
+        const nextStockQty = skuStock.stock_quantity + diff;
+        const { error: updateSkuError } = await supabase
+          .from("warehouse_skus")
+          .update({ stock_quantity: nextStockQty })
+          .eq("id", skuStock.id)
+          .eq("stock_quantity", skuStock.stock_quantity);
+        if (updateSkuError) throw updateSkuError;
+      }
+    }
+  }
   const status = getReceiptStatus(order.items, nextPackages);
   const { data: orderData, error: orderError } = await supabase
     .from("purchase_orders")
@@ -835,4 +906,42 @@ export async function receiveRemainingPurchaseOrder(order: PurchaseOrder) {
     packages: receivedPackages,
     inventory,
   };
+}
+
+function getSkuQtyReceived(
+  items: PurchaseOrderItem[],
+  packages: PurchasePackage[],
+): Record<string, number> {
+  const receivedQtyByOrderItemId: Record<string, number> = {};
+  packages
+    .filter((p) => p.status === "received")
+    .flatMap((p) => p.items)
+    .forEach((pi) => {
+      receivedQtyByOrderItemId[pi.order_item_id] =
+        (receivedQtyByOrderItemId[pi.order_item_id] ?? 0) + pi.quantity;
+    });
+
+  const orderItemsBySkuId: Record<string, PurchaseOrderItem[]> = {};
+  items.forEach((item) => {
+    if (item.sku_id) {
+      orderItemsBySkuId[item.sku_id] ??= [];
+      orderItemsBySkuId[item.sku_id].push(item);
+    }
+  });
+
+  const skuQtyReceived: Record<string, number> = {};
+  Object.entries(orderItemsBySkuId).forEach(([skuId, skuItems]) => {
+    const skuQty = Math.min(
+      ...skuItems.map((item) => {
+        const receivedItemQty = receivedQtyByOrderItemId[item.id] ?? 0;
+        const skuQtyOrdered = item.sku_quantity ?? 0;
+        const itemQtyOrdered = item.quantity ?? 0;
+        const itemPerSku = skuQtyOrdered > 0 ? itemQtyOrdered / skuQtyOrdered : 1;
+        return itemPerSku > 0 ? Math.floor(receivedItemQty / itemPerSku) : 0;
+      })
+    );
+    skuQtyReceived[skuId] = Math.max(0, skuQty);
+  });
+
+  return skuQtyReceived;
 }

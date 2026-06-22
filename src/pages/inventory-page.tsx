@@ -8,6 +8,7 @@ import {
   deleteWarehouse,
   fetchWarehouseItemStockAdjustmentsForItems,
   fetchWarehouseInventoryPage,
+  fetchWarehouseSkuCounts,
   fetchWarehouses,
   removeWarehouseProduct,
   updateWarehouse,
@@ -240,6 +241,8 @@ export function InventoryPage({ user }: InventoryPageProps) {
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
   const [draftNotice, setDraftNotice] = useState(
     hasInventoryDraft(restoredDraft) ? "已恢复上次未保存的库存编辑草稿。" : "",
   );
@@ -362,12 +365,17 @@ export function InventoryPage({ user }: InventoryPageProps) {
           nextSettings?.last_leg_methods || defaultLastLegMethods;
         const updatedDbLogisticsMethods = [...nextLogisticsMethods];
 
+        const nextWarehouseTotals = await fetchWarehouseSkuCounts(
+          nextWarehouses.map((warehouse) => warehouse.id)
+        );
+
         if (active) {
           setWarehouses(nextWarehouses);
           setLogisticsMethods(updatedDbLogisticsMethods);
           setWarehouseLogisticsMethods(nextWarehouseLogisticsMethods);
           setSettingsFirstLegs(firstLegs);
           setSettingsLastLegs(lastLegs);
+          setWarehouseTotals(nextWarehouseTotals);
 
           const latestDraft = readDraft<InventoryDraft>(draftKey);
           setItemStockDrafts(latestDraft?.itemStockDrafts ?? {});
@@ -394,19 +402,19 @@ export function InventoryPage({ user }: InventoryPageProps) {
   useEffect(() => {
     if (visibleWarehouses.length === 1) {
       const warehouse = visibleWarehouses[0];
-      if (warehouseTotals[warehouse.id] === undefined) {
+      if (warehousePages[warehouse.id] === undefined) {
         void loadWarehousePage(warehouse.id, 1);
       }
     }
-  }, [visibleWarehouses, warehouseTotals, loadWarehousePage]);
+  }, [visibleWarehouses, warehousePages, loadWarehousePage]);
 
   useEffect(() => {
     if (visibleWarehouses.length !== 1) return;
     const warehouse = visibleWarehouses[0];
-    if (warehouseTotals[warehouse.id] === undefined) return;
+    if (warehousePages[warehouse.id] === undefined) return;
     if ((warehouseLoadedSearches[warehouse.id] ?? "") === searchQuery.trim()) return;
     void loadWarehousePage(warehouse.id, 1);
-  }, [searchQuery, visibleWarehouses, warehouseLoadedSearches, warehouseTotals, loadWarehousePage]);
+  }, [searchQuery, visibleWarehouses, warehouseLoadedSearches, warehousePages, loadWarehousePage]);
 
 
 
@@ -682,7 +690,9 @@ export function InventoryPage({ user }: InventoryPageProps) {
     try {
       const warehouse = await createWarehouse(name);
       setWarehouses((current) => [...current, warehouse]);
+      setWarehouseTotals((current) => ({ ...current, [warehouse.id]: 0 }));
       setDraftWarehouseName("");
+      setIsCreateModalOpen(false);
     } catch (error) {
       setErrorMessage(getInventoryErrorMessage(error, "新增仓库失败"));
     } finally {
@@ -735,6 +745,10 @@ export function InventoryPage({ user }: InventoryPageProps) {
       setWarehouseSkus((current) =>
         current.filter((item) => item.warehouse_id !== warehouse.id),
       );
+      setWarehouseTotals((current) => {
+        const { [warehouse.id]: _, ...rest } = current;
+        return rest;
+      });
       setSelectedProductIds((current) => {
         const { [warehouse.id]: _selectedProductId, ...rest } = current;
         void _selectedProductId;
@@ -807,6 +821,10 @@ export function InventoryPage({ user }: InventoryPageProps) {
       );
       setWarehouseSkus((current) => [...current, ...inventory.skus]);
       setWarehouseItemStocks((current) => [...current, ...inventory.itemStocks]);
+      setWarehouseTotals((current) => ({
+        ...current,
+        [warehouseId]: (current[warehouseId] ?? 0) + inventory.skus.length,
+      }));
       setItemStockDrafts((current) => ({
         ...current,
         ...Object.fromEntries(
@@ -814,6 +832,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
         ),
       }));
       setSelectedProductIds((current) => ({ ...current, [warehouseId]: "" }));
+      setIsAddProductModalOpen(false);
     } catch (error) {
       setErrorMessage(getInventoryErrorMessage(error, "添加库存商品失败"));
     } finally {
@@ -829,6 +848,10 @@ export function InventoryPage({ user }: InventoryPageProps) {
 
     const product = productsById[productId];
     if (!confirmDelete(`仓库商品编号“${product?.product_code ?? ""}”`)) return;
+
+    const removedCount = warehouseSkus.filter(
+      (entry) => entry.warehouse_id === warehouseId && entry.product_id === productId,
+    ).length;
 
     setBusyKey(`product-${warehouseId}-${productId}`);
     setErrorMessage("");
@@ -846,6 +869,10 @@ export function InventoryPage({ user }: InventoryPageProps) {
             !(itemIdsByProductId[productId] ?? []).includes(entry.item_id),
         ),
       );
+      setWarehouseTotals((current) => ({
+        ...current,
+        [warehouseId]: Math.max(0, (current[warehouseId] ?? 0) - removedCount),
+      }));
     } catch (error) {
       setErrorMessage(getInventoryErrorMessage(error, "移除库存商品失败"));
     } finally {
@@ -975,7 +1002,22 @@ export function InventoryPage({ user }: InventoryPageProps) {
 
   return (
     <section className="flex flex-col gap-6 p-4 sm:p-6">
-      <PageHeader title={pageTitle} description={pageDescription} />
+      <PageHeader
+        title={pageTitle}
+        description={pageDescription}
+        actions={
+          !warehouseSlug && canEdit ? (
+            <button
+              type="button"
+              onClick={() => setIsCreateModalOpen(true)}
+              className="btn-primary rounded-xl"
+            >
+              <Plus size={18} />
+              增加仓库
+            </button>
+          ) : null
+        }
+      />
 
       {errorMessage && (
         <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
@@ -1036,7 +1078,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
             <div>
               <div className="text-sm font-medium text-slate-500">已分配商品 SKU 总数</div>
               <div className="mt-1 text-2xl font-bold text-ink">
-                {Object.values(warehouseSkusByWarehouseId).reduce((acc, curr) => acc + curr.length, 0)} 个
+                {Object.values(warehouseTotals).reduce((acc, curr) => acc + curr, 0)} 个
               </div>
             </div>
             <div className="rounded-full bg-blue-50 p-3 text-blue-600">
@@ -1057,30 +1099,6 @@ export function InventoryPage({ user }: InventoryPageProps) {
         </div>
       )}
 
-      {/* Admin creation blocks: only show on all warehouses view & with permissions */}
-      {!warehouseSlug && canEdit && (
-        <section className="rounded-lg bg-panel grid gap-4 p-5 shadow-soft">
-          <h2 className="text-base font-semibold text-ink">新增仓库</h2>
-          <div className="grid gap-3 md:grid-cols-[minmax(220px,1fr)_auto]">
-            <input
-              value={draftWarehouseName}
-              onChange={(event) => setDraftWarehouseName(event.target.value)}
-              placeholder="例如: 苏州仓、福冈仓、大厦仓"
-              className="h-11 rounded-xl border border-line bg-white px-3 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
-            />
-            <button
-              type="button"
-              onClick={() => void handleCreateWarehouse()}
-              disabled={!draftWarehouseName.trim() || busyKey === "create-warehouse"}
-              className="btn-primary rounded-xl"
-            >
-              <Plus size={18} />
-              增加仓库
-            </button>
-          </div>
-        </section>
-      )}
-
       {loading ? (
         <div className="text-sm text-slate-500">加载中...</div>
       ) : warehouses.length === 0 ? (
@@ -1097,7 +1115,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
           {!warehouseSlug ? (
             <div className="grid gap-5 md:grid-cols-2">
               {visibleWarehouses.map((warehouse) => {
-                const skuCount = (warehouseSkusByWarehouseId[warehouse.id] ?? []).length;
+                const skuCount = warehouseTotals[warehouse.id] ?? 0;
                 const { firstLegs, lastLegs } = getWarehouseAssignedLegs(warehouse.id);
                 const totalAssignedLegs = firstLegs.length + lastLegs.length;
 
@@ -1387,10 +1405,20 @@ export function InventoryPage({ user }: InventoryPageProps) {
                           仓库属性设置
                         </button>
                         {canEdit && (
-                          <Link to="/inventory/transfer" className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition">
-                            <ArrowLeftRight size={16} />
-                            库存调拨
-                          </Link>
+                          <>
+                            <Link to="/inventory/transfer" className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition">
+                              <ArrowLeftRight size={16} />
+                              库存调拨
+                            </Link>
+                            <button
+                              type="button"
+                              onClick={() => setIsAddProductModalOpen(true)}
+                              className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition"
+                            >
+                              <Plus size={16} />
+                              增加商品编号
+                            </button>
+                          </>
                         )}
                       </div>
 
@@ -1544,34 +1572,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                       </div>
                     )}
 
-                    {/* Quick add product row */}
-                    {canEdit && (
-                      <div className="border-t border-line mt-2 pt-4 flex flex-wrap items-center gap-3">
-                        <div className="flex-1 min-w-[240px]">
-                          <AsyncProductSelect
-                            value={selectedProductIds[warehouse.id] ?? ""}
-                            onChange={(value) =>
-                              setSelectedProductIds((current) => ({
-                                ...current,
-                                [warehouse.id]: value,
-                              }))
-                            }
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => void handleAddProduct(warehouse.id)}
-                          disabled={
-                            !selectedProductIds[warehouse.id] ||
-                            busyKey === `add-product-${warehouse.id}`
-                          }
-                          className="inline-flex h-10 items-center justify-center rounded-xl bg-violet-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-700 disabled:opacity-60"
-                        >
-                          <Plus size={18} />
-                          增加商品编号
-                        </button>
-                      </div>
-                    )}
+                    {/* Quick add product row: removed inline product adding, replaced by modal and control board action button */}
                   </section>
 
                   {/* Inventory Table card */}
@@ -1866,7 +1867,103 @@ export function InventoryPage({ user }: InventoryPageProps) {
           )}
         </div>
       )}
+
+      {isCreateModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
+          <div className="grid w-full max-w-md gap-4 rounded-2xl bg-white p-6 shadow-xl animate-scale-up">
+            <div>
+              <h2 className="text-xl font-bold text-ink">新增仓库</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                请在下方输入新仓库的名称。
+              </p>
+            </div>
+            
+            <div className="grid gap-2">
+              <label className="text-xs font-semibold text-slate-500">仓库名称</label>
+              <input
+                value={draftWarehouseName}
+                onChange={(event) => setDraftWarehouseName(event.target.value)}
+                placeholder="例如: 苏州仓、福冈仓、大厦仓"
+                className="h-11 rounded-xl border border-line bg-white px-3.5 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsCreateModalOpen(false);
+                  setDraftWarehouseName("");
+                }}
+                className="btn-secondary h-11 px-6 rounded-xl"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                disabled={!draftWarehouseName.trim() || busyKey === "create-warehouse"}
+                onClick={() => void handleCreateWarehouse()}
+                className="btn-primary h-11 px-6 rounded-xl"
+              >
+                {busyKey === "create-warehouse" ? "正在创建..." : "确认新增"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isAddProductModalOpen && routeWarehouse && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
+          <div className="grid w-full max-w-md gap-4 rounded-2xl bg-white p-6 shadow-xl animate-scale-up">
+            <div>
+              <h2 className="text-xl font-bold text-ink">增加商品编号</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                请在下方搜索并选择您要添加到 {routeWarehouse.name} 仓库的商品。
+              </p>
+            </div>
+            
+            <div className="grid gap-2">
+              <label className="text-xs font-semibold text-slate-500">搜索商品</label>
+              <AsyncProductSelect
+                value={selectedProductIds[routeWarehouse.id] ?? ""}
+                onChange={(value) =>
+                  setSelectedProductIds((current) => ({
+                    ...current,
+                    [routeWarehouse.id]: value,
+                  }))
+                }
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAddProductModalOpen(false);
+                  setSelectedProductIds((current) => ({
+                    ...current,
+                    [routeWarehouse.id]: "",
+                  }));
+                }}
+                className="btn-secondary h-11 px-6 rounded-xl"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                disabled={
+                  !selectedProductIds[routeWarehouse.id] ||
+                  busyKey === `add-product-${routeWarehouse.id}`
+                }
+                onClick={() => void handleAddProduct(routeWarehouse.id)}
+                className="btn-primary h-11 px-6 rounded-xl"
+              >
+                {busyKey === `add-product-${routeWarehouse.id}` ? "正在添加..." : "确认添加"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
-

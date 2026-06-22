@@ -100,6 +100,29 @@ export async function deleteWarehouse(warehouseId: string) {
   if (error) throw error;
 }
 
+export async function fetchWarehouseSkuCounts(warehouseIds: string[]) {
+  if (warehouseIds.length === 0) return {} as Record<string, number>;
+
+  const { supabase } = await requireSession();
+  const counts: Record<string, number> = {};
+
+  await Promise.all(
+    warehouseIds.map(async (warehouseId) => {
+      const { error, count } = await withTimeout(
+        supabase
+          .from("warehouse_skus")
+          .select("*", { count: "exact", head: true })
+          .eq("warehouse_id", warehouseId),
+        `加载仓库 ${warehouseId} SKU 计数`,
+      );
+      if (error) throw error;
+      counts[warehouseId] = count ?? 0;
+    })
+  );
+
+  return counts;
+}
+
 export async function fetchWarehouseSkus(warehouseIds: string[]) {
   if (warehouseIds.length === 0) return [] as WarehouseSku[];
 
@@ -307,16 +330,16 @@ export async function fetchWarehouseInventoryPage(
       const [linksResult, stocksResult] = await Promise.all([
         skuIds.length > 0
           ? supabase
-              .from("product_sku_items")
-              .select("sku_id, item_id, quantity")
-              .in("sku_id", skuIds)
+            .from("product_sku_items")
+            .select("sku_id, item_id, quantity")
+            .in("sku_id", skuIds)
           : Promise.resolve({ data: [] as ProductSkuItemLink[], error: null }),
         itemIds.length > 0
           ? supabase
-              .from("warehouse_item_stocks")
-              .select("id, warehouse_id, item_id, stock_quantity")
-              .eq("warehouse_id", warehouseId)
-              .in("item_id", itemIds)
+            .from("warehouse_item_stocks")
+            .select("id, warehouse_id, item_id, stock_quantity")
+            .eq("warehouse_id", warehouseId)
+            .in("item_id", itemIds)
           : Promise.resolve({ data: [] as WarehouseItemStock[], error: null }),
       ]);
 
@@ -673,11 +696,10 @@ function buildTransferReasonLabel(
     .map((line) => `${line.skuLabel || line.skuId} x${line.quantity}`)
     .join("；");
 
-  return `${input.sourceWarehouseName || metadata.sourceWarehouseId} -> ${
-    input.destinationWarehouseName || metadata.destinationWarehouseId
-  } / ${skuLabel} / 调拨日期：${input.transferDate.trim()} / 快递单号：${input.trackingNo.trim()} / ${transferMetadataPartPrefix}${encodeURIComponent(
-    JSON.stringify(metadata),
-  )}`;
+  return `${input.sourceWarehouseName || metadata.sourceWarehouseId} -> ${input.destinationWarehouseName || metadata.destinationWarehouseId
+    } / ${skuLabel} / 调拨日期：${input.transferDate.trim()} / 快递单号：${input.trackingNo.trim()} / ${transferMetadataPartPrefix}${encodeURIComponent(
+      JSON.stringify(metadata),
+    )}`;
 }
 
 function normalizeTransferItems(items: WarehouseInventoryTransferLineInput["items"]) {
@@ -968,10 +990,10 @@ export async function receiveWarehouseTransferInventory(
   ] = await Promise.all([
     skuIds.length > 0
       ? supabase
-          .from("warehouse_skus")
-          .select("id, warehouse_id, product_id, sku_id, owner_id, stock_quantity, created_at, updated_at")
-          .eq("warehouse_id", destinationWarehouseId)
-          .in("sku_id", skuIds)
+        .from("warehouse_skus")
+        .select("id, warehouse_id, product_id, sku_id, owner_id, stock_quantity, created_at, updated_at")
+        .eq("warehouse_id", destinationWarehouseId)
+        .in("sku_id", skuIds)
       : Promise.resolve({ data: [], error: null }),
     supabase
       .from("warehouse_item_stocks")
@@ -1009,7 +1031,7 @@ export async function receiveWarehouseTransferInventory(
     receivedQuantityByItemId.set(
       adjustment.item_id,
       (receivedQuantityByItemId.get(adjustment.item_id) ?? 0) +
-        Math.trunc(Number(adjustment.change_quantity) || 0),
+      Math.trunc(Number(adjustment.change_quantity) || 0),
     );
   });
 

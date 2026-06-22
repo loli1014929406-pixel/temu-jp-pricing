@@ -1,4 +1,4 @@
-import { CheckCircle2, Plus, Search, Trash2 } from "lucide-react";
+import { CheckCircle2, Plus, Search, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
@@ -221,6 +221,13 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
     Record<string, { alibabaOrderNo: string; freightRmb: string }>
   >(restoredRecordsDraft?.sourceDrafts ?? {});
   const [expandedOrderIds, setExpandedOrderIds] = useState<Record<string, boolean>>({});
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search]);
+
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -270,6 +277,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
             ]),
           ),
         );
+
         const latestRecordsDraft = readDraft<PurchaseRecordsDraft>(recordsDraftKey);
         setExistingPackageTrackingDrafts({
           ...serverPackageTrackingDrafts,
@@ -349,6 +357,14 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
       return new Date(b.purchased_at).getTime() - new Date(a.purchased_at).getTime();
     });
   }, [orders, search]);
+
+  const totalRecordCount = filteredOrders.length;
+  const totalPages = Math.max(1, Math.ceil(totalRecordCount / pageSize));
+
+  const paginatedOrders = useMemo(() => {
+    const startIndex = (currentPage - 1) * pageSize;
+    return filteredOrders.slice(startIndex, startIndex + pageSize);
+  }, [filteredOrders, currentPage, pageSize]);
 
   const recordStats = useMemo(() => {
     const packageCount = filteredOrders.reduce(
@@ -1454,587 +1470,648 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
           ) : filteredOrders.length === 0 ? (
             <div className="empty-state">暂无采购管理单</div>
           ) : (
-            <div className="grid gap-3">
-              {filteredOrders.map((order) => {
-                const orderFreightTotal = order.sources.reduce(
-                  (sum, source) => sum + source.freight_rmb,
-                  0,
-                );
-                const receivedQuantityByOrderItem = getReceivedQuantityByOrderItem(order);
-                const totalItemQuantity = order.items.reduce(
-                  (sum, item) => sum + item.quantity,
-                  0,
-                );
-                const receivedItemQuantity = order.items.reduce(
-                  (sum, item) =>
-                    sum + Math.min(item.quantity, receivedQuantityByOrderItem[item.id] ?? 0),
-                  0,
-                );
-                const sourceGroups = Object.values(
-                  order.sources.reduce<
-                    Record<
-                      string,
-                      {
-                        key: string;
-                        orderNo: string;
-                        sources: typeof order.sources;
-                        urls: string[];
+            <>
+              <div className="grid gap-3">
+                {paginatedOrders.map((order) => {
+                  const orderFreightTotal = order.sources.reduce(
+                    (sum, source) => sum + source.freight_rmb,
+                    0,
+                  );
+                  const receivedQuantityByOrderItem = getReceivedQuantityByOrderItem(order);
+                  const totalItemQuantity = order.items.reduce(
+                    (sum, item) => sum + item.quantity,
+                    0,
+                  );
+                  const receivedItemQuantity = order.items.reduce(
+                    (sum, item) =>
+                      sum + Math.min(item.quantity, receivedQuantityByOrderItem[item.id] ?? 0),
+                    0,
+                  );
+                  const sourceGroups = Object.values(
+                    order.sources.reduce<
+                      Record<
+                        string,
+                        {
+                          key: string;
+                          orderNo: string;
+                          sources: typeof order.sources;
+                          urls: string[];
+                        }
+                      >
+                    >((groups, source) => {
+                      const orderNo = source.alibaba_order_no.trim();
+                      const key = orderNo || `__source_${source.id}`;
+                      if (!groups[key]) {
+                        groups[key] = { key, orderNo, sources: [], urls: [] };
                       }
+                      groups[key].sources.push(source);
+                      if (source.purchase_url && !groups[key].urls.includes(source.purchase_url)) {
+                        groups[key].urls.push(source.purchase_url);
+                      }
+                      return groups;
+                    }, {}),
+                  );
+
+                  const canQuickReceive =
+                    canEdit &&
+                    order.status !== "received" &&
+                    order.sources.length > 0 &&
+                    order.sources.every((s) => s.alibaba_order_no.trim()) &&
+                    order.packages.length > 0;
+
+                  return (
+                    <article
+                      key={order.id}
+                      className="rounded-xl border border-line bg-white p-3 shadow-sm sm:p-4"
                     >
-                  >((groups, source) => {
-                    const orderNo = source.alibaba_order_no.trim();
-                    const key = orderNo || `__source_${source.id}`;
-                    if (!groups[key]) {
-                      groups[key] = { key, orderNo, sources: [], urls: [] };
-                    }
-                    groups[key].sources.push(source);
-                    if (source.purchase_url && !groups[key].urls.includes(source.purchase_url)) {
-                      groups[key].urls.push(source.purchase_url);
-                    }
-                    return groups;
-                  }, {}),
-                );
-
-                const canQuickReceive =
-                  canEdit &&
-                  order.status !== "received" &&
-                  order.sources.length > 0 &&
-                  order.sources.every((s) => s.alibaba_order_no.trim()) &&
-                  order.packages.length > 0;
-
-                return (
-                  <article
-                    key={order.id}
-                    className="rounded-xl border border-line bg-white p-3 shadow-sm sm:p-4"
-                  >
-                    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(420px,520px)_auto] lg:items-center">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="text-base font-semibold text-ink">
-                            {order.order_code}
-                          </h3>
-                          <Badge
-                            tone={
-                              order.status === "received"
-                                ? "success"
+                      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(420px,520px)_auto] lg:items-center">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="text-base font-semibold text-ink">
+                              {order.order_code}
+                            </h3>
+                            <Badge
+                              tone={
+                                order.status === "received"
+                                  ? "success"
+                                  : order.status === "partially_received"
+                                    ? "warning"
+                                    : "neutral"
+                              }
+                            >
+                              {order.status === "received"
+                                ? "已签收"
                                 : order.status === "partially_received"
-                                  ? "warning"
-                                  : "neutral"
-                            }
-                          >
-                            {order.status === "received"
-                              ? "已签收"
-                              : order.status === "partially_received"
-                                ? "部分签收"
-                                : "待签收"}
-                          </Badge>
-                        </div>
-                        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs font-medium text-slate-500">
-                          <span>{order.warehouse_name}</span>
-                          <span>{order.purchased_at}</span>
-                          <span>{order.items.length} 条明细</span>
-                          <span>
-                            包裹 {order.packages.filter((pkg) => pkg.status === "received").length} /{" "}
-                            {order.packages.length}
-                          </span>
-                        </div>
-                        {order.items.length > 0 && (
-                          <div className="mt-2 flex flex-wrap gap-1">
-                            {order.items.slice(0, 4).map((item) => (
-                              <span
-                                key={item.id}
-                                className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600"
-                              >
-                                {item.product_name_cn} x {item.quantity}
-                              </span>
-                            ))}
-                            {order.items.length > 4 && (
-                              <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-500">
-                                等 {order.items.length} 种明细...
-                              </span>
-                            )}
+                                  ? "部分签收"
+                                  : "待签收"}
+                            </Badge>
                           </div>
-                        )}
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-                        <div className="rounded-lg bg-slate-50 px-3 py-2">
-                          <div className="text-[11px] font-semibold text-slate-500">
-                            明细金额
-                          </div>
-                          <div className="mt-0.5 text-sm font-semibold text-ink">
-                            ¥{order.items_total_rmb.toFixed(2)}
-                          </div>
-                        </div>
-                        <div className="rounded-lg bg-slate-50 px-3 py-2">
-                          <div className="text-[11px] font-semibold text-slate-500">运费</div>
-                          <div className="mt-0.5 text-sm font-semibold text-ink">
-                            ¥{orderFreightTotal.toFixed(2)}
-                          </div>
-                        </div>
-                        <div className="rounded-lg bg-slate-50 px-3 py-2">
-                          <div className="text-[11px] font-semibold text-slate-500">
-                            总费用
-                          </div>
-                          <div className="mt-0.5 text-sm font-semibold text-ink">
-                            ¥{order.total_cost_rmb.toFixed(2)}
-                          </div>
-                        </div>
-                        <div className="rounded-lg bg-slate-50 px-3 py-2">
-                          <div className="text-[11px] font-semibold text-slate-500">
-                            入库数量
-                          </div>
-                          <div className="mt-0.5 text-sm font-semibold text-ink">
-                            {receivedItemQuantity} / {totalItemQuantity}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
-                        {canEdit && order.status === "partially_received" && !canQuickReceive && (
-                          <button
-                            type="button"
-                            disabled={busyKey === `receive-order-${order.id}`}
-                            onClick={() => {
-                              const remainingItems = getRemainingSourceItems(
-                                order.items,
-                                getReceivedQuantityByOrderItem(order),
-                              );
-                              setReceiveQuantities(
-                                Object.fromEntries(remainingItems.map(item => [item.id, String(item.quantity)]))
-                              );
-                              setReceiveConfirmOrder(order);
-                            }}
-                            className="btn-primary h-10 flex-1 px-3 sm:flex-none"
-                          >
-                            <CheckCircle2 size={16} />
-                            签收剩余
-                          </button>
-                        )}
-                        {canQuickReceive && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const remainingItems = getRemainingSourceItems(
-                                order.items,
-                                getReceivedQuantityByOrderItem(order),
-                              );
-                              setReceiveQuantities(
-                                Object.fromEntries(remainingItems.map(item => [item.id, String(item.quantity)]))
-                              );
-                              setReceiveConfirmOrder(order);
-                            }}
-                            className="btn-primary h-10 flex-1 bg-emerald-600 hover:bg-emerald-700 ring-emerald-600 px-3 sm:flex-none"
-                          >
-                            <CheckCircle2 size={16} />
-                            签收
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setExpandedOrderIds((current) => ({
-                              ...current,
-                              [order.id]: !current[order.id],
-                            }))
-                          }
-                          className="btn-secondary h-10 flex-1 px-3 sm:flex-none"
-                        >
-                          {expandedOrderIds[order.id] ? "收起" : "查看"}
-                        </button>
-                        {canDelete && (
-                          <button
-                            type="button"
-                            disabled={busyKey === `delete-order-${order.id}`}
-                            onClick={() => void handleDeleteOrder(order)}
-                            className="icon-btn-danger h-10 w-10 shrink-0"
-                            aria-label="删除采购单"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    {expandedOrderIds[order.id] && (
-                      <div className="mt-4 grid gap-4 border-t border-slate-100 pt-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(360px,1.05fr)]">
-                        <div className="grid min-w-0 content-start gap-3">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <h4 className="text-sm font-semibold text-ink">商品明细</h4>
-                            <span className="text-xs font-semibold text-slate-500">
-                              {order.items.length} 条
+                          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs font-medium text-slate-500">
+                            <span>{order.warehouse_name}</span>
+                            <span>{order.purchased_at}</span>
+                            <span>{order.items.length} 条明细</span>
+                            <span>
+                              包裹 {order.packages.filter((pkg) => pkg.status === "received").length} /{" "}
+                              {order.packages.length}
                             </span>
                           </div>
-
-                          {order.items.length === 0 ? (
-                            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                              这张采购管理单没有保存到商品明细，属于早期异常记录。
-                            </div>
-                          ) : (
-                            <div className="table-card shadow-none">
-                              <div className="overflow-x-auto">
-                                <table className="data-table">
-                                  <thead>
-                                    <tr>
-                                      <th>商品</th>
-                                      <th>配件</th>
-                                      <th>规格</th>
-                                      <th className="number-cell">数量</th>
-                                      <th className="number-cell">单价</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {order.items.map((item) => (
-                                      <tr key={item.id}>
-                                        <td>
-                                          <div className="font-semibold text-ink">
-                                            {item.product_code}
-                                          </div>
-                                          <div className="mt-0.5 text-xs text-slate-500">
-                                            {item.product_name_cn}
-                                          </div>
-                                        </td>
-                                        <td>{item.item_name}</td>
-                                        <td>{item.item_spec || "--"}</td>
-                                        <td className="number-cell">{item.quantity}</td>
-                                        <td className="number-cell">
-                                          ¥{item.unit_price_rmb.toFixed(2)}
-                                        </td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
+                          {order.items.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1">
+                              {order.items.slice(0, 4).map((item) => (
+                                <span
+                                  key={item.id}
+                                  className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600"
+                                >
+                                  {item.product_name_cn} x {item.quantity}
+                                </span>
+                              ))}
+                              {order.items.length > 4 && (
+                                <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-500">
+                                  等 {order.items.length} 种明细...
+                                </span>
+                              )}
                             </div>
                           )}
                         </div>
 
-                        <div className="grid min-w-0 content-start gap-3">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <h4 className="text-sm font-semibold text-ink">
-                              1688 订单与快递包裹
-                            </h4>
-                            <span className="text-xs font-semibold text-slate-500">
-                              {sourceGroups.length} 个订单
-                            </span>
+                        <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+                          <div className="rounded-lg bg-slate-50 px-3 py-2">
+                            <div className="text-[11px] font-semibold text-slate-500">
+                              明细金额
+                            </div>
+                            <div className="mt-0.5 text-sm font-semibold text-ink">
+                              ¥{order.items_total_rmb.toFixed(2)}
+                            </div>
+                          </div>
+                          <div className="rounded-lg bg-slate-50 px-3 py-2">
+                            <div className="text-[11px] font-semibold text-slate-500">运费</div>
+                            <div className="mt-0.5 text-sm font-semibold text-ink">
+                              ¥{orderFreightTotal.toFixed(2)}
+                            </div>
+                          </div>
+                          <div className="rounded-lg bg-slate-50 px-3 py-2">
+                            <div className="text-[11px] font-semibold text-slate-500">
+                              总费用
+                            </div>
+                            <div className="mt-0.5 text-sm font-semibold text-ink">
+                              ¥{order.total_cost_rmb.toFixed(2)}
+                            </div>
+                          </div>
+                          <div className="rounded-lg bg-slate-50 px-3 py-2">
+                            <div className="text-[11px] font-semibold text-slate-500">
+                              入库数量
+                            </div>
+                            <div className="mt-0.5 text-sm font-semibold text-ink">
+                              {receivedItemQuantity} / {totalItemQuantity}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
+                          {canEdit && order.status === "partially_received" && !canQuickReceive && (
+                            <button
+                              type="button"
+                              disabled={busyKey === `receive-order-${order.id}`}
+                              onClick={() => {
+                                const remainingItems = getRemainingSourceItems(
+                                  order.items,
+                                  getReceivedQuantityByOrderItem(order),
+                                );
+                                setReceiveQuantities(
+                                  Object.fromEntries(remainingItems.map(item => [item.id, String(item.quantity)]))
+                                );
+                                setReceiveConfirmOrder(order);
+                              }}
+                              className="btn-primary h-10 flex-1 px-3 sm:flex-none"
+                            >
+                              <CheckCircle2 size={16} />
+                              签收剩余
+                            </button>
+                          )}
+                          {canQuickReceive && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const remainingItems = getRemainingSourceItems(
+                                  order.items,
+                                  getReceivedQuantityByOrderItem(order),
+                                );
+                                setReceiveQuantities(
+                                  Object.fromEntries(remainingItems.map(item => [item.id, String(item.quantity)]))
+                                );
+                                setReceiveConfirmOrder(order);
+                              }}
+                              className="btn-primary h-10 flex-1 bg-emerald-600 hover:bg-emerald-700 ring-emerald-600 px-3 sm:flex-none"
+                            >
+                              <CheckCircle2 size={16} />
+                              签收
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedOrderIds((current) => ({
+                                ...current,
+                                [order.id]: !current[order.id],
+                              }))
+                            }
+                            className="btn-secondary h-10 flex-1 px-3 sm:flex-none"
+                          >
+                            {expandedOrderIds[order.id] ? "收起" : "查看"}
+                          </button>
+                          {canDelete && order.status !== "received" && (
+                            <button
+                              type="button"
+                              disabled={busyKey === `delete-order-${order.id}`}
+                              onClick={() => void handleDeleteOrder(order)}
+                              className="icon-btn-danger h-10 w-10 shrink-0"
+                              aria-label="删除采购单"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      {expandedOrderIds[order.id] && (
+                        <div className="mt-4 grid gap-4 border-t border-slate-100 pt-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(360px,1.05fr)]">
+                          <div className="grid min-w-0 content-start gap-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <h4 className="text-sm font-semibold text-ink">商品明细</h4>
+                              <span className="text-xs font-semibold text-slate-500">
+                                {order.items.length} 条
+                              </span>
+                            </div>
+
+                            {order.items.length === 0 ? (
+                              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                                这张采购管理单没有保存到商品明细，属于早期异常记录。
+                              </div>
+                            ) : (
+                              <div className="table-card shadow-none">
+                                <div className="overflow-x-auto">
+                                  <table className="data-table">
+                                    <thead>
+                                      <tr>
+                                        <th>商品</th>
+                                        <th>配件</th>
+                                        <th>规格</th>
+                                        <th className="number-cell">数量</th>
+                                        <th className="number-cell">已签收</th>
+                                        <th className="number-cell">单价</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {order.items.map((item) => {
+                                        const receivedQty = order.status === "received"
+                                          ? item.quantity
+                                          : (receivedQuantityByOrderItem[item.id] ?? 0);
+                                        const isFullyReceived = receivedQty >= item.quantity;
+                                        const isPartiallyReceived = receivedQty > 0 && receivedQty < item.quantity;
+                                        return (
+                                          <tr key={item.id}>
+                                            <td>
+                                              <div className="font-semibold text-ink">
+                                                {item.product_code}
+                                              </div>
+                                              <div className="mt-0.5 text-xs text-slate-500">
+                                                {item.product_name_cn}
+                                              </div>
+                                            </td>
+                                            <td>{item.item_name}</td>
+                                            <td>{item.item_spec || "--"}</td>
+                                            <td className="number-cell">{item.quantity}</td>
+                                            <td className="number-cell">
+                                              {order.status === "received" ? (
+                                                <span className="text-emerald-600 font-medium">{receivedQty}</span>
+                                              ) : isFullyReceived ? (
+                                                <span className="text-emerald-600 font-medium">{receivedQty}</span>
+                                              ) : isPartiallyReceived ? (
+                                                <span className="text-amber-600 font-medium">{receivedQty}</span>
+                                              ) : (
+                                                <span className="text-slate-400">{receivedQty}</span>
+                                              )}
+                                            </td>
+                                            <td className="number-cell">
+                                              ¥{item.unit_price_rmb.toFixed(2)}
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            )}
                           </div>
 
-                          {sourceGroups.length === 0 ? (
-                            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                              这张采购管理单没有关联 1688 订单。
+                          <div className="grid min-w-0 content-start gap-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <h4 className="text-sm font-semibold text-ink">
+                                1688 订单与快递包裹
+                              </h4>
+                              <span className="text-xs font-semibold text-slate-500">
+                                {sourceGroups.length} 个订单
+                              </span>
                             </div>
-                          ) : (
-                            sourceGroups.map((group) => {
-                              const primarySource = group.sources[0];
-                              if (!primarySource) return null;
-                              const sourceIdSet = new Set(group.sources.map((entry) => entry.id));
-                              const sourceUrlSet = new Set(group.urls);
-                              const packageKey = `${order.id}:${group.key}`;
-                              const sourceItems = order.items.filter((item) =>
-                                sourceIdSet.has(item.source_id) ||
-                                (!item.source_id && sourceUrlSet.has(item.purchase_url)),
-                              );
-                              const remainingSourceItems = getRemainingSourceItems(
-                                sourceItems,
-                                receivedQuantityByOrderItem,
-                              );
-                              const sourcePackages = order.packages.filter((pkg) =>
-                                sourceIdSet.has(pkg.source_id),
-                              );
-                              const pendingSourcePackages = sourcePackages.filter(
-                                (pkg) => pkg.status === "pending",
-                              );
-                              const receivedSourcePackages = sourcePackages.filter(
-                                (pkg) => pkg.status === "received",
-                              );
-                              const canAddPackage =
-                                canEdit &&
-                                order.status !== "received" &&
-                                remainingSourceItems.length > 0;
 
-                              return (
-                                <div
-                                  key={group.key}
-                                  className="grid gap-3 rounded-xl border border-line bg-slate-50/70 p-3"
-                                >
-                                  <div className="grid gap-3">
-                                    <div className="min-w-0">
-                                      <div className="flex flex-wrap items-center gap-2">
-                                        <span className="text-sm font-semibold text-ink">
-                                          1688 订单号
-                                        </span>
-                                        {group.orderNo ? (
-                                          <a
-                                            href={`https://air.1688.com/app/ctf-page/trade-order-detail/index.html?orderId=${group.orderNo}`}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="rounded-md bg-white px-2 py-1 text-sm font-semibold text-blue-600 ring-1 ring-blue-200 hover:bg-blue-50 hover:underline transition-colors"
-                                          >
-                                            {group.orderNo}
-                                          </a>
-                                        ) : (
-                                          <span className="rounded-md bg-white px-2 py-1 text-sm font-semibold text-accent ring-1 ring-line">
-                                            未填写
+                            {sourceGroups.length === 0 ? (
+                              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                                这张采购管理单没有关联 1688 订单。
+                              </div>
+                            ) : (
+                              sourceGroups.map((group) => {
+                                const primarySource = group.sources[0];
+                                if (!primarySource) return null;
+                                const sourceIdSet = new Set(group.sources.map((entry) => entry.id));
+                                const sourceUrlSet = new Set(group.urls);
+                                const packageKey = `${order.id}:${group.key}`;
+                                const sourceItems = order.items.filter((item) =>
+                                  sourceIdSet.has(item.source_id) ||
+                                  (!item.source_id && sourceUrlSet.has(item.purchase_url)),
+                                );
+                                const remainingSourceItems = getRemainingSourceItems(
+                                  sourceItems,
+                                  receivedQuantityByOrderItem,
+                                );
+                                const sourcePackages = order.packages.filter((pkg) =>
+                                  sourceIdSet.has(pkg.source_id),
+                                );
+                                const pendingSourcePackages = sourcePackages.filter(
+                                  (pkg) => pkg.status === "pending",
+                                );
+                                const receivedSourcePackages = sourcePackages.filter(
+                                  (pkg) => pkg.status === "received",
+                                );
+                                const canAddPackage =
+                                  canEdit &&
+                                  order.status !== "received" &&
+                                  remainingSourceItems.length > 0;
+
+                                return (
+                                  <div
+                                    key={group.key}
+                                    className="grid gap-3 rounded-xl border border-line bg-slate-50/70 p-3"
+                                  >
+                                    <div className="grid gap-3">
+                                      <div className="min-w-0">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          <span className="text-sm font-semibold text-ink">
+                                            1688 订单号
                                           </span>
+                                          {group.orderNo ? (
+                                            <a
+                                              href={`https://air.1688.com/app/ctf-page/trade-order-detail/index.html?orderId=${group.orderNo}`}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="rounded-md bg-white px-2 py-1 text-sm font-semibold text-blue-600 ring-1 ring-blue-200 hover:bg-blue-50 hover:underline transition-colors"
+                                            >
+                                              {group.orderNo}
+                                            </a>
+                                          ) : (
+                                            <span className="rounded-md bg-white px-2 py-1 text-sm font-semibold text-accent ring-1 ring-line">
+                                              未填写
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="mt-2 grid gap-1">
+                                          {group.urls.map((url) => (
+                                            <div
+                                              key={url}
+                                              className="break-all text-xs text-slate-500"
+                                            >
+                                              {url}
+                                            </div>
+                                          ))}
+                                        </div>
+                                        <div className="mt-2 text-xs text-slate-500">
+                                          关联明细：{sourceItems.length} 条
+                                        </div>
+                                      </div>
+
+                                      <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_110px_auto] sm:items-end">
+                                        <Field label="1688 订单号">
+                                          <TextInput
+                                            disabled={!canEdit || order.status === "received"}
+                                            value={
+                                              sourceDrafts[primarySource.id]?.alibabaOrderNo ??
+                                              primarySource.alibaba_order_no
+                                            }
+                                            onChange={(event) =>
+                                              setSourceDrafts((current) => ({
+                                                ...current,
+                                                [primarySource.id]: {
+                                                  alibabaOrderNo: event.target.value,
+                                                  freightRmb:
+                                                    current[primarySource.id]?.freightRmb ??
+                                                    String(primarySource.freight_rmb),
+                                                },
+                                              }))
+                                            }
+                                          />
+                                        </Field>
+                                        <Field label="运费">
+                                          <TextInput
+                                            disabled={!canEdit || order.status === "received"}
+                                            type="number"
+                                            min="0"
+                                            step="0.01"
+                                            value={
+                                              sourceDrafts[primarySource.id]?.freightRmb ??
+                                              String(primarySource.freight_rmb)
+                                            }
+                                            onChange={(event) =>
+                                              setSourceDrafts((current) => ({
+                                                ...current,
+                                                [primarySource.id]: {
+                                                  alibabaOrderNo:
+                                                    current[primarySource.id]?.alibabaOrderNo ??
+                                                    primarySource.alibaba_order_no,
+                                                  freightRmb: event.target.value,
+                                                },
+                                              }))
+                                            }
+                                          />
+                                        </Field>
+                                        {order.status !== "received" && (
+                                          <button
+                                            type="button"
+                                            disabled={!canEdit}
+                                            onClick={() => void handleSaveSource(order, primarySource.id)}
+                                            className="btn-secondary h-10 px-3"
+                                          >
+                                            保存
+                                          </button>
                                         )}
                                       </div>
-                                      <div className="mt-2 grid gap-1">
-                                        {group.urls.map((url) => (
-                                          <div
-                                            key={url}
-                                            className="break-all text-xs text-slate-500"
+                                    </div>
+
+                                    <div className="rounded-lg border border-line bg-white p-3">
+                                      <div className="mb-2 text-sm font-medium text-slate-700">
+                                        该订单包含
+                                      </div>
+                                      <div className="flex max-h-24 flex-wrap gap-2 overflow-y-auto pr-1">
+                                        {sourceItems.map((item) => (
+                                          <span
+                                            key={item.id}
+                                            className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700"
                                           >
-                                            {url}
-                                          </div>
+                                            {item.product_code} · {item.item_name} x {item.quantity}
+                                          </span>
                                         ))}
                                       </div>
-                                      <div className="mt-2 text-xs text-slate-500">
-                                        关联明细：{sourceItems.length} 条
-                                      </div>
                                     </div>
 
-                                    <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_110px_auto] sm:items-end">
-                                      <Field label="1688 订单号">
-                                        <TextInput
-                                          disabled={!canEdit}
-                                          value={
-                                            sourceDrafts[primarySource.id]?.alibabaOrderNo ??
-                                            primarySource.alibaba_order_no
-                                          }
-                                          onChange={(event) =>
-                                            setSourceDrafts((current) => ({
-                                              ...current,
-                                              [primarySource.id]: {
-                                                alibabaOrderNo: event.target.value,
-                                                freightRmb:
-                                                  current[primarySource.id]?.freightRmb ??
-                                                  String(primarySource.freight_rmb),
-                                              },
-                                            }))
-                                          }
-                                        />
-                                      </Field>
-                                      <Field label="运费">
-                                        <TextInput
-                                          disabled={!canEdit}
-                                          type="number"
-                                          min="0"
-                                          step="0.01"
-                                          value={
-                                            sourceDrafts[primarySource.id]?.freightRmb ??
-                                            String(primarySource.freight_rmb)
-                                          }
-                                          onChange={(event) =>
-                                            setSourceDrafts((current) => ({
-                                              ...current,
-                                              [primarySource.id]: {
-                                                alibabaOrderNo:
-                                                  current[primarySource.id]?.alibabaOrderNo ??
-                                                  primarySource.alibaba_order_no,
-                                                freightRmb: event.target.value,
-                                              },
-                                            }))
-                                          }
-                                        />
-                                      </Field>
-                                      <button
-                                        type="button"
-                                        disabled={!canEdit}
-                                        onClick={() => void handleSaveSource(order, primarySource.id)}
-                                        className="btn-secondary h-10 px-3"
-                                      >
-                                        保存
-                                      </button>
-                                    </div>
-                                  </div>
-
-                                  <div className="rounded-lg border border-line bg-white p-3">
-                                    <div className="mb-2 text-sm font-medium text-slate-700">
-                                      该订单包含
-                                    </div>
-                                    <div className="flex max-h-24 flex-wrap gap-2 overflow-y-auto pr-1">
-                                      {sourceItems.map((item) => (
-                                        <span
-                                          key={item.id}
-                                          className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700"
-                                        >
-                                          {item.product_code} · {item.item_name} x {item.quantity}
-                                        </span>
-                                      ))}
-                                    </div>
-                                  </div>
-
-                                  {pendingSourcePackages.length > 0 && (
-                                    <div className="grid gap-2 rounded-lg border border-line bg-white p-3">
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-sm font-medium text-slate-700">
-                                          已录入快递包裹
-                                        </span>
-                                        <Badge tone="neutral">待签收</Badge>
-                                      </div>
-                                      {pendingSourcePackages.map((pkg) => (
-                                        <div
-                                          key={pkg.id}
-                                          className="grid gap-2 rounded-lg border border-slate-100 bg-slate-50/80 p-2"
-                                        >
-                                          <div className="grid gap-2 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
-                                            <TextInput
-                                              disabled={!canEdit}
-                                              value={
-                                                existingPackageTrackingDrafts[pkg.id] ??
-                                                pkg.tracking_no
-                                              }
-                                              onChange={(event) =>
-                                                setExistingPackageTrackingDrafts((current) => ({
-                                                  ...current,
-                                                  [pkg.id]: event.target.value,
-                                                }))
-                                              }
-                                            />
-                                            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
-                                              <button
-                                                type="button"
-                                                onClick={() =>
-                                                  openTrackingLookup(
-                                                    existingPackageTrackingDrafts[pkg.id] ??
-                                                    pkg.tracking_no,
-                                                  )
+                                    {pendingSourcePackages.length > 0 && (
+                                      <div className="grid gap-2 rounded-lg border border-line bg-white p-3">
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-sm font-medium text-slate-700">
+                                            已录入快递包裹
+                                          </span>
+                                          <Badge tone="neutral">待签收</Badge>
+                                        </div>
+                                        {pendingSourcePackages.map((pkg) => (
+                                          <div
+                                            key={pkg.id}
+                                            className="grid gap-2 rounded-lg border border-slate-100 bg-slate-50/80 p-2"
+                                          >
+                                            <div className="grid gap-2 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
+                                              <TextInput
+                                                disabled={!canEdit || order.status === "received"}
+                                                value={
+                                                  existingPackageTrackingDrafts[pkg.id] ??
+                                                  pkg.tracking_no
                                                 }
-                                                className="btn-secondary h-10 px-3"
-                                              >
-                                                <Search size={16} />
-                                                查询
-                                              </button>
-                                              {canEdit && (
+                                                onChange={(event) =>
+                                                  setExistingPackageTrackingDrafts((current) => ({
+                                                    ...current,
+                                                    [pkg.id]: event.target.value,
+                                                  }))
+                                                }
+                                              />
+                                              <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
                                                 <button
                                                   type="button"
                                                   onClick={() =>
-                                                    void handleSavePackageTracking(order, pkg)
+                                                    openTrackingLookup(
+                                                      existingPackageTrackingDrafts[pkg.id] ??
+                                                      pkg.tracking_no,
+                                                    )
                                                   }
                                                   className="btn-secondary h-10 px-3"
                                                 >
-                                                  保存
+                                                  <Search size={16} />
+                                                  查询
                                                 </button>
-                                              )}
-                                              {canDelete && (
-                                                <button
-                                                  type="button"
-                                                  onClick={() => void handleDeletePackage(order, pkg)}
-                                                  className="btn-danger h-10 px-3"
-                                                  aria-label="删除快递包裹"
-                                                >
-                                                  <Trash2 size={16} />
-                                                  删除
-                                                </button>
-                                              )}
-                                              {canEdit && (
-                                                <button
-                                                  type="button"
-                                                  onClick={() => void handleReceivePackage(order, pkg)}
-                                                  className="btn-primary h-10 px-3"
-                                                >
-                                                  <CheckCircle2 size={16} />
-                                                  签收
-                                                </button>
-                                              )}
+                                                {canEdit && order.status !== "received" && (
+                                                  <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                      void handleSavePackageTracking(order, pkg)
+                                                    }
+                                                    className="btn-secondary h-10 px-3"
+                                                  >
+                                                    保存
+                                                  </button>
+                                                )}
+                                                {canDelete && order.status !== "received" && (
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => void handleDeletePackage(order, pkg)}
+                                                    className="btn-danger h-10 px-3"
+                                                    aria-label="删除快递包裹"
+                                                  >
+                                                    <Trash2 size={16} />
+                                                    删除
+                                                  </button>
+                                                )}
+                                                {canEdit && order.status !== "received" && (
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => void handleReceivePackage(order, pkg)}
+                                                    className="btn-primary h-10 px-3"
+                                                  >
+                                                    <CheckCircle2 size={16} />
+                                                    签收
+                                                  </button>
+                                                )}
+                                              </div>
+                                            </div>
+                                            <div className="break-words text-xs text-slate-500">
+                                              {pkg.items
+                                                .map((packageItem) => {
+                                                  const item = order.items.find(
+                                                    (entry) => entry.id === packageItem.order_item_id,
+                                                  );
+                                                  return item
+                                                    ? `${item.product_code} · ${item.item_name} x ${packageItem.quantity}`
+                                                    : `未知明细 x ${packageItem.quantity}`;
+                                                })
+                                                .join("，")}
                                             </div>
                                           </div>
-                                          <div className="break-words text-xs text-slate-500">
-                                            {pkg.items
-                                              .map((packageItem) => {
-                                                const item = order.items.find(
-                                                  (entry) => entry.id === packageItem.order_item_id,
-                                                );
-                                                return item
-                                                  ? `${item.product_code} · ${item.item_name} x ${packageItem.quantity}`
-                                                  : `未知明细 x ${packageItem.quantity}`;
-                                              })
+                                        ))}
+                                      </div>
+                                    )}
+
+                                    {receivedSourcePackages.length > 0 && (
+                                      <div className="grid gap-2 rounded-lg border border-line bg-white p-3">
+                                        <div className="text-sm font-medium text-slate-700">
+                                          已签收快递包裹
+                                        </div>
+                                        <div className="flex flex-wrap gap-2">
+                                          {receivedSourcePackages.map((pkg) => (
+                                            <span
+                                              key={pkg.id}
+                                              className="inline-flex items-center gap-2 rounded-md bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100"
+                                            >
+                                              已签收 {pkg.tracking_no}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {canAddPackage ? (
+                                      <div className="grid gap-3 rounded-lg border border-dashed border-line bg-white p-3">
+                                        <div>
+                                          <div className="text-sm font-medium text-ink">
+                                            添加快递包裹
+                                          </div>
+                                          <div className="mt-1 max-h-12 overflow-y-auto text-xs text-slate-500">
+                                            剩余入包：
+                                            {remainingSourceItems
+                                              .map(
+                                                (item) =>
+                                                  `${item.product_code} · ${item.item_name} x ${item.quantity}`,
+                                              )
                                               .join("，")}
                                           </div>
                                         </div>
-                                      ))}
-                                    </div>
-                                  )}
-
-                                  {receivedSourcePackages.length > 0 && (
-                                    <div className="grid gap-2 rounded-lg border border-line bg-white p-3">
-                                      <div className="text-sm font-medium text-slate-700">
-                                        已签收快递包裹
-                                      </div>
-                                      <div className="flex flex-wrap gap-2">
-                                        {receivedSourcePackages.map((pkg) => (
-                                          <span
-                                            key={pkg.id}
-                                            className="inline-flex items-center gap-2 rounded-md bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100"
-                                          >
-                                            已签收 {pkg.tracking_no}
-                                          </span>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  )}
-
-                                  {canAddPackage ? (
-                                    <div className="grid gap-3 rounded-lg border border-dashed border-line bg-white p-3">
-                                      <div>
-                                        <div className="text-sm font-medium text-ink">
-                                          添加快递包裹
-                                        </div>
-                                        <div className="mt-1 max-h-12 overflow-y-auto text-xs text-slate-500">
-                                          剩余入包：
-                                          {remainingSourceItems
-                                            .map(
-                                              (item) =>
-                                                `${item.product_code} · ${item.item_name} x ${item.quantity}`,
-                                            )
-                                            .join("，")}
-                                        </div>
-                                      </div>
-                                      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-                                        <Field label="新增快递单号">
-                                          <TextInput
-                                            value={packageTrackingDrafts[packageKey] ?? ""}
-                                            onChange={(event) =>
-                                              setPackageTrackingDrafts((current) => ({
-                                                ...current,
-                                                [packageKey]: event.target.value,
-                                              }))
+                                        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                                          <Field label="新增快递单号">
+                                            <TextInput
+                                              value={packageTrackingDrafts[packageKey] ?? ""}
+                                              onChange={(event) =>
+                                                setPackageTrackingDrafts((current) => ({
+                                                  ...current,
+                                                  [packageKey]: event.target.value,
+                                                }))
+                                              }
+                                              placeholder="填写一个快递单号"
+                                            />
+                                          </Field>
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              void handleAddPackage(
+                                                order,
+                                                primarySource.id,
+                                                packageKey,
+                                                remainingSourceItems,
+                                              )
                                             }
-                                            placeholder="填写一个快递单号"
-                                          />
-                                        </Field>
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            void handleAddPackage(
-                                              order,
-                                              primarySource.id,
-                                              packageKey,
-                                              remainingSourceItems,
-                                            )
-                                          }
-                                          className="btn-primary h-10 px-3"
-                                        >
-                                          <Plus size={16} />
-                                          保存包裹
-                                        </button>
+                                            className="btn-primary h-10 px-3"
+                                          >
+                                            <Plus size={16} />
+                                            保存包裹
+                                          </button>
+                                        </div>
                                       </div>
-                                    </div>
-                                  ) : sourcePackages.length === 0 ? (
-                                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                                      该订单已签收，历史快递单号记录缺失；不能继续新增快递单号。
-                                    </div>
-                                  ) : null}
-                                </div>
-                              );
-                            })
-                          )}
+                                    ) : sourcePackages.length === 0 ? (
+                                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                                        该订单已签收，历史快递单号记录缺失；不能继续新增快递单号。
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    )}
-                  </article>
-                );
-              })}
-            </div>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+
+              {totalRecordCount > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-line bg-panel px-6 py-3 text-xs text-slate-600 shadow-soft">
+                  <div className="flex items-center gap-3">
+                    <span>共 {totalRecordCount} 条记录</span>
+                    <select
+                      value={pageSize}
+                      onChange={(e) => {
+                        setPageSize(Number(e.target.value));
+                        setCurrentPage(1);
+                      }}
+                      className="h-8 rounded-md border border-line bg-white px-2 text-xs outline-none transition focus:border-accent focus:ring-1 focus:ring-accent"
+                    >
+                      {[20, 30, 50, 100].map(size => (
+                        <option key={size} value={size}>{size} 条 / 页</option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    <span className="mr-2 font-medium">第 {currentPage} / {totalPages || 1} 页</span>
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                      disabled={currentPage <= 1}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-line bg-white text-slate-600 transition hover:bg-slate-50 hover:text-accent disabled:opacity-50"
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                      disabled={currentPage >= totalPages}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-line bg-white text-slate-600 transition hover:bg-slate-50 hover:text-accent disabled:opacity-50"
+                    >
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </section>
       )}
@@ -2053,7 +2130,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                 </p>
               </div>
 
-              <div className="overflow-y-auto rounded-xl border border-line bg-white">
+              <div className="overflow-y-auto pr-1">
                 <table className="data-table">
                   <thead>
                     <tr>
