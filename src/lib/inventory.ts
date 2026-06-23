@@ -322,29 +322,18 @@ export async function fetchWarehouseInventoryPage(
       const productItems = (productItemsResult.data ?? []) as ProductItem[];
       const baseSkus = (baseSkusResult.data ?? []) as Omit<ProductSku, "component_links">[];
 
-      const itemIds = productItems.map(item => item.id).filter(Boolean) as string[];
       const skuIds = baseSkus.map(sku => sku.id).filter(Boolean) as string[];
 
-      // ── Round 3: sku_links + item_stocks. Adjustment history is lazy-loaded
-      // when a row is expanded; fetching it here makes inventory page loads fragile.
-      const [linksResult, stocksResult] = await Promise.all([
-        skuIds.length > 0
-          ? supabase
-            .from("product_sku_items")
-            .select("sku_id, item_id, quantity")
-            .in("sku_id", skuIds)
-          : Promise.resolve({ data: [] as ProductSkuItemLink[], error: null }),
-        itemIds.length > 0
-          ? supabase
-            .from("warehouse_item_stocks")
-            .select("id, warehouse_id, item_id, stock_quantity")
-            .eq("warehouse_id", warehouseId)
-            .in("item_id", itemIds)
-          : Promise.resolve({ data: [] as WarehouseItemStock[], error: null }),
-      ]);
+      // ── Round 3: SKU component links. Warehouse component quantities are
+      // inferred from SKU stock in the UI instead of reading item stock rows.
+      const linksResult = skuIds.length > 0
+        ? await supabase
+          .from("product_sku_items")
+          .select("sku_id, item_id, quantity")
+          .in("sku_id", skuIds)
+        : { data: [] as ProductSkuItemLink[], error: null };
 
       if (linksResult.error) throw linksResult.error;
-      if (stocksResult.error) throw stocksResult.error;
 
       // Build SKUs with component_links
       const links = (linksResult.data ?? []) as ProductSkuItemLink[];
@@ -366,7 +355,7 @@ export async function fetchWarehouseInventoryPage(
         products,
         skus,
         productItems,
-        warehouseItemStocks: (stocksResult.data ?? []) as WarehouseItemStock[],
+        warehouseItemStocks: [] as WarehouseItemStock[],
         warehouseItemStockAdjustments: [] as WarehouseItemStockAdjustment[],
         total: count ?? 0,
         hasMore: to + 1 < (count ?? 0),
@@ -381,7 +370,6 @@ export async function addWarehouseProductInventory(
   warehouseId: string,
   productId: string,
   skuIds: string[],
-  itemIds: string[],
 ) {
   if (skuIds.length === 0) {
     throw new Error("该商品还没有 SKU，不能加入库存");
@@ -398,41 +386,21 @@ export async function addWarehouseProductInventory(
           sku_id: skuId,
         })),
       )
-      .select("id, warehouse_id, product_id, sku_id, created_at"),
+      .select("id, warehouse_id, product_id, sku_id, owner_id, stock_quantity, created_at, updated_at"),
     "添加库存 SKU",
   );
 
   if (skuError) throw skuError;
 
-  let itemRows = [] as WarehouseItemStock[];
-  if (itemIds.length > 0) {
-    const { data, error } = await withTimeout(
-      supabase
-        .from("warehouse_item_stocks")
-        .insert(
-          itemIds.map((itemId) => ({
-            warehouse_id: warehouseId,
-            item_id: itemId,
-          })),
-        )
-        .select("id, warehouse_id, item_id, stock_quantity"),
-      "添加仓库配件库存",
-    );
-
-    if (error) throw error;
-    itemRows = data as WarehouseItemStock[];
-  }
-
   return {
     skus: skuRows as WarehouseSku[],
-    itemStocks: itemRows,
+    itemStocks: [] as WarehouseItemStock[],
   };
 }
 
 export async function removeWarehouseProduct(
   warehouseId: string,
   productId: string,
-  itemIds: string[],
 ) {
   const { supabase } = await requireSession();
   const { error: skuError } = await withTimeout(
@@ -445,19 +413,6 @@ export async function removeWarehouseProduct(
   );
 
   if (skuError) throw skuError;
-
-  if (itemIds.length > 0) {
-    const { error: itemError } = await withTimeout(
-      supabase
-        .from("warehouse_item_stocks")
-        .delete()
-        .eq("warehouse_id", warehouseId)
-        .in("item_id", itemIds),
-      "移除仓库配件库存",
-    );
-
-    if (itemError) throw itemError;
-  }
 }
 
 export async function updateWarehouseItemStock(
@@ -1165,6 +1120,32 @@ type WarehouseSkuStockInventoryChange = {
   change_quantity: number;
 };
 
+export type WarehouseSkuStockReservationInput = {
+  orderId: string;
+  stockId: string;
+  quantity: number;
+  reason?: string;
+};
+
+function parseWarehouseSkuStockInventoryChanges(data: unknown) {
+  if (!isRecord(data) || !Array.isArray(data.changes)) {
+    return [] as WarehouseSkuStockInventoryChange[];
+  }
+
+  return data.changes.flatMap((change): WarehouseSkuStockInventoryChange[] => {
+    if (!isRecord(change) || !isRecord(change.sku)) return [];
+    const previousQuantity = Math.trunc(Number(change.previous_quantity) || 0);
+    const changeQuantity = Math.trunc(Number(change.change_quantity) || 0);
+    return [
+      {
+        sku: change.sku as WarehouseSku,
+        previous_quantity: previousQuantity,
+        change_quantity: changeQuantity,
+      },
+    ];
+  });
+}
+
 export async function updateWarehouseSkuStockQuantity(
   skuStock: WarehouseSku,
   stockQuantity: number,
@@ -1300,6 +1281,48 @@ export async function restoreWarehouseSkuStocks(
   }
 
   return inventory;
+}
+
+export async function reserveWarehouseSkuStockForOrder(
+  reservation: WarehouseSkuStockReservationInput,
+) {
+  const quantity = Math.trunc(Number(reservation.quantity) || 0);
+  if (!reservation.orderId || !reservation.stockId || quantity <= 0) {
+    return [] as WarehouseSkuStockInventoryChange[];
+  }
+
+  const { supabase } = await requireSession();
+  const { data, error } = await withTimeout(
+    supabase.rpc("reserve_order_sku_inventory", {
+      p_order_id: reservation.orderId,
+      p_warehouse_sku_id: reservation.stockId,
+      p_quantity: quantity,
+      p_reason: reservation.reason ?? "",
+    }),
+    "占用订单 SKU 库存",
+  );
+
+  if (error) throw error;
+  return parseWarehouseSkuStockInventoryChanges(data);
+}
+
+export async function releaseWarehouseSkuStockForOrder(
+  orderId: string,
+  reason?: string,
+) {
+  if (!orderId) return [] as WarehouseSkuStockInventoryChange[];
+
+  const { supabase } = await requireSession();
+  const { data, error } = await withTimeout(
+    supabase.rpc("release_order_sku_inventory", {
+      p_order_id: orderId,
+      p_reason: reason ?? "",
+    }),
+    "释放订单 SKU 库存",
+  );
+
+  if (error) throw error;
+  return parseWarehouseSkuStockInventoryChanges(data);
 }
 
 type WarehouseItemStockInventoryChange = {

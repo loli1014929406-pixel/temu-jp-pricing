@@ -43,11 +43,6 @@ function byId(rows) {
   return Object.fromEntries((rows ?? []).map((row) => [row.id, row]));
 }
 
-function normalizeQuantity(value) {
-  const quantity = Math.trunc(Number(value) || 0);
-  return quantity > 0 ? quantity : 0;
-}
-
 function getSkuCode(sku, productsById, skusByProductId) {
   if (!sku) return "--";
   if (sku.sku_code && !/^SKU-\d+$/i.test(sku.sku_code)) return sku.sku_code;
@@ -89,7 +84,6 @@ function matchesFilter(value, filter) {
 
 function collectInventoryFindings(tables, filters) {
   const productsById = byId(tables.products);
-  const skusById = byId(tables.product_skus);
   const itemsById = byId(tables.product_items);
   const warehousesById = byId(tables.warehouses);
   const skusByProductId = (tables.product_skus ?? []).reduce((groups, sku) => {
@@ -107,96 +101,12 @@ function collectInventoryFindings(tables, filters) {
     if (sku.sku_code) skuByCode[sku.sku_code] = sku;
   }
 
-  const skuLinksBySkuId = (tables.product_sku_items ?? []).reduce((groups, link) => {
-    groups[link.sku_id] ??= [];
-    groups[link.sku_id].push(link);
-    return groups;
-  }, {});
-
-  const itemStockByKey = new Map(
-    (tables.warehouse_item_stocks ?? []).map((row) => [
-      `${row.warehouse_id}:${row.item_id}`,
-      row,
-    ]),
-  );
   const warehouseSkuByKey = new Map(
     (tables.warehouse_skus ?? []).map((row) => [`${row.warehouse_id}:${row.sku_id}`, row]),
   );
 
-  const expectedItemStockByKey = new Map();
-  for (const warehouseSku of tables.warehouse_skus ?? []) {
-    const sku = skusById[warehouseSku.sku_id];
-    const links = skuLinksBySkuId[warehouseSku.sku_id] ?? [];
-    if (!sku || links.length === 0) continue;
-    const warehouseName = warehousesById[warehouseSku.warehouse_id]?.name ?? warehouseSku.warehouse_id;
-    const productCode = productsById[warehouseSku.product_id]?.product_code ?? warehouseSku.product_id;
-    if (!matchesFilter(warehouseName, filters.warehouse)) continue;
-    if (!matchesFilter(productCode, filters.product)) continue;
-
-    for (const link of links) {
-      const key = `${warehouseSku.warehouse_id}:${link.item_id}`;
-      expectedItemStockByKey.set(
-        key,
-        (expectedItemStockByKey.get(key) ?? 0) +
-          normalizeQuantity(warehouseSku.stock_quantity) * normalizeQuantity(link.quantity),
-      );
-    }
-  }
-
   const itemStockMismatches = [];
-  const itemStockKeys = new Set([
-    ...expectedItemStockByKey.keys(),
-    ...(tables.warehouse_item_stocks ?? []).map((row) => `${row.warehouse_id}:${row.item_id}`),
-  ]);
-  for (const key of itemStockKeys) {
-    const [warehouseId, itemId] = key.split(":");
-    const item = itemsById[itemId];
-    const warehouseName = warehousesById[warehouseId]?.name ?? warehouseId;
-    const productCode = item ? productsById[item.product_id]?.product_code : "";
-    if (!matchesFilter(warehouseName, filters.warehouse)) continue;
-    if (!matchesFilter(productCode, filters.product)) continue;
-
-    const itemStock = itemStockByKey.get(key);
-    const itemStockQuantity = normalizeQuantity(itemStock?.stock_quantity);
-    const expectedQuantity = expectedItemStockByKey.get(key) ?? 0;
-    if (itemStockQuantity !== expectedQuantity) {
-      itemStockMismatches.push({
-        warehouse: warehouseName,
-        product: productCode || item?.product_id || "",
-        item: item?.item_name ?? itemId,
-        itemStock: itemStockQuantity,
-        skuDerivedStock: expectedQuantity,
-      });
-    }
-  }
-
   const skuStockMismatches = [];
-  for (const warehouseSku of tables.warehouse_skus ?? []) {
-    const sku = skusById[warehouseSku.sku_id];
-    const links = skuLinksBySkuId[warehouseSku.sku_id] ?? [];
-    if (!sku || links.length === 0) continue;
-    const warehouseName = warehousesById[warehouseSku.warehouse_id]?.name ?? warehouseSku.warehouse_id;
-    const productCode = productsById[warehouseSku.product_id]?.product_code ?? warehouseSku.product_id;
-    if (!matchesFilter(warehouseName, filters.warehouse)) continue;
-    if (!matchesFilter(productCode, filters.product)) continue;
-
-    const possibleQuantities = links.map((link) => {
-      const itemStock =
-        itemStockByKey.get(`${warehouseSku.warehouse_id}:${link.item_id}`)?.stock_quantity ?? 0;
-      const perSkuQuantity = normalizeQuantity(link.quantity);
-      return perSkuQuantity > 0 ? Math.floor(itemStock / perSkuQuantity) : 0;
-    });
-    const impliedStock = Math.min(...possibleQuantities);
-    if (impliedStock !== warehouseSku.stock_quantity) {
-      skuStockMismatches.push({
-        warehouse: warehouseName,
-        product: productCode,
-        sku: getSkuCode(sku, productsById, skusByProductId),
-        warehouseSkuStock: warehouseSku.stock_quantity,
-        componentImpliedStock: impliedStock,
-      });
-    }
-  }
 
   const transferGroups = new Map();
   for (const adjustment of tables.warehouse_item_stock_adjustments ?? []) {
@@ -280,21 +190,13 @@ function collectInventoryFindings(tables, filters) {
   }
 
   const suggestedRepairActions = [
-    ...itemStockMismatches.map((row) => ({
-      action: "update_warehouse_item_stock_from_sku",
-      warehouse: row.warehouse,
-      product: row.product,
-      item: row.item,
-      from: row.itemStock,
-      to: row.skuDerivedStock,
-    })),
     ...missingWarehouseSkuRows.map((row) => ({
       action: "insert_missing_warehouse_sku_row",
       warehouse: row.warehouse,
       product: row.product,
       sku: row.sku,
       stock: 0,
-      note: "仅补 SKU 行；是否补配件库存和调拨流水必须按实际业务确认",
+      note: "仅补 SKU 行；配件库存不再作为主库存口径",
     })),
   ];
 
@@ -331,14 +233,13 @@ if (filters.warehouse || filters.product) {
       .join(" ")}`,
   );
 }
-printSection("配件库存与SKU口径派生库存不一致", findings.itemStockMismatches);
-printSection("SKU库存与配件可组成库存不一致（参考，不作为主口径错误）", findings.skuStockMismatches);
+printSection("配件库存检查已停用（SKU库存为主口径）", findings.itemStockMismatches);
+printSection("SKU库存与配件可组成库存检查已停用", findings.skuStockMismatches);
 printSection("调拨摘要与实际流水产品不一致", findings.transferMismatches);
 printSection("调拨摘要提到但目标仓缺少的 SKU 行", findings.missingWarehouseSkuRows);
 printSection("建议修复动作 dry-run，不执行数据库写入", findings.suggestedRepairActions);
 
 if (
-  findings.itemStockMismatches.length > 0 ||
   findings.transferMismatches.length > 0 ||
   findings.missingWarehouseSkuRows.length > 0 ||
   findings.suggestedRepairActions.length > 0

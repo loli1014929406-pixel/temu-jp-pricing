@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "repair:inventory": "node scripts/repair-inventory-data.mjs",
+    "repair:inventory": "node scripts/recalculate-inventory-from-source.mjs",
     "recalculate:inventory": "node scripts/recalculate-inventory-from-source.mjs",
     "check:inventory": "node scripts/check-inventory-consistency.mjs",
     "sync:data": "node scripts/sync-codex-data.mjs",

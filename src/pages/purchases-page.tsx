@@ -20,6 +20,7 @@ import {
   fetchPurchaseOrders,
   receivePurchasePackage,
   receiveRemainingPurchaseOrder,
+  updatePurchaseOrderItemSkuInfo,
   updatePurchasePackageTrackingNo,
   updatePurchaseSource,
 } from "../lib/purchases";
@@ -43,6 +44,38 @@ import { confirmAction, confirmDelete, confirmSave } from "../utils/confirmation
 type PurchasesPageProps = { user: User; view: "create" | "records" };
 type DraftItem = { id: string; itemId: string; quantity: string; unitPriceRmb: string };
 type DraftSkuSelection = { id: string; skuId: string; quantity: string };
+type PurchaseSkuReceiptSummary = {
+  key: string;
+  label: string;
+  quantity: number;
+  receivedQuantity: number;
+  amountRmb: number;
+  inferred: boolean;
+};
+type PurchaseMissingSkuSummary = {
+  key: string;
+  label: string;
+  quantity: number;
+  receivedQuantity: number;
+};
+type ReceiveSkuRow = {
+  key: string;
+  skuId: string;
+  label: string;
+  productCode: string;
+  productName: string;
+  remainingQuantity: number;
+  components: Array<{
+    item: PurchaseOrderItem;
+    itemPerSku: number;
+    remainingQuantity: number;
+  }>;
+};
+type SkuBindingPreview = {
+  valid: boolean;
+  quantity: number | null;
+  message: string;
+};
 type PreparedPurchaseItem = Pick<
   PurchaseOrderItem,
   | "product_id"
@@ -146,6 +179,86 @@ function getRemainingSourceItems(
   });
 }
 
+function getMissingSkuRemainingItems(
+  sourceItems: PurchaseOrder["items"],
+  receivedQuantityByOrderItem: Record<string, number>,
+) {
+  return getRemainingSourceItems(sourceItems, receivedQuantityByOrderItem).filter(
+    (item) => !item.sku_id || !item.sku_quantity || item.sku_quantity <= 0,
+  );
+}
+
+function getRemainingSkuReceiveRows(
+  order: PurchaseOrder,
+  receivedQuantityByOrderItem: Record<string, number>,
+  skusById: Record<string, ProductSku>,
+) {
+  const groups = new Map<string, ReceiveSkuRow>();
+
+  for (const item of order.items) {
+    if (!item.sku_id || !item.sku_quantity || item.sku_quantity <= 0) continue;
+
+    const remainingQuantity = item.quantity - (receivedQuantityByOrderItem[item.id] ?? 0);
+    if (remainingQuantity <= 0) continue;
+
+    const itemPerSku = item.quantity / item.sku_quantity;
+    if (!Number.isFinite(itemPerSku) || itemPerSku <= 0) continue;
+
+    const group = groups.get(item.sku_id) ?? {
+      key: `sku:${item.sku_id}`,
+      skuId: item.sku_id,
+      label: skusById[item.sku_id] ? formatSkuLabel(skusById[item.sku_id]) : `${item.product_code} · SKU ${item.sku_id}`,
+      productCode: item.product_code,
+      productName: item.product_name_cn,
+      remainingQuantity: 0,
+      components: [],
+    };
+
+    group.components.push({ item, itemPerSku, remainingQuantity });
+    groups.set(item.sku_id, group);
+  }
+
+  return Array.from(groups.values()).flatMap((group) => {
+    const skuRemainingQuantity = Math.min(
+      ...group.components.map((component) =>
+        Math.floor(component.remainingQuantity / component.itemPerSku),
+      ),
+    );
+    return skuRemainingQuantity > 0
+      ? [{ ...group, remainingQuantity: skuRemainingQuantity }]
+      : [];
+  });
+}
+
+function getSkuBindingPreview(item: PurchaseOrderItem, sku: ProductSku | undefined): SkuBindingPreview {
+  if (!sku?.id) return { valid: false, quantity: null, message: "请选择 SKU" };
+  if (!item.product_id || sku.product_id !== item.product_id) {
+    return { valid: false, quantity: null, message: "SKU 不属于该商品" };
+  }
+  if (!item.item_id) {
+    return { valid: false, quantity: null, message: "历史明细缺少组成绑定" };
+  }
+
+  const link = sku.component_links.find((entry) => entry.item_id === item.item_id);
+  if (!link) {
+    return { valid: false, quantity: null, message: "SKU 不包含该历史明细" };
+  }
+
+  const perSkuQuantity = Math.trunc(Number(link.quantity) || 0);
+  if (perSkuQuantity <= 0) {
+    return { valid: false, quantity: null, message: "SKU 组成数量异常" };
+  }
+  if (item.quantity % perSkuQuantity !== 0) {
+    return { valid: false, quantity: null, message: "无法整除推导 SKU 数量" };
+  }
+
+  return {
+    valid: true,
+    quantity: item.quantity / perSkuQuantity,
+    message: `推导 SKU 数量 ${item.quantity / perSkuQuantity}`,
+  };
+}
+
 function localDate() {
   const now = new Date();
   const offset = now.getTimezoneOffset() * 60 * 1000;
@@ -188,6 +301,283 @@ function formatQuantity(value: number) {
 function normalizePositiveIntegerInput(value: string | undefined) {
   const quantity = Math.trunc(Number(value));
   return Number.isFinite(quantity) && quantity > 0 ? String(quantity) : "1";
+}
+
+function getSkuQuantityFromComponentGroup(group: {
+  quantity: number;
+  skuQuantity: number;
+  receivedQuantity: number;
+}) {
+  const itemPerSku = group.skuQuantity > 0 ? group.quantity / group.skuQuantity : 1;
+  return {
+    quantity: group.skuQuantity,
+    receivedQuantity: itemPerSku > 0 ? Math.floor(group.receivedQuantity / itemPerSku) : 0,
+  };
+}
+
+function getExplicitSkuReceiptSummaries(
+  order: PurchaseOrder,
+  receivedQuantityByOrderItem: Record<string, number>,
+  skusById: Record<string, ProductSku>,
+) {
+  const groups = new Map<
+    string,
+    {
+      sku: ProductSku | undefined;
+      productCode: string;
+      productName: string;
+      amountRmb: number;
+      components: Map<string, { quantity: number; skuQuantity: number; receivedQuantity: number }>;
+    }
+  >();
+
+  for (const item of order.items) {
+    if (!item.sku_id || !item.sku_quantity || item.sku_quantity <= 0) continue;
+    const group = groups.get(item.sku_id) ?? {
+      sku: skusById[item.sku_id],
+      productCode: item.product_code,
+      productName: item.product_name_cn,
+      amountRmb: 0,
+      components: new Map<string, { quantity: number; skuQuantity: number; receivedQuantity: number }>(),
+    };
+    const componentKey = item.item_id ?? item.id;
+    const component = group.components.get(componentKey) ?? {
+      quantity: 0,
+      skuQuantity: 0,
+      receivedQuantity: 0,
+    };
+    component.quantity += item.quantity;
+    component.skuQuantity += item.sku_quantity;
+    component.receivedQuantity += Math.min(
+      item.quantity,
+      receivedQuantityByOrderItem[item.id] ?? 0,
+    );
+    group.amountRmb += item.quantity * item.unit_price_rmb;
+    group.components.set(componentKey, component);
+    groups.set(item.sku_id, group);
+  }
+
+  return Array.from(groups.entries()).map(([skuId, group]) => {
+    const componentQuantities = Array.from(group.components.values()).map(getSkuQuantityFromComponentGroup);
+    const quantity = componentQuantities.length > 0
+      ? Math.min(...componentQuantities.map((item) => item.quantity))
+      : 0;
+    const receivedQuantity = componentQuantities.length > 0
+      ? Math.min(...componentQuantities.map((item) => item.receivedQuantity))
+      : 0;
+
+    return {
+      key: `sku:${skuId}`,
+      label: group.sku ? formatSkuLabel(group.sku) : `${group.productCode} · SKU ${skuId}`,
+      quantity,
+      receivedQuantity,
+      amountRmb: group.amountRmb,
+      inferred: false,
+    };
+  });
+}
+
+function inferLegacySkuReceiptSummaries(
+  order: PurchaseOrder,
+  receivedQuantityByOrderItem: Record<string, number>,
+  skusByProductId: Record<string, ProductSku[]>,
+) {
+  const legacyItems = order.items.filter((item) => !item.sku_id);
+  const summaries: PurchaseSkuReceiptSummary[] = [];
+  const missingByItemId = new Set(legacyItems.map((item) => item.id));
+
+  const itemsByProductId = legacyItems.reduce<Record<string, PurchaseOrderItem[]>>((groups, item) => {
+    if (!item.product_id || !item.item_id) return groups;
+    groups[item.product_id] ??= [];
+    groups[item.product_id].push(item);
+    return groups;
+  }, {});
+
+  for (const [productId, productItems] of Object.entries(itemsByProductId)) {
+    const productSkus = skusByProductId[productId] ?? [];
+    if (productSkus.length === 0) continue;
+
+    const skuIdsByItemId = productSkus.reduce<Record<string, Set<string>>>((groups, sku) => {
+      const skuId = sku.id;
+      if (!skuId) return groups;
+      sku.component_links.forEach((link) => {
+        (groups[link.item_id] ??= new Set<string>()).add(skuId);
+      });
+      return groups;
+    }, {});
+
+    const orderItemByItemId = new Map(
+      productItems.flatMap((item) => item.item_id ? [[item.item_id, item]] : []),
+    );
+    const inferredForProduct: Array<{
+      sku: ProductSku;
+      quantity: number;
+      receivedQuantity: number;
+      amountRmb: number;
+    }> = [];
+
+    for (const sku of productSkus) {
+      if (!sku.id) continue;
+      const uniqueLinks = sku.component_links.filter(
+        (link) => (skuIdsByItemId[link.item_id]?.size ?? 0) === 1,
+      );
+      if (uniqueLinks.length === 0) continue;
+
+      const quantities = uniqueLinks.flatMap((link) => {
+        const item = orderItemByItemId.get(link.item_id);
+        const perSku = Math.trunc(Number(link.quantity) || 0);
+        return item && perSku > 0 ? [Math.floor(item.quantity / perSku)] : [];
+      });
+      if (quantities.length !== uniqueLinks.length) continue;
+
+      const quantity = Math.min(...quantities);
+      if (quantity <= 0) continue;
+
+      const receivedQuantities = uniqueLinks.map((link) => {
+        const item = orderItemByItemId.get(link.item_id);
+        const perSku = Math.trunc(Number(link.quantity) || 0);
+        return item && perSku > 0
+          ? Math.floor(Math.min(item.quantity, receivedQuantityByOrderItem[item.id] ?? 0) / perSku)
+          : 0;
+      });
+      inferredForProduct.push({
+        sku,
+        quantity,
+        receivedQuantity: Math.min(...receivedQuantities),
+        amountRmb: 0,
+      });
+    }
+
+    if (inferredForProduct.length === 0) continue;
+
+    const requiredByItemId = new Map<string, number>();
+    inferredForProduct.forEach(({ sku, quantity }) => {
+      sku.component_links.forEach((link) => {
+        requiredByItemId.set(
+          link.item_id,
+          (requiredByItemId.get(link.item_id) ?? 0) + quantity * Number(link.quantity || 0),
+        );
+      });
+    });
+
+    productItems.forEach((item) => {
+      if (!item.item_id) return;
+      const requiredQuantity = requiredByItemId.get(item.item_id) ?? 0;
+      if (requiredQuantity >= item.quantity) {
+        missingByItemId.delete(item.id);
+      }
+    });
+
+    const amountBySkuId = new Map<string, number>();
+    productItems.forEach((item) => {
+      if (!item.item_id) return;
+      const skuShares = inferredForProduct
+        .map(({ sku, quantity }) => {
+          const link = sku.component_links.find((entry) => entry.item_id === item.item_id);
+          return link && sku.id ? { skuId: sku.id, required: quantity * Number(link.quantity || 0) } : null;
+        })
+        .filter((entry): entry is { skuId: string; required: number } => Boolean(entry?.required));
+      const totalRequired = skuShares.reduce((sum, entry) => sum + entry.required, 0);
+      if (totalRequired <= 0) return;
+      const itemAmount = item.quantity * item.unit_price_rmb;
+      skuShares.forEach((entry) => {
+        amountBySkuId.set(
+          entry.skuId,
+          (amountBySkuId.get(entry.skuId) ?? 0) + itemAmount * (entry.required / totalRequired),
+        );
+      });
+    });
+
+    inferredForProduct.forEach(({ sku, quantity, receivedQuantity }) => {
+      if (!sku.id) return;
+      summaries.push({
+        key: `legacy-sku:${order.id}:${sku.id}`,
+        label: formatSkuLabel(sku),
+        quantity,
+        receivedQuantity,
+        amountRmb: amountBySkuId.get(sku.id) ?? 0,
+        inferred: true,
+      });
+    });
+  }
+
+  const missing = legacyItems
+    .filter((item) => missingByItemId.has(item.id))
+    .map((item) => ({
+      key: `missing:${item.id}`,
+      label: `${item.product_code} · 未绑定 SKU`,
+      quantity: item.quantity,
+      receivedQuantity: Math.min(item.quantity, receivedQuantityByOrderItem[item.id] ?? 0),
+    }));
+
+  return { summaries, missing };
+}
+
+function getPurchaseSkuReceiptView(
+  order: PurchaseOrder,
+  receivedQuantityByOrderItem: Record<string, number>,
+  skusById: Record<string, ProductSku>,
+  skusByProductId: Record<string, ProductSku[]>,
+) {
+  const explicitSummaries = getExplicitSkuReceiptSummaries(order, receivedQuantityByOrderItem, skusById);
+  const legacyView = inferLegacySkuReceiptSummaries(order, receivedQuantityByOrderItem, skusByProductId);
+  return {
+    summaries: [...explicitSummaries, ...legacyView.summaries],
+    missing: legacyView.missing,
+  };
+}
+
+function formatPackageReceiptItems(
+  packageItems: PurchasePackage["items"],
+  orderItems: PurchaseOrder["items"],
+  skusById: Record<string, ProductSku>,
+) {
+  const orderItemsById = Object.fromEntries(orderItems.map((item) => [item.id, item]));
+  const groups = new Map<
+    string,
+    {
+      label: string;
+      components: Map<string, { quantity: number; skuQuantity: number; receivedQuantity: number }>;
+    }
+  >();
+  const missing: string[] = [];
+
+  packageItems.forEach((packageItem) => {
+    const item = orderItemsById[packageItem.order_item_id];
+    if (!item) {
+      missing.push(`未知明细 x ${packageItem.quantity}`);
+      return;
+    }
+    if (!item.sku_id || !item.sku_quantity || item.sku_quantity <= 0) {
+      missing.push(`缺 SKU：${item.product_code} x ${packageItem.quantity}`);
+      return;
+    }
+
+    const group = groups.get(item.sku_id) ?? {
+      label: skusById[item.sku_id] ? formatSkuLabel(skusById[item.sku_id]) : `${item.product_code} · SKU ${item.sku_id}`,
+      components: new Map<string, { quantity: number; skuQuantity: number; receivedQuantity: number }>(),
+    };
+    const componentKey = item.item_id ?? item.id;
+    const component = group.components.get(componentKey) ?? {
+      quantity: 0,
+      skuQuantity: 0,
+      receivedQuantity: 0,
+    };
+    component.quantity += item.quantity;
+    component.skuQuantity += item.sku_quantity;
+    component.receivedQuantity += Math.max(0, Math.trunc(Number(packageItem.quantity) || 0));
+    group.components.set(componentKey, component);
+    groups.set(item.sku_id, group);
+  });
+
+  const skuLines = Array.from(groups.values()).map((group) => {
+    const quantities = Array.from(group.components.values())
+      .map(getSkuQuantityFromComponentGroup)
+      .map((item) => item.receivedQuantity);
+    return `${group.label} x ${quantities.length > 0 ? Math.min(...quantities) : 0}`;
+  });
+
+  return [...skuLines, ...missing].join("，");
 }
 
 export function PurchasesPage({ user, view }: PurchasesPageProps) {
@@ -331,6 +721,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
   );
   const [receiveConfirmOrder, setReceiveConfirmOrder] = useState<PurchaseOrder | null>(null);
   const [receiveQuantities, setReceiveQuantities] = useState<Record<string, string>>({});
+  const [skuBindingDrafts, setSkuBindingDrafts] = useState<Record<string, string>>({});
 
   const filteredOrders = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -710,28 +1101,6 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
     );
   }
 
-  function updateDraftItem(productId: string, itemId: string, field: keyof Omit<DraftItem, "id">, value: string) {
-    setDraftProducts((current) =>
-      current.map((product) =>
-        product.id === productId
-          ? {
-            ...product,
-            items: product.items.map((item) => {
-              if (item.id !== itemId) return item;
-              if (field !== "itemId") return { ...item, [field]: value };
-              const component = itemsById[value];
-              return {
-                ...item,
-                itemId: value,
-                unitPriceRmb: component ? String(component.purchase_price_rmb) : "",
-              };
-            }),
-          }
-          : product,
-      ),
-    );
-  }
-
   async function handleCreateOrder() {
     if (!canEdit) {
       setErrorMessage("当前账号没有编辑权限，不能新增采购管理单。");
@@ -739,6 +1108,29 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
     }
 
     const warehouse = warehousesById[warehouseId];
+    if (!warehouse) {
+      setErrorMessage("请选择采购入库仓库。");
+      return;
+    }
+
+    const missingSkuProduct = draftProducts.find((draftProduct) => {
+      const product = productsById[draftProduct.productId];
+      if (!product) return false;
+      return getDraftSkuSelections(draftProduct)
+        .map((selection) => ({
+          sku: skusById[selection.skuId],
+          quantity: Number(normalizePositiveIntegerInput(selection.quantity)),
+        }))
+        .every((selection) => !selection.sku?.id || selection.quantity <= 0);
+    });
+    if (missingSkuProduct) {
+      const product = productsById[missingSkuProduct.productId];
+      setErrorMessage(
+        `请先为“${product?.product_code ?? "采购商品"}”选择 SKU。采购单库存只进入 SKU 库存，SKU 组成仅用于推导采购链接。`,
+      );
+      return;
+    }
+
     const preparedItems: PreparedPurchaseItem[] = draftProducts.flatMap((draftProduct): PreparedPurchaseItem[] => {
       const product = productsById[draftProduct.productId];
       if (!warehouse || !product) return [];
@@ -781,23 +1173,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
         });
       }
 
-      return draftProduct.items.flatMap((draftItem) => {
-        const component = itemsById[draftItem.itemId];
-        if (!component?.id || component.product_id !== product.id) return [];
-        return [{
-          product_id: product.id,
-          item_id: component.id,
-          sku_id: null,
-          sku_quantity: null,
-          product_code: product.product_code,
-          product_name_cn: product.product_name_cn,
-          item_name: component.item_name,
-          item_spec: component.item_spec,
-          purchase_url: component.purchase_url,
-          quantity: Number(draftItem.quantity),
-          unit_price_rmb: Number(draftItem.unitPriceRmb),
-        }];
-      });
+      return [];
     });
     const preparedSources = activePurchaseUrls.flatMap((purchaseUrl) => {
       const meta = linkMetaDrafts[purchaseUrl];
@@ -809,7 +1185,11 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
         }]
         : [];
     });
-    if (!warehouse || preparedItems.length === 0 || preparedSources.length !== activePurchaseUrls.length) return;
+    if (preparedItems.length === 0) {
+      setErrorMessage("请至少选择一个 SKU 后再保存采购管理单。");
+      return;
+    }
+    if (preparedSources.length !== activePurchaseUrls.length) return;
     if (!confirmSave("确认保存这张采购管理单吗？")) return;
 
     setBusyKey("create-order");
@@ -914,7 +1294,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
       return;
     }
 
-    if (!confirmAction(`确认签收快递单号“${pkg.tracking_no}”并增加库存吗？`)) return;
+    if (!confirmAction(`确认签收快递单号“${pkg.tracking_no}”并增加 SKU 库存吗？`)) return;
     setBusyKey(`receive-${pkg.id}`);
     setErrorMessage("");
     setNoticeMessage("");
@@ -941,6 +1321,17 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
     }
   }
 
+  function openReceiveOrderModal(order: PurchaseOrder) {
+    const receivedQuantityByOrderItem = getReceivedQuantityByOrderItem(order);
+    const remainingSkuRows = getRemainingSkuReceiveRows(order, receivedQuantityByOrderItem, skusById);
+    setReceiveQuantities(
+      Object.fromEntries(
+        remainingSkuRows.map((row) => [row.key, String(row.remainingQuantity)]),
+      ),
+    );
+    setReceiveConfirmOrder(order);
+  }
+
   async function handleReceiveRemainingOrder(order: PurchaseOrder, skipConfirm = false) {
     if (!canEdit) {
       setErrorMessage("当前账号没有编辑权限，不能签收入库。");
@@ -950,7 +1341,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
     if (
       !skipConfirm &&
       !confirmAction(
-        `确认将采购管理单“${order.order_code}”剩余未签收明细全部签收，并增加库存吗？`,
+        `确认将采购管理单“${order.order_code}”剩余未签收明细全部签收，并增加 SKU 库存吗？`,
       )
     ) {
       return;
@@ -962,7 +1353,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
     try {
       const result = await receiveRemainingPurchaseOrder(order);
       const count = result.inventory.reduce(
-        (sum, entry) => sum + entry.adjustment.change_quantity,
+        (sum, entry) => sum + entry.changeQuantity,
         0,
       );
       setOrders((current) =>
@@ -977,7 +1368,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
             : item,
         ),
       );
-      setNoticeMessage(count > 0 ? `已签收剩余明细并入库 ${count} 件` : "已将采购管理单标记为已签收");
+      setNoticeMessage(count > 0 ? `已签收剩余明细并增加 SKU 库存 ${count} 件` : "已将采购管理单标记为已签收");
     } catch (error) {
       setErrorMessage(getErrorMessage(error, "签收剩余明细失败"));
     } finally {
@@ -991,39 +1382,45 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
       return;
     }
 
-    const remainingItems = getRemainingSourceItems(
-      order.items,
-      getReceivedQuantityByOrderItem(order),
-    );
+    const receivedQuantityByOrderItem = getReceivedQuantityByOrderItem(order);
+    const remainingSkuRows = getRemainingSkuReceiveRows(order, receivedQuantityByOrderItem, skusById);
+    const missingSkuItems = getMissingSkuRemainingItems(order.items, receivedQuantityByOrderItem);
 
-    const itemsToReceive = remainingItems
-      .map((item) => ({
-        ...item,
-        quantity: Math.trunc(Number(receiveQuantities[item.id]) || 0),
+    const rowsToReceive = remainingSkuRows
+      .map((row) => ({
+        ...row,
+        quantity: Math.trunc(Number(receiveQuantities[row.key]) || 0),
       }))
-      .filter((item) => item.quantity > 0);
+      .filter((row) => row.quantity > 0);
 
-    if (itemsToReceive.length === 0) {
-      setErrorMessage("请至少填写一项大于 0 的签收数量。");
+    if (rowsToReceive.length === 0) {
+      setErrorMessage(
+        missingSkuItems.length > 0
+          ? "请先补齐采购明细的 SKU 信息，或至少填写一项可签收 SKU 数量。"
+          : "请至少填写一项大于 0 的签收数量。",
+      );
       return;
     }
 
     if (
-      itemsToReceive.some(
-        (item) =>
-          item.quantity >
-          (remainingItems.find((r) => r.id === item.id)?.quantity ?? 0),
-      )
+      rowsToReceive.some((row) => row.quantity > row.remainingQuantity)
     ) {
       setErrorMessage("签收数量不能大于未收数量，请检查输入。");
       return;
     }
 
-    const itemsBySourceId = itemsToReceive.reduce<Record<string, PurchaseOrder["items"]>>(
-      (groups, item) => {
-        if (!item.source_id) return groups;
-        groups[item.source_id] ??= [];
-        groups[item.source_id].push(item);
+    const itemsBySourceId = rowsToReceive.reduce<Record<string, Array<{ order_item_id: string; quantity: number }>>>(
+      (groups, row) => {
+        row.components.forEach((component) => {
+          if (!component.item.source_id) return;
+          const componentQuantity = Math.trunc(component.itemPerSku * row.quantity);
+          if (componentQuantity <= 0) return;
+          groups[component.item.source_id] ??= [];
+          groups[component.item.source_id].push({
+            order_item_id: component.item.id,
+            quantity: Math.min(component.remainingQuantity, componentQuantity),
+          });
+        });
         return groups;
       },
       {},
@@ -1037,12 +1434,12 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
     setBusyKey(`receive-order-${order.id}`);
     try {
       let index = 1;
-      for (const [sourceId, items] of Object.entries(itemsBySourceId)) {
+      for (const [sourceId, packageItems] of Object.entries(itemsBySourceId)) {
         const pkg = await createPurchasePackage(
           order.id,
           sourceId,
           `签收-${order.order_code}-${Date.now().toString().slice(-4)}-${index++}`,
-          items.map((item) => ({ order_item_id: item.id, quantity: item.quantity })),
+          packageItems,
         );
         await receivePurchasePackage(order, pkg);
       }
@@ -1052,6 +1449,50 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
       setNoticeMessage("签收成功");
     } catch (error) {
       setErrorMessage(getErrorMessage(error, "签收失败"));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
+  async function handleSaveOrderItemSkuInfo(order: PurchaseOrder, item: PurchaseOrderItem) {
+    if (!canEdit) {
+      setErrorMessage("当前账号没有编辑权限，不能修改 SKU 信息。");
+      return;
+    }
+
+    const skuId = (skuBindingDrafts[item.id] ?? item.sku_id ?? "").trim();
+    if (!skuId) {
+      setErrorMessage("请选择 SKU 后再保存。");
+      return;
+    }
+    if (!confirmSave("确认保存这条采购明细的 SKU 信息吗？")) return;
+
+    setBusyKey(`sku-bind-${item.id}`);
+    try {
+      const updatedItems = await updatePurchaseOrderItemSkuInfo(item.id, skuId);
+      const updatedById = new Map(updatedItems.map((entry) => [entry.id, entry]));
+      setOrders((current) =>
+        current.map((entry) =>
+          entry.id === order.id
+            ? {
+              ...entry,
+              items: entry.items.map((orderItem) =>
+                updatedById.get(orderItem.id) ?? orderItem,
+              ),
+            }
+            : entry,
+        ),
+      );
+      setSkuBindingDrafts((current) => {
+        const next = { ...current };
+        updatedItems.forEach((updatedItem) => {
+          delete next[updatedItem.id];
+        });
+        return next;
+      });
+      setNoticeMessage("SKU 信息已保存，未签收明细现在可以按 SKU 入库。");
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, "保存 SKU 信息失败"));
     } finally {
       setBusyKey("");
     }
@@ -1197,7 +1638,6 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                       </select>
                     </Field>
                   </div>
-                  <button type="button" onClick={() => setDraftProducts((current) => current.map((item) => item.id === draftProduct.id ? { ...item, items: [...item.items, createDraftItem()] } : item))} className="btn-secondary h-10 shrink-0 px-3"><Plus size={16} />增加配件</button>
                   <button type="button" disabled={draftProducts.length === 1} onClick={() => setDraftProducts((current) => current.filter((item) => item.id !== draftProduct.id))} className="icon-btn-danger h-10 w-10"><Trash2 size={16} /></button>
                 </div>
                 {draftProduct.productId && (
@@ -1280,26 +1720,13 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                         {selection.skuId &&
                           (skusById[selection.skuId]?.component_links.length ?? 0) === 0 && (
                             <p className="text-sm text-amber-700 md:col-span-3">
-                              该 SKU 未维护配件映射。
+                              该 SKU 未维护组成映射。
                             </p>
                           )}
                       </div>
                     ))}
                   </div>
                 )}
-                {draftProduct.items.map((draftItem, itemIndex) => (
-                  <div key={draftItem.id} className="grid gap-3 rounded-xl border border-line bg-white p-3 md:grid-cols-[minmax(0,1fr)_110px_130px_44px]">
-                    <Field label={`配件 ${itemIndex + 1}`}>
-                      <select value={draftItem.itemId} onChange={(event) => updateDraftItem(draftProduct.id, draftItem.id, "itemId", event.target.value)} className="h-11 w-full rounded-xl border border-line bg-white px-3 text-sm">
-                        <option value="">选择配件</option>
-                        {items.filter((item) => item.product_id === draftProduct.productId).map((item) => <option key={item.id} value={item.id}>{item.item_name}{item.item_spec ? ` · ${item.item_spec}` : ""}</option>)}
-                      </select>
-                    </Field>
-                    <Field label="采购数量"><TextInput type="number" min="1" step="1" value={draftItem.quantity} onChange={(event) => updateDraftItem(draftProduct.id, draftItem.id, "quantity", event.target.value)} /></Field>
-                    <Field label="采购单价"><TextInput type="number" min="0" step="0.01" value={draftItem.unitPriceRmb} onChange={(event) => updateDraftItem(draftProduct.id, draftItem.id, "unitPriceRmb", event.target.value)} /></Field>
-                    <div className="flex items-end justify-end"><button type="button" disabled={draftProduct.items.length === 1} onClick={() => setDraftProducts((current) => current.map((item) => item.id === draftProduct.id ? { ...item, items: item.items.filter((entry) => entry.id !== draftItem.id) } : item))} className="icon-btn-danger h-11 w-11"><Trash2 size={16} /></button></div>
-                  </div>
-                ))}
                 {getProductPurchaseUrls(draftProduct).length > 0 && (
                   <div className="grid gap-3 rounded-2xl border border-line bg-white p-4">
                     <h4 className="text-sm font-semibold text-ink">
@@ -1322,7 +1749,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                               <table className="data-table">
                                 <thead>
                                   <tr>
-                                    <th className="px-3 py-2 font-medium">配件名称</th>
+                                    <th className="px-3 py-2 font-medium">SKU 推导明细</th>
                                     <th className="px-3 py-2 font-medium">数量</th>
                                     <th className="px-3 py-2 font-medium">单价</th>
                                     <th className="px-3 py-2 font-medium">金额</th>
@@ -1478,15 +1905,27 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                     0,
                   );
                   const receivedQuantityByOrderItem = getReceivedQuantityByOrderItem(order);
-                  const totalItemQuantity = order.items.reduce(
+                  const skuReceiptView = getPurchaseSkuReceiptView(
+                    order,
+                    receivedQuantityByOrderItem,
+                    skusById,
+                    skusByProductId,
+                  );
+                  const totalSkuQuantity = skuReceiptView.summaries.reduce(
                     (sum, item) => sum + item.quantity,
                     0,
                   );
-                  const receivedItemQuantity = order.items.reduce(
-                    (sum, item) =>
-                      sum + Math.min(item.quantity, receivedQuantityByOrderItem[item.id] ?? 0),
+                  const receivedSkuQuantity = skuReceiptView.summaries.reduce(
+                    (sum, item) => sum + Math.min(item.quantity, item.receivedQuantity),
                     0,
                   );
+                  const skuLineCount = skuReceiptView.summaries.length + skuReceiptView.missing.length;
+                  const editableSkuItems =
+                    order.status === "received"
+                      ? []
+                      : order.items.filter(
+                        (item) => (receivedQuantityByOrderItem[item.id] ?? 0) <= 0,
+                      );
                   const sourceGroups = Object.values(
                     order.sources.reduce<
                       Record<
@@ -1549,25 +1988,33 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                           <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs font-medium text-slate-500">
                             <span>{order.warehouse_name}</span>
                             <span>{order.purchased_at}</span>
-                            <span>{order.items.length} 条明细</span>
+                            <span>{skuLineCount} 条 SKU 明细</span>
                             <span>
                               包裹 {order.packages.filter((pkg) => pkg.status === "received").length} /{" "}
                               {order.packages.length}
                             </span>
                           </div>
-                          {order.items.length > 0 && (
+                          {skuLineCount > 0 && (
                             <div className="mt-2 flex flex-wrap gap-1">
-                              {order.items.slice(0, 4).map((item) => (
+                              {skuReceiptView.summaries.slice(0, 4).map((item) => (
                                 <span
-                                  key={item.id}
+                                  key={item.key}
                                   className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600"
                                 >
-                                  {item.product_name_cn} x {item.quantity}
+                                  {item.label} x {item.quantity}
                                 </span>
                               ))}
-                              {order.items.length > 4 && (
+                              {skuReceiptView.missing.slice(0, Math.max(0, 4 - skuReceiptView.summaries.length)).map((item) => (
+                                <span
+                                  key={item.key}
+                                  className="rounded bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-700 ring-1 ring-amber-100"
+                                >
+                                  缺 SKU：{item.label} x {item.quantity}
+                                </span>
+                              ))}
+                              {skuLineCount > 4 && (
                                 <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-500">
-                                  等 {order.items.length} 种明细...
+                                  等 {skuLineCount} 条 SKU 明细...
                                 </span>
                               )}
                             </div>
@@ -1602,7 +2049,9 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                               入库数量
                             </div>
                             <div className="mt-0.5 text-sm font-semibold text-ink">
-                              {receivedItemQuantity} / {totalItemQuantity}
+                              {totalSkuQuantity > 0
+                                ? `${receivedSkuQuantity} / ${totalSkuQuantity}`
+                                : "缺 SKU"}
                             </div>
                           </div>
                         </div>
@@ -1612,16 +2061,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                             <button
                               type="button"
                               disabled={busyKey === `receive-order-${order.id}`}
-                              onClick={() => {
-                                const remainingItems = getRemainingSourceItems(
-                                  order.items,
-                                  getReceivedQuantityByOrderItem(order),
-                                );
-                                setReceiveQuantities(
-                                  Object.fromEntries(remainingItems.map(item => [item.id, String(item.quantity)]))
-                                );
-                                setReceiveConfirmOrder(order);
-                              }}
+                              onClick={() => openReceiveOrderModal(order)}
                               className="btn-primary h-10 flex-1 px-3 sm:flex-none"
                             >
                               <CheckCircle2 size={16} />
@@ -1631,16 +2071,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                           {canQuickReceive && (
                             <button
                               type="button"
-                              onClick={() => {
-                                const remainingItems = getRemainingSourceItems(
-                                  order.items,
-                                  getReceivedQuantityByOrderItem(order),
-                                );
-                                setReceiveQuantities(
-                                  Object.fromEntries(remainingItems.map(item => [item.id, String(item.quantity)]))
-                                );
-                                setReceiveConfirmOrder(order);
-                              }}
+                              onClick={() => openReceiveOrderModal(order)}
                               className="btn-primary h-10 flex-1 bg-emerald-600 hover:bg-emerald-700 ring-emerald-600 px-3 sm:flex-none"
                             >
                               <CheckCircle2 size={16} />
@@ -1678,7 +2109,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <h4 className="text-sm font-semibold text-ink">商品明细</h4>
                               <span className="text-xs font-semibold text-slate-500">
-                                {order.items.length} 条
+                                {skuLineCount} 条 SKU
                               </span>
                             </div>
 
@@ -1692,33 +2123,36 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                                   <table className="data-table">
                                     <thead>
                                       <tr>
-                                        <th>商品</th>
-                                        <th>配件</th>
-                                        <th>规格</th>
-                                        <th className="number-cell">数量</th>
+                                        <th>SKU</th>
+                                        <th>口径</th>
+                                        <th className="number-cell">采购数量</th>
                                         <th className="number-cell">已签收</th>
-                                        <th className="number-cell">单价</th>
+                                        <th className="number-cell">折算单价</th>
                                       </tr>
                                     </thead>
                                     <tbody>
-                                      {order.items.map((item) => {
-                                        const receivedQty = order.status === "received"
-                                          ? item.quantity
-                                          : (receivedQuantityByOrderItem[item.id] ?? 0);
+                                      {skuReceiptView.summaries.map((item) => {
+                                        const receivedQty = Math.min(item.quantity, item.receivedQuantity);
                                         const isFullyReceived = receivedQty >= item.quantity;
                                         const isPartiallyReceived = receivedQty > 0 && receivedQty < item.quantity;
                                         return (
-                                          <tr key={item.id}>
+                                          <tr key={item.key}>
                                             <td>
                                               <div className="font-semibold text-ink">
-                                                {item.product_code}
-                                              </div>
-                                              <div className="mt-0.5 text-xs text-slate-500">
-                                                {item.product_name_cn}
+                                                {item.label}
                                               </div>
                                             </td>
-                                            <td>{item.item_name}</td>
-                                            <td>{item.item_spec || "--"}</td>
+                                            <td>
+                                              {item.inferred ? (
+                                                <span className="text-xs font-semibold text-amber-700">
+                                                  旧明细推断
+                                                </span>
+                                              ) : (
+                                                <span className="text-xs font-semibold text-emerald-700">
+                                                  SKU
+                                                </span>
+                                              )}
+                                            </td>
                                             <td className="number-cell">{item.quantity}</td>
                                             <td className="number-cell">
                                               {order.status === "received" ? (
@@ -1732,7 +2166,114 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                                               )}
                                             </td>
                                             <td className="number-cell">
-                                              ¥{item.unit_price_rmb.toFixed(2)}
+                                              {item.quantity > 0 ? `¥${(item.amountRmb / item.quantity).toFixed(2)}` : "--"}
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                      {skuReceiptView.missing.map((item) => (
+                                        <tr key={item.key}>
+                                          <td>
+                                            <div className="font-semibold text-amber-700">
+                                              {item.label}
+                                            </div>
+                                          </td>
+                                          <td>
+                                            <span className="text-xs font-semibold text-amber-700">
+                                              缺 SKU 信息
+                                            </span>
+                                          </td>
+                                          <td className="number-cell">{item.quantity}</td>
+                                          <td className="number-cell">
+                                            <span className={item.receivedQuantity > 0 ? "font-medium text-amber-600" : "text-slate-400"}>
+                                              {item.receivedQuantity}
+                                            </span>
+                                          </td>
+                                          <td className="number-cell">--</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            )}
+
+                            {canEdit && editableSkuItems.length > 0 && (
+                              <div className="grid gap-3 rounded-xl border border-amber-200 bg-amber-50/70 p-3">
+                                <div>
+                                  <h5 className="text-sm font-semibold text-amber-900">
+                                    SKU 信息维护
+                                  </h5>
+                                  <p className="mt-1 text-xs text-amber-700">
+                                    用于补齐或修改未签收历史明细的 SKU。保存时会按所选 SKU 的组成自动推导 SKU 数量。
+                                  </p>
+                                </div>
+                                <div className="overflow-x-auto rounded-xl border border-amber-100 bg-white">
+                                  <table className="data-table">
+                                    <thead>
+                                      <tr>
+                                        <th>原明细</th>
+                                        <th>SKU</th>
+                                        <th className="number-cell">推导数量</th>
+                                        <th className="number-cell">操作</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {editableSkuItems.map((item) => {
+                                        const productSkus = item.product_id ? skusByProductId[item.product_id] ?? [] : [];
+                                        const selectedSkuId = skuBindingDrafts[item.id] ?? item.sku_id ?? "";
+                                        const preview = getSkuBindingPreview(item, skusById[selectedSkuId]);
+                                        return (
+                                          <tr key={item.id}>
+                                            <td>
+                                              <div className="font-semibold text-ink">
+                                                {item.product_code}
+                                              </div>
+                                              <div className="mt-0.5 text-xs text-slate-500">
+                                                {item.item_name}{item.item_spec ? ` / ${item.item_spec}` : ""} x {item.quantity}
+                                              </div>
+                                            </td>
+                                            <td className="min-w-[220px]">
+                                              <select
+                                                value={selectedSkuId}
+                                                onChange={(event) =>
+                                                  setSkuBindingDrafts((current) => ({
+                                                    ...current,
+                                                    [item.id]: event.target.value,
+                                                  }))
+                                                }
+                                                className="h-10 w-full rounded-xl border border-line bg-white px-3 text-sm"
+                                              >
+                                                <option value="">
+                                                  {productSkus.length === 0 ? "该商品暂无 SKU" : "选择 SKU"}
+                                                </option>
+                                                {productSkus.map((sku) => (
+                                                  <option key={sku.id} value={sku.id}>
+                                                    {formatSkuLabel(sku)}
+                                                  </option>
+                                                ))}
+                                              </select>
+                                            </td>
+                                            <td className="number-cell">
+                                              <span className={preview.valid ? "font-semibold text-emerald-700" : "text-xs font-semibold text-amber-700"}>
+                                                {preview.quantity ?? "--"}
+                                              </span>
+                                              <div className="mt-0.5 text-[11px] text-slate-500">
+                                                {preview.message}
+                                              </div>
+                                            </td>
+                                            <td className="number-cell">
+                                              <button
+                                                type="button"
+                                                disabled={
+                                                  !preview.valid ||
+                                                  busyKey === `sku-bind-${item.id}`
+                                                }
+                                                onClick={() => void handleSaveOrderItemSkuInfo(order, item)}
+                                                className="btn-secondary h-9 px-3"
+                                              >
+                                                {busyKey === `sku-bind-${item.id}` ? "保存中" : "保存 SKU"}
+                                              </button>
                                             </td>
                                           </tr>
                                         );
@@ -1769,7 +2310,22 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                                   sourceIdSet.has(item.source_id) ||
                                   (!item.source_id && sourceUrlSet.has(item.purchase_url)),
                                 );
+                                const sourceSkuReceiptView = getPurchaseSkuReceiptView(
+                                  { ...order, items: sourceItems },
+                                  receivedQuantityByOrderItem,
+                                  skusById,
+                                  skusByProductId,
+                                );
                                 const remainingSourceItems = getRemainingSourceItems(
+                                  sourceItems,
+                                  receivedQuantityByOrderItem,
+                                );
+                                const remainingSourceSkuRows = getRemainingSkuReceiveRows(
+                                  { ...order, items: sourceItems },
+                                  receivedQuantityByOrderItem,
+                                  skusById,
+                                );
+                                const remainingSourceMissingSkuItems = getMissingSkuRemainingItems(
                                   sourceItems,
                                   receivedQuantityByOrderItem,
                                 );
@@ -1890,12 +2446,20 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                                         该订单包含
                                       </div>
                                       <div className="flex max-h-24 flex-wrap gap-2 overflow-y-auto pr-1">
-                                        {sourceItems.map((item) => (
+                                        {sourceSkuReceiptView.summaries.map((item) => (
                                           <span
-                                            key={item.id}
+                                            key={item.key}
                                             className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700"
                                           >
-                                            {item.product_code} · {item.item_name} x {item.quantity}
+                                            {item.label} x {item.quantity}
+                                          </span>
+                                        ))}
+                                        {sourceSkuReceiptView.missing.map((item) => (
+                                          <span
+                                            key={item.key}
+                                            className="rounded-md bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700 ring-1 ring-amber-100"
+                                          >
+                                            缺 SKU：{item.label} x {item.quantity}
                                           </span>
                                         ))}
                                       </div>
@@ -1977,16 +2541,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                                               </div>
                                             </div>
                                             <div className="break-words text-xs text-slate-500">
-                                              {pkg.items
-                                                .map((packageItem) => {
-                                                  const item = order.items.find(
-                                                    (entry) => entry.id === packageItem.order_item_id,
-                                                  );
-                                                  return item
-                                                    ? `${item.product_code} · ${item.item_name} x ${packageItem.quantity}`
-                                                    : `未知明细 x ${packageItem.quantity}`;
-                                                })
-                                                .join("，")}
+                                              {formatPackageReceiptItems(pkg.items, order.items, skusById)}
                                             </div>
                                           </div>
                                         ))}
@@ -2019,12 +2574,10 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                                           </div>
                                           <div className="mt-1 max-h-12 overflow-y-auto text-xs text-slate-500">
                                             剩余入包：
-                                            {remainingSourceItems
-                                              .map(
-                                                (item) =>
-                                                  `${item.product_code} · ${item.item_name} x ${item.quantity}`,
-                                              )
-                                              .join("，")}
+                                            {[
+                                              ...remainingSourceSkuRows.map((row) => `${row.label} x ${row.remainingQuantity}`),
+                                              ...remainingSourceMissingSkuItems.map((item) => `缺 SKU：${item.product_code} x ${item.quantity}`),
+                                            ].join("，")}
                                           </div>
                                         </div>
                                         <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
@@ -2116,9 +2669,15 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
         </section>
       )}
       {receiveConfirmOrder && (() => {
-        const remainingItems = getRemainingSourceItems(
+        const receivedQuantityByOrderItem = getReceivedQuantityByOrderItem(receiveConfirmOrder);
+        const remainingSkuRows = getRemainingSkuReceiveRows(
+          receiveConfirmOrder,
+          receivedQuantityByOrderItem,
+          skusById,
+        );
+        const missingSkuItems = getMissingSkuRemainingItems(
           receiveConfirmOrder.items,
-          getReceivedQuantityByOrderItem(receiveConfirmOrder),
+          receivedQuantityByOrderItem,
         );
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
@@ -2126,48 +2685,61 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
               <div>
                 <h2 className="text-xl font-bold text-ink">确认签收入库</h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  采购单 {receiveConfirmOrder.order_code} 的剩余未签收明细如下，请核对并填写本次实到的数量（如果缺货请改为 0）：
+                  采购单 {receiveConfirmOrder.order_code} 的剩余未签收 SKU 如下，请核对并填写本次实到的 SKU 数量（如果缺货请改为 0）：
                 </p>
               </div>
 
               <div className="overflow-y-auto pr-1">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>商品</th>
-                      <th>配件</th>
-                      <th>规格</th>
-                      <th className="number-cell">未收数量</th>
-                      <th className="number-cell w-32">本次签收</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {remainingItems.map((item) => (
-                      <tr key={item.id}>
-                        <td>
-                          <div className="font-semibold text-ink">{item.product_code}</div>
-                          <div className="mt-0.5 text-xs text-slate-500">{item.product_name_cn}</div>
-                        </td>
-                        <td>{item.item_name}</td>
-                        <td>{item.item_spec || "--"}</td>
-                        <td className="number-cell font-bold text-slate-500">{item.quantity}</td>
-                        <td className="p-2 align-middle text-right">
-                          <TextInput
-                            type="number"
-                            min="0"
-                            max={item.quantity}
-                            value={receiveQuantities[item.id] ?? ""}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setReceiveQuantities(prev => ({ ...prev, [item.id]: val }));
-                            }}
-                            className="text-right h-9 w-24 ml-auto"
-                          />
-                        </td>
+                <div className="grid gap-3">
+                  {missingSkuItems.length > 0 && (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                      还有 {missingSkuItems.length} 条剩余明细缺少 SKU 信息，请先在采购记录展开后的“SKU 信息维护”中补齐。
+                    </div>
+                  )}
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>商品</th>
+                        <th>SKU</th>
+                        <th className="number-cell">未收 SKU 数量</th>
+                        <th className="number-cell w-32">本次签收</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {remainingSkuRows.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className="p-4 text-center text-sm text-slate-500">
+                            暂无可按 SKU 签收的剩余明细。
+                          </td>
+                        </tr>
+                      ) : (
+                        remainingSkuRows.map((row) => (
+                          <tr key={row.key}>
+                            <td>
+                              <div className="font-semibold text-ink">{row.productCode}</div>
+                              <div className="mt-0.5 text-xs text-slate-500">{row.productName}</div>
+                            </td>
+                            <td>{row.label}</td>
+                            <td className="number-cell font-bold text-slate-500">{row.remainingQuantity}</td>
+                            <td className="p-2 align-middle text-right">
+                              <TextInput
+                                type="number"
+                                min="0"
+                                max={row.remainingQuantity}
+                                value={receiveQuantities[row.key] ?? ""}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setReceiveQuantities(prev => ({ ...prev, [row.key]: val }));
+                                }}
+                                className="text-right h-9 w-24 ml-auto"
+                              />
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
 
               <div className="flex items-center justify-end gap-3 pt-2">

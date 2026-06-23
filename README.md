@@ -13,7 +13,7 @@ Temu JP 运营核算系统用于 Temu 日本站半托管业务的商品资料、
 - 直发测算：按 OCS 3cm、OCS 小包等规则查看直发物流成本和利润表现。
 - 订单管理：导入和维护 Temu 订单，处理仓库、物流方式、面单、履约数量、物流状态和实际运费。
 - 采购管理：维护采购记录、采购来源、包裹物流、入库状态和采购成本。
-- 仓储库存：查看 SKU 库存、配件库存、库存调整记录和仓库间调拨。
+- 仓储库存：查看和维护 SKU 库存，配件数量由 SKU 库存和 SKU 组成关系推导。
 - 财务管理：维护经营费用、结算数据、利润看板和资金流水。
 - 参数设置：维护汇率、补贴、物流、包装、目标利润、仓库物流方式和账号资料。
 
@@ -67,7 +67,7 @@ npm run preview
 npm run test
 npm run sync:data
 npm run sync:backend-context
-npm run repair:inventory
+npm run recalculate:inventory
 ```
 
 ## 页面路由

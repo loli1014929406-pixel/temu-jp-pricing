@@ -8,7 +8,6 @@ import {
   type SetStateAction,
 } from "react";
 import {
-  fetchWarehouseItemStocks,
   fetchWarehouses,
   fetchWarehouseSkus,
 } from "../lib/inventory";
@@ -32,7 +31,6 @@ import type {
   LogisticsMethod,
   TemuOrderRecord,
   Warehouse,
-  WarehouseItemStock,
   WarehouseLogisticsMethod,
   WarehouseSku,
   PricingSettings,
@@ -102,7 +100,6 @@ type UseOrdersResult = {
   logisticsMethods: LogisticsMethod[];
   warehouseLogisticsMethods: WarehouseLogisticsMethod[];
   warehouseSkus: WarehouseSku[];
-  warehouseItemStocks: WarehouseItemStock[];
   settings: PricingSettings | null;
   drafts: Record<string, OrderDraft>;
   selectedOrderIds: string[];
@@ -127,7 +124,6 @@ type UseOrdersResult = {
   mergeOrders: (nextOrders: TemuOrderRecord[]) => void;
   replaceDraftsFromOrders: (nextOrders: TemuOrderRecord[]) => void;
   clearDrafts: (orderIds?: string[]) => void;
-  applyWarehouseItemStockUpdates: (nextStocks: WarehouseItemStock[]) => void;
   applyWarehouseSkuStockUpdates: (nextStocks: WarehouseSku[]) => void;
   fetchLatestOrders: () => Promise<TemuOrderRecord[]>;
   fetchLatestProductsAndSkus: () => Promise<{
@@ -426,7 +422,6 @@ export function useOrders(user: User, options: UseOrdersOptions) {
     WarehouseLogisticsMethod[]
   >([]);
   const [warehouseSkus, setWarehouseSkus] = useState<WarehouseSku[]>([]);
-  const [warehouseItemStocks, setWarehouseItemStocks] = useState<WarehouseItemStock[]>([]);
   const [settings, setSettings] = useState<PricingSettings | null>(null);
   const [drafts, setDrafts] = useState<Record<string, OrderDraft>>(restoredDraft?.drafts ?? {});
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
@@ -470,13 +465,11 @@ export function useOrders(user: User, options: UseOrdersOptions) {
           nextProductItems,
           nextProductSkus,
           nextWarehouseSkus,
-          nextWarehouseItemStocks,
           nextWarehouseLogisticsMethods,
         ] = await Promise.all([
           fetchProductItemsByProductIds(productIds),
           fetchProductSkusByProductIds(productIds),
           fetchWarehouseSkus(warehouseIds),
-          fetchWarehouseItemStocks(warehouseIds),
           fetchWarehouseLogisticsMethods(warehouseIds),
         ]);
 
@@ -492,7 +485,6 @@ export function useOrders(user: User, options: UseOrdersOptions) {
         setLogisticsMethods(nextLogisticsMethods);
         setWarehouseLogisticsMethods(nextWarehouseLogisticsMethods);
         setWarehouseSkus(nextWarehouseSkus);
-        setWarehouseItemStocks(nextWarehouseItemStocks);
         setSettings(fetchedSettings);
 
         const latestDraft = readDraft<OrdersDraftState>(draftKey);
@@ -655,16 +647,6 @@ export function useOrders(user: User, options: UseOrdersOptions) {
     });
   }
 
-  function applyWarehouseItemStockUpdates(nextStocks: WarehouseItemStock[]) {
-    if (nextStocks.length === 0) return;
-
-    setWarehouseItemStocks((current) =>
-      current.map(
-        (item) => nextStocks.find((nextItem) => nextItem.id === item.id) ?? item,
-      ),
-    );
-  }
-
   function applyWarehouseSkuStockUpdates(nextStocks: WarehouseSku[]) {
     if (nextStocks.length === 0) return;
 
@@ -695,7 +677,6 @@ export function useOrders(user: User, options: UseOrdersOptions) {
     logisticsMethods,
     warehouseLogisticsMethods,
     warehouseSkus,
-    warehouseItemStocks,
     settings,
     drafts,
     selectedOrderIds,
@@ -716,7 +697,6 @@ export function useOrders(user: User, options: UseOrdersOptions) {
     mergeOrders,
     replaceDraftsFromOrders,
     clearDrafts,
-    applyWarehouseItemStockUpdates,
     applyWarehouseSkuStockUpdates,
     fetchLatestOrders,
     fetchLatestProductsAndSkus,

@@ -6,7 +6,6 @@ import {
   addWarehouseProductInventory,
   createWarehouse,
   deleteWarehouse,
-  fetchWarehouseItemStockAdjustmentsForItems,
   fetchWarehouseInventoryPage,
   fetchWarehouseSkuCounts,
   fetchWarehouses,
@@ -32,8 +31,6 @@ import type {
   ProductSku,
   LogisticsMethod,
   Warehouse,
-  WarehouseItemStock,
-  WarehouseItemStockAdjustment,
   WarehouseLogisticsMethod,
   WarehouseSku,
   LogisticsMethodConfig,
@@ -125,19 +122,20 @@ function getWarehouseRouteLabel(routeSlug: string) {
 
 function hasInventoryDraft(
   draft: InventoryDraft | null | undefined,
-  stockValuesById: Record<string, string> = {},
+  skuStockValuesById: Record<string, string> = {},
 ) {
   if (!draft) return false;
 
   return Boolean(
     draft.draftWarehouseName.trim() ||
-      draft.draftLogisticsMethodName?.trim() ||
-      Object.values(draft.selectedProductIds).some(Boolean) ||
-      Object.values(draft.itemStockReasonDrafts).some((value) => value.trim()) ||
-      Object.values(draft.warehouseNameDrafts).some((value) => value.trim()) ||
-      Object.entries(draft.itemStockDrafts).some(
-        ([itemId, value]) => stockValuesById[itemId] === undefined || value !== stockValuesById[itemId],
-      ),
+    draft.draftLogisticsMethodName?.trim() ||
+    Object.values(draft.selectedProductIds).some(Boolean) ||
+    Object.values(draft.itemStockReasonDrafts).some((value) => value.trim()) ||
+    Object.values(draft.warehouseNameDrafts).some((value) => value.trim()) ||
+    Object.entries(draft.itemStockDrafts).some(
+      ([skuStockId, value]) =>
+        skuStockValuesById[skuStockId] === undefined || value !== skuStockValuesById[skuStockId],
+    ),
   );
 }
 
@@ -178,7 +176,7 @@ function getInventoryErrorMessage(error: unknown, fallback: string) {
     : message;
 }
 
-function parseStockDraftValue(item: Pick<WarehouseItemStock, "stock_quantity">, value: string) {
+function parseStockDraftValue(item: Pick<WarehouseSku, "stock_quantity">, value: string) {
   const text = value.trim();
   if (!text) {
     return { stockQuantity: item.stock_quantity, errorMessage: "" };
@@ -216,10 +214,6 @@ export function InventoryPage({ user }: InventoryPageProps) {
     WarehouseLogisticsMethod[]
   >([]);
   const [warehouseSkus, setWarehouseSkus] = useState<WarehouseSku[]>([]);
-  const [warehouseItemStocks, setWarehouseItemStocks] = useState<WarehouseItemStock[]>([]);
-  const [warehouseItemStockAdjustments, setWarehouseItemStockAdjustments] = useState<
-    WarehouseItemStockAdjustment[]
-  >([]);
   const [draftWarehouseName, setDraftWarehouseName] = useState(restoredDraft?.draftWarehouseName ?? "");
   const [draftLogisticsMethodName, setDraftLogisticsMethodName] = useState(
     restoredDraft?.draftLogisticsMethodName ?? "",
@@ -261,7 +255,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
     () =>
       warehouseSlug
         ? warehouses.find((warehouse) => isWarehouseRouteMatch(warehouse, warehouseSlug)) ??
-          null
+        null
         : null,
     [warehouseSlug, warehouses],
   );
@@ -279,8 +273,8 @@ export function InventoryPage({ user }: InventoryPageProps) {
     : "";
   const pageTitle = routeWarehouseLabel ? `${routeWarehouseLabel}仓库存` : "仓储库存";
   const pageDescription = routeWarehouseLabel
-    ? `仅显示${routeWarehouseLabel}仓库的 SKU 与配件库存`
-    : "显示全部仓库的 SKU 与配件库存";
+    ? `仅显示${routeWarehouseLabel}仓库的 SKU 库存，配件数量由 SKU 库存推导`
+    : "显示全部仓库的 SKU 库存，配件数量由 SKU 库存推导";
 
 
   const PAGE_SIZE_OPTIONS = [20, 30, 50, 100] as const;
@@ -289,8 +283,6 @@ export function InventoryPage({ user }: InventoryPageProps) {
   const [warehouseTotals, setWarehouseTotals] = useState<Record<string, number>>({});
   const [warehouseLoadedSearches, setWarehouseLoadedSearches] = useState<Record<string, string>>({});
   const [warehousePageLoading, setWarehousePageLoading] = useState<Record<string, boolean>>({});
-  const [adjustmentsLoadingKeys, setAdjustmentsLoadingKeys] = useState<Record<string, boolean>>({});
-  const [loadedAdjustmentKeys, setLoadedAdjustmentKeys] = useState<Record<string, boolean>>({});
 
   const loadWarehousePage = useCallback(async (warehouseId: string, targetPage: number, size?: number) => {
     const effectiveSize = size ?? pageSize;
@@ -316,16 +308,6 @@ export function InventoryPage({ user }: InventoryPageProps) {
         const newItems = data.productItems.filter(s => !curr.some(c => c.id === s.id));
         return [...curr, ...newItems];
       });
-      // Replace item stocks for this warehouse
-      setWarehouseItemStocks(curr => [
-        ...curr.filter(s => s.warehouse_id !== warehouseId),
-        ...data.warehouseItemStocks,
-      ]);
-      // Replace adjustments for this warehouse
-      setWarehouseItemStockAdjustments(curr => [
-        ...curr.filter(s => s.warehouse_id !== warehouseId),
-        ...data.warehouseItemStockAdjustments,
-      ]);
 
       setWarehousePages(curr => ({ ...curr, [warehouseId]: targetPage }));
       setWarehouseTotals(curr => ({ ...curr, [warehouseId]: data.total }));
@@ -437,12 +419,12 @@ export function InventoryPage({ user }: InventoryPageProps) {
     ],
   );
 
-  const stockValuesById = useMemo(
+  const skuStockValuesById = useMemo(
     () =>
       Object.fromEntries(
-        warehouseItemStocks.map((item) => [item.id, String(item.stock_quantity)]),
+        warehouseSkus.map((item) => [item.id, String(item.stock_quantity)]),
       ),
-    [warehouseItemStocks],
+    [warehouseSkus],
   );
 
   useDraftPersistence(
@@ -450,7 +432,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
     inventoryDraftValue,
     {
       enabled: !loading,
-      shouldPersist: (draft) => hasInventoryDraft(draft, stockValuesById),
+      shouldPersist: (draft) => hasInventoryDraft(draft, skuStockValuesById),
     },
   );
 
@@ -518,27 +500,6 @@ export function InventoryPage({ user }: InventoryPageProps) {
     [warehouseSkus],
   );
 
-  const warehouseItemStocksByKey = useMemo(
-    () =>
-      Object.fromEntries(
-        warehouseItemStocks.map((item) => [`${item.warehouse_id}:${item.item_id}`, item]),
-      ),
-    [warehouseItemStocks],
-  );
-
-  const warehouseItemStockAdjustmentsByKey = useMemo(
-    () =>
-      warehouseItemStockAdjustments.reduce<
-        Record<string, WarehouseItemStockAdjustment[]>
-      >((groups, adjustment) => {
-        const key = `${adjustment.warehouse_id}:${adjustment.item_id}`;
-        groups[key] ??= [];
-        groups[key].push(adjustment);
-        return groups;
-      }, {}),
-    [warehouseItemStockAdjustments],
-  );
-
   const activeLogisticsMethods = useMemo(
     () =>
       logisticsMethods
@@ -558,17 +519,6 @@ export function InventoryPage({ user }: InventoryPageProps) {
         return groups;
       }, {}),
     [warehouseLogisticsMethods],
-  );
-
-  const itemIdsByProductId = useMemo(
-    () =>
-      productItems.reduce<Record<string, string[]>>((groups, item) => {
-        if (!item.product_id || !item.id) return groups;
-        groups[item.product_id] ??= [];
-        groups[item.product_id].push(item.id);
-        return groups;
-      }, {}),
-    [productItems],
   );
 
   const sortedProducts = useMemo(
@@ -798,8 +748,6 @@ export function InventoryPage({ user }: InventoryPageProps) {
         return;
       }
 
-      const productItemIds = nextItems.flatMap((item) => (item.id ? [item.id] : []));
-
       setProducts((current) => [
         ...current,
         ...nextProducts.filter((product) => !current.some((item) => item.id === product.id)),
@@ -817,10 +765,8 @@ export function InventoryPage({ user }: InventoryPageProps) {
         warehouseId,
         productId,
         productSkuIds,
-        productItemIds,
       );
       setWarehouseSkus((current) => [...current, ...inventory.skus]);
-      setWarehouseItemStocks((current) => [...current, ...inventory.itemStocks]);
       setWarehouseTotals((current) => ({
         ...current,
         [warehouseId]: (current[warehouseId] ?? 0) + inventory.skus.length,
@@ -828,7 +774,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
       setItemStockDrafts((current) => ({
         ...current,
         ...Object.fromEntries(
-          inventory.itemStocks.map((item) => [item.id, String(item.stock_quantity)]),
+          inventory.skus.map((item) => [item.id, String(item.stock_quantity)]),
         ),
       }));
       setSelectedProductIds((current) => ({ ...current, [warehouseId]: "" }));
@@ -856,17 +802,10 @@ export function InventoryPage({ user }: InventoryPageProps) {
     setBusyKey(`product-${warehouseId}-${productId}`);
     setErrorMessage("");
     try {
-      await removeWarehouseProduct(warehouseId, productId, itemIdsByProductId[productId] ?? []);
+      await removeWarehouseProduct(warehouseId, productId);
       setWarehouseSkus((current) =>
         current.filter(
           (entry) => entry.warehouse_id !== warehouseId || entry.product_id !== productId,
-        ),
-      );
-      setWarehouseItemStocks((current) =>
-        current.filter(
-          (entry) =>
-            entry.warehouse_id !== warehouseId ||
-            !(itemIdsByProductId[productId] ?? []).includes(entry.item_id),
         ),
       );
       setWarehouseTotals((current) => ({
@@ -916,35 +855,12 @@ export function InventoryPage({ user }: InventoryPageProps) {
     }
   }
 
-  async function handleToggleSkuDetails(warehouseId: string, item: WarehouseSku, sku?: ProductSku) {
+  function handleToggleSkuDetails(item: WarehouseSku) {
     const willExpand = !expandedSkuIds[item.id];
     setExpandedSkuIds((current) => ({
       ...current,
       [item.id]: willExpand,
     }));
-
-    if (!willExpand || !sku?.component_links.length || loadedAdjustmentKeys[item.id]) return;
-
-    const itemIds = sku.component_links.map((link) => link.item_id).filter(Boolean);
-    setAdjustmentsLoadingKeys((current) => ({ ...current, [item.id]: true }));
-    try {
-      const adjustments = await fetchWarehouseItemStockAdjustmentsForItems(warehouseId, itemIds);
-      setWarehouseItemStockAdjustments((current) => {
-        const loadedItemIds = new Set(itemIds);
-        return [
-          ...current.filter(
-            (adjustment) =>
-              adjustment.warehouse_id !== warehouseId || !loadedItemIds.has(adjustment.item_id),
-          ),
-          ...adjustments,
-        ];
-      });
-      setLoadedAdjustmentKeys((current) => ({ ...current, [item.id]: true }));
-    } catch (error) {
-      setErrorMessage(getInventoryErrorMessage(error, "加载配件编辑记录失败"));
-    } finally {
-      setAdjustmentsLoadingKeys((current) => ({ ...current, [item.id]: false }));
-    }
   }
 
   const findDbMethod = useCallback(
@@ -1035,11 +951,10 @@ export function InventoryPage({ user }: InventoryPageProps) {
           <div className="flex flex-wrap gap-2">
             <Link
               to="/inventory"
-              className={`inline-flex h-10 items-center rounded-lg border px-4 text-sm font-semibold transition ${
-                !warehouseSlug
+              className={`inline-flex h-10 items-center rounded-lg border px-4 text-sm font-semibold transition ${!warehouseSlug
                   ? "border-violet-200 bg-violet-50 text-violet-700"
                   : "border-line bg-white text-slate-700 hover:bg-slate-50"
-              }`}
+                }`}
             >
               全部仓库
             </Link>
@@ -1049,11 +964,10 @@ export function InventoryPage({ user }: InventoryPageProps) {
                 <Link
                   key={warehouse.id}
                   to={`/inventory/${getWarehouseRouteSlug(warehouse)}`}
-                  className={`inline-flex h-10 items-center rounded-lg border px-4 text-sm font-semibold transition ${
-                    isActive
+                  className={`inline-flex h-10 items-center rounded-lg border px-4 text-sm font-semibold transition ${isActive
                       ? "border-violet-200 bg-violet-50 text-violet-700"
                       : "border-line bg-white text-slate-700 hover:bg-slate-50"
-                  }`}
+                    }`}
                 >
                   {warehouse.name}
                 </Link>
@@ -1133,11 +1047,10 @@ export function InventoryPage({ user }: InventoryPageProps) {
                           <button
                             type="button"
                             onClick={() => setEditingWarehouseId(editingWarehouseId === warehouse.id ? null : warehouse.id)}
-                            className={`p-2 rounded-lg border transition ${
-                              editingWarehouseId === warehouse.id
+                            className={`p-2 rounded-lg border transition ${editingWarehouseId === warehouse.id
                                 ? "bg-violet-50 text-violet-600 border-violet-200"
                                 : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
-                            }`}
+                              }`}
                             title="仓库属性设置"
                           >
                             <Settings size={18} />
@@ -1249,11 +1162,10 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                   return (
                                     <label
                                       key={config.name}
-                                      className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium cursor-pointer transition select-none ${
-                                        checked
+                                      className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium cursor-pointer transition select-none ${checked
                                           ? "border-blue-200 bg-blue-50 text-blue-700"
                                           : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                                      }`}
+                                        }`}
                                     >
                                       <input
                                         type="checkbox"
@@ -1296,11 +1208,10 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                   return (
                                     <label
                                       key={config.name}
-                                      className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium cursor-pointer transition select-none ${
-                                        checked
+                                      className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium cursor-pointer transition select-none ${checked
                                           ? "border-violet-200 bg-violet-50 text-violet-700"
                                           : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                                      }`}
+                                        }`}
                                     >
                                       <input
                                         type="checkbox"
@@ -1395,11 +1306,10 @@ export function InventoryPage({ user }: InventoryPageProps) {
                         <button
                           type="button"
                           onClick={() => setShowWarehouseSettings(!showWarehouseSettings)}
-                          className={`inline-flex h-10 items-center gap-2 rounded-xl border px-4 text-sm font-semibold transition ${
-                            showWarehouseSettings
+                          className={`inline-flex h-10 items-center gap-2 rounded-xl border px-4 text-sm font-semibold transition ${showWarehouseSettings
                               ? "border-violet-200 bg-violet-50 text-violet-700"
                               : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                          }`}
+                            }`}
                         >
                           <Settings size={16} />
                           仓库属性设置
@@ -1491,11 +1401,10 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                   return (
                                     <label
                                       key={config.name}
-                                      className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-medium cursor-pointer transition select-none ${
-                                        checked
+                                      className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-medium cursor-pointer transition select-none ${checked
                                           ? "border-blue-200 bg-blue-50 text-blue-700"
                                           : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                                      }`}
+                                        }`}
                                     >
                                       <input
                                         type="checkbox"
@@ -1539,11 +1448,10 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                   return (
                                     <label
                                       key={config.name}
-                                      className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-medium cursor-pointer transition select-none ${
-                                        checked
+                                      className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-medium cursor-pointer transition select-none ${checked
                                           ? "border-violet-200 bg-violet-50 text-violet-700"
                                           : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                                      }`}
+                                        }`}
                                     >
                                       <input
                                         type="checkbox"
@@ -1608,7 +1516,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                               <th className="bg-slate-50 px-4 py-3 font-semibold text-left">SKU编号</th>
                               <th className="bg-slate-50 px-4 py-3 font-semibold text-left">销售规格</th>
                               <th className="bg-slate-50 px-4 py-3 font-semibold text-left">SKU库存</th>
-                              <th className="bg-slate-50 px-4 py-3 font-semibold text-left">查看配件</th>
+                              <th className="bg-slate-50 px-4 py-3 font-semibold text-left">SKU推导配件</th>
                               <th className="bg-slate-50 px-4 py-3 font-semibold text-left">操作</th>
                             </tr>
                           </thead>
@@ -1720,19 +1628,18 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                       <td className="px-4 py-3">
                                         <button
                                           type="button"
-                                          onClick={() => void handleToggleSkuDetails(warehouse.id, item, sku)}
-                                          className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition ${
-                                            expandedSkuIds[item.id]
+                                          onClick={() => handleToggleSkuDetails(item)}
+                                          className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition ${expandedSkuIds[item.id]
                                               ? "border-violet-200 bg-violet-50 text-violet-700"
                                               : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                                          }`}
+                                            }`}
                                         >
                                           {expandedSkuIds[item.id] ? (
                                             <ChevronUp size={14} />
                                           ) : (
                                             <ChevronDown size={14} />
                                           )}
-                                          {adjustmentsLoadingKeys[item.id] ? "加载中" : "查看配件"}
+                                          查看配件
                                         </button>
                                       </td>
                                       <td className="px-4 py-3">
@@ -1764,24 +1671,15 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                                   <th className="px-4 py-3 font-semibold text-left text-xs">配件名称</th>
                                                   <th className="px-4 py-3 font-semibold text-left text-xs">配件规格</th>
                                                   <th className="px-4 py-3 font-semibold text-left text-xs">SKU用量</th>
-                                                  <th className="px-4 py-3 font-semibold text-left text-xs">配件库存参考</th>
-                                                  <th className="px-4 py-3 font-semibold text-left text-xs">编辑记录</th>
+                                                  <th className="px-4 py-3 font-semibold text-left text-xs">本SKU推导数量</th>
                                                 </tr>
                                               </thead>
                                               <tbody>
                                                 {sku?.component_links.length ? (
                                                   sku.component_links.map((link) => {
                                                     const component = productItemsById[link.item_id];
-                                                    const itemStock =
-                                                      warehouseItemStocksByKey[
-                                                        `${warehouse.id}:${link.item_id}`
-                                                      ];
-                                                    const itemAdjustments =
-                                                      warehouseItemStockAdjustmentsByKey[
-                                                        `${warehouse.id}:${link.item_id}`
-                                                      ] ?? [];
-                                                    const isLoadingAdjustments =
-                                                      adjustmentsLoadingKeys[item.id] && !loadedAdjustmentKeys[item.id];
+                                                    const inferredQuantity =
+                                                      item.stock_quantity * Math.max(0, Math.trunc(Number(link.quantity) || 0));
                                                     return (
                                                       <tr key={link.item_id} className="border-t border-line hover:bg-slate-50/50">
                                                         <td className="px-4 py-3 text-sm text-ink font-medium">
@@ -1792,46 +1690,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                                         </td>
                                                         <td className="px-4 py-3 text-sm font-semibold text-slate-700">{link.quantity}</td>
                                                         <td className="px-4 py-3 text-sm font-semibold text-slate-700">
-                                                          {itemStock?.stock_quantity ?? 0}
-                                                        </td>
-                                                        <td className="px-4 py-3 align-top">
-                                                          {itemStock ? (
-                                                            <div className="grid min-w-56 gap-2 text-[11px] text-slate-600">
-                                                              {itemAdjustments
-                                                                .slice(0, 3)
-                                                                .map((adjustment) => (
-                                                                  <div
-                                                                    key={adjustment.id}
-                                                                    className="rounded-lg bg-slate-50 p-2 border border-slate-100"
-                                                                  >
-                                                                    <div className="font-semibold text-slate-700">
-                                                                      {adjustment.previous_quantity} →{" "}
-                                                                      {adjustment.next_quantity}
-                                                                      （
-                                                                      {adjustment.change_quantity > 0
-                                                                        ? "+"
-                                                                        : ""}
-                                                                      {adjustment.change_quantity}）
-                                                                    </div>
-                                                                    <div className="mt-0.5 text-slate-500">
-                                                                      {adjustment.reason}
-                                                                    </div>
-                                                                  </div>
-                                                                ))}
-                                                              {isLoadingAdjustments && (
-                                                                <span className="text-slate-400">
-                                                                  正在加载编辑记录...
-                                                                </span>
-                                                              )}
-                                                              {!isLoadingAdjustments && itemAdjustments.length === 0 && (
-                                                                <span className="text-slate-400">
-                                                                  暂无编辑记录
-                                                                </span>
-                                                              )}
-                                                            </div>
-                                                          ) : (
-                                                            <span className="text-slate-400">--</span>
-                                                          )}
+                                                          {inferredQuantity}
                                                         </td>
                                                       </tr>
                                                     );
@@ -1839,7 +1698,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                                 ) : (
                                                   <tr>
                                                     <td
-                                                      colSpan={6}
+                                                      colSpan={4}
                                                       className="px-4 py-6 text-center text-slate-400 text-xs"
                                                     >
                                                       该 SKU 暂无配件
@@ -1877,7 +1736,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                 请在下方输入新仓库的名称。
               </p>
             </div>
-            
+
             <div className="grid gap-2">
               <label className="text-xs font-semibold text-slate-500">仓库名称</label>
               <input
@@ -1921,7 +1780,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                 请在下方搜索并选择您要添加到 {routeWarehouse.name} 仓库的商品。
               </p>
             </div>
-            
+
             <div className="grid gap-2">
               <label className="text-xs font-semibold text-slate-500">搜索商品</label>
               <AsyncProductSelect

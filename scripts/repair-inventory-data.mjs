@@ -10,9 +10,14 @@ const dryRun = process.argv.includes("--dry-run");
 
 if (showHelp) {
   console.log("用法：node scripts/repair-inventory-data.mjs [--dry-run]");
-  console.log("--dry-run  只预览库存校准，不写入 Supabase");
+  console.log("该旧脚本已停用。当前库存以 SKU 为唯一主账，配件数量只由 SKU 库存推导。");
+  console.log("请改用 npm run recalculate:inventory 或 npm run repair:inventory。");
   process.exit(0);
 }
+
+throw new Error(
+  "scripts/repair-inventory-data.mjs 已停用：当前库存以 SKU 为唯一主账，配件数量只由 SKU 库存推导。请改用 npm run recalculate:inventory 或 npm run repair:inventory。",
+);
 
 const tables = [
   "warehouses",

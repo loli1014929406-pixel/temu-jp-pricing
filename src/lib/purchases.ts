@@ -6,8 +6,6 @@ import type {
   PurchaseOrderSource,
   PurchasePackage,
   PurchasePackageItem,
-  WarehouseItemStock,
-  WarehouseItemStockAdjustment,
 } from "../types";
 
 function getReceiptStatus(
@@ -37,24 +35,71 @@ type ResolvedPackageItem = {
   resolvedMissingItemId: boolean;
 };
 
-type PurchaseInventoryReversal = {
-  packageId: string;
-  itemId: string;
-  itemName: string;
+type PurchaseSkuInventoryChange = {
+  skuId: string;
+  previousQuantity: number;
+  nextQuantity: number;
+  changeQuantity: number;
+};
+
+type ProductSkuLinkRow = {
+  sku_id: string;
+  item_id: string;
   quantity: number;
 };
 
-type PurchaseInventoryReceipt = {
-  orderItem: PurchaseOrderItem & { item_id: string; product_id: string };
-  quantity: number;
-};
+type PurchaseItemSkuReceiptFields = Pick<
+  PurchaseOrderItem,
+  "product_id" | "sku_id" | "sku_quantity" | "product_code" | "item_name" | "item_spec"
+>;
 
 function getItemIdentity(item: Pick<PurchaseOrderItem, "item_name" | "item_spec">) {
   return `${item.item_name.trim()}\u0000${item.item_spec.trim()}`;
 }
 
-function hasValue(value: string | null | undefined) {
+function hasValue(value: string | null | undefined): value is string {
   return typeof value === "string" && value.trim() !== "";
+}
+
+function getPurchaseItemLabel(item: Pick<PurchaseOrderItem, "product_code" | "item_name" | "item_spec">) {
+  return [item.product_code, item.item_name, item.item_spec]
+    .map((value) => String(value ?? "").trim())
+    .filter(Boolean)
+    .join(" / ");
+}
+
+function assertPurchaseItemsHaveSkuInfo(
+  items: PurchaseItemSkuReceiptFields[],
+  context = "采购明细",
+) {
+  const missingSkuItem = items.find((item) =>
+    !hasValue(item.product_id) ||
+    !hasValue(item.sku_id) ||
+    Math.trunc(Number(item.sku_quantity) || 0) <= 0,
+  );
+  if (!missingSkuItem) return;
+
+  throw new Error(
+    `${context}“${getPurchaseItemLabel(missingSkuItem)}”缺少 SKU 信息，不能签收入库。请用 SKU 选择创建采购单，或先补齐 SKU 后再签收。`,
+  );
+}
+
+function assertPackageItemsHaveSkuInfo(
+  orderItems: PurchaseOrderItem[],
+  packageItems: PurchasePackageItem[],
+) {
+  const orderItemsById = Object.fromEntries(orderItems.map((item) => [item.id, item]));
+  const itemsToReceive = packageItems.flatMap((packageItem) => {
+    const quantity = Math.max(0, Math.trunc(Number(packageItem.quantity) || 0));
+    if (quantity <= 0) return [];
+    const orderItem = orderItemsById[packageItem.order_item_id];
+    if (!orderItem) {
+      throw new Error("包裹内有采购明细不存在，请刷新后重试");
+    }
+    return [orderItem];
+  });
+
+  assertPurchaseItemsHaveSkuInfo(itemsToReceive);
 }
 
 async function resolvePackageItems(
@@ -198,7 +243,20 @@ type CreatePurchaseOrderInput = {
   purchased_at: string;
   notes: string;
   sources: Array<{ purchase_url: string; alibaba_order_no: string; freight_rmb: number }>;
-  items: Array<Omit<Pick<PurchaseOrderItem, "product_id" | "item_id" | "product_code" | "product_name_cn" | "item_name" | "item_spec" | "purchase_url" | "quantity" | "unit_price_rmb">, never>>;
+  items: Array<Pick<
+    PurchaseOrderItem,
+    | "product_id"
+    | "item_id"
+    | "sku_id"
+    | "sku_quantity"
+    | "product_code"
+    | "product_name_cn"
+    | "item_name"
+    | "item_spec"
+    | "purchase_url"
+    | "quantity"
+    | "unit_price_rmb"
+  >>;
 };
 export async function createPurchaseOrder(input: CreatePurchaseOrderInput) {
   const { supabase, session } = await requireSession();
@@ -206,6 +264,7 @@ export async function createPurchaseOrder(input: CreatePurchaseOrderInput) {
   if (missingLinkedItem) {
     throw new Error(`采购明细“${missingLinkedItem.item_name}”没有绑定商品配件，不能保存采购单`);
   }
+  assertPurchaseItemsHaveSkuInfo(input.items);
 
   const itemsTotalRmb = input.items.reduce((sum, item) => sum + item.quantity * item.unit_price_rmb, 0);
   const freightTotalRmb = input.sources.reduce((sum, source) => sum + source.freight_rmb, 0);
@@ -267,6 +326,173 @@ export async function updatePurchaseSource(sourceId: string, updates: Pick<Purch
   const totalCost = Number(order.items_total_rmb) + allSources.reduce((sum, item) => sum + Number(item.freight_rmb), 0);
   await supabase.from("purchase_orders").update({ total_cost_rmb: totalCost }).eq("id", source.order_id).eq("owner_id", session.user.id);
   return source;
+}
+
+export async function updatePurchaseOrderItemSkuInfo(orderItemId: string, skuId: string) {
+  const { supabase, session } = await requireSession();
+  const normalizedSkuId = skuId.trim();
+  if (!normalizedSkuId) throw new Error("请选择 SKU 后再保存");
+
+  const { data: targetData, error: targetError } = await withTimeout(
+    supabase
+      .from("purchase_order_items")
+      .select("id, order_id, source_id, purchase_url, product_code, product_name_cn, item_name, item_spec, quantity, unit_price_rmb, product_id, item_id, sku_id, sku_quantity")
+      .eq("id", orderItemId)
+      .eq("owner_id", session.user.id)
+      .maybeSingle(),
+    "读取采购明细",
+  );
+  if (targetError) throw targetError;
+  const targetItem = targetData as PurchaseOrderItem | null;
+  if (!targetItem) throw new Error("采购明细不存在，请刷新后重试");
+  if (!hasValue(targetItem.product_id)) {
+    throw new Error("该采购明细缺少商品绑定，不能补 SKU 信息");
+  }
+
+  const { data: orderData, error: orderError } = await supabase
+    .from("purchase_orders")
+    .select("id, status")
+    .eq("id", targetItem.order_id)
+    .eq("owner_id", session.user.id)
+    .maybeSingle();
+  if (orderError) throw orderError;
+  if (!orderData) throw new Error("采购管理单不存在，请刷新后重试");
+  if ((orderData as Pick<PurchaseOrder, "status">).status === "received") {
+    throw new Error("已签收的采购管理单不能修改 SKU 信息");
+  }
+
+  const { data: skuData, error: skuError } = await supabase
+    .from("product_skus")
+    .select("id, product_id")
+    .eq("id", normalizedSkuId)
+    .maybeSingle();
+  if (skuError) throw skuError;
+  const sku = skuData as { id: string; product_id: string | null } | null;
+  if (!sku?.id) throw new Error("SKU 不存在，请刷新后重试");
+  if (sku.product_id !== targetItem.product_id) {
+    throw new Error("所选 SKU 不属于该采购商品，不能保存");
+  }
+
+  const { data: linkData, error: linkError } = await supabase
+    .from("product_sku_items")
+    .select("sku_id, item_id, quantity")
+    .eq("sku_id", normalizedSkuId);
+  if (linkError) throw linkError;
+  const skuLinks = (linkData ?? []) as ProductSkuLinkRow[];
+  if (skuLinks.length === 0) throw new Error("该 SKU 没有维护组成明细，不能绑定到采购单");
+
+  const { data: orderItemData, error: orderItemError } = await supabase
+    .from("purchase_order_items")
+    .select("id, order_id, source_id, purchase_url, product_code, product_name_cn, item_name, item_spec, quantity, unit_price_rmb, product_id, item_id, sku_id, sku_quantity")
+    .eq("order_id", targetItem.order_id)
+    .eq("source_id", targetItem.source_id)
+    .eq("product_id", targetItem.product_id)
+    .eq("owner_id", session.user.id);
+  if (orderItemError) throw orderItemError;
+
+  const productOrderItems = (orderItemData ?? []) as PurchaseOrderItem[];
+  const itemIdByIdentity = new Map<string, string>();
+  if (productOrderItems.some((item) => !hasValue(item.item_id))) {
+    const { data: productItemData, error: productItemError } = await supabase
+      .from("product_items")
+      .select("id, item_name, item_spec")
+      .eq("product_id", targetItem.product_id);
+    if (productItemError) throw productItemError;
+    (productItemData ?? []).forEach((item) => {
+      itemIdByIdentity.set(
+        `${String(item.item_name ?? "").trim()}\u0000${String(item.item_spec ?? "").trim()}`,
+        item.id,
+      );
+    });
+  }
+
+  const resolveItemId = (item: PurchaseOrderItem) =>
+    hasValue(item.item_id)
+      ? item.item_id
+      : itemIdByIdentity.get(
+        `${String(item.item_name ?? "").trim()}\u0000${String(item.item_spec ?? "").trim()}`,
+      ) ?? null;
+
+  const matchedRows = skuLinks.map((link) => {
+    const rows = productOrderItems.filter((item) => resolveItemId(item) === link.item_id);
+    if (rows.length === 0) {
+      throw new Error("采购单中缺少该 SKU 所需的组成明细，不能自动补 SKU 信息");
+    }
+    if (rows.length > 1) {
+      throw new Error("采购单中同一组成明细有多行，无法判断要绑定哪一行 SKU");
+    }
+    const row = rows[0];
+    const perSkuQuantity = Math.trunc(Number(link.quantity) || 0);
+    if (perSkuQuantity <= 0) {
+      throw new Error("该 SKU 的组成数量不正确，不能绑定到采购单");
+    }
+    if (row.quantity % perSkuQuantity !== 0) {
+      throw new Error("采购数量无法按所选 SKU 组成数量整除，不能自动推导 SKU 数量");
+    }
+    return {
+      item: row,
+      itemId: link.item_id,
+      skuQuantity: row.quantity / perSkuQuantity,
+    };
+  });
+
+  const targetInSku = matchedRows.some((entry) => entry.item.id === targetItem.id);
+  if (!targetInSku) {
+    throw new Error("所选 SKU 不包含当前采购明细，不能保存");
+  }
+
+  const expectedSkuQuantity = matchedRows[0]?.skuQuantity ?? 0;
+  if (
+    expectedSkuQuantity <= 0 ||
+    matchedRows.some((entry) => entry.skuQuantity !== expectedSkuQuantity)
+  ) {
+    throw new Error("该 SKU 各组成明细推导出的 SKU 数量不一致，不能自动补 SKU 信息");
+  }
+
+  const { data: receivedPackageData, error: receivedPackageError } = await supabase
+    .from("purchase_packages")
+    .select("id")
+    .eq("order_id", targetItem.order_id)
+    .eq("owner_id", session.user.id)
+    .eq("status", "received");
+  if (receivedPackageError) throw receivedPackageError;
+  const receivedPackageIds = (receivedPackageData ?? []).map((pkg) => pkg.id);
+  if (receivedPackageIds.length > 0) {
+    const touchedItemIds = matchedRows.map((entry) => entry.item.id);
+    const { data: receivedItemData, error: receivedItemError } = await supabase
+      .from("purchase_package_items")
+      .select("order_item_id, quantity")
+      .in("package_id", receivedPackageIds)
+      .in("order_item_id", touchedItemIds)
+      .eq("owner_id", session.user.id);
+    if (receivedItemError) throw receivedItemError;
+    const hasReceivedTouchedItem = (receivedItemData ?? []).some(
+      (item) => Math.trunc(Number(item.quantity) || 0) > 0,
+    );
+    if (hasReceivedTouchedItem) {
+      throw new Error("该 SKU 相关明细已有签收入库记录，不能修改 SKU 信息");
+    }
+  }
+
+  const results = await Promise.all(
+    matchedRows.map(({ item, itemId }) =>
+      supabase
+        .from("purchase_order_items")
+        .update({
+          item_id: itemId,
+          sku_id: normalizedSkuId,
+          sku_quantity: expectedSkuQuantity,
+        })
+        .eq("id", item.id)
+        .eq("owner_id", session.user.id)
+        .select("id, order_id, source_id, purchase_url, product_code, product_name_cn, item_name, item_spec, quantity, unit_price_rmb, product_id, item_id, sku_id, sku_quantity")
+        .single(),
+    ),
+  );
+  const failedUpdate = results.find((result) => result.error);
+  if (failedUpdate?.error) throw failedUpdate.error;
+
+  return results.map((result) => result.data as PurchaseOrderItem);
 }
 
 async function loadPurchaseOrderForDeletion(
@@ -337,123 +563,19 @@ async function reverseReceivedPurchaseInventory(order: PurchaseOrder) {
   if (receivedPackages.length === 0) return;
 
   const { supabase, session } = await requireSession();
+  receivedPackages.forEach((pkg) => assertPackageItemsHaveSkuInfo(order.items, pkg.items));
 
-  const skuQtyBefore = getSkuQtyReceived(order.items, order.packages);
-  for (const [skuId, qty] of Object.entries(skuQtyBefore)) {
-    if (qty > 0) {
-      const { data: skuStock, error: skuStockError } = await supabase
-        .from("warehouse_skus")
-        .select("id, stock_quantity")
-        .eq("warehouse_id", order.warehouse_id)
-        .eq("sku_id", skuId)
-        .maybeSingle();
-      if (skuStockError) throw skuStockError;
-      if (skuStock) {
-        const nextStockQty = Math.max(0, skuStock.stock_quantity - qty);
-        const { error: updateSkuError } = await supabase
-          .from("warehouse_skus")
-          .update({ stock_quantity: nextStockQty })
-          .eq("id", skuStock.id)
-          .eq("stock_quantity", skuStock.stock_quantity);
-        if (updateSkuError) throw updateSkuError;
-      }
-    }
-  }
-
-  const reversals = new Map<string, PurchaseInventoryReversal>();
-  for (const pkg of receivedPackages) {
-    const resolvedItems = await resolvePackageItems(order, pkg);
-    if (pkg.items.length > 0 && resolvedItems.length !== pkg.items.length) {
-      throw new Error("采购单内有配件无法匹配到商品配件库，不能自动冲回库存");
-    }
-
-    resolvedItems.forEach(({ packageItem, orderItem }) => {
-      const key = `${pkg.id}:${orderItem.item_id}`;
-      const current = reversals.get(key);
-      const quantity = Math.max(0, Math.trunc(Number(packageItem.quantity) || 0));
-      if (current) {
-        current.quantity += quantity;
-        return;
-      }
-
-      reversals.set(key, {
-        packageId: pkg.id,
-        itemId: orderItem.item_id,
-        itemName: orderItem.item_name || orderItem.item_spec || orderItem.item_id,
-        quantity,
-      });
-    });
-  }
-  if (reversals.size === 0) return;
-
-  const reason = `删除采购单冲回：${order.order_code}`;
-  for (const reversal of reversals.values()) {
-    if (reversal.quantity <= 0) continue;
-
-    const { data: existingReversal, error: existingReversalError } = await withTimeout(
-      supabase
-        .from("warehouse_item_stock_adjustments")
-        .select("id")
-        .eq("purchase_package_id", reversal.packageId)
-        .eq("item_id", reversal.itemId)
-        .eq("reason", reason)
-        .limit(1)
-        .maybeSingle(),
-      "检查采购删除冲回记录",
-    );
-    if (existingReversalError) throw existingReversalError;
-    if (existingReversal) continue;
-
-    const { data: currentData, error: currentError } = await withTimeout(
-      supabase
-        .from("warehouse_item_stocks")
-        .select("id, warehouse_id, item_id, stock_quantity")
-        .eq("warehouse_id", order.warehouse_id)
-        .eq("item_id", reversal.itemId)
-        .maybeSingle(),
-      "读取配件库存",
-    );
-    if (currentError) throw currentError;
-    if (!currentData) throw new Error(`仓库配件库存不存在：${reversal.itemName}`);
-
-    const current = currentData as WarehouseItemStock;
-    if (current.stock_quantity < reversal.quantity) {
-      throw new Error(
-        `库存不足，不能删除已入库采购单：${reversal.itemName} 当前 ${current.stock_quantity}，需要冲回 ${reversal.quantity}`,
-      );
-    }
-
-    const nextQuantity = current.stock_quantity - reversal.quantity;
-    const { data: nextData, error: nextError } = await withTimeout(
-      supabase
-        .from("warehouse_item_stocks")
-        .update({ stock_quantity: nextQuantity })
-        .eq("id", current.id)
-        .eq("stock_quantity", current.stock_quantity)
-        .select("id, warehouse_id, item_id, stock_quantity")
-        .maybeSingle(),
-      "冲回配件库存",
-    );
-    if (nextError) throw nextError;
-    if (!nextData) throw new Error("库存已被其他操作更新，请刷新后重试");
-
-    const { error: adjustmentError } = await withTimeout(
-      supabase
-        .from("warehouse_item_stock_adjustments")
-        .insert({
-          warehouse_id: order.warehouse_id,
-          item_id: reversal.itemId,
-          previous_quantity: current.stock_quantity,
-          next_quantity: nextQuantity,
-          change_quantity: -reversal.quantity,
-          reason,
-          purchase_order_id: order.id,
-          purchase_package_id: reversal.packageId,
-        }),
-      "保存采购删除冲回记录",
-    );
-    if (adjustmentError) throw adjustmentError;
-  }
+  const skuQuantities = getSkuQtyReceived(order.items, order.packages);
+  const reverseQuantities = Object.fromEntries(
+    Object.entries(skuQuantities).map(([skuId, quantity]) => [skuId, -quantity]),
+  );
+  await applyWarehouseSkuQuantityChanges(
+    supabase,
+    session.user.id,
+    order.warehouse_id,
+    order.items,
+    reverseQuantities,
+  );
 }
 
 export async function deletePurchaseOrder(orderId: string) {
@@ -541,77 +663,51 @@ async function restoreMissingPurchasePackage(order: PurchaseOrder, pkg: Purchase
   );
 }
 
-async function ensureWarehouseProductInventory(
+async function ensureWarehouseSkuInventory(
+  supabase: SupabaseClient,
+  ownerId: string,
   warehouseId: string,
-  productIds: string[],
-  itemIds: string[],
+  orderItems: PurchaseOrderItem[],
+  skuIds: string[],
 ) {
-  const uniqueProductIds = Array.from(new Set(productIds));
-  if (uniqueProductIds.length === 0) return;
+  const uniqueSkuIds = Array.from(new Set(skuIds.filter(hasValue)));
+  if (uniqueSkuIds.length === 0) return;
 
-  const { supabase, session } = await requireSession();
-  const [
-    { data: skuData, error: skuLoadError },
-    { data: itemData, error: itemLoadError },
-  ] = await Promise.all([
-    supabase
-      .from("product_skus")
-      .select("id, product_id")
-      .in("product_id", uniqueProductIds),
-    supabase
-      .from("product_items")
-      .select("id")
-      .in("product_id", uniqueProductIds),
-  ]);
-  if (skuLoadError) throw skuLoadError;
-  if (itemLoadError) throw itemLoadError;
+  const productIdBySkuId = new Map<string, string>();
+  orderItems.forEach((item) => {
+    if (hasValue(item.sku_id) && hasValue(item.product_id)) {
+      productIdBySkuId.set(item.sku_id, item.product_id);
+    }
+  });
 
-  const skuRows = (skuData ?? []).flatMap((sku) =>
-    sku.id && sku.product_id
-      ? [{
-        warehouse_id: warehouseId,
-        product_id: sku.product_id,
-        sku_id: sku.id,
-        owner_id: session.user.id,
-      }]
-      : [],
-  );
-  const productsWithSkus = new Set(skuRows.map((row) => row.product_id));
-  const missingSkuProductId = uniqueProductIds.find((productId) => !productsWithSkus.has(productId));
-  if (missingSkuProductId) {
-    throw new Error("采购商品还没有 SKU，不能自动加入仓库库存");
+  const missingProductSkuId = uniqueSkuIds.find((skuId) => !productIdBySkuId.has(skuId));
+  if (missingProductSkuId) {
+    throw new Error("采购明细缺少 SKU 对应商品，不能自动加入仓库 SKU 库存");
   }
 
-  if (skuRows.length > 0) {
-    const { error: skuInsertError } = await supabase
-      .from("warehouse_skus")
-      .upsert(skuRows, { onConflict: "warehouse_id,sku_id", ignoreDuplicates: true });
-    if (skuInsertError) throw skuInsertError;
-  }
-
-  const uniqueItemIds = Array.from(new Set([
-    ...itemIds,
-    ...(itemData ?? []).flatMap((item) => item.id ? [item.id] : []),
-  ]));
-  if (uniqueItemIds.length > 0) {
-    const { error: itemInsertError } = await supabase
-      .from("warehouse_item_stocks")
-      .upsert(
-        uniqueItemIds.map((itemId) => ({
+  const { error } = await supabase
+    .from("warehouse_skus")
+    .upsert(
+      uniqueSkuIds.map((skuId) => {
+        const productId = productIdBySkuId.get(skuId);
+        if (!productId) {
+          throw new Error("采购明细缺少 SKU 对应商品，不能自动加入仓库 SKU 库存");
+        }
+        return {
           warehouse_id: warehouseId,
-          item_id: itemId,
-          owner_id: session.user.id,
-        })),
-        { onConflict: "warehouse_id,item_id", ignoreDuplicates: true },
-      );
-    if (itemInsertError) throw itemInsertError;
-  }
+          product_id: productId,
+          sku_id: skuId,
+          owner_id: ownerId,
+        };
+      }),
+      { onConflict: "warehouse_id,sku_id", ignoreDuplicates: true },
+    );
+  if (error) throw error;
 }
 
-async function applyPurchasePackageInventory(
+async function preparePurchasePackageForSkuReceipt(
   order: PurchaseOrder,
   pkg: PurchasePackage,
-  equivalentPackageIds: string[] = [pkg.id],
 ) {
   const { supabase, session } = await requireSession();
   const resolvedItems = await resolvePackageItems(order, pkg);
@@ -619,80 +715,86 @@ async function applyPurchasePackageInventory(
     throw new Error("包裹内有配件无法匹配到商品配件库，请检查采购明细后再入库");
   }
   await persistResolvedPurchaseItemIds(supabase, session.user.id, resolvedItems);
+  assertPackageItemsHaveSkuInfo(order.items, pkg.items);
+}
 
-  const receivableItems = Array.from(
-    resolvedItems.reduce((items, { packageItem, orderItem }) => {
-      const quantity = Math.max(0, Math.trunc(Number(packageItem.quantity) || 0));
-      if (quantity <= 0) return items;
+async function applyWarehouseSkuQuantityChanges(
+  supabase: SupabaseClient,
+  ownerId: string,
+  warehouseId: string,
+  orderItems: PurchaseOrderItem[],
+  quantitiesBySkuId: Record<string, number>,
+): Promise<PurchaseSkuInventoryChange[]> {
+  const changes = Object.entries(quantitiesBySkuId)
+    .map(([skuId, quantity]) => ({
+      skuId,
+      quantity: Math.trunc(Number(quantity) || 0),
+    }))
+    .filter((change) => hasValue(change.skuId) && change.quantity !== 0);
+  if (changes.length === 0) return [];
 
-      const current = items.get(orderItem.item_id);
-      if (current) {
-        current.quantity += quantity;
-      } else {
-        items.set(orderItem.item_id, { orderItem, quantity });
-      }
-      return items;
-    }, new Map<string, PurchaseInventoryReceipt>()).values(),
+  await ensureWarehouseSkuInventory(
+    supabase,
+    ownerId,
+    warehouseId,
+    orderItems,
+    changes.map((change) => change.skuId),
   );
 
-  await ensureWarehouseProductInventory(
-    order.warehouse_id,
-    receivableItems.map(({ orderItem }) => orderItem.product_id),
-    receivableItems.map(({ orderItem }) => orderItem.item_id),
-  );
-
-  const inventory: Array<{ stock: WarehouseItemStock; adjustment: WarehouseItemStockAdjustment }> = [];
-  const adjustmentPackageIds = Array.from(new Set([pkg.id, ...equivalentPackageIds]));
-  for (const { orderItem: item, quantity } of receivableItems) {
-    const { data: existingAdjustments, error: existingAdjustmentError } = await supabase
-      .from("warehouse_item_stock_adjustments")
-      .select("change_quantity")
-      .in("purchase_package_id", adjustmentPackageIds)
-      .eq("item_id", item.item_id)
-      .gt("change_quantity", 0);
-    if (existingAdjustmentError) throw existingAdjustmentError;
-
-    const receivedQuantity = (existingAdjustments ?? []).reduce(
-      (total, adjustment) =>
-        total + Math.max(0, Math.trunc(Number(adjustment.change_quantity) || 0)),
-      0,
+  const inventory: PurchaseSkuInventoryChange[] = [];
+  for (const { skuId, quantity } of changes) {
+    const { data: currentData, error: currentError } = await withTimeout(
+      supabase
+        .from("warehouse_skus")
+        .select("id, sku_id, stock_quantity")
+        .eq("warehouse_id", warehouseId)
+        .eq("sku_id", skuId)
+        .maybeSingle(),
+      "读取仓库 SKU 库存",
     );
-    const receiveQuantity = quantity - receivedQuantity;
-    if (receiveQuantity <= 0) continue;
-
-    const { data: currentData, error: currentError } = await supabase
-      .from("warehouse_item_stocks")
-      .select("id, warehouse_id, item_id, stock_quantity")
-      .eq("warehouse_id", order.warehouse_id)
-      .eq("item_id", item.item_id)
-      .limit(1)
-      .maybeSingle();
     if (currentError) throw currentError;
-    if (!currentData) {
-      throw new Error(`仓库配件库存不存在：${item.item_name}`);
+    if (!currentData) throw new Error("仓库 SKU 库存不存在，请刷新后重试");
+
+    const currentQuantity = Math.max(0, Math.trunc(Number(currentData.stock_quantity) || 0));
+    if (quantity < 0 && currentQuantity < Math.abs(quantity)) {
+      throw new Error(
+        `SKU 库存不足，不能冲回已入库采购单：当前 ${currentQuantity}，需要冲回 ${Math.abs(quantity)}`,
+      );
     }
-    const current = currentData as WarehouseItemStock;
-    const nextQuantity = current.stock_quantity + receiveQuantity;
-    const { data: nextData, error: nextError } = await supabase
-      .from("warehouse_item_stocks")
-      .update({ stock_quantity: nextQuantity })
-      .eq("id", current.id)
-      .eq("stock_quantity", current.stock_quantity)
-      .select("id, warehouse_id, item_id, stock_quantity")
-      .maybeSingle();
+
+    const nextQuantity = currentQuantity + quantity;
+    const { data: nextData, error: nextError } = await withTimeout(
+      supabase
+        .from("warehouse_skus")
+        .update({ stock_quantity: nextQuantity })
+        .eq("id", currentData.id)
+        .eq("stock_quantity", currentData.stock_quantity)
+        .select("id, sku_id, stock_quantity")
+        .maybeSingle(),
+      "更新仓库 SKU 库存",
+    );
     if (nextError) throw nextError;
     if (!nextData) throw new Error("库存已被其他操作更新，请刷新后重试");
-    const next = nextData as WarehouseItemStock;
-    const { data: adjustmentData, error: adjustmentError } = await supabase.from("warehouse_item_stock_adjustments").insert({
-      warehouse_id: order.warehouse_id, item_id: item.item_id, previous_quantity: current.stock_quantity,
-      next_quantity: next.stock_quantity, change_quantity: receiveQuantity, reason: "采购入库",
-      purchase_order_id: order.id, purchase_package_id: pkg.id,
-    }).select("id, warehouse_id, item_id, owner_id, previous_quantity, next_quantity, change_quantity, reason, purchase_order_id, purchase_package_id, created_at").single();
-    if (adjustmentError) throw adjustmentError;
-    inventory.push({ stock: next, adjustment: adjustmentData as WarehouseItemStockAdjustment });
+
+    inventory.push({
+      skuId,
+      previousQuantity: currentQuantity,
+      nextQuantity: Math.max(0, Math.trunc(Number(nextData.stock_quantity) || 0)),
+      changeQuantity: quantity,
+    });
   }
 
   return inventory;
+}
+
+function getSkuQtyDiff(
+  before: Record<string, number>,
+  after: Record<string, number>,
+) {
+  const skuIds = new Set([...Object.keys(before), ...Object.keys(after)]);
+  return Object.fromEntries(
+    Array.from(skuIds).map((skuId) => [skuId, (after[skuId] ?? 0) - (before[skuId] ?? 0)]),
+  );
 }
 
 export async function receivePurchasePackage(order: PurchaseOrder, pkg: PurchasePackage) {
@@ -710,13 +812,15 @@ export async function receivePurchasePackage(order: PurchaseOrder, pkg: Purchase
     packageToReceive = await restoreMissingPurchasePackage(order, pkg);
   }
   const activePackage = persistedPackage ?? packageToReceive;
+  const shouldReceivePackage = activePackage.status !== "received";
+  if (shouldReceivePackage) {
+    await preparePurchasePackageForSkuReceipt(order, packageToReceive);
+  }
 
-  // 先更新包裹状态为 received，再写库存流水
-  // 这样即使库存写入失败，包裹会停在 received，之后可按已入库数量补差恢复
-  // 比原来「先写库存再更新包裹」更安全：不会出现「有流水但包裹还是 pending」
   const receivedAt = new Date().toISOString();
   let packageData = activePackage;
-  if (activePackage.status !== "received") {
+  let inventory: PurchaseSkuInventoryChange[] = [];
+  if (shouldReceivePackage) {
     const { data: updatedPackageData, error: packageError } = await supabase.from("purchase_packages").update({ status: "received", received_at: receivedAt }).eq("id", packageToReceive.id).eq("owner_id", session.user.id).eq("status", "pending").select("id, source_id, tracking_no, status").maybeSingle();
     if (packageError) throw packageError;
     if (!updatedPackageData) {
@@ -724,16 +828,6 @@ export async function receivePurchasePackage(order: PurchaseOrder, pkg: Purchase
     }
     packageData = updatedPackageData as Omit<PurchasePackage, "items">;
   }
-  const receivedPackage = {
-    ...packageToReceive,
-    ...packageData,
-    items: packageToReceive.items,
-  } as PurchasePackage;
-  const inventory = await applyPurchasePackageInventory(
-    order,
-    receivedPackage,
-    [pkg.id, receivedPackage.id],
-  );
   const { data: allPackageData, error: allPackageError } = await supabase
     .from("purchase_packages")
     .select("id, status")
@@ -753,27 +847,14 @@ export async function receivePurchasePackage(order: PurchaseOrder, pkg: Purchase
   const allPackages = allPackageRows.map((item) => ({ ...item, items: packageItemsByPackage[item.id] ?? [] })) as PurchasePackage[];
   const skuQtyBefore = getSkuQtyReceived(order.items, order.packages);
   const skuQtyAfter = getSkuQtyReceived(order.items, allPackages);
-  for (const [skuId, qtyAfter] of Object.entries(skuQtyAfter)) {
-    const qtyBefore = skuQtyBefore[skuId] ?? 0;
-    const diff = qtyAfter - qtyBefore;
-    if (diff > 0) {
-      const { data: skuStock, error: skuStockError } = await supabase
-        .from("warehouse_skus")
-        .select("id, stock_quantity")
-        .eq("warehouse_id", order.warehouse_id)
-        .eq("sku_id", skuId)
-        .maybeSingle();
-      if (skuStockError) throw skuStockError;
-      if (skuStock) {
-        const nextStockQty = skuStock.stock_quantity + diff;
-        const { error: updateSkuError } = await supabase
-          .from("warehouse_skus")
-          .update({ stock_quantity: nextStockQty })
-          .eq("id", skuStock.id)
-          .eq("stock_quantity", skuStock.stock_quantity);
-        if (updateSkuError) throw updateSkuError;
-      }
-    }
+  if (shouldReceivePackage) {
+    inventory = await applyWarehouseSkuQuantityChanges(
+      supabase,
+      session.user.id,
+      order.warehouse_id,
+      order.items,
+      getSkuQtyDiff(skuQtyBefore, skuQtyAfter),
+    );
   }
   const status = getReceiptStatus(order.items, allPackages);
   const { data: orderData, error: orderError } = await supabase.from("purchase_orders").update({ status, received_at: status === "received" ? receivedAt : null }).eq("id", order.id).eq("owner_id", session.user.id).select("status").single();
@@ -817,9 +898,10 @@ export async function receiveRemainingPurchaseOrder(order: PurchaseOrder) {
     return {
       order: orderData as Omit<PurchaseOrder, "sources" | "items" | "packages">,
       packages: [] as PurchasePackage[],
-      inventory: [] as Array<{ stock: WarehouseItemStock; adjustment: WarehouseItemStockAdjustment }>,
+      inventory: [] as PurchaseSkuInventoryChange[],
     };
   }
+  assertPurchaseItemsHaveSkuInfo(remainingItems, "剩余采购明细");
 
   const itemsBySourceId = remainingItems.reduce<Record<string, PurchaseOrderItem[]>>(
     (groups, item) => {
@@ -835,7 +917,6 @@ export async function receiveRemainingPurchaseOrder(order: PurchaseOrder) {
     throw new Error("剩余采购明细缺少采购来源，不能自动补签收");
   }
 
-  const inventory: Array<{ stock: WarehouseItemStock; adjustment: WarehouseItemStockAdjustment }> = [];
   const receivedPackages: PurchasePackage[] = [];
   for (const [index, [sourceId, items]] of sourceEntries.entries()) {
     const pkg = await createPurchasePackage(
@@ -847,6 +928,7 @@ export async function receiveRemainingPurchaseOrder(order: PurchaseOrder) {
         quantity: item.quantity,
       })),
     );
+    await preparePurchasePackageForSkuReceipt(order, pkg);
     const { data: packageData, error: packageError } = await supabase
       .from("purchase_packages")
       .update({ status: "received", received_at: receivedAt })
@@ -857,9 +939,6 @@ export async function receiveRemainingPurchaseOrder(order: PurchaseOrder) {
       .single();
     if (packageError) throw packageError;
 
-    const packageInventory = await applyPurchasePackageInventory(order, pkg, [pkg.id]);
-    inventory.push(...packageInventory);
-
     receivedPackages.push({
       ...(packageData as Omit<PurchasePackage, "items">),
       items: pkg.items,
@@ -869,28 +948,13 @@ export async function receiveRemainingPurchaseOrder(order: PurchaseOrder) {
   const nextPackages = [...order.packages, ...receivedPackages];
   const skuQtyBefore = getSkuQtyReceived(order.items, order.packages);
   const skuQtyAfter = getSkuQtyReceived(order.items, nextPackages);
-  for (const [skuId, qtyAfter] of Object.entries(skuQtyAfter)) {
-    const qtyBefore = skuQtyBefore[skuId] ?? 0;
-    const diff = qtyAfter - qtyBefore;
-    if (diff > 0) {
-      const { data: skuStock, error: skuStockError } = await supabase
-        .from("warehouse_skus")
-        .select("id, stock_quantity")
-        .eq("warehouse_id", order.warehouse_id)
-        .eq("sku_id", skuId)
-        .maybeSingle();
-      if (skuStockError) throw skuStockError;
-      if (skuStock) {
-        const nextStockQty = skuStock.stock_quantity + diff;
-        const { error: updateSkuError } = await supabase
-          .from("warehouse_skus")
-          .update({ stock_quantity: nextStockQty })
-          .eq("id", skuStock.id)
-          .eq("stock_quantity", skuStock.stock_quantity);
-        if (updateSkuError) throw updateSkuError;
-      }
-    }
-  }
+  const inventory = await applyWarehouseSkuQuantityChanges(
+    supabase,
+    session.user.id,
+    order.warehouse_id,
+    order.items,
+    getSkuQtyDiff(skuQtyBefore, skuQtyAfter),
+  );
   const status = getReceiptStatus(order.items, nextPackages);
   const { data: orderData, error: orderError } = await supabase
     .from("purchase_orders")
@@ -921,21 +985,30 @@ function getSkuQtyReceived(
         (receivedQtyByOrderItemId[pi.order_item_id] ?? 0) + pi.quantity;
     });
 
-  const orderItemsBySkuId: Record<string, PurchaseOrderItem[]> = {};
+  const orderItemsBySkuId: Record<
+    string,
+    Record<string, { receivedItemQty: number; itemQtyOrdered: number; skuQtyOrdered: number }>
+  > = {};
   items.forEach((item) => {
     if (item.sku_id) {
-      orderItemsBySkuId[item.sku_id] ??= [];
-      orderItemsBySkuId[item.sku_id].push(item);
+      const componentKey = item.item_id ?? item.id;
+      const skuItems = (orderItemsBySkuId[item.sku_id] ??= {});
+      const current = skuItems[componentKey] ?? {
+        receivedItemQty: 0,
+        itemQtyOrdered: 0,
+        skuQtyOrdered: 0,
+      };
+      current.receivedItemQty += receivedQtyByOrderItemId[item.id] ?? 0;
+      current.itemQtyOrdered += item.quantity ?? 0;
+      current.skuQtyOrdered += item.sku_quantity ?? 0;
+      skuItems[componentKey] = current;
     }
   });
 
   const skuQtyReceived: Record<string, number> = {};
-  Object.entries(orderItemsBySkuId).forEach(([skuId, skuItems]) => {
+  Object.entries(orderItemsBySkuId).forEach(([skuId, componentGroups]) => {
     const skuQty = Math.min(
-      ...skuItems.map((item) => {
-        const receivedItemQty = receivedQtyByOrderItemId[item.id] ?? 0;
-        const skuQtyOrdered = item.sku_quantity ?? 0;
-        const itemQtyOrdered = item.quantity ?? 0;
+      ...Object.values(componentGroups).map(({ receivedItemQty, itemQtyOrdered, skuQtyOrdered }) => {
         const itemPerSku = skuQtyOrdered > 0 ? itemQtyOrdered / skuQtyOrdered : 1;
         return itemPerSku > 0 ? Math.floor(receivedItemQty / itemPerSku) : 0;
       })
