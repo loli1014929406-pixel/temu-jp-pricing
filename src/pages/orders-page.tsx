@@ -274,10 +274,10 @@ const visibleColumns = [
   { key: "sales_spec", label: "销售规格", className: "order-attr-col" },
   { key: "logistics_tracking_no", label: "物流单号", className: "order-tracking-col", shippedOnly: true },
   { key: "logistics_status", label: "物流状态", className: "order-tracking-status-col", sortable: true, shippedOnly: true },
-  { key: "recipient", label: "收件人" },
+  { key: "recipient", label: "收件人", className: "order-recipient-col" },
   { key: "phone", label: "电话", className: "order-phone-col" },
   { key: "address", label: "地址", className: "order-address-col" },
-  { key: "postal_code", label: "邮编" },
+  { key: "postal_code", label: "邮编", className: "order-postal-col" },
   { key: "actual_ship_time", label: "实际发货时间", className: "order-time-col" },
 ] satisfies Array<{
   key: string;
@@ -1205,6 +1205,7 @@ const OrderTableRow = memo(function OrderTableRow({
   warehouses,
   settings,
 }: OrderTableRowProps) {
+  const [isExpanded, setIsExpanded] = useState(false);
   const rowOrders = useMemo(
     () =>
       rowOrderIds
@@ -1432,12 +1433,21 @@ const OrderTableRow = memo(function OrderTableRow({
               </span>
               <div className="grid gap-0.5 text-xs font-medium text-slate-500">
                 <span>{productMeta || skuSummary}</span>
-                {skuLines.map((line) => (
+                {(isExpanded ? skuLines : skuLines.slice(0, 2)).map((line) => (
                   <span key={line.key} className="whitespace-nowrap">
                     {line.skuCode} · {line.spec}
                     {line.quantity > 1 ? ` ×${line.quantity}` : ""}
                   </span>
                 ))}
+                {skuLines.length > 2 && (
+                  <button
+                    type="button"
+                    onClick={() => setIsExpanded(!isExpanded)}
+                    className="text-action text-left text-[11px] font-semibold mt-1 hover:underline cursor-pointer"
+                  >
+                    {isExpanded ? "收起" : `展开更多 (${skuLines.length - 2}项)`}
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -1494,10 +1504,10 @@ const OrderTableRow = memo(function OrderTableRow({
           </td>
         </>
       )}
-      <td>{formatRecipientName(mergedOrder.recipient_name) || "--"}</td>
+      <td className="order-recipient-col">{formatRecipientName(mergedOrder.recipient_name) || "--"}</td>
       <td className="order-phone-col">{formatRecipientPhone(mergedOrder.recipient_phone) || "--"}</td>
       <td className="order-address-col">{getFullAddress(mergedOrder) || "--"}</td>
-      <td>{mergedOrder.postal_code || "--"}</td>
+      <td className="order-postal-col">{mergedOrder.postal_code || "--"}</td>
       <td>
         {activeStage === "uploaded_temu" ? (
           <input
@@ -4199,7 +4209,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
         }}
       />
 
-      <section className="surface-card grid gap-4 p-4">
+      <section className="surface-card grid gap-4 p-4 min-w-0 w-full overflow-hidden">
         <div className="grid gap-3 border-b border-slate-100 pb-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
           <div className="flex min-w-0 flex-wrap items-center gap-3">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600">
@@ -4319,7 +4329,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
             暂无订单数据
           </div>
         ) : (
-          <div className="shadow-none">
+          <div className="shadow-none min-w-0 w-full overflow-hidden">
             <StandardTable
               page={page}
               pageSize={pageSize}
@@ -4329,6 +4339,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
               onPageSizeChange={setPageSize}
               loading={loading}
               empty={filteredOrderRows.length === 0}
+              tableClassName="orders-table"
             >
                 <thead>
                   <tr>

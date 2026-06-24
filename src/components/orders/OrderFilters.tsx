@@ -78,14 +78,9 @@ export function OrderFilters({
       <section className="surface-card grid gap-3 p-4">
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(520px,720px)] xl:items-end">
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <p className="text-xs font-semibold uppercase text-slate-400">订单视图</p>
-                <h2 className="mt-1 text-base font-semibold text-slate-900">按流程筛选订单</h2>
-              </div>
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500">
-                当前 {stageCounts[activeStage] ?? 0} 条
-              </span>
+            <div>
+              <p className="text-xs font-semibold uppercase text-slate-400">订单视图</p>
+              <h2 className="mt-1 text-base font-semibold text-slate-900">按流程筛选订单</h2>
             </div>
 
             <div className="mt-3 flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">

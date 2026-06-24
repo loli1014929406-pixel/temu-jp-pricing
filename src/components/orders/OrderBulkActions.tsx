@@ -8,6 +8,7 @@ import {
   Sparkles,
   Trash2,
   Truck,
+  X,
 } from "lucide-react";
 import type { Warehouse } from "../../types";
 
@@ -104,8 +105,9 @@ export function OrderBulkActions({
               type="button"
               disabled={Boolean(busyKey)}
               onClick={onClearSelection}
-              className="text-sm font-medium text-slate-500 transition hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
+              className="btn-secondary h-9 px-3"
             >
+              <X size={16} />
               清空选中
             </button>
             {canEdit && activeStage === "new_order" && selectedNewOrdersInViewCount > 0 && (
@@ -216,7 +218,7 @@ export function OrderBulkActions({
                 disabled={busyKey === "delete-selected" || hasSelectedCompletedOrders}
                 onClick={onDeleteSelectedOrders}
                 title={hasSelectedCompletedOrders ? "已完成订单不能删除" : undefined}
-                className="inline-flex h-9 items-center gap-2 rounded-md border border-rose-200 bg-white px-3 text-sm font-semibold text-rose-600 shadow-sm transition hover:border-rose-300 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
+                className="btn-danger h-9 px-3"
               >
                 <Trash2 size={16} />
                 删除（{selectedInViewCount}）

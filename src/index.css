@@ -160,7 +160,7 @@ a {
   }
 
   .data-table th {
-    @apply py-2 text-[11px] font-bold tracking-wider text-slate-500 uppercase bg-slate-50/75 backdrop-blur-sm;
+    @apply py-2 text-[11px] font-bold tracking-wider text-slate-500 uppercase bg-slate-50/75 backdrop-blur-sm whitespace-nowrap;
     padding-left: 0.75rem !important;
     padding-right: 0.75rem !important;
     line-height: 1.35;
@@ -256,60 +256,73 @@ a {
 
   .data-table.orders-table th.order-no-col,
   .data-table.orders-table td.order-no-col {
-    width: calc(14em + 1rem);
-    min-width: calc(14em + 1rem);
-    max-width: calc(14em + 1rem);
-    overflow-wrap: anywhere;
+    min-width: 14.5rem;
+    white-space: nowrap;
+    @apply font-mono;
   }
 
   .data-table.orders-table th.order-attr-col,
   .data-table.orders-table td.order-attr-col {
-    width: calc(12em + 1rem);
-    min-width: calc(12em + 1rem);
-    max-width: calc(12em + 1rem);
+    min-width: 10rem;
     white-space: normal;
-    overflow-wrap: anywhere;
   }
 
   .data-table.orders-table th.order-phone-col,
   .data-table.orders-table td.order-phone-col {
-    width: calc(10em + 1rem);
-    min-width: calc(10em + 1rem);
-    max-width: calc(10em + 1rem);
-    overflow-wrap: anywhere;
+    min-width: 9rem;
+    white-space: nowrap;
   }
 
   .data-table.orders-table th.order-address-col,
   .data-table.orders-table td.order-address-col {
-    width: calc(24em + 1rem);
-    min-width: calc(24em + 1rem);
-    max-width: calc(24em + 1rem);
+    min-width: 20rem;
     white-space: normal;
-    overflow-wrap: anywhere;
+    word-break: break-all;
+    overflow-wrap: break-word;
   }
 
   .data-table.orders-table th.order-time-col,
   .data-table.orders-table td.order-time-col {
-    width: calc(10em + 1rem);
-    min-width: calc(10em + 1rem);
-    max-width: calc(10em + 1rem);
-    overflow-wrap: anywhere;
+    min-width: 11rem;
+    white-space: nowrap;
   }
 
   .data-table.orders-table th.order-fee-col,
   .data-table.orders-table td.order-fee-col {
-    width: calc(8.5em + 1rem);
-    min-width: calc(8.5em + 1rem);
-    max-width: calc(8.5em + 1rem);
+    min-width: 8.5rem;
+    white-space: nowrap;
   }
 
   .data-table.orders-table th.order-tracking-status-col,
   .data-table.orders-table td.order-tracking-status-col {
-    width: calc(9em + 1rem);
-    min-width: calc(9em + 1rem);
-    max-width: calc(9em + 1rem);
-    word-break: keep-all;
-    overflow-wrap: normal;
+    min-width: 7.5rem;
+    white-space: nowrap;
+  }
+
+  .data-table.orders-table th.order-product-col,
+  .data-table.orders-table td.order-product-col {
+    min-width: 18rem;
+    max-width: 24rem;
+    white-space: normal;
+  }
+
+  .data-table.orders-table th.order-tracking-col,
+  .data-table.orders-table td.order-tracking-col {
+    min-width: 10rem;
+    white-space: nowrap;
+    @apply font-mono;
+  }
+
+  .data-table.orders-table th.order-recipient-col,
+  .data-table.orders-table td.order-recipient-col {
+    min-width: 7rem;
+    white-space: nowrap;
+  }
+
+  .data-table.orders-table th.order-postal-col,
+  .data-table.orders-table td.order-postal-col {
+    min-width: 6rem;
+    white-space: nowrap;
   }
 
   .data-table input {
