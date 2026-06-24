@@ -269,6 +269,21 @@ export type WarehouseLogisticsMethod = {
   logistics_method_id: string;
   owner_id: string;
   is_default: boolean;
+  id: string;
+  owner_id: string;
+  name: string;
+  is_active: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WarehouseLogisticsMethod = {
+  id: string;
+  warehouse_id: string;
+  logistics_method_id: string;
+  owner_id: string;
+  is_default: boolean;
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -285,14 +300,18 @@ export type WarehouseSku = {
   updated_at: string;
 };
 
-export type WarehouseItemStock = {
+export type WarehouseSkuStockAdjustment = {
   id: string;
   warehouse_id: string;
-  item_id: string;
+  sku_id: string;
   owner_id: string;
-  stock_quantity: number;
+  previous_quantity: number;
+  next_quantity: number;
+  change_quantity: number;
+  reason: string;
+  purchase_order_id?: string | null;
+  purchase_package_id?: string | null;
   created_at: string;
-  updated_at: string;
 };
 
 export type WarehouseItemStockAdjustment = {

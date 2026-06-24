@@ -140,25 +140,25 @@ export async function fetchWarehouseSkus(warehouseIds: string[]) {
   return data as WarehouseSku[];
 }
 
-export async function fetchWarehouseItemStocks(warehouseIds: string[]) {
-  if (warehouseIds.length === 0) return [] as WarehouseItemStock[];
+export async function fetchWarehouseSkuStockAdjustments(warehouseIds: string[]) {
+  if (warehouseIds.length === 0) return [] as WarehouseSkuStockAdjustment[];
 
   const { supabase } = await requireSession();
   const { data, error } = await withTimeout(
     supabase
-      .from("warehouse_item_stocks")
-      .select("id, warehouse_id, item_id, stock_quantity")
+      .from("warehouse_sku_stock_adjustments")
+      .select("id, warehouse_id, sku_id, previous_quantity, next_quantity, change_quantity, reason, created_at")
       .in("warehouse_id", warehouseIds)
-      .order("created_at", { ascending: true }),
-    "加载仓库配件库存",
+      .order("created_at", { ascending: false }),
+    "加载库存调整记录",
   );
 
   if (error) throw error;
-  return data as WarehouseItemStock[];
+  return data as WarehouseSkuStockAdjustment[];
 }
 
 export async function fetchWarehouseItemStockAdjustments(warehouseIds: string[]) {
-  if (warehouseIds.length === 0) return [] as WarehouseItemStockAdjustment[];
+  if (warehouseIds.length === 0) return [];
 
   const { supabase } = await requireSession();
   const { data, error } = await withTimeout(
@@ -167,36 +167,37 @@ export async function fetchWarehouseItemStockAdjustments(warehouseIds: string[])
       .select("id, warehouse_id, item_id, previous_quantity, next_quantity, change_quantity, reason, created_at")
       .in("warehouse_id", warehouseIds)
       .order("created_at", { ascending: false }),
-    "加载库存调整记录",
+    "加载历史配件库存调整记录",
   );
 
   if (error) throw error;
-  return data as WarehouseItemStockAdjustment[];
+  // Use any to avoid circular type import issues right now, though we added it to types.ts
+  return data as any[];
 }
 
-export async function fetchWarehouseItemStockAdjustmentsForItems(
+export async function fetchWarehouseSkuStockAdjustmentsForSkus(
   warehouseId: string,
-  itemIds: string[],
+  skuIds: string[],
 ) {
-  const uniqueItemIds = Array.from(new Set(itemIds.filter(Boolean)));
-  if (uniqueItemIds.length === 0) return [] as WarehouseItemStockAdjustment[];
+  const uniqueSkuIds = Array.from(new Set(skuIds.filter(Boolean)));
+  if (uniqueSkuIds.length === 0) return [] as WarehouseSkuStockAdjustment[];
 
   const { supabase } = await requireSession();
   const { data, error } = await withTimeout(
     retryInventoryRequest(() =>
       supabase
-        .from("warehouse_item_stock_adjustments")
-        .select("id, warehouse_id, item_id, previous_quantity, next_quantity, change_quantity, reason, created_at")
+        .from("warehouse_sku_stock_adjustments")
+        .select("id, warehouse_id, sku_id, previous_quantity, next_quantity, change_quantity, reason, created_at")
         .eq("warehouse_id", warehouseId)
-        .in("item_id", uniqueItemIds)
+        .in("sku_id", uniqueSkuIds)
         .order("created_at", { ascending: false })
-        .limit(uniqueItemIds.length * 20),
+        .limit(uniqueSkuIds.length * 20),
     ),
-    "加载配件编辑记录",
+    "加载SKU编辑记录",
   );
 
   if (error) throw error;
-  return data as WarehouseItemStockAdjustment[];
+  return data as WarehouseSkuStockAdjustment[];
 }
 
 export async function fetchWarehouseInventoryPage(
@@ -249,8 +250,7 @@ export async function fetchWarehouseInventoryPage(
             products: [] as Product[],
             skus: [] as ProductSku[],
             productItems: [] as ProductItem[],
-            warehouseItemStocks: [] as WarehouseItemStock[],
-            warehouseItemStockAdjustments: [] as WarehouseItemStockAdjustment[],
+            warehouseSkuStockAdjustments: [] as WarehouseSkuStockAdjustment[],
             total: 0,
             hasMore: false,
           };
@@ -286,8 +286,7 @@ export async function fetchWarehouseInventoryPage(
           products: [] as Product[],
           skus: [] as ProductSku[],
           productItems: [] as ProductItem[],
-          warehouseItemStocks: [] as WarehouseItemStock[],
-          warehouseItemStockAdjustments: [] as WarehouseItemStockAdjustment[],
+          warehouseSkuStockAdjustments: [] as WarehouseSkuStockAdjustment[],
           total: count ?? 0,
           hasMore: false,
         };
@@ -355,8 +354,7 @@ export async function fetchWarehouseInventoryPage(
         products,
         skus,
         productItems,
-        warehouseItemStocks: [] as WarehouseItemStock[],
-        warehouseItemStockAdjustments: [] as WarehouseItemStockAdjustment[],
+        warehouseSkuStockAdjustments: [] as WarehouseSkuStockAdjustment[],
         total: count ?? 0,
         hasMore: to + 1 < (count ?? 0),
       };
@@ -415,49 +413,49 @@ export async function removeWarehouseProduct(
   if (skuError) throw skuError;
 }
 
-export async function updateWarehouseItemStock(
-  item: WarehouseItemStock,
+export async function updateWarehouseSkuStock(
+  sku: WarehouseSku,
   stockQuantity: number,
   reason: string,
 ) {
   const { supabase } = await requireSession();
   const { data, error } = await withTimeout(
     supabase
-      .from("warehouse_item_stocks")
+      .from("warehouse_skus")
       .update({ stock_quantity: stockQuantity })
-      .eq("id", item.id)
-      .eq("stock_quantity", item.stock_quantity)
-      .select("id, warehouse_id, item_id, stock_quantity")
+      .eq("id", sku.id)
+      .eq("stock_quantity", sku.stock_quantity)
+      .select("id, warehouse_id, product_id, sku_id, owner_id, stock_quantity, created_at, updated_at")
       .maybeSingle(),
-    "更新配件库存",
+    "更新SKU库存",
   );
 
   if (error) throw error;
   if (!data) throw new Error("库存已被其他操作更新，请刷新后重试");
 
-  const nextItem = data as WarehouseItemStock;
+  const nextSku = data as WarehouseSku;
   const { data: adjustment, error: adjustmentError } = await withTimeout(
     supabase
-      .from("warehouse_item_stock_adjustments")
+      .from("warehouse_sku_stock_adjustments")
       .insert({
-        warehouse_id: item.warehouse_id,
-        item_id: item.item_id,
-        previous_quantity: item.stock_quantity,
-        next_quantity: nextItem.stock_quantity,
-        change_quantity: nextItem.stock_quantity - item.stock_quantity,
+        warehouse_id: sku.warehouse_id,
+        sku_id: sku.sku_id,
+        previous_quantity: sku.stock_quantity,
+        next_quantity: nextSku.stock_quantity,
+        change_quantity: nextSku.stock_quantity - sku.stock_quantity,
         reason,
         purchase_order_id: null,
         purchase_package_id: null,
       })
-      .select("id, warehouse_id, item_id, previous_quantity, next_quantity, change_quantity, reason, created_at")
+      .select("id, warehouse_id, sku_id, previous_quantity, next_quantity, change_quantity, reason, created_at")
       .single(),
     "保存库存调整记录",
   );
 
   if (adjustmentError) throw adjustmentError;
   return {
-    item: nextItem,
-    adjustment: adjustment as WarehouseItemStockAdjustment,
+    sku: nextSku,
+    adjustment: adjustment as WarehouseSkuStockAdjustment,
   };
 }
 
@@ -466,10 +464,6 @@ export type WarehouseInventoryTransferLineInput = {
   skuId: string;
   skuLabel: string;
   quantity: number;
-  items: Array<{
-    itemId: string;
-    quantity: number;
-  }>;
 };
 
 export type WarehouseInventoryTransferInput = {
@@ -486,10 +480,6 @@ export type WarehouseInventoryTransferMetadataLine = {
   productId: string;
   skuId: string;
   quantity: number;
-  items: Array<{
-    itemId: string;
-    quantity: number;
-  }>;
 };
 
 export type WarehouseInventoryTransferMetadata = {
@@ -501,8 +491,7 @@ export type WarehouseInventoryTransferMetadata = {
 
 type WarehouseInventoryTransferResult = {
   warehouseSkus: WarehouseSku[];
-  itemStocks: WarehouseItemStock[];
-  adjustments: WarehouseItemStockAdjustment[];
+  adjustments: WarehouseSkuStockAdjustment[];
 };
 
 const transferOutReasonPrefix = "库存调拨出库：";
@@ -521,16 +510,8 @@ function parseWarehouseInventoryTransferMetadataLine(
   const productId = typeof value.productId === "string" ? value.productId.trim() : "";
   const skuId = typeof value.skuId === "string" ? value.skuId.trim() : "";
   const quantity = Math.trunc(Number(value.quantity) || 0);
-  const rawItems = Array.isArray(value.items) ? value.items : [];
-  const items = rawItems.flatMap((item): WarehouseInventoryTransferMetadataLine["items"] => {
-    if (!isRecord(item)) return [];
-    const itemId = typeof item.itemId === "string" ? item.itemId.trim() : "";
-    const itemQuantity = Math.trunc(Number(item.quantity) || 0);
-    return itemId && itemQuantity > 0 ? [{ itemId, quantity: itemQuantity }] : [];
-  });
-
-  if (!productId || !skuId || quantity <= 0 || items.length === 0) return null;
-  return { productId, skuId, quantity, items };
+  if (!productId || !skuId || quantity <= 0) return null;
+  return { productId, skuId, quantity };
 }
 
 export function parseWarehouseInventoryTransferMetadata(
@@ -630,11 +611,7 @@ function createTransferBatchId() {
 
 function buildTransferReasonLabel(
   input: WarehouseInventoryTransferInput,
-  transferLines: Array<
-    Omit<WarehouseInventoryTransferLineInput, "items"> & {
-      items: WarehouseInventoryTransferMetadataLine["items"];
-    }
-  >,
+  transferLines: WarehouseInventoryTransferLineInput[],
 ) {
   const metadata: WarehouseInventoryTransferMetadata = {
     batchId: createTransferBatchId(),
@@ -644,7 +621,6 @@ function buildTransferReasonLabel(
       productId: line.productId,
       skuId: line.skuId,
       quantity: line.quantity,
-      items: line.items,
     })),
   };
   const skuLabel = transferLines
@@ -655,19 +631,6 @@ function buildTransferReasonLabel(
     } / ${skuLabel} / 调拨日期：${input.transferDate.trim()} / 快递单号：${input.trackingNo.trim()} / ${transferMetadataPartPrefix}${encodeURIComponent(
       JSON.stringify(metadata),
     )}`;
-}
-
-function normalizeTransferItems(items: WarehouseInventoryTransferLineInput["items"]) {
-  const quantityByItemId = new Map<string, number>();
-
-  items.forEach((item) => {
-    const itemId = item.itemId.trim();
-    const quantity = Math.trunc(Number(item.quantity) || 0);
-    if (!itemId || quantity <= 0) return;
-    quantityByItemId.set(itemId, (quantityByItemId.get(itemId) ?? 0) + quantity);
-  });
-
-  return Array.from(quantityByItemId, ([itemId, quantity]) => ({ itemId, quantity }));
 }
 
 export async function transferWarehouseInventory(
@@ -684,18 +647,13 @@ export async function transferWarehouseInventory(
       skuId: line.skuId.trim(),
       skuLabel: line.skuLabel.trim(),
       quantity: Math.trunc(Number(line.quantity) || 0),
-      items: normalizeTransferItems(line.items),
     }))
     .filter(
       (line) =>
         line.productId &&
         line.skuId &&
-        line.quantity > 0 &&
-        line.items.length > 0,
+        line.quantity > 0,
     );
-  const transferItems = normalizeTransferItems(
-    transferLines.flatMap((line) => line.items),
-  );
 
   if (!sourceWarehouseId || !destinationWarehouseId) {
     throw new Error("请选择调出仓库和调入仓库");
@@ -703,7 +661,7 @@ export async function transferWarehouseInventory(
   if (sourceWarehouseId === destinationWarehouseId) {
     throw new Error("调出仓库和调入仓库不能相同");
   }
-  if (transferLines.length === 0 || transferItems.length === 0) {
+  if (transferLines.length === 0) {
     throw new Error("请至少添加一个要调拨的 SKU");
   }
   if (!transferDate) {
@@ -714,7 +672,6 @@ export async function transferWarehouseInventory(
   }
 
   const { supabase } = await requireSession();
-  const itemIds = transferItems.map((item) => item.itemId);
   const skuIds = transferLines.map((line) => line.skuId);
 
   const { data: sourceSkuData, error: sourceSkuError } = await withTimeout(
@@ -736,36 +693,6 @@ export async function transferWarehouseInventory(
     throw new Error("调出仓库缺少对应 SKU 库存，请先检查库存商品");
   }
 
-  const { data: sourceStockData, error: sourceStockError } = await withTimeout(
-    supabase
-      .from("warehouse_item_stocks")
-      .select("id, warehouse_id, item_id, stock_quantity")
-      .eq("warehouse_id", sourceWarehouseId)
-      .in("item_id", itemIds),
-    "读取调出仓库库存",
-  );
-  if (sourceStockError) throw sourceStockError;
-
-  const sourceStocksByItemId = new Map(
-    ((sourceStockData ?? []) as WarehouseItemStock[]).map((item) => [item.item_id, item]),
-  );
-  const missingSourceStock = transferItems.find(
-    (item) => !sourceStocksByItemId.has(item.itemId),
-  );
-  if (missingSourceStock) {
-    throw new Error("调出仓库缺少对应配件库存，请先检查库存商品");
-  }
-
-  const insufficientStock = transferItems.find((item) => {
-    const stock = sourceStocksByItemId.get(item.itemId);
-    return !stock || stock.stock_quantity < item.quantity;
-  });
-  if (insufficientStock) {
-    const stock = sourceStocksByItemId.get(insufficientStock.itemId);
-    throw new Error(
-      `调出仓库配件库存不足：当前 ${stock?.stock_quantity ?? 0}，需要 ${insufficientStock.quantity}`,
-    );
-  }
   const insufficientSkuStock = transferLines.find((line) => {
     const skuStock = sourceSkusBySkuId.get(line.skuId);
     return !skuStock || skuStock.stock_quantity < line.quantity;
@@ -779,14 +706,13 @@ export async function transferWarehouseInventory(
 
   const reasonLabel = buildTransferReasonLabel(input, transferLines);
   const updatedSkus: WarehouseSku[] = [];
-  const updatedStocks: WarehouseItemStock[] = [];
-  const adjustments: WarehouseItemStockAdjustment[] = [];
+  const adjustments: WarehouseSkuStockAdjustment[] = [];
 
   for (const transferLine of transferLines) {
     const sourceSku = sourceSkusBySkuId.get(transferLine.skuId);
     if (!sourceSku) continue;
 
-    const nextSourceQuantity = Math.max(0, sourceSku.stock_quantity - transferLine.quantity);
+    const nextSourceQuantity = sourceSku.stock_quantity - transferLine.quantity;
     const { data: nextSourceSkuData, error: sourceSkuUpdateError } = await withTimeout(
       supabase
         .from("warehouse_skus")
@@ -799,55 +725,34 @@ export async function transferWarehouseInventory(
     );
     if (sourceSkuUpdateError) throw sourceSkuUpdateError;
     if (!nextSourceSkuData) throw new Error("库存已被其他操作更新，请刷新后重试");
-    updatedSkus.push(nextSourceSkuData as WarehouseSku);
-  }
+    const nextSourceSku = nextSourceSkuData as WarehouseSku;
 
-  for (const transferItem of transferItems) {
-    const sourceStock = sourceStocksByItemId.get(transferItem.itemId);
-    if (!sourceStock) continue;
-
-    const nextSourceQuantity = sourceStock.stock_quantity - transferItem.quantity;
-    const { data: nextSourceStockData, error: sourceUpdateError } = await withTimeout(
-      supabase
-        .from("warehouse_item_stocks")
-        .update({ stock_quantity: nextSourceQuantity })
-        .eq("id", sourceStock.id)
-        .eq("stock_quantity", sourceStock.stock_quantity)
-        .select("id, warehouse_id, item_id, stock_quantity")
-        .maybeSingle(),
-      "扣减调出仓库库存",
-    );
-    if (sourceUpdateError) throw sourceUpdateError;
-    if (!nextSourceStockData) throw new Error("库存已被其他操作更新，请刷新后重试");
-
-    const nextSourceStock = nextSourceStockData as WarehouseItemStock;
     const { data: sourceAdjustmentData, error: sourceAdjustmentError } =
       await withTimeout(
         supabase
-          .from("warehouse_item_stock_adjustments")
+          .from("warehouse_sku_stock_adjustments")
           .insert({
-            warehouse_id: sourceStock.warehouse_id,
-            item_id: sourceStock.item_id,
-            previous_quantity: sourceStock.stock_quantity,
-            next_quantity: nextSourceStock.stock_quantity,
-            change_quantity: -transferItem.quantity,
+            warehouse_id: sourceSku.warehouse_id,
+            sku_id: sourceSku.sku_id,
+            previous_quantity: sourceSku.stock_quantity,
+            next_quantity: nextSourceSku.stock_quantity,
+            change_quantity: -transferLine.quantity,
             reason: `${transferOutReasonPrefix}${reasonLabel}`,
             purchase_order_id: null,
             purchase_package_id: null,
           })
-          .select("id, warehouse_id, item_id, owner_id, previous_quantity, next_quantity, change_quantity, reason, purchase_order_id, purchase_package_id, created_at")
+          .select("id, warehouse_id, sku_id, owner_id, previous_quantity, next_quantity, change_quantity, reason, purchase_order_id, purchase_package_id, created_at")
           .single(),
         "保存调拨出库记录",
       );
     if (sourceAdjustmentError) throw sourceAdjustmentError;
 
-    updatedStocks.push(nextSourceStock);
-    adjustments.push(sourceAdjustmentData as WarehouseItemStockAdjustment);
+    updatedSkus.push(nextSourceSku);
+    adjustments.push(sourceAdjustmentData as WarehouseSkuStockAdjustment);
   }
 
   return {
     warehouseSkus: updatedSkus,
-    itemStocks: updatedStocks,
     adjustments,
   };
 }
@@ -855,10 +760,6 @@ export async function transferWarehouseInventory(
 export type WarehouseInventoryTransferReceiptInput = {
   destinationWarehouseId: string;
   reasonDetail: string;
-  items: Array<{
-    itemId: string;
-    quantity: number;
-  }>;
   lines?: WarehouseInventoryTransferMetadataLine[];
 };
 
@@ -867,35 +768,10 @@ export async function receiveWarehouseTransferInventory(
 ): Promise<WarehouseInventoryTransferResult> {
   const destinationWarehouseId = input.destinationWarehouseId.trim();
   const reasonDetail = input.reasonDetail.trim();
-  const transferItems = normalizeTransferItems(input.items);
-  const transferLines = (input.lines ?? [])
-    .map((line) => ({
-      productId: line.productId.trim(),
-      skuId: line.skuId.trim(),
-      quantity: Math.trunc(Number(line.quantity) || 0),
-      items: normalizeTransferItems(line.items),
-    }))
-    .filter(
-      (line) =>
-        line.productId &&
-        line.skuId &&
-        line.quantity > 0 &&
-        line.items.length > 0,
-    );
-
-  if (!destinationWarehouseId) {
-    throw new Error("缺少调入仓库，不能签收入库");
-  }
-  if (!reasonDetail) {
-    throw new Error("缺少调拨记录，不能签收入库");
-  }
-  if (transferItems.length === 0) {
-    throw new Error("调拨记录没有可签收的配件明细");
-  }
+  const transferLines = input.lines || [];
 
   const { supabase, session } = await requireSession();
-  const itemIds = transferItems.map((item) => item.itemId);
-  const skuIds = Array.from(new Set(transferLines.map((line) => line.skuId)));
+  const skuIds = transferLines.map((line) => line.skuId);
   const inboundReason = `${transferInReasonPrefix}${reasonDetail}`;
 
   if (transferLines.length > 0) {
@@ -923,24 +799,8 @@ export async function receiveWarehouseTransferInventory(
     if (skuUpsertError) throw skuUpsertError;
   }
 
-  const { error: itemStockUpsertError } = await withTimeout(
-    supabase
-      .from("warehouse_item_stocks")
-      .upsert(
-        itemIds.map((itemId) => ({
-          warehouse_id: destinationWarehouseId,
-          item_id: itemId,
-          owner_id: session.user.id,
-        })),
-        { onConflict: "warehouse_id,item_id", ignoreDuplicates: true },
-      ),
-    "准备签收仓库配件库存",
-  );
-  if (itemStockUpsertError) throw itemStockUpsertError;
-
   const [
     { data: destinationSkuData, error: destinationSkuError },
-    { data: destinationStockData, error: destinationStockError },
     { data: existingInboundData, error: existingInboundError },
   ] = await Promise.all([
     skuIds.length > 0
@@ -951,71 +811,38 @@ export async function receiveWarehouseTransferInventory(
         .in("sku_id", skuIds)
       : Promise.resolve({ data: [], error: null }),
     supabase
-      .from("warehouse_item_stocks")
-      .select("id, warehouse_id, item_id, stock_quantity")
-      .eq("warehouse_id", destinationWarehouseId)
-      .in("item_id", itemIds),
-    supabase
-      .from("warehouse_item_stock_adjustments")
-      .select("item_id, change_quantity")
+      .from("warehouse_sku_stock_adjustments")
+      .select("sku_id, change_quantity")
       .eq("warehouse_id", destinationWarehouseId)
       .eq("reason", inboundReason)
-      .in("item_id", itemIds),
+      .in("sku_id", skuIds),
   ]);
   if (destinationSkuError) throw destinationSkuError;
-  if (destinationStockError) throw destinationStockError;
   if (existingInboundError) throw existingInboundError;
 
-  const destinationStocksByItemId = new Map(
-    ((destinationStockData ?? []) as WarehouseItemStock[]).map((item) => [
-      item.item_id,
-      item,
-    ]),
-  );
-  const missingDestinationStock = transferItems.find(
-    (item) => !destinationStocksByItemId.has(item.itemId),
-  );
-  if (missingDestinationStock) {
-    throw new Error("签收仓库配件库存准备失败，请刷新后重试");
-  }
-
-  const receivedQuantityByItemId = new Map<string, number>();
+  const receivedQuantityBySkuId = new Map<string, number>();
   ((existingInboundData ?? []) as Array<
-    Pick<WarehouseItemStockAdjustment, "item_id" | "change_quantity">
+    Pick<WarehouseSkuStockAdjustment, "sku_id" | "change_quantity">
   >).forEach((adjustment) => {
-    receivedQuantityByItemId.set(
-      adjustment.item_id,
-      (receivedQuantityByItemId.get(adjustment.item_id) ?? 0) +
+    receivedQuantityBySkuId.set(
+      adjustment.sku_id,
+      (receivedQuantityBySkuId.get(adjustment.sku_id) ?? 0) +
       Math.trunc(Number(adjustment.change_quantity) || 0),
     );
   });
 
-  const updatedStocks: WarehouseItemStock[] = [];
-  const adjustments: WarehouseItemStockAdjustment[] = [];
+  const adjustments: WarehouseSkuStockAdjustment[] = [];
   const updatedSkus: WarehouseSku[] = [];
 
   const destinationSkusBySkuId = new Map(
     ((destinationSkuData ?? []) as WarehouseSku[]).map((item) => [item.sku_id, item]),
   );
+
   for (const transferLine of transferLines) {
     const currentSkuStock = destinationSkusBySkuId.get(transferLine.skuId);
     if (!currentSkuStock) continue;
 
-    const alreadyReceivedQuantity = Math.max(
-      0,
-      Math.min(
-        ...transferLine.items.map((item) => {
-          const perSkuQuantity =
-            transferLine.quantity > 0
-              ? Math.trunc(Number(item.quantity) || 0) / transferLine.quantity
-              : 0;
-          const receivedItemQuantity = receivedQuantityByItemId.get(item.itemId) ?? 0;
-          return perSkuQuantity > 0
-            ? Math.floor(receivedItemQuantity / perSkuQuantity)
-            : 0;
-        }),
-      ),
-    );
+    const alreadyReceivedQuantity = Math.max(0, receivedQuantityBySkuId.get(transferLine.skuId) ?? 0);
     const receiveSkuQuantity = transferLine.quantity - alreadyReceivedQuantity;
     if (receiveSkuQuantity <= 0) continue;
 
@@ -1032,71 +859,33 @@ export async function receiveWarehouseTransferInventory(
     );
     if (skuUpdateError) throw skuUpdateError;
     if (!nextSkuData) throw new Error("库存已被其他操作更新，请刷新后重试");
-    updatedSkus.push(nextSkuData as WarehouseSku);
-  }
 
-  for (const transferItem of transferItems) {
-    const alreadyReceivedQuantity =
-      Math.max(0, receivedQuantityByItemId.get(transferItem.itemId) ?? 0);
-    const receiveQuantity = transferItem.quantity - alreadyReceivedQuantity;
-    if (receiveQuantity <= 0) continue;
-
-    const currentStock = destinationStocksByItemId.get(transferItem.itemId);
-    if (!currentStock) continue;
-
-    const { data: currentData, error: currentError } = await withTimeout(
-      supabase
-        .from("warehouse_item_stocks")
-        .select("id, warehouse_id, item_id, stock_quantity")
-        .eq("id", currentStock.id)
-        .maybeSingle(),
-      "读取签收仓库配件库存",
-    );
-    if (currentError) throw currentError;
-    if (!currentData) throw new Error("签收仓库配件库存不存在，请刷新后重试");
-
-    const current = currentData as WarehouseItemStock;
-    const nextQuantity = current.stock_quantity + receiveQuantity;
-    const { data: nextStockData, error: stockUpdateError } = await withTimeout(
-      supabase
-        .from("warehouse_item_stocks")
-        .update({ stock_quantity: nextQuantity })
-        .eq("id", current.id)
-        .eq("stock_quantity", current.stock_quantity)
-        .select("id, warehouse_id, item_id, stock_quantity")
-        .maybeSingle(),
-      "增加签收仓库配件库存",
-    );
-    if (stockUpdateError) throw stockUpdateError;
-    if (!nextStockData) throw new Error("库存已被其他操作更新，请刷新后重试");
-
-    const nextStock = nextStockData as WarehouseItemStock;
+    const nextSku = nextSkuData as WarehouseSku;
     const { data: adjustmentData, error: adjustmentError } = await withTimeout(
       supabase
-        .from("warehouse_item_stock_adjustments")
+        .from("warehouse_sku_stock_adjustments")
         .insert({
           warehouse_id: destinationWarehouseId,
-          item_id: current.item_id,
-          previous_quantity: current.stock_quantity,
-          next_quantity: nextStock.stock_quantity,
-          change_quantity: receiveQuantity,
+          sku_id: currentSkuStock.sku_id,
+          previous_quantity: currentSkuStock.stock_quantity,
+          next_quantity: nextSku.stock_quantity,
+          change_quantity: receiveSkuQuantity,
           reason: inboundReason,
           purchase_order_id: null,
           purchase_package_id: null,
         })
-        .select("id, warehouse_id, item_id, owner_id, previous_quantity, next_quantity, change_quantity, reason, purchase_order_id, purchase_package_id, created_at")
+        .select("id, warehouse_id, sku_id, owner_id, previous_quantity, next_quantity, change_quantity, reason, purchase_order_id, purchase_package_id, created_at")
         .single(),
       "保存调拨签收记录",
     );
     if (adjustmentError) throw adjustmentError;
 
-    updatedStocks.push(nextStock);
-    adjustments.push(adjustmentData as WarehouseItemStockAdjustment);
+    updatedSkus.push(nextSku);
+    adjustments.push(adjustmentData as WarehouseSkuStockAdjustment);
   }
 
   return {
     warehouseSkus: updatedSkus.length > 0 ? updatedSkus : (destinationSkuData ?? []) as WarehouseSku[],
-    itemStocks: updatedStocks,
     adjustments,
   };
 }

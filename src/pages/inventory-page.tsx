@@ -952,8 +952,8 @@ export function InventoryPage({ user }: InventoryPageProps) {
             <Link
               to="/inventory"
               className={`inline-flex h-10 items-center rounded-lg border px-4 text-sm font-semibold transition ${!warehouseSlug
-                  ? "border-violet-200 bg-violet-50 text-violet-700"
-                  : "border-line bg-white text-slate-700 hover:bg-slate-50"
+                ? "border-violet-200 bg-violet-50 text-violet-700"
+                : "border-line bg-white text-slate-700 hover:bg-slate-50"
                 }`}
             >
               全部仓库
@@ -965,8 +965,8 @@ export function InventoryPage({ user }: InventoryPageProps) {
                   key={warehouse.id}
                   to={`/inventory/${getWarehouseRouteSlug(warehouse)}`}
                   className={`inline-flex h-10 items-center rounded-lg border px-4 text-sm font-semibold transition ${isActive
-                      ? "border-violet-200 bg-violet-50 text-violet-700"
-                      : "border-line bg-white text-slate-700 hover:bg-slate-50"
+                    ? "border-violet-200 bg-violet-50 text-violet-700"
+                    : "border-line bg-white text-slate-700 hover:bg-slate-50"
                     }`}
                 >
                   {warehouse.name}
@@ -1048,8 +1048,8 @@ export function InventoryPage({ user }: InventoryPageProps) {
                             type="button"
                             onClick={() => setEditingWarehouseId(editingWarehouseId === warehouse.id ? null : warehouse.id)}
                             className={`p-2 rounded-lg border transition ${editingWarehouseId === warehouse.id
-                                ? "bg-violet-50 text-violet-600 border-violet-200"
-                                : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
+                              ? "bg-violet-50 text-violet-600 border-violet-200"
+                              : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
                               }`}
                             title="仓库属性设置"
                           >
@@ -1163,8 +1163,8 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                     <label
                                       key={config.name}
                                       className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium cursor-pointer transition select-none ${checked
-                                          ? "border-blue-200 bg-blue-50 text-blue-700"
-                                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                                        ? "border-blue-200 bg-blue-50 text-blue-700"
+                                        : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
                                         }`}
                                     >
                                       <input
@@ -1209,8 +1209,8 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                     <label
                                       key={config.name}
                                       className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium cursor-pointer transition select-none ${checked
-                                          ? "border-violet-200 bg-violet-50 text-violet-700"
-                                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                                        ? "border-violet-200 bg-violet-50 text-violet-700"
+                                        : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
                                         }`}
                                     >
                                       <input
@@ -1307,8 +1307,8 @@ export function InventoryPage({ user }: InventoryPageProps) {
                           type="button"
                           onClick={() => setShowWarehouseSettings(!showWarehouseSettings)}
                           className={`inline-flex h-10 items-center gap-2 rounded-xl border px-4 text-sm font-semibold transition ${showWarehouseSettings
-                              ? "border-violet-200 bg-violet-50 text-violet-700"
-                              : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                            ? "border-violet-200 bg-violet-50 text-violet-700"
+                            : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
                             }`}
                         >
                           <Settings size={16} />
@@ -1402,8 +1402,8 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                     <label
                                       key={config.name}
                                       className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-medium cursor-pointer transition select-none ${checked
-                                          ? "border-blue-200 bg-blue-50 text-blue-700"
-                                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                                        ? "border-blue-200 bg-blue-50 text-blue-700"
+                                        : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
                                         }`}
                                     >
                                       <input
@@ -1449,8 +1449,8 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                     <label
                                       key={config.name}
                                       className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-medium cursor-pointer transition select-none ${checked
-                                          ? "border-violet-200 bg-violet-50 text-violet-700"
-                                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                                        ? "border-violet-200 bg-violet-50 text-violet-700"
+                                        : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
                                         }`}
                                     >
                                       <input
@@ -1630,8 +1630,8 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                           type="button"
                                           onClick={() => handleToggleSkuDetails(item)}
                                           className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition ${expandedSkuIds[item.id]
-                                              ? "border-violet-200 bg-violet-50 text-violet-700"
-                                              : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                                            ? "border-violet-200 bg-violet-50 text-violet-700"
+                                            : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
                                             }`}
                                         >
                                           {expandedSkuIds[item.id] ? (
