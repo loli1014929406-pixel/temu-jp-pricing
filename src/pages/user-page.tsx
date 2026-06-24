@@ -49,7 +49,7 @@ export function UserPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!confirmSave()) return;
+    if (!(await confirmSave())) return;
     setSaving(true);
     setMessage("");
     setErrorMessage("");
@@ -67,8 +67,8 @@ export function UserPage() {
     }
   }
 
-  function handleCancelEdit() {
-    if (!confirmCancelEdit()) return;
+  async function handleCancelEdit() {
+    if (!(await confirmCancelEdit())) return;
     setUsername(profile?.username ?? "");
     setIsEditing(false);
   }

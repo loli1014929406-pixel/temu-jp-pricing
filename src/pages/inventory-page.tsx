@@ -582,7 +582,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
       setErrorMessage(`发货方式“${name}”已存在。`);
       return;
     }
-    if (!confirmSave(`确认新增发货方式“${name}”吗？`)) return;
+    if (!(await confirmSave(`确认新增发货方式“${name}”吗？`))) return;
 
     setBusyKey("create-logistics-method");
     setErrorMessage("");
@@ -603,7 +603,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
     checked: boolean,
   ) {
     if (!canEdit) return;
-    if (!confirmSave(`确认更新仓库“${warehouse.name}”的发货方式吗？`)) return;
+    if (!(await confirmSave(`确认更新仓库“${warehouse.name}”的发货方式吗？`))) return;
 
     const currentMethodIds = warehouseLogisticsMethodIdsByWarehouseId[warehouse.id] ?? [];
     const nextMethodIds = checked
@@ -633,7 +633,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
 
     const name = draftWarehouseName.trim();
     if (!name) return;
-    if (!confirmSave(`确认新增仓库“${name}”吗？`)) return;
+    if (!(await confirmSave(`确认新增仓库“${name}”吗？`))) return;
 
     setBusyKey("create-warehouse");
     setErrorMessage("");
@@ -655,7 +655,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
     updates: Pick<Warehouse, "name">,
   ) {
     if (!canEdit) return;
-    if (!confirmSave(`确认保存仓库“${warehouse.name}”的修改吗？`)) return;
+    if (!(await confirmSave(`确认保存仓库“${warehouse.name}”的修改吗？`))) return;
 
     setBusyKey(`warehouse-${warehouse.id}`);
     setErrorMessage("");
@@ -682,7 +682,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
       return;
     }
 
-    if (!confirmDelete(`仓库“${warehouse.name}”`)) return;
+    if (!(await confirmDelete(`仓库“${warehouse.name}”`))) return;
 
     setBusyKey(`warehouse-${warehouse.id}`);
     setErrorMessage("");
@@ -724,7 +724,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
 
     const productId = selectedProductIds[warehouseId];
     if (!productId) return;
-    if (!confirmAction("确认添加该商品到库存吗？")) return;
+    if (!(await confirmAction("确认添加该商品到库存吗？"))) return;
 
     setBusyKey(`add-product-${warehouseId}`);
     setErrorMessage("");
@@ -793,7 +793,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
     }
 
     const product = productsById[productId];
-    if (!confirmDelete(`仓库商品编号“${product?.product_code ?? ""}”`)) return;
+    if (!(await confirmDelete(`仓库商品编号“${product?.product_code ?? ""}”`))) return;
 
     const removedCount = warehouseSkus.filter(
       (entry) => entry.warehouse_id === warehouseId && entry.product_id === productId,
@@ -834,7 +834,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
 
     const reason = itemStockReasonDrafts[item.id]?.trim() ?? "";
     if (!reason) return;
-    if (!confirmSave("确认保存本次 SKU 库存修改吗？")) return;
+    if (!(await confirmSave("确认保存本次 SKU 库存修改吗？"))) return;
     setBusyKey(`sku-stock-${item.id}`);
     setErrorMessage("");
     try {

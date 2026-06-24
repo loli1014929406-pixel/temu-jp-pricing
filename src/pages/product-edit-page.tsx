@@ -485,7 +485,7 @@ export function ProductEditPage() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!product || !productId) return;
-    if (!confirmSave()) return;
+    if (!(await confirmSave())) return;
     setBusy(true);
     setMessage("");
 
@@ -516,8 +516,8 @@ export function ProductEditPage() {
     setIsEditing(true);
   }
 
-  function handleCancelEdit() {
-    if (!confirmCancelEdit()) return;
+  async function handleCancelEdit() {
+    if (!(await confirmCancelEdit())) return;
     const snapshot = editSnapshotRef.current;
     if (snapshot) {
       setProduct(snapshot.product);

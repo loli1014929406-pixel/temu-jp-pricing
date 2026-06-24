@@ -348,7 +348,7 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
 
     const current = calculations[skuId];
     if (!current) return;
-    if (!confirmSave()) return;
+    if (!(await confirmSave())) return;
 
     setSavingSkuId(skuId);
     setSavedSkuId("");

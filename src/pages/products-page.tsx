@@ -142,7 +142,7 @@ export function ProductsPage({ user }: ProductsPageProps) {
       return;
     }
 
-    if (!confirmDelete(`商品“${product.product_name_cn}”`)) return;
+    if (!(await confirmDelete(`商品“${product.product_name_cn}”`))) return;
 
     setDeletingProductId(product.id);
     setErrorMessage("");
@@ -164,7 +164,7 @@ export function ProductsPage({ user }: ProductsPageProps) {
       setErrorMessage("当前账号没有编辑权限，不能更新商品售卖状态。");
       return;
     }
-    if (!confirmSave()) return;
+    if (!(await confirmSave())) return;
 
     setUpdatingSellingProductId(product.id);
     setErrorMessage("");
@@ -187,8 +187,8 @@ export function ProductsPage({ user }: ProductsPageProps) {
     setSellingDraft(product.is_selling);
   }
 
-  function handleCancelSellingEdit() {
-    if (!confirmCancelEdit()) return;
+  async function handleCancelSellingEdit() {
+    if (!(await confirmCancelEdit())) return;
     setEditingSellingProductId("");
   }
 
@@ -244,7 +244,141 @@ export function ProductsPage({ user }: ProductsPageProps) {
       setErrorMessage("当前账号没有编辑权限，不能导入商品。");
       return;
     }
-    if (!confirmAction(`确认导入 ${pendingImport.records.length} 个商品吗？`)) return;
+    if (!(await confirmAction(`确认导入 ${pendingImport.records.length} 个商品吗？`))) return;
+
+    setTransferring(true);
+    setErrorMessage("");
+    try {
+      await importProductsData(pendingImport.records);
+      setPendingImport(null);
+      setPage(1);
+      setRefreshToken((current) => current + 1);
+      setNoticeMessage(`已导入 ${pendingImport.records.length} 个商品。`);
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, "导入商品失败"));
+    } finally {
+      setTransferring(false);
+    }
+  }
+
+  return (
+    <section className="grid gap-5">
+      <PageHeader
+        title="商品管理"
+        description="管理商品尺寸、重量与申报材质"
+        actions={
+          <>
+            <button
+              type="button"
+              onClick={() => void handleExcelExport()}
+              disabled={transferring}
+              className="btn-secondary"
+            >
+              <Download size={18} />
+              下载 Excel
+            </button>
+            {canEdit && (
+              <>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={transferring}
+                className="btn-secondary"
+              >
+                <Upload size={18} />
+                上传 Excel
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                onChange={(event) => void handleImport(event)}
+                className="hidden"
+              />
+              <Link
+                to="/products/new"
+                className="btn-primary"
+              >
+                <Plus size={18} />
+                新增商品
+                </Link>
+              </>
+            )}
+          </>
+        }
+      />
+
+      {/* 统计指标卡片 */}
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
+        <StatCard label="查询结果" value={String(totalRecordCount)} />
+        <StatCard label="当前页码" value={`${page} / ${Math.max(1, Math.ceil(totalRecordCount / pageSize))}`} />
+      </div>
+
+      {/* 搜索与过滤工具栏 */}
+      <div className="surface-card p-4 grid gap-4 sm:grid-cols-[1fr_180px] items-center">
+        <div className="relative">
+          <input
+            type="text"
+            placeholder="搜索商品编号、名称或材质..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full h-10 rounded-xl border border-line bg-white px-4 text-sm outline-none transition focus:border-accent focus:ring-4 focus:ring-accent/10"
+          />
+        </div>
+        <div>
+          <select
+            value={sellingFilter}
+            onChange={(e) => setSellingFilter(e.target.value as ProductSellingFilter)}
+            className="w-full h-10 rounded-xl border border-line bg-white px-3 text-sm outline-none transition focus:border-accent focus:ring-4 focus:ring-accent/10 text-slate-750 font-medium"
+          >
+            <option value="selling">售卖中</option>
+            <option value="not_selling">不售卖</option>
+            <option value="all">全部状态</option>
+          </select>
+        </div>
+      </div>
+
+      {noticeMessage && (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
+          {noticeMessage}
+        </div>
+      )}
+
+      {errorMessage && (
+        <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+          {errorMessage}
+        </div>
+      )}
+
+      {pendingImport && (
+        <div className="surface-card grid gap-3 p-4">
+          <div>
+            <p className="text-sm font-medium text-ink">导入预览</p>
+            <p className="mt-1 text-sm text-slate-500">
+              {pendingImport.fileName} · {pendingImport.records.length} 个商品
+            </p>
+          </div>
+          <div className="grid gap-2 text-sm text-slate-700">
+            {pendingImport.records.slice(0, 5).map((record, index) => (
+              <div key={`${record.product_code}-${index}`} className="flex flex-wrap gap-4">
+                <span>{record.product_code}</span>
+                <span>{record.product_name_cn}</span>
+                <span>{record.items.length} 个配件</span>
+                <span>{record.skus.length} 个 SKU</span>
+              </div>
+            ))}
+          </div>
+          {pendingImport.errors.length > 0 && (
+            <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+              {pendingImport.errors.join("；")}
+            </div>
+          )}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => void confirmImport()}
+              disabled={pendingImport.errors.length > 0 || transferring}
+              className="btn-primary"
 
     setTransferring(true);
     setErrorMessage("");
@@ -384,8 +518,8 @@ export function ProductsPage({ user }: ProductsPageProps) {
             </button>
             <button
               type="button"
-              onClick={() => {
-                if (confirmCancelEdit("确认取消本次导入吗？未导入的内容将不会保留。")) {
+              onClick={async () => {
+                if (await confirmCancelEdit("确认取消本次导入吗？未导入的内容将不会保留。")) {
                   setPendingImport(null);
                 }
               }}

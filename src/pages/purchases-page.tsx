@@ -1190,7 +1190,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
       return;
     }
     if (preparedSources.length !== activePurchaseUrls.length) return;
-    if (!confirmSave("确认保存这张采购管理单吗？")) return;
+    if (!(await confirmSave("确认保存这张采购管理单吗？"))) return;
 
     setBusyKey("create-order");
     try {
@@ -1222,7 +1222,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
       setErrorMessage("当前账号没有编辑权限，不能更新采购信息。");
       return;
     }
-    if (!confirmSave()) return;
+    if (!(await confirmSave())) return;
 
     setBusyKey(`source-${sourceId}`);
     try {
@@ -1271,7 +1271,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
       quantity: item.quantity,
     }));
     if (!trackingNo || itemsPayload.length === 0) return;
-    if (!confirmSave(`确认保存快递单号“${trackingNo}”吗？`)) return;
+    if (!(await confirmSave(`确认保存快递单号“${trackingNo}”吗？`))) return;
     setBusyKey(`package-${order.id}`);
     try {
       const pkg = await createPurchasePackage(order.id, sourceId, trackingNo, itemsPayload);
@@ -1294,7 +1294,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
       return;
     }
 
-    if (!confirmAction(`确认签收快递单号“${pkg.tracking_no}”并增加 SKU 库存吗？`)) return;
+    if (!(await confirmAction(`确认签收快递单号“${pkg.tracking_no}”并增加 SKU 库存吗？`))) return;
     setBusyKey(`receive-${pkg.id}`);
     setErrorMessage("");
     setNoticeMessage("");
@@ -1340,9 +1340,9 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
 
     if (
       !skipConfirm &&
-      !confirmAction(
+      !(await confirmAction(
         `确认将采购管理单“${order.order_code}”剩余未签收明细全部签收，并增加 SKU 库存吗？`,
-      )
+      ))
     ) {
       return;
     }
@@ -1465,7 +1465,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
       setErrorMessage("请选择 SKU 后再保存。");
       return;
     }
-    if (!confirmSave("确认保存这条采购明细的 SKU 信息吗？")) return;
+    if (!(await confirmSave("确认保存这条采购明细的 SKU 信息吗？"))) return;
 
     setBusyKey(`sku-bind-${item.id}`);
     try {
@@ -1506,7 +1506,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
 
     const trackingNo = existingPackageTrackingDrafts[pkg.id]?.trim();
     if (!trackingNo) return;
-    if (!confirmSave(`确认保存快递单号“${trackingNo}”吗？`)) return;
+    if (!(await confirmSave(`确认保存快递单号“${trackingNo}”吗？`))) return;
     setBusyKey(`update-package-${pkg.id}`);
     try {
       const next = await updatePurchasePackageTrackingNo(pkg.id, trackingNo);
@@ -1535,7 +1535,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
       return;
     }
 
-    if (!confirmDelete(`快递单号“${pkg.tracking_no}”`)) return;
+    if (!(await confirmDelete(`快递单号“${pkg.tracking_no}”`))) return;
     setBusyKey(`delete-package-${pkg.id}`);
     try {
       await deletePurchasePackage(pkg.id);
@@ -1569,7 +1569,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
       return;
     }
 
-    if (!confirmDelete(`采购管理单“${order.order_code}”`)) return;
+    if (!(await confirmDelete(`采购管理单“${order.order_code}”`))) return;
     setBusyKey(`delete-order-${order.id}`);
     try {
       await deletePurchaseOrder(order.id);

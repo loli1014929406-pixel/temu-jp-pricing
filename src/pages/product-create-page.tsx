@@ -184,7 +184,7 @@ export function ProductCreatePage({ user }: ProductCreatePageProps) {
       setMessage("当前登录已失效，请重新登录");
       return;
     }
-    if (!confirmSave()) return;
+    if (!(await confirmSave())) return;
 
     setBusy(true);
     setMessage("");

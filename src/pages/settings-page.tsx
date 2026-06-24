@@ -623,7 +623,7 @@ export function SettingsPage({ user }: SettingsPageProps) {
       setErrorMessage("当前账号没有编辑权限，不能保存参数设置。");
       return;
     }
-    if (!confirmSave()) return;
+    if (!(await confirmSave())) return;
 
     setBusy(true);
     setErrorMessage("");
@@ -650,8 +650,8 @@ export function SettingsPage({ user }: SettingsPageProps) {
     setIsEditing(true);
   }
 
-  function handleCancelEdit() {
-    if (!confirmCancelEdit()) return;
+  async function handleCancelEdit() {
+    if (!(await confirmCancelEdit())) return;
     if (settingsSnapshot) {
       setSettings(settingsSnapshot);
       clearDraft(draftKey);
@@ -696,19 +696,19 @@ export function SettingsPage({ user }: SettingsPageProps) {
     resetLastLegAddForm();
   }
 
-  function handleDeleteFirstLeg(id: string) {
+  async function handleDeleteFirstLeg(id: string) {
     if (!settings) return;
     const method = (settings.first_leg_methods || []).find((item) => item.id === id);
-    if (!confirmDelete(`头程物流方式“${method?.name ?? id}”`)) return;
+    if (!(await confirmDelete(`头程物流方式“${method?.name ?? id}”`))) return;
     updateSettings({
       first_leg_methods: (settings.first_leg_methods || []).filter((method) => method.id !== id),
     });
   }
 
-  function handleDeleteLastLeg(id: string) {
+  async function handleDeleteLastLeg(id: string) {
     if (!settings) return;
     const method = (settings.last_leg_methods || []).find((item) => item.id === id);
-    if (!confirmDelete(`尾程物流方式“${method?.name ?? id}”`)) return;
+    if (!(await confirmDelete(`尾程物流方式“${method?.name ?? id}”`))) return;
     updateSettings({
       last_leg_methods: (settings.last_leg_methods || []).filter((method) => method.id !== id),
     });

@@ -106,7 +106,7 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
 
   async function handleSaveResults() {
     if (!canEdit || !product) return;
-    if (!confirmSave("确认保存本次核算定价结果吗？")) return;
+    if (!(await confirmSave("确认保存本次核算定价结果吗？"))) return;
 
     setSaving(true);
     setErrorMessage("");

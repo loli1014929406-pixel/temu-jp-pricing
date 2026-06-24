@@ -729,9 +729,9 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
       }
 
       if (
-        !confirmAction(
+        !(await confirmAction(
           `确认签收快递单号“${record.trackingNo}”，并把库存加入“${destinationWarehouse.name}”吗？`,
-        )
+        ))
       ) {
         return;
       }
