@@ -1,8 +1,12 @@
 {
   "rewrites": [
     {
-      "source": "/(.*)",
-      "destination": "/index.html"
+      "source": "/yamato-tracking/:path*",
+      "destination": "https://toi.kuronekoyamato.co.jp/:path*"
+    },
+    {
+      "source": "/japanpost-tracking/:path*",
+      "destination": "https://trackings.post.japanpost.jp/:path*"
     }
   ]
 }
