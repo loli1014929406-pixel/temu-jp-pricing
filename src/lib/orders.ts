@@ -403,3 +403,82 @@ export async function deleteTemuOrder(orderId: string) {
   );
   if (error) throw error;
 }
+
+export async function createReshipmentOrder(
+  originalOrders: TemuOrderRecord[],
+  suffix: string,
+  itemsToReship: Array<{
+    skuCode: string;
+    productAttributes: string;
+    quantity: number;
+  }>
+) {
+  const { supabase, session } = await requireSession();
+  
+  const cleanSuffix = suffix.trim().replace(/^-+/, "");
+  if (!cleanSuffix) throw new Error("请输入有效的补发单号后缀");
+  if (itemsToReship.length === 0) throw new Error("请至少选择或添加一项补发商品");
+  
+  const payload = itemsToReship.map((item, index) => {
+    const matchingOrig = originalOrders.find(o => o.sku_code === item.skuCode) || originalOrders[0];
+    
+    return {
+      owner_id: session.user.id,
+      order_no: `${matchingOrig.order_no}-${cleanSuffix}`,
+      sub_order_no: matchingOrig.sub_order_no 
+        ? `${matchingOrig.sub_order_no}-${cleanSuffix}` 
+        : `${matchingOrig.order_no}-${cleanSuffix}-sub-${index}`,
+      order_status: "待发货",
+      sku_code: item.skuCode,
+      fulfillment_quantity: item.quantity,
+      product_attributes: item.productAttributes,
+      
+      warehouse_id: null,
+      warehouse_name: "",
+      logistics_method: "",
+      logistics_tracking_no: "",
+      logistics_status: "",
+      label_printed_at: "",
+      actual_ship_time: "",
+      actual_signed_time: "",
+      
+      recipient_name: matchingOrig.recipient_name,
+      recipient_phone: matchingOrig.recipient_phone,
+      email: matchingOrig.email,
+      province: matchingOrig.province,
+      city: matchingOrig.city,
+      district: matchingOrig.district,
+      address_line1: matchingOrig.address_line1,
+      address_line2: matchingOrig.address_line2,
+      postal_code: matchingOrig.postal_code,
+      latest_ship_time: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
+      estimated_delivery_time: "",
+      actual_shipping_fee_rmb: 0,
+    };
+  });
+
+  const { data, error } = await withTimeout(
+    supabase
+      .from("temu_orders")
+      .insert(payload)
+      .select(temuOrderSelectFields),
+    "创建补发订单"
+  );
+
+  if (error) {
+    // If standard fields fail, check if actual_shipping_fee_rmb exists
+    if (isMissingActualShippingFeeColumnError(error)) {
+      const { data: legacyData, error: legacyError } = await withTimeout(
+        supabase
+          .from("temu_orders")
+          .insert(payload)
+          .select(temuOrderLegacySelectFields),
+        "创建补发订单"
+      );
+      if (legacyError) throw legacyError;
+      return ((legacyData ?? []) as Partial<TemuOrderRecord>[]).map(normalizeTemuOrder);
+    }
+    throw error;
+  }
+  return ((data ?? []) as Partial<TemuOrderRecord>[]).map(normalizeTemuOrder);
+}

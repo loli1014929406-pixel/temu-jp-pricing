@@ -49,6 +49,7 @@ type OrderBulkActionsProps = {
   onBulkLogisticsMethodChange: (method: string) => void;
   onBulkAssign: () => void;
   onAutoMatchPendingOrders: () => void;
+  onCreateReshipOrder?: () => void;
 };
 
 export function OrderBulkActions({
@@ -88,6 +89,7 @@ export function OrderBulkActions({
   onBulkLogisticsMethodChange,
   onBulkAssign,
   onAutoMatchPendingOrders,
+  onCreateReshipOrder,
 }: OrderBulkActionsProps) {
   return (
     <>
@@ -142,6 +144,17 @@ export function OrderBulkActions({
               <Eye size={16} />
               详情
             </button>
+            {canEdit && selectedSingleOrderInView && onCreateReshipOrder && (
+              <button
+                type="button"
+                disabled={Boolean(busyKey)}
+                onClick={onCreateReshipOrder}
+                className="btn-secondary h-9 px-3"
+              >
+                <Sparkles size={16} />
+                创建补发
+              </button>
+            )}
             {canEdit && (
               <button
                 type="button"

@@ -3,6 +3,8 @@ import {
   FileSpreadsheet,
   RefreshCw,
   Upload,
+  X,
+  Sparkles,
 } from "lucide-react";
 import { OrderBulkActions } from "../components/orders/OrderBulkActions";
 import { OrderDetailPanel } from "../components/orders/OrderDetailPanel";
@@ -38,6 +40,7 @@ import {
   deleteTemuOrder,
   importTemuOrders,
   updateTemuOrder,
+  createReshipmentOrder,
   type TemuOrderImportRow,
 } from "../lib/orders";
 import type {
@@ -1417,9 +1420,10 @@ const OrderTableRow = memo(function OrderTableRow({
       <td className="number-cell">{rowQuantity}</td>
       <td className="order-product-col">
         {primaryDeclaration ? (
-          <div className="flex min-w-56 items-center gap-3">
-            <div className="flex shrink-0 gap-1">
-              {declarationGroups.slice(0, 4).map((group) => (
+          <div className="flex items-start gap-3 min-w-[16rem]">
+            {/* 图片缩略图容器：固定宽度刚好容纳2张图。未展开时仅显示前2张，展开时自动折行显示全部 */}
+            <div className="flex w-[100px] shrink-0 gap-1 flex-wrap">
+              {(isExpanded ? declarationGroups : declarationGroups.slice(0, 2)).map((group) => (
                 <SkuImageThumb
                   key={group.declaration.sku.id || group.declaration.sku.sku_code}
                   product={group.declaration.product}
@@ -1427,25 +1431,34 @@ const OrderTableRow = memo(function OrderTableRow({
                 />
               ))}
             </div>
-            <div className="grid min-w-0 gap-1">
-              <span className="font-medium text-slate-900">
+            {/* 规格及商品文字容器：在展开时自动折行，在收起时单行截断 */}
+            <div className="grid min-w-0 flex-1 gap-1">
+              <span className="font-medium text-slate-900 break-all whitespace-normal">
                 {primaryDeclaration.product.product_name_cn || "--"}
               </span>
               <div className="grid gap-0.5 text-xs font-medium text-slate-500">
-                <span>{productMeta || skuSummary}</span>
+                <span className="break-all whitespace-normal">{productMeta || skuSummary}</span>
                 {(isExpanded ? skuLines : skuLines.slice(0, 2)).map((line) => (
-                  <span key={line.key} className="whitespace-nowrap">
+                  <span
+                    key={line.key}
+                    className={`block ${
+                      isExpanded
+                        ? "whitespace-normal break-all"
+                        : "truncate max-w-[14rem] whitespace-nowrap"
+                    }`}
+                    title={isExpanded ? undefined : `${line.skuCode} · ${line.spec}${line.quantity > 1 ? ` ×${line.quantity}` : ""}`}
+                  >
                     {line.skuCode} · {line.spec}
                     {line.quantity > 1 ? ` ×${line.quantity}` : ""}
                   </span>
                 ))}
-                {skuLines.length > 2 && (
+                {(skuLines.length > 2 || declarationGroups.length > 2) && (
                   <button
                     type="button"
                     onClick={() => setIsExpanded(!isExpanded)}
                     className="text-action text-left text-[11px] font-semibold mt-1 hover:underline cursor-pointer"
                   >
-                    {isExpanded ? "收起" : `展开更多 (${skuLines.length - 2}项)`}
+                    {isExpanded ? "收起" : `展开更多 (共 ${Math.max(skuLines.length, declarationGroups.length)} 项)`}
                   </button>
                 )}
               </div>
@@ -1457,7 +1470,18 @@ const OrderTableRow = memo(function OrderTableRow({
           </span>
         )}
       </td>
-      <td className="order-attr-col">{salesSpec || "--"}</td>
+      <td className="order-attr-col">
+        <span
+          className={`block ${
+            isExpanded
+              ? "whitespace-normal break-all"
+              : "truncate max-w-[12rem] whitespace-nowrap"
+          }`}
+          title={isExpanded ? undefined : salesSpec || undefined}
+        >
+          {salesSpec || "--"}
+        </span>
+      </td>
       {isShippingTrackingStage(activeStage) && (
         <>
           <td className="order-tracking-col">
@@ -1539,6 +1563,306 @@ const OrderTableRow = memo(function OrderTableRow({
   );
 });
 
+type ReshipOrderModalProps = {
+  originalOrder: TemuOrderRecord;
+  relatedOrders: TemuOrderRecord[];
+  productSkus: ProductSku[];
+  products: Product[];
+  onClose: () => void;
+  onSuccess: (newOrders: TemuOrderRecord[]) => void;
+  setErrorMessage: (msg: string) => void;
+};
+
+function ReshipOrderModal({
+  originalOrder,
+  relatedOrders,
+  productSkus,
+  products,
+  onClose,
+  onSuccess,
+  setErrorMessage,
+}: ReshipOrderModalProps) {
+  const [suffix, setSuffix] = useState("");
+  const [items, setItems] = useState<Array<{
+    skuCode: string;
+    productAttributes: string;
+    quantity: number;
+    isOriginal: boolean;
+    checked: boolean;
+  }>>(() => {
+    return relatedOrders.map(o => ({
+      skuCode: o.sku_code,
+      productAttributes: o.product_attributes,
+      quantity: o.fulfillment_quantity,
+      isOriginal: true,
+      checked: true,
+    }));
+  });
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showSkuDropdown, setShowSkuDropdown] = useState(false);
+
+  const productsMap = useMemo(() => new Map(products.map(p => [p.id, p])), [products]);
+
+  const filteredSkus = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return [];
+    return productSkus.filter(sku => {
+      const prod = productsMap.get(sku.product_id);
+      const prodName = prod?.product_name_cn?.toLowerCase() || "";
+      const skuCode = sku.sku_code.toLowerCase();
+      return skuCode.includes(query) || prodName.includes(query);
+    }).slice(0, 10);
+  }, [searchQuery, productSkus, productsMap]);
+
+  const handleAddSku = (sku: ProductSku) => {
+    const prod = productsMap.get(sku.product_id);
+    const prodName = prod?.product_name_cn || "";
+    const spec = formatSkuSalesSpec(sku) || "默认规格";
+    const attr = `${prodName} ${spec}`.trim();
+    
+    if (items.some(item => item.skuCode === sku.sku_code)) {
+      alert("该 SKU 已经在列表中了！");
+      return;
+    }
+
+    setItems(prev => [
+      ...prev,
+      {
+        skuCode: sku.sku_code,
+        productAttributes: attr,
+        quantity: 1,
+        isOriginal: false,
+        checked: true,
+      }
+    ]);
+    setSearchQuery("");
+    setShowSkuDropdown(false);
+  };
+
+  const handleRemoveItem = (index: number) => {
+    setItems(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleFieldChange = (index: number, field: "quantity" | "productAttributes" | "checked", value: any) => {
+    setItems(prev => prev.map((item, i) => {
+      if (i === index) {
+        return { ...item, [field]: value };
+      }
+      return item;
+    }));
+  };
+
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSubmit = async () => {
+    const cleanSuffix = suffix.trim().replace(/^-+/, "");
+    if (!cleanSuffix) {
+      alert("请输入有效的补发单号后缀");
+      return;
+    }
+    const selectedItems = items.filter(item => item.checked);
+    if (selectedItems.length === 0) {
+      alert("请至少选择或添加一项补发商品");
+      return;
+    }
+    
+    if (selectedItems.some(item => item.quantity <= 0 || !Number.isInteger(item.quantity))) {
+      alert("请输入有效的补发数量（正整数）");
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const data = await createReshipmentOrder(relatedOrders, cleanSuffix, selectedItems.map(item => ({
+        skuCode: item.skuCode,
+        productAttributes: item.productAttributes,
+        quantity: item.quantity,
+      })));
+      onSuccess(data);
+    } catch (err: any) {
+      setErrorMessage(err.message || "创建补发订单失败");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/40 p-4" role="dialog" aria-modal="true">
+      <div className="max-h-[90vh] w-full max-w-2xl flex flex-col bg-white rounded-2xl shadow-xl overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+          <h2 className="text-lg font-bold text-slate-900">创建补发订单</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition">
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-5">
+          {/* Info Banner */}
+          <div className="rounded-xl bg-slate-50 border border-slate-100 p-4 space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="font-semibold text-slate-500">原订单号</span>
+              <span className="font-mono font-medium text-slate-800">{originalOrder.order_no}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="font-semibold text-slate-500">收件人</span>
+              <span className="font-medium text-slate-800">{originalOrder.recipient_name}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="font-semibold text-slate-500">收件地址</span>
+              <span className="font-medium text-slate-800 text-right truncate max-w-[20rem]" title={originalOrder.province + originalOrder.city + originalOrder.district + originalOrder.address_line1}>
+                {originalOrder.province} {originalOrder.city} {originalOrder.district} {originalOrder.address_line1}
+              </span>
+            </div>
+          </div>
+
+          {/* Suffix Input */}
+          <div className="space-y-2">
+            <label className="text-sm font-bold text-slate-700 block">补发订单号后缀</label>
+            <div className="flex items-center rounded-xl border border-line bg-slate-50 overflow-hidden focus-within:border-accent focus-within:ring-4 focus-within:ring-accent/10 transition">
+              <span className="pl-4 pr-1 text-sm font-mono text-slate-400 shrink-0 select-none">
+                {originalOrder.order_no}-
+              </span>
+              <input
+                value={suffix}
+                onChange={e => setSuffix(e.target.value.replace(/[^a-zA-Z0-9-]/g, ""))}
+                placeholder="例如: reship1, bufa"
+                className="h-11 w-full bg-transparent px-2 text-sm outline-none font-mono text-slate-800"
+              />
+            </div>
+            <p className="text-xs text-slate-400 font-medium">后缀只能包含英文字母、数字和横杠，自动拼接在原订单号后</p>
+          </div>
+
+          {/* SKU Items List */}
+          <div className="space-y-3">
+            <label className="text-sm font-bold text-slate-700 block">选择或增加补发商品 (SKU)</label>
+            
+            <div className="border border-slate-100 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-[220px] overflow-y-auto">
+              {items.map((item, index) => (
+                <div key={item.skuCode + "-" + index} className={`flex items-center gap-3 p-3 text-xs ${item.checked ? "bg-accentSoft/10" : "bg-white"}`}>
+                  <input
+                    type="checkbox"
+                    checked={item.checked}
+                    onChange={e => handleFieldChange(index, "checked", e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 text-sky-700 focus:ring-sky-500"
+                  />
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <div className="flex justify-between font-mono font-medium text-slate-800">
+                      <span className="truncate">{item.skuCode}</span>
+                      {!item.isOriginal && (
+                        <span className="rounded bg-sky-50 text-sky-700 px-1 text-[10px] font-sans scale-90 origin-right">手动增加</span>
+                      )}
+                    </div>
+                    <input
+                      value={item.productAttributes}
+                      onChange={e => handleFieldChange(index, "productAttributes", e.target.value)}
+                      placeholder="商品属性/销售规格"
+                      className="h-8 w-full border border-line rounded-lg px-2 text-xs bg-white/70 outline-none focus:border-accent text-slate-600 font-medium"
+                    />
+                  </div>
+                  <div className="w-16 shrink-0">
+                    <input
+                      type="number"
+                      min={1}
+                      value={item.quantity}
+                      onChange={e => handleFieldChange(index, "quantity", Math.max(1, parseInt(e.target.value) || 1))}
+                      className="h-8 w-full border border-line rounded-lg px-2 text-center outline-none focus:border-accent"
+                    />
+                  </div>
+                  {!item.isOriginal && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveItem(index)}
+                      className="text-slate-400 hover:text-rose-600 p-1 transition"
+                    >
+                      <X size={16} />
+                    </button>
+                  )}
+                </div>
+              ))}
+              {items.length === 0 && (
+                <div className="p-6 text-center text-slate-400 text-xs font-medium">请至少添加一项商品</div>
+              )}
+            </div>
+
+            {/* Add Other SKU Row */}
+            <div className="relative">
+              <div className="flex gap-2">
+                <input
+                  value={searchQuery}
+                  onChange={e => {
+                    setSearchQuery(e.target.value);
+                    setShowSkuDropdown(true);
+                  }}
+                  onFocus={() => setShowSkuDropdown(true)}
+                  placeholder="搜索并添加其他商品 SKU 号/商品名"
+                  className="h-10 flex-1 border border-line rounded-xl px-3 text-xs outline-none focus:border-accent"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowSkuDropdown(!showSkuDropdown)}
+                  className="btn-secondary h-10 px-3 text-xs shrink-0"
+                >
+                  {showSkuDropdown ? "隐藏" : "显示全部"}
+                </button>
+              </div>
+
+              {/* SKU Autocomplete Dropdown */}
+              {showSkuDropdown && (
+                <div className="absolute z-50 left-0 right-0 mt-1 max-h-[180px] overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-lg divide-y divide-slate-100">
+                  {(searchQuery.trim() === "" ? productSkus.slice(0, 50) : filteredSkus).map(sku => {
+                    const prod = productsMap.get(sku.product_id);
+                    const prodName = prod?.product_name_cn || "未知商品";
+                    return (
+                      <button
+                        key={sku.id}
+                        type="button"
+                        onClick={() => handleAddSku(sku)}
+                        className="w-full text-left px-4 py-2 hover:bg-slate-50 transition text-xs flex justify-between gap-3 items-center"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="font-semibold text-slate-800 truncate font-mono">{sku.sku_code}</p>
+                          <p className="text-slate-500 truncate">{prodName} ({formatSkuSalesSpec(sku)})</p>
+                        </div>
+                        <span className="text-[10px] text-slate-400 font-mono shrink-0">点击选择</span>
+                      </button>
+                    );
+                  })}
+                  {(searchQuery.trim() !== "" && filteredSkus.length === 0) && (
+                    <div className="p-4 text-center text-slate-400 text-xs font-medium">未找到匹配的 SKU</div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-3 border-t border-slate-100 px-6 py-4 bg-slate-50">
+          <button
+            type="button"
+            onClick={onClose}
+            className="btn-secondary h-10 px-4 text-xs font-semibold"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            disabled={isSaving}
+            onClick={handleSubmit}
+            className="btn-primary h-10 px-5 text-xs font-semibold inline-flex items-center gap-1.5"
+          >
+            {isSaving && <div className="h-3 w-3 animate-spin rounded-full border border-white border-r-transparent" />}
+            确认创建
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function OrdersPage({ user }: OrdersPageProps) {
   const { canEdit, canDelete } = usePermissions();
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -1587,6 +1911,19 @@ export function OrdersPage({ user }: OrdersPageProps) {
   const [busyKey, setBusyKey] = useState("");
   const [noticeMessage, setNoticeMessage] = useState("");
   const [detailOrder, setDetailOrder] = useState<TemuOrderRecord | null>(null);
+  const [reshipTargetOrder, setReshipTargetOrder] = useState<TemuOrderRecord | null>(null);
+
+  const handleReshipSuccess = (newOrders: TemuOrderRecord[]) => {
+    updateOrdersState(newOrders);
+    setNoticeMessage(`补发订单创建成功！共创建 ${newOrders.length} 条商品记录。`);
+    
+    setActiveStage("pending_assignment");
+    setPage(1);
+    setSearch("");
+    setSelectedOrderIds([]);
+    setReshipTargetOrder(null);
+    setDetailOrder(null);
+  };
   const [orderSort, setOrderSort] = useState<OrderSort>(defaultOrderSort);
   const [showUrgentUnuploadedOnly, setShowUrgentUnuploadedOnly] = useState(false);
   const autoQueriedTrackingNosRef = useRef<Set<string>>(new Set());
@@ -4318,6 +4655,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
           onBulkLogisticsMethodChange={setBulkLogisticsMethod}
           onBulkAssign={() => void handleBulkAssign()}
           onAutoMatchPendingOrders={() => void handleAutoMatchPendingOrders()}
+          onCreateReshipOrder={() => setReshipTargetOrder(selectedSingleOrderInView)}
         />
 
         {loading ? (
@@ -4412,6 +4750,20 @@ export function OrdersPage({ user }: OrdersPageProps) {
           orderNo={detailOrder.order_no}
           rows={getOrderDetailRows(detailOrder)}
           onClose={() => setDetailOrder(null)}
+          canEdit={canEdit}
+          onCreateReshipOrder={() => setReshipTargetOrder(detailOrder)}
+        />
+      )}
+
+      {reshipTargetOrder && (
+        <ReshipOrderModal
+          originalOrder={reshipTargetOrder}
+          relatedOrders={allOrders.filter(o => o.order_no === reshipTargetOrder.order_no)}
+          productSkus={productSkus}
+          products={products}
+          onClose={() => setReshipTargetOrder(null)}
+          onSuccess={handleReshipSuccess}
+          setErrorMessage={setErrorMessage}
         />
       )}
     </section>

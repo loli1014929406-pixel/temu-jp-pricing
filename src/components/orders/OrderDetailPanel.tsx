@@ -4,12 +4,16 @@ type OrderDetailPanelProps = {
   orderNo: string;
   rows: ReadonlyArray<readonly [label: string, value: string]>;
   onClose: () => void;
+  canEdit?: boolean;
+  onCreateReshipOrder?: () => void;
 };
 
 export function OrderDetailPanel({
   orderNo,
   rows,
   onClose,
+  canEdit = false,
+  onCreateReshipOrder,
 }: OrderDetailPanelProps) {
   return (
     <div
@@ -24,14 +28,25 @@ export function OrderDetailPanel({
             <h2 className="text-base font-semibold text-slate-950">订单详情</h2>
             <p className="mt-1 text-xs font-medium text-slate-500">{orderNo}</p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-line bg-white text-slate-600 transition hover:bg-slate-50 hover:text-slate-950"
-            aria-label="关闭详情"
-          >
-            <X size={18} />
-          </button>
+          <div className="flex items-center gap-2">
+            {canEdit && onCreateReshipOrder && (
+              <button
+                type="button"
+                onClick={onCreateReshipOrder}
+                className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-line bg-white px-3.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 hover:text-slate-950"
+              >
+                创建补发
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-line bg-white text-slate-600 transition hover:bg-slate-50 hover:text-slate-950"
+              aria-label="关闭详情"
+            >
+              <X size={18} />
+            </button>
+          </div>
         </div>
         <div className="max-h-[calc(86vh-72px)] overflow-auto p-4">
           <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
