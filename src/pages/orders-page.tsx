@@ -1608,7 +1608,7 @@ function ReshipOrderModal({
     const query = searchQuery.trim().toLowerCase();
     if (!query) return [];
     return productSkus.filter(sku => {
-      const prod = productsMap.get(sku.product_id);
+      const prod = productsMap.get(sku.product_id ?? "");
       const prodName = prod?.product_name_cn?.toLowerCase() || "";
       const skuCode = sku.sku_code.toLowerCase();
       return skuCode.includes(query) || prodName.includes(query);
@@ -1616,7 +1616,7 @@ function ReshipOrderModal({
   }, [searchQuery, productSkus, productsMap]);
 
   const handleAddSku = (sku: ProductSku) => {
-    const prod = productsMap.get(sku.product_id);
+    const prod = productsMap.get(sku.product_id ?? "");
     const prodName = prod?.product_name_cn || "";
     const spec = formatSkuSalesSpec(sku) || "默认规格";
     const attr = `${prodName} ${spec}`.trim();
@@ -1813,7 +1813,7 @@ function ReshipOrderModal({
               {showSkuDropdown && (
                 <div className="absolute z-50 left-0 right-0 mt-1 max-h-[180px] overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-lg divide-y divide-slate-100">
                   {(searchQuery.trim() === "" ? productSkus.slice(0, 50) : filteredSkus).map(sku => {
-                    const prod = productsMap.get(sku.product_id);
+                    const prod = productsMap.get(sku.product_id ?? "");
                     const prodName = prod?.product_name_cn || "未知商品";
                     return (
                       <button

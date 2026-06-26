@@ -10,6 +10,7 @@ import type {
   Warehouse,
   WarehouseItemStock,
   WarehouseItemStockAdjustment,
+  WarehouseSkuStockAdjustment,
   WarehouseSku,
 } from "../types";
 

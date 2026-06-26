@@ -1422,7 +1422,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
                           {record.adjustments.map(({ adjustment, direction }) => {
                             const warehouse = warehousesById[adjustment.warehouse_id];
                             const sku = skusById[adjustment.sku_id];
-                            const product = sku ? productsById[sku.product_id] : null;
+                            const product = sku?.product_id ? productsById[sku.product_id] : null;
                             const flowLabel = direction === "out" ? "扣减" : "入库";
                             const changeLabel = adjustment.change_quantity > 0 
                               ? `+${adjustment.change_quantity}` 
