@@ -161,7 +161,7 @@ a {
   }
 
   .data-table th {
-    @apply py-2 text-[11px] font-bold tracking-wider text-slate-500 uppercase bg-slate-50/75 backdrop-blur-sm whitespace-nowrap;
+    @apply py-2 text-sm font-semibold tracking-normal text-slate-600 bg-slate-50/75 backdrop-blur-sm whitespace-nowrap;
     padding-left: 0.75rem !important;
     padding-right: 0.75rem !important;
     line-height: 1.35;
@@ -260,6 +260,31 @@ a {
     min-width: 14.5rem;
     white-space: nowrap;
     @apply font-mono;
+  }
+
+  .data-table.orders-table th.order-stage-col,
+  .data-table.orders-table td.order-stage-col {
+    min-width: 5rem;
+    white-space: nowrap;
+  }
+
+  .data-table.orders-table th.order-warehouse-col,
+  .data-table.orders-table td.order-warehouse-col {
+    min-width: 5rem;
+    white-space: nowrap;
+  }
+
+  .data-table.orders-table th.order-logistics-col,
+  .data-table.orders-table td.order-logistics-col {
+    min-width: 7rem;
+    white-space: nowrap;
+  }
+
+  .data-table.orders-table th.order-qty-col,
+  .data-table.orders-table td.order-qty-col {
+    min-width: 3.5rem;
+    white-space: nowrap;
+    text-align: center;
   }
 
   .data-table.orders-table th.order-attr-col,

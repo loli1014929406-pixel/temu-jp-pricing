@@ -267,12 +267,12 @@ const temuUploadColumns = [
 
 const visibleColumns = [
   { key: "order_no", label: "订单号", className: "order-no-col" },
-  { key: "stage", label: "流程状态" },
+  { key: "stage", label: "流程状态", className: "order-stage-col" },
   { key: "ship_deadline", label: "发货时效", className: "order-time-col", sortable: true },
   { key: "delivery_deadline", label: "签收时效", className: "order-time-col", sortable: true },
-  { key: "warehouse", label: "仓库" },
-  { key: "logistics", label: "发货方式" },
-  { key: "quantity", label: "数量" },
+  { key: "warehouse", label: "仓库", className: "order-warehouse-col" },
+  { key: "logistics", label: "发货方式", className: "order-logistics-col" },
+  { key: "quantity", label: "数量", className: "order-qty-col" },
   { key: "product", label: "商品信息", className: "order-product-col", sortable: true },
   { key: "sales_spec", label: "销售规格", className: "order-attr-col" },
   { key: "logistics_tracking_no", label: "物流单号", className: "order-tracking-col", shippedOnly: true },
@@ -1349,7 +1349,7 @@ const OrderTableRow = memo(function OrderTableRow({
       </td>
       <td className="order-no-col">{primaryOrder.order_no}</td>
       {activeStage === "all" && (
-        <td>
+        <td className="order-stage-col">
           <Badge tone={stage.tone}>{stage.label}</Badge>
         </td>
       )}
@@ -1359,7 +1359,7 @@ const OrderTableRow = memo(function OrderTableRow({
       <td className="order-time-col" title={mergedOrder.estimated_delivery_time || undefined}>
         <Badge tone={deliveryCountdown.tone}>{deliveryCountdown.label}</Badge>
       </td>
-      <td>
+      <td className="order-warehouse-col">
         {canAssignOrder ? (
           <select
             value={draft.warehouse_id ?? ""}
@@ -1379,12 +1379,12 @@ const OrderTableRow = memo(function OrderTableRow({
             ))}
           </select>
         ) : (
-          <span className="text-sm font-medium text-slate-700">
+          <span className="text-sm font-medium text-slate-700 whitespace-nowrap">
             {draft.warehouse_name || "未分配"}
           </span>
         )}
       </td>
-      <td>
+      <td className="order-logistics-col">
         {canAssignOrder ? (
           <select
             value={normalizedDraftLogisticsMethod}
@@ -1412,12 +1412,12 @@ const OrderTableRow = memo(function OrderTableRow({
               )}
           </select>
         ) : (
-          <span className="text-sm font-medium text-slate-700">
+          <span className="text-sm font-medium text-slate-700 whitespace-nowrap">
             {normalizedDraftLogisticsMethod || "未分配"}
           </span>
         )}
       </td>
-      <td className="number-cell">{rowQuantity}</td>
+      <td className="order-qty-col number-cell">{rowQuantity}</td>
       <td className="order-product-col">
         {primaryDeclaration ? (
           <div className="flex items-start gap-3 min-w-[16rem]">
@@ -4692,12 +4692,12 @@ export function OrdersPage({ user }: OrdersPageProps) {
                       />
                     </th>
                     {tableColumns.map((column) => (
-                      <th key={column.key} className={column.className ?? ""} scope="col">
+                      <th key={column.key} className={`text-sm font-semibold whitespace-nowrap ${column.className ?? ""}`} scope="col">
                         {column.sortable ? (
                           <button
                             type="button"
                             onClick={() => toggleOrderSort(column.key as OrderSortKey)}
-                            className="inline-flex items-center gap-1 font-medium text-inherit"
+                            className="inline-flex items-center gap-1 font-semibold text-inherit whitespace-nowrap"
                             title={`按${column.label}排序`}
                           >
                             <span>{column.label}</span>
