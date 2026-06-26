@@ -269,22 +269,17 @@ export type WarehouseLogisticsMethod = {
   logistics_method_id: string;
   owner_id: string;
   is_default: boolean;
-  id: string;
-  owner_id: string;
-  name: string;
-  is_active: boolean;
   sort_order: number;
   created_at: string;
   updated_at: string;
 };
 
-export type WarehouseLogisticsMethod = {
+export type WarehouseItemStock = {
   id: string;
   warehouse_id: string;
-  logistics_method_id: string;
+  item_id: string;
   owner_id: string;
-  is_default: boolean;
-  sort_order: number;
+  stock_quantity: number;
   created_at: string;
   updated_at: string;
 };
