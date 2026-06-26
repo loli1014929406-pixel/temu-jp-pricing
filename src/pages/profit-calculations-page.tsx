@@ -1323,7 +1323,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                 <th className="bg-slate-50 px-4 py-3 text-center font-medium text-slate-500">
                   包邮数量
                 </th>
-                <th className="bg-slate-50 px-4 py-3 text-center font-medium text-slate-500">操作</th>
+                <th className="bg-slate-50 px-4 py-3 text-center font-medium text-slate-500 w-24 whitespace-nowrap">操作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line bg-white">
@@ -1447,7 +1447,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                     <td className="number-cell">
                       {summary?.freeShippingThresholdQty ?? "--"}
                     </td>
-                    <td className="min-w-20 px-4 py-3">
+                    <td className="w-24 px-4 py-3">
                       <div className="flex flex-col items-start gap-2">
                         {canEdit && (
                           <button
