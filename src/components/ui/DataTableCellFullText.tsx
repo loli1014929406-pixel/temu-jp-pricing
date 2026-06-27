@@ -1,10 +1,4 @@
 import { useEffect, useState } from "react";
-import { RecordDetailModal } from "./RecordDetailModal";
-
-type CellDetail = {
-  title: string;
-  text: string;
-};
 
 const interactiveSelector = [
   "a",
@@ -18,6 +12,17 @@ const interactiveSelector = [
   "[contenteditable='true']",
   "[data-table-cell-ignore]",
 ].join(",");
+
+const expandedRows = new Map<string, Set<number>>();
+
+function getTableId(table: HTMLTableElement): string {
+  const existingId = table.dataset.expandId;
+  if (existingId) return existingId;
+
+  const nextId = String(Math.random());
+  table.dataset.expandId = nextId;
+  return nextId;
+}
 
 function normalizeCellText(value: string | null | undefined) {
   return (value ?? "")
@@ -57,31 +62,46 @@ function getCellVisibleText(cell: HTMLTableCellElement) {
   return normalizeCellText(clone.textContent);
 }
 
-function getHeaderText(cell: HTMLTableCellElement) {
-  const table = cell.closest("table");
-  const headerRows = table?.tHead?.rows;
-  if (!headerRows || headerRows.length === 0) return "";
-
-  const headerCell = headerRows[headerRows.length - 1]?.cells[cell.cellIndex];
-  return normalizeCellText(headerCell?.textContent);
+function hasOverflowingBox(element: HTMLElement) {
+  return (
+    element.scrollWidth > element.clientWidth + 1 ||
+    element.scrollHeight > element.clientHeight + 1
+  );
 }
 
 function isOverflowing(cell: HTMLTableCellElement, fullText: string) {
   const explicitText = cell.getAttribute("data-full-text");
-  if (explicitText !== null && normalizeCellText(explicitText) !== getCellVisibleText(cell)) {
+  if (
+    explicitText !== null &&
+    normalizeCellText(explicitText) !== getCellVisibleText(cell)
+  ) {
     return true;
   }
 
   if (!fullText || fullText === "--") return false;
+  if (hasOverflowingBox(cell)) return true;
 
-  return (
-    cell.scrollWidth > cell.clientWidth + 1 ||
-    cell.scrollHeight > cell.clientHeight + 1
-  );
+  return Array.from(
+    cell.querySelectorAll<HTMLElement>(
+      ".cell-truncate, .table-cell-preview, .table-cell-clamp",
+    ),
+  ).some(hasOverflowingBox);
+}
+
+function collapseCell(cell: HTMLTableCellElement) {
+  cell.classList.remove("cell-expanded");
+  cell.style.whiteSpace = "";
+  cell.style.wordBreak = "";
+}
+
+function expandCell(cell: HTMLTableCellElement) {
+  cell.classList.add("cell-expanded");
+  cell.style.whiteSpace = "normal";
+  cell.style.wordBreak = "break-word";
 }
 
 export function DataTableCellFullText() {
-  const [detail, setDetail] = useState<CellDetail | null>(null);
+  const [, forceUpdate] = useState(0);
 
   useEffect(() => {
     function handleClick(event: MouseEvent) {
@@ -97,27 +117,36 @@ export function DataTableCellFullText() {
       if (cell.colSpan > 1) return;
       if (cell.matches("[data-cell-detail-disabled='true']")) return;
 
+      const row = cell.closest("tr");
+      const tbody = row?.closest("tbody");
+      const table = cell.closest("table") as HTMLTableElement | null;
+      if (!row || !tbody || !table) return;
+
+      const rowIndex = Array.from(tbody.rows).indexOf(row as HTMLTableRowElement);
+      if (rowIndex < 0) return;
+
+      const tableId = getTableId(table);
+      const colIndex = cell.cellIndex;
+      const rowKey = `${tableId}:${rowIndex}:${colIndex}`;
+
+      if (expandedRows.has(rowKey)) {
+        collapseCell(cell);
+        expandedRows.delete(rowKey);
+        forceUpdate((n) => n + 1);
+        return;
+      }
+
       const fullText = getCellFullText(cell);
       if (!isOverflowing(cell, fullText)) return;
 
-      setDetail({
-        title: getHeaderText(cell) || "完整信息",
-        text: fullText,
-      });
+      expandCell(cell);
+      expandedRows.set(rowKey, new Set([colIndex]));
+      forceUpdate((n) => n + 1);
     }
 
     document.addEventListener("click", handleClick);
     return () => document.removeEventListener("click", handleClick);
   }, []);
 
-  if (!detail) return null;
-
-  return (
-    <RecordDetailModal
-      title={detail.title}
-      rows={[{ label: "完整显示文本", value: detail.text || "--", wide: true }]}
-      onClose={() => setDetail(null)}
-      maxWidthClassName="max-w-2xl"
-    />
-  );
+  return null;
 }

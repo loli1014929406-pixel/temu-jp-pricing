@@ -203,14 +203,14 @@ export function DeclarationPricesPage({ user }: DeclarationPricesPageProps) {
           >
             <thead>
               <tr>
-                <th className="px-4 py-3 font-medium">商品编号</th>
-                <th className="product-name-col px-4 py-3 font-medium">产品名称</th>
-                <th className="px-4 py-3 font-medium">采购成本</th>
-                <th className="px-4 py-3 font-medium">物流成本</th>
-                <th className="px-4 py-3 font-medium">总成本</th>
-                <th className="px-4 py-3 font-medium">利润</th>
-                <th className="px-4 py-3 font-medium">核算定价</th>
-                <th className="px-4 py-3 font-medium">操作</th>
+                <th className="px-3 py-2 font-medium">商品编号</th>
+                <th className="product-name-col px-3 py-2 font-medium">产品名称</th>
+                <th className="px-3 py-2 font-medium">采购成本</th>
+                <th className="px-3 py-2 font-medium">物流成本</th>
+                <th className="px-3 py-2 font-medium">总成本</th>
+                <th className="px-3 py-2 font-medium">利润</th>
+                <th className="px-3 py-2 font-medium">核算定价</th>
+                <th className="px-3 py-2 font-medium">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -232,8 +232,19 @@ export function DeclarationPricesPage({ user }: DeclarationPricesPageProps) {
 
                   return (
                     <tr key={product.id}>
-                      <td className="px-4 py-3">{product.product_code}</td>
-                      <td className="product-name-col px-4 py-3">{product.product_name_cn}</td>
+                      <td className="px-3 py-2">{product.product_code}</td>
+                      <td
+                        className="product-name-col px-3 py-2"
+                        data-full-text={product.product_name_cn}
+                      >
+                        <span
+                          className="cell-truncate"
+                          style={{ maxWidth: "15rem" }}
+                          title={product.product_name_cn}
+                        >
+                          {product.product_name_cn}
+                        </span>
+                      </td>
                       <td className="money">
                         {formatPricingValue(summary, "purchaseCostRmb")}
                       </td>
@@ -249,7 +260,7 @@ export function DeclarationPricesPage({ user }: DeclarationPricesPageProps) {
                       <td className="money">
                         {formatPricingValue(summary, "temuDeclarationPriceRmb")}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-2">
                         <div className="flex items-center gap-5">
                           <Link className="text-action" to={getProductRoutePath(product, "/pricing")}>
                             查看核算定价

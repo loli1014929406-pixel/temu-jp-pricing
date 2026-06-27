@@ -298,8 +298,8 @@ const orderColumnWidths: Record<string, string> = {
   warehouse: "5.5rem",
   logistics: "8rem",
   quantity: "4rem",
-  product: "21rem",
-  sales_spec: "15rem",
+  product: "17rem",
+  sales_spec: "14rem",
   logistics_tracking_no: "11rem",
   logistics_status: "9rem",
   recipient: "7rem",
@@ -627,6 +627,22 @@ function getOrderDisplayRowSalesSpec(rowOrders: TemuOrderRecord[]) {
   return Array.from(specGroups.values())
     .map((item) => (item.quantity > 1 ? `${item.label} ×${item.quantity}` : item.label))
     .join(" / ");
+}
+
+function formatOrderSalesSpecDisplay(value: string) {
+  const normalized = value
+    .replace(/\s*：\s*/g, ":")
+    .replace(/\s*:\s*/g, ":")
+    .replace(/\s*\/\s*/g, "/")
+    .replace(/[ \t\r\n]+/g, " ")
+    .trim();
+
+  return normalized || "--";
+}
+
+function formatOrderSalesSpecLine(label: string, quantity: number) {
+  const text = formatOrderSalesSpecDisplay(label);
+  return quantity > 1 ? `${text}×${quantity}` : text;
 }
 
 function getOrderDisplayRowDeclarationGroups(
@@ -1190,6 +1206,9 @@ const OrderTableRow = memo(function OrderTableRow({
   warehouses,
   settings,
 }: OrderTableRowProps) {
+  const [productCellExpanded, setProductCellExpanded] = useState(false);
+  const [attrCellExpanded, setAttrCellExpanded] = useState(false);
+
   const rowOrders = useMemo(
     () =>
       rowOrderIds
@@ -1286,18 +1305,50 @@ const OrderTableRow = memo(function OrderTableRow({
     () => getOrderDisplayRowSkuSummary(rowOrders, rowQuantity, declarationGroups),
     [declarationGroups, rowOrders, rowQuantity],
   );
-  const productCodeSummary = useMemo(
-    () => getOrderDisplayRowProductCodeSummary(declarationGroups),
+  const skuLines = useMemo(
+    () =>
+      declarationGroups.map((group) => {
+        const productName = group.declaration.product.product_name_cn || "--";
+        const skuCode = group.declaration.sku.sku_code || "--";
+        return `${productName} / ${skuCode} ×${group.quantity}`;
+      }),
     [declarationGroups],
   );
-  const productMeta = useMemo(
-    () => [productCodeSummary, skuSummary].filter(Boolean).join(" · "),
-    [productCodeSummary, skuSummary],
-  );
+  const productCellCollapsed = skuLines[0] ?? skuSummary;
+  const productCellFullText = skuLines.length > 0 ? skuLines.join(" · ") : skuSummary;
+  const salesSpecLines = useMemo(() => {
+    if (declarationGroups.length > 0) {
+      return declarationGroups.map((group) =>
+        formatOrderSalesSpecLine(
+          formatSkuSalesSpec(group.declaration.sku),
+          group.quantity,
+        ),
+      );
+    }
+
+    const specGroups = new Map<string, { label: string; quantity: number }>();
+    rowOrders.forEach((order) => {
+      const label = order.product_attributes.trim() || "--";
+      const key = getOrderExactSkuGroupKey(order) || label;
+      const current = specGroups.get(key);
+      specGroups.set(key, {
+        label: current?.label ?? label,
+        quantity: (current?.quantity ?? 0) + getOrderFulfillmentQuantity(order),
+      });
+    });
+
+    return Array.from(specGroups.values()).map((item) =>
+      formatOrderSalesSpecLine(item.label, item.quantity),
+    );
+  }, [declarationGroups, rowOrders]);
   const salesSpec = useMemo(
-    () => getOrderDisplayRowSalesSpec(rowOrders),
-    [rowOrders],
+    () => salesSpecLines.join(" / "),
+    [salesSpecLines],
   );
+  const canExpandProductCell =
+    declarationGroups.length > 1 ||
+    Boolean(productCellCollapsed && productCellCollapsed.length > 20);
+  const canExpandAttrCell = Boolean(salesSpec && salesSpec.length > 12);
   const normalizedDraftLogisticsMethod = useMemo(
     () => normalizeLogisticsMethod(draft.logistics_method),
     [draft.logistics_method],
@@ -1397,39 +1448,79 @@ const OrderTableRow = memo(function OrderTableRow({
       <td className="order-qty-col number-cell">{rowQuantity}</td>
       <td
         className="order-product-col"
-        data-full-text={
-          primaryDeclaration
-            ? [
-                primaryDeclaration.product.product_name_cn || "--",
-                productMeta || skuSummary,
-              ].filter(Boolean).join(" · ")
-            : skuSummary
-        }
+        data-cell-detail-disabled="true"
+        data-full-text={productCellFullText || undefined}
+        onClick={() => {
+          if (canExpandProductCell) {
+            setProductCellExpanded((prev) => !prev);
+          }
+        }}
+        style={{ cursor: canExpandProductCell ? "pointer" : "default" }}
       >
         {primaryDeclaration ? (
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex w-[58px] shrink-0 items-center gap-1 overflow-hidden">
-              {declarationGroups.slice(0, 1).map((group) => (
-                <SkuImageThumb
-                  key={group.declaration.sku.id || group.declaration.sku.sku_code}
-                  product={group.declaration.product}
-                  sku={group.declaration.sku}
-                />
-              ))}
-              {declarationGroups.length > 1 && (
-                <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-md border border-slate-200 bg-slate-50 px-1 text-[11px] font-semibold text-slate-500">
-                  +{declarationGroups.length - 1}
-                </span>
-              )}
-            </div>
-            <div className="flex min-w-0 flex-1 items-center gap-2">
-              <span className="table-cell-clamp table-cell-clamp-1 font-medium text-slate-900">
-                {primaryDeclaration.product.product_name_cn || "--"}
-              </span>
-              <span className="table-cell-clamp table-cell-clamp-1 shrink-0 text-xs font-medium text-slate-500">
-                {productMeta || skuSummary}
-              </span>
-            </div>
+          <div className="flex min-w-0 flex-col gap-1">
+            {productCellExpanded ? (
+              <>
+                {declarationGroups.map((group, index) => (
+                  <div
+                    key={group.declaration.sku.id || index}
+                    className="flex items-center gap-2"
+                  >
+                    <SkuImageThumb
+                      product={group.declaration.product}
+                      sku={group.declaration.sku}
+                    />
+                    <span className="whitespace-normal break-words text-sm font-medium text-slate-900">
+                      {group.declaration.product.product_name_cn || "--"} /{" "}
+                      {group.declaration.sku.sku_code || "--"} ×{group.quantity}
+                    </span>
+                  </div>
+                ))}
+                {declarationGroups.length > 1 && (
+                  <button
+                    type="button"
+                    className="mt-1 text-left text-xs text-sky-600 hover:text-sky-800"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setProductCellExpanded(false);
+                    }}
+                  >
+                    ⌃ 收起
+                  </button>
+                )}
+              </>
+            ) : (
+              <div className="flex min-w-0 items-center gap-2">
+                <div className="flex w-[58px] shrink-0 items-center gap-1 overflow-hidden">
+                  {declarationGroups.slice(0, 1).map((group) => (
+                    <SkuImageThumb
+                      key={group.declaration.sku.id || group.declaration.sku.sku_code}
+                      product={group.declaration.product}
+                      sku={group.declaration.sku}
+                    />
+                  ))}
+                  {declarationGroups.length > 1 && (
+                    <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-md border border-slate-200 bg-slate-50 px-1 text-[11px] font-semibold text-slate-500">
+                      +{declarationGroups.length - 1}
+                    </span>
+                  )}
+                </div>
+                <div className="flex min-w-0 flex-col gap-0.5">
+                  <span className="table-cell-clamp table-cell-clamp-1 font-medium text-slate-900">
+                    {primaryDeclaration.product.product_name_cn || "--"}
+                  </span>
+                  <span className="inline-flex max-w-full items-center gap-1 text-xs font-medium text-slate-500">
+                    <span className="min-w-0 truncate">
+                      {primaryDeclaration.sku.sku_code || "--"} ×
+                      {declarationGroups[0]?.quantity ?? 1}
+                    </span>
+                    {declarationGroups.length > 1 && (
+                      <span className="shrink-0 text-slate-400">⌄</span>
+                    )}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <span className="text-sm font-medium text-slate-500">
@@ -1437,10 +1528,43 @@ const OrderTableRow = memo(function OrderTableRow({
           </span>
         )}
       </td>
-      <td className="order-attr-col" data-full-text={salesSpec || undefined}>
-        <div className="table-cell-preview">
-          <span className="table-cell-clamp table-cell-clamp-1">{salesSpec || "--"}</span>
-        </div>
+      <td
+        className="order-attr-col"
+        data-cell-detail-disabled="true"
+        data-full-text={salesSpec || undefined}
+        onClick={() => {
+          if (canExpandAttrCell) {
+            setAttrCellExpanded((prev) => !prev);
+          }
+        }}
+        style={{ cursor: canExpandAttrCell ? "pointer" : "default" }}
+      >
+        {attrCellExpanded ? (
+          <div className="flex flex-col gap-1 whitespace-normal break-words text-sm text-slate-700">
+            {(salesSpecLines.length > 0 ? salesSpecLines : ["--"]).map((line, index) => (
+              <div key={`${line}-${index}`}>{line}</div>
+            ))}
+            <button
+              type="button"
+              className="w-fit text-xs text-sky-600 hover:text-sky-800"
+              onClick={(event) => {
+                event.stopPropagation();
+                setAttrCellExpanded(false);
+              }}
+            >
+              ⌃
+            </button>
+          </div>
+        ) : (
+          <div className="inline-flex max-w-full items-center gap-1">
+            <span className="min-w-0 truncate">
+              {salesSpec || "--"}
+            </span>
+            {canExpandAttrCell && (
+              <span className="shrink-0 text-xs text-slate-400">⌄</span>
+            )}
+          </div>
+        )}
       </td>
       {isShippingTrackingStage(activeStage) && (
         <>

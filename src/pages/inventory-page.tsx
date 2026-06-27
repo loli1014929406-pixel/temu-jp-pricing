@@ -1524,13 +1524,13 @@ export function InventoryPage({ user }: InventoryPageProps) {
                         >
                           <thead>
                             <tr>
-                              <th className="bg-slate-50 px-4 py-3 font-semibold text-left">商品编号</th>
-                              <th className="bg-slate-50 product-name-col px-4 py-3 font-semibold text-left">产品名称</th>
-                              <th className="bg-slate-50 px-4 py-3 font-semibold text-left">SKU编号</th>
-                              <th className="bg-slate-50 px-4 py-3 font-semibold text-left">销售规格</th>
-                              <th className="bg-slate-50 px-4 py-3 font-semibold text-left">SKU库存</th>
-                              <th className="bg-slate-50 px-4 py-3 font-semibold text-left">SKU推导配件</th>
-                              <th className="bg-slate-50 px-4 py-3 font-semibold text-left">操作</th>
+                              <th className="bg-slate-50 px-3 py-2 font-semibold text-left">商品编号</th>
+                              <th className="bg-slate-50 product-name-col px-3 py-2 font-semibold text-left">产品名称</th>
+                              <th className="bg-slate-50 px-3 py-2 font-semibold text-left">SKU编号</th>
+                              <th className="bg-slate-50 px-3 py-2 font-semibold text-left">销售规格</th>
+                              <th className="bg-slate-50 px-3 py-2 font-semibold text-left">SKU库存</th>
+                              <th className="bg-slate-50 px-3 py-2 font-semibold text-left">SKU推导配件</th>
+                              <th className="bg-slate-50 px-3 py-2 font-semibold text-left">操作</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-line bg-white">
@@ -1555,8 +1555,8 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                 return (
                                   <Fragment key={item.id}>
                                     <tr className="border-t border-line hover:bg-slate-50/50 transition">
-                                      <td className="px-4 py-3 font-medium text-ink">{product?.product_code ?? "--"}</td>
-                                      <td className="product-name-col px-4 py-3 text-slate-600">
+                                      <td className="px-3 py-2 font-medium text-ink">{product?.product_code ?? "--"}</td>
+                                      <td className="product-name-col px-3 py-2 text-slate-600">
                                         <TableCellPreview
                                           label="产品名称"
                                           value={product?.product_name_cn ?? "--"}
@@ -1566,7 +1566,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                           detailSubtitle={product?.product_code}
                                         />
                                       </td>
-                                      <td className="px-4 py-3 font-mono text-xs">
+                                      <td className="px-3 py-2 font-mono text-xs">
                                         <TableCellPreview
                                           label="SKU编号"
                                           value={skuDisplayCode}
@@ -1576,7 +1576,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                           detailSubtitle={product?.product_code}
                                         />
                                       </td>
-                                      <td className="px-4 py-3 text-slate-600">
+                                      <td className="px-3 py-2 text-slate-600">
                                         <TableCellPreview
                                           label="销售规格"
                                           value={salesSpecText}
@@ -1586,7 +1586,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                           detailSubtitle={skuDisplayCode}
                                         />
                                       </td>
-                                      <td className="px-4 py-3">
+                                      <td className="px-3 py-2">
                                         {isEditingSkuStock ? (
                                           <div className="flex flex-col gap-2">
                                             <div className="flex items-center gap-2">
@@ -1660,7 +1660,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                           </div>
                                         )}
                                       </td>
-                                      <td className="px-4 py-3">
+                                      <td className="px-3 py-2">
                                         <button
                                           type="button"
                                           onClick={() => handleToggleSkuDetails(item)}
@@ -1677,7 +1677,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                           查看配件
                                         </button>
                                       </td>
-                                      <td className="px-4 py-3">
+                                      <td className="px-3 py-2">
                                         {canDelete && (
                                           <button
                                             type="button"
@@ -1698,15 +1698,15 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                     </tr>
                                     {expandedSkuIds[item.id] && (
                                       <tr className="bg-slate-50/50">
-                                        <td colSpan={7} className="px-4 py-4">
+                                        <td colSpan={7} className="px-3 py-2">
                                           <div className="overflow-hidden rounded-xl border border-line bg-white shadow-inner">
                                             <table className="data-table">
                                               <thead>
                                                 <tr className="bg-slate-50">
-                                                  <th className="px-4 py-3 font-semibold text-left text-xs">配件名称</th>
-                                                  <th className="px-4 py-3 font-semibold text-left text-xs">配件规格</th>
-                                                  <th className="px-4 py-3 font-semibold text-left text-xs">SKU用量</th>
-                                                  <th className="px-4 py-3 font-semibold text-left text-xs">本SKU推导数量</th>
+                                                  <th className="px-3 py-2 font-semibold text-left text-xs">配件名称</th>
+                                                  <th className="px-3 py-2 font-semibold text-left text-xs">配件规格</th>
+                                                  <th className="px-3 py-2 font-semibold text-left text-xs">SKU用量</th>
+                                                  <th className="px-3 py-2 font-semibold text-left text-xs">本SKU推导数量</th>
                                                 </tr>
                                               </thead>
                                               <tbody>
@@ -1717,14 +1717,14 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                                       item.stock_quantity * Math.max(0, Math.trunc(Number(link.quantity) || 0));
                                                     return (
                                                       <tr key={link.item_id} className="border-t border-line hover:bg-slate-50/50">
-                                                        <td className="px-4 py-3 text-sm text-ink font-medium">
+                                                        <td className="px-3 py-2 text-sm text-ink font-medium">
                                                           {component?.item_name ?? "--"}
                                                         </td>
-                                                        <td className="px-4 py-3 text-xs text-slate-500">
+                                                        <td className="px-3 py-2 text-xs text-slate-500">
                                                           {component?.item_spec || "--"}
                                                         </td>
-                                                        <td className="px-4 py-3 text-sm font-semibold text-slate-700">{link.quantity}</td>
-                                                        <td className="px-4 py-3 text-sm font-semibold text-slate-700">
+                                                        <td className="px-3 py-2 text-sm font-semibold text-slate-700">{link.quantity}</td>
+                                                        <td className="px-3 py-2 text-sm font-semibold text-slate-700">
                                                           {inferredQuantity}
                                                         </td>
                                                       </tr>

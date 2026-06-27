@@ -531,26 +531,26 @@ export function ProductsPage({ user }: ProductsPageProps) {
         >
             <thead>
               <tr>
-                <th className="px-4 py-3 font-medium">商品编号</th>
-                <th className="product-name-col px-4 py-3 font-medium">中文名称</th>
-                <th className="px-4 py-3 font-medium">英文材质</th>
-                <th className="px-4 py-3 font-medium">中文材质</th>
-                <th className="px-4 py-3 font-medium">包装长</th>
-                <th className="px-4 py-3 font-medium">包装宽</th>
-                <th className="px-4 py-3 font-medium">包装高</th>
-                <th className="px-4 py-3 font-medium">包装重量</th>
-                <th className="px-4 py-3 font-medium">是否售卖</th>
-                <th className="px-4 py-3 font-medium">创建用户</th>
-                <th className="px-4 py-3 font-medium">创建时间</th>
-                <th className="px-4 py-3 font-medium">操作</th>
+                <th className="px-3 py-2 font-medium">商品编号</th>
+                <th className="product-name-col px-3 py-2 font-medium">中文名称</th>
+                <th className="px-3 py-2 font-medium">英文材质</th>
+                <th className="px-3 py-2 font-medium">中文材质</th>
+                <th className="px-3 py-2 font-medium">包装长</th>
+                <th className="px-3 py-2 font-medium">包装宽</th>
+                <th className="px-3 py-2 font-medium">包装高</th>
+                <th className="px-3 py-2 font-medium">包装重量</th>
+                <th className="px-3 py-2 font-medium">是否售卖</th>
+                <th className="px-3 py-2 font-medium">创建用户</th>
+                <th className="px-3 py-2 font-medium">创建时间</th>
+                <th className="px-3 py-2 font-medium">操作</th>
               </tr>
             </thead>
             <tbody>
               {(!loading && filteredProducts.length > 0) && (
                 filteredProducts.map((product) => (
                   <tr key={product.id}>
-                    <td className="px-4 py-3">{product.product_code}</td>
-                    <td className="product-name-col px-4 py-3">
+                    <td className="px-3 py-2">{product.product_code}</td>
+                    <td className="product-name-col px-3 py-2">
                       <TableCellPreview
                         label="中文名称"
                         value={product.product_name_cn}
@@ -560,17 +560,29 @@ export function ProductsPage({ user }: ProductsPageProps) {
                         detailSubtitle={product.product_code}
                       />
                     </td>
-                    <td className="px-4 py-3">
-                      <TableCellPreview label="英文材质" value={product.material_en || "--"} />
+                    <td className="px-3 py-2" data-full-text={product.material_en || "--"}>
+                      <span
+                        className="cell-truncate"
+                        style={{ maxWidth: "10rem" }}
+                        title={product.material_en || "--"}
+                      >
+                        {product.material_en || "--"}
+                      </span>
                     </td>
-                    <td className="px-4 py-3">
-                      <TableCellPreview label="中文材质" value={product.material_cn || "--"} />
+                    <td className="px-3 py-2" data-full-text={product.material_cn || "--"}>
+                      <span
+                        className="cell-truncate"
+                        style={{ maxWidth: "10rem" }}
+                        title={product.material_cn || "--"}
+                      >
+                        {product.material_cn || "--"}
+                      </span>
                     </td>
                     <td className="number-cell">{product.package_length_cm} cm</td>
                     <td className="number-cell">{product.package_width_cm} cm</td>
                     <td className="number-cell">{product.package_height_cm} cm</td>
                     <td className="number-cell">{product.package_weight_g} g</td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2">
                       {canEdit && editingSellingProductId === product.id ? (
                         <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
                           <input
@@ -586,13 +598,18 @@ export function ProductsPage({ user }: ProductsPageProps) {
                         product.is_selling ? "售卖" : "不售卖"
                       )}
                     </td>
-                    <td className="px-4 py-3">
-                      <TableCellPreview
-                        label="创建用户"
-                        value={formatAccountProfileDisplay(profilesByOwnerId.get(product.owner_id))}
-                      />
+                    <td
+                      className="px-3 py-2"
+                      data-full-text={formatAccountProfileDisplay(profilesByOwnerId.get(product.owner_id))}
+                    >
+                      <div className="cell-truncate" style={{ maxWidth: "9rem" }}>
+                        <TableCellPreview
+                          label="创建用户"
+                          value={formatAccountProfileDisplay(profilesByOwnerId.get(product.owner_id))}
+                        />
+                      </div>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2">
                       {new Date(product.created_at).toLocaleString("zh-CN", {
                         year: "numeric",
                         month: "2-digit",
@@ -601,7 +618,7 @@ export function ProductsPage({ user }: ProductsPageProps) {
                         minute: "2-digit",
                       })}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2">
                       <div className="flex min-w-28 items-center gap-3">
                         {canEdit && editingSellingProductId === product.id && (
                           <>

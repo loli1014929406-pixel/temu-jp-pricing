@@ -1270,7 +1270,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
           >
             <thead>
               <tr>
-                <th className="bg-slate-50 px-4 py-3 font-medium">
+                <th className="bg-slate-50 px-3 py-2 font-medium">
                   <SortableHeader
                     label="商品编号"
                     sortKey="productCode"
@@ -1278,8 +1278,8 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                     onSort={handleSort}
                   />
                 </th>
-                <th className="bg-slate-50 px-4 py-3 text-left font-medium text-slate-500">产品名称</th>
-                <th className="bg-slate-50 px-4 py-3 font-medium">
+                <th className="bg-slate-50 px-3 py-2 font-medium">产品名称</th>
+                <th className="bg-slate-50 px-3 py-2 font-medium">
                   <SortableHeader
                     label="销量"
                     sortKey="salesQuantity"
@@ -1287,10 +1287,10 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                     onSort={handleSort}
                   />
                 </th>
-                <th className="bg-slate-50 px-4 py-3 font-medium text-slate-500">核价</th>
-                <th className="bg-slate-50 px-4 py-3 font-medium">总成本</th>
-                <th className="bg-slate-50 px-4 py-3 font-medium text-slate-500">流量加速</th>
-                <th className="bg-slate-50 px-4 py-3 font-medium">
+                <th className="bg-slate-50 px-3 py-2 font-medium text-slate-500">核价</th>
+                <th className="bg-slate-50 px-3 py-2 font-medium">总成本</th>
+                <th className="bg-slate-50 px-3 py-2 font-medium text-slate-500">流量加速</th>
+                <th className="bg-slate-50 px-3 py-2 font-medium">
                   <SortableHeader
                     label="活动折扣"
                     sortKey="activityDiscountRate"
@@ -1298,13 +1298,13 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                     onSort={handleSort}
                   />
                 </th>
-                <th className="bg-slate-50 px-4 py-3 text-center font-medium text-slate-500">优惠券价</th>
-                <th className="bg-slate-50 px-4 py-3 text-center font-medium text-slate-500">ROAS</th>
-                <th className="bg-slate-50 px-4 py-3 text-right font-medium text-slate-500">广告费</th>
-                <th className="bg-slate-50 px-4 py-3 text-right font-medium text-slate-500">最终售价</th>
-                <th className="bg-slate-50 px-4 py-3 text-center font-medium text-slate-500">PR</th>
-                <th className="bg-slate-50 px-4 py-3 text-center font-medium text-slate-500">临界值</th>
-                <th className="bg-slate-50 px-4 py-3 font-medium">
+                <th className="number-cell bg-slate-50 px-3 py-2 font-medium text-slate-500">优惠券价</th>
+                <th className="number-cell bg-slate-50 px-3 py-2 font-medium text-slate-500">ROAS</th>
+                <th className="number-cell bg-slate-50 px-3 py-2 font-medium text-slate-500">广告费</th>
+                <th className="number-cell bg-slate-50 px-3 py-2 font-medium text-slate-500">最终售价</th>
+                <th className="number-cell bg-slate-50 px-3 py-2 font-medium text-slate-500">PR</th>
+                <th className="number-cell bg-slate-50 px-3 py-2 font-medium text-slate-500">临界值</th>
+                <th className="bg-slate-50 px-3 py-2 font-medium">
                   <SortableHeader
                     label="利润"
                     sortKey="profitRmb"
@@ -1312,7 +1312,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                     onSort={handleSort}
                   />
                 </th>
-                <th className="bg-slate-50 px-4 py-3 font-medium">
+                <th className="bg-slate-50 px-3 py-2 font-medium">
                   <SortableHeader
                     label="利润率"
                     sortKey="profitRate"
@@ -1320,10 +1320,10 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                     onSort={handleSort}
                   />
                 </th>
-                <th className="bg-slate-50 px-4 py-3 text-center font-medium text-slate-500">
+                <th className="number-cell bg-slate-50 px-3 py-2 font-medium text-slate-500">
                   包邮数量
                 </th>
-                <th className="bg-slate-50 px-4 py-3 text-center font-medium text-slate-500 w-24 whitespace-nowrap">操作</th>
+                <th className="bg-slate-50 px-3 py-2 text-center font-medium text-slate-500 w-24 whitespace-nowrap">操作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line bg-white">
@@ -1332,8 +1332,19 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
 
                   return (
                   <tr key={product.id}>
-                    <td className="px-4 py-3">{product.product_code}</td>
-                    <td className="product-name-col px-4 py-3">{product.product_name_cn}</td>
+                    <td className="px-3 py-2">{product.product_code}</td>
+                    <td
+                      className="product-name-col px-3 py-2"
+                      data-full-text={product.product_name_cn}
+                    >
+                      <span
+                        className="cell-truncate"
+                        style={{ maxWidth: "15rem" }}
+                        title={product.product_name_cn}
+                      >
+                        {product.product_name_cn}
+                      </span>
+                    </td>
                     <td className="number-cell">{salesQuantities[product.id] ?? 0}</td>
                     <td className="money">
                       {typeof temuPrices[product.id] === "number"
@@ -1345,7 +1356,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                         ? formatCurrency(summary.totalCostRmb)
                         : "--"}
                     </td>
-                    <td className="px-3 py-3 text-right">
+                    <td className="px-3 py-2 text-right">
                       <DiscountInput
                         label={`${product.product_code} 流量加速`}
                         disabled={!canEdit}
@@ -1355,7 +1366,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                         }
                       />
                     </td>
-                    <td className="px-3 py-3 text-right">
+                    <td className="px-3 py-2 text-right">
                       <DiscountInput
                         label={`${product.product_code} 活动折扣`}
                         min="0.01"
@@ -1367,7 +1378,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                         }
                       />
                     </td>
-                    <td className="px-3 py-3 text-right">
+                    <td className="px-3 py-2 text-right">
                       <DiscountInput
                         label={`${product.product_code} 优惠券价`}
                         disabled={!canEdit}
@@ -1377,7 +1388,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                         }
                       />
                     </td>
-                    <td className="px-3 py-3 text-right">
+                    <td className="px-3 py-2 text-right">
                       <DiscountInput
                         label={`${product.product_code} ROAS`}
                         disabled={!canEdit}
@@ -1407,7 +1418,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                         ? summary.criticalValue.toFixed(2)
                         : "--"}
                     </td>
-                    <td className="px-4 py-4">
+                    <td className="px-3 py-2">
                       {typeof summary?.profitRmb === "number"
                         ? (
                           <span
@@ -1424,7 +1435,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                         )
                         : "--"}
                     </td>
-                    <td className="px-4 py-4">
+                    <td className="px-3 py-2">
                       {typeof summary?.profitRate === "number"
                         ? (() => {
                             const profitRate = summary.profitRate;
@@ -1447,7 +1458,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                     <td className="number-cell">
                       {summary?.freeShippingThresholdQty ?? "--"}
                     </td>
-                    <td className="w-24 px-4 py-3">
+                    <td className="w-24 px-3 py-2">
                       <div className="flex flex-col items-start gap-2">
                         {canEdit && (
                           <button

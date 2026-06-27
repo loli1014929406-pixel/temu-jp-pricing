@@ -163,26 +163,26 @@ export function MultiShipmentProductsPage({
           >
             <thead>
               <tr>
-                <th className="bg-slate-50 px-4 py-3 font-medium">商品编号</th>
-                <th className="bg-slate-50 px-4 py-3 text-left font-medium text-slate-500">产品名称</th>
-                <th className="bg-slate-50 px-4 py-3 font-medium">包装尺寸</th>
-                <th className="bg-slate-50 px-4 py-3 font-medium">重量</th>
-                <th className="bg-slate-50 px-4 py-3 font-medium">3cm 每包</th>
-                <th className="bg-slate-50 px-4 py-3 font-medium">3cm状态</th>
-                <th className="bg-slate-50 px-4 py-3 font-medium">操作</th>
+                <th className="bg-slate-50 px-3 py-2 font-medium">商品编号</th>
+                <th className="bg-slate-50 px-3 py-2 font-medium">产品名称</th>
+                <th className="bg-slate-50 px-3 py-2 font-medium">包装尺寸</th>
+                <th className="bg-slate-50 px-3 py-2 font-medium">重量</th>
+                <th className="bg-slate-50 px-3 py-2 font-medium">3cm 每包</th>
+                <th className="bg-slate-50 px-3 py-2 font-medium">3cm状态</th>
+                <th className="bg-slate-50 px-3 py-2 font-medium">操作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line bg-white">
               {paginatedProducts.rows.map((product) => (
                   <tr key={product.id}>
-                    <td className="px-4 py-3">{product.product_code}</td>
-                    <td className="product-name-col px-4 py-3">{product.product_name_cn}</td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2">{product.product_code}</td>
+                    <td className="product-name-col px-3 py-2">{product.product_name_cn}</td>
+                    <td className="px-3 py-2">
                       {product.package_length_cm} × {product.package_width_cm} × {product.package_height_cm} cm
                     </td>
                     <td className="number-cell">{product.package_weight_g}g</td>
                     <td className="number-cell">{product.max_units_per_parcel}</td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2">
                       {getProductThreeCmUnavailableReason(product) ? (
                         <Badge tone="warning">
                           {getProductThreeCmUnavailableReason(product)}
@@ -191,7 +191,7 @@ export function MultiShipmentProductsPage({
                         <Badge tone="success">3cm 可用</Badge>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2">
                       <Link
                         className="inline-flex items-center gap-1 whitespace-nowrap text-sm font-semibold text-sky-700 transition hover:text-sky-900 hover:underline"
                         to={getDetailPath(product, mode)}

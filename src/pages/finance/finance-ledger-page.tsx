@@ -278,7 +278,7 @@ export function FinanceLedgerPage({ user }: Props) {
               </tbody>
               <tfoot>
                 <tr className="bg-slate-50 font-bold border-t-2 border-line">
-                  <td colSpan={4} className="text-right text-slate-600 pr-4">筛选汇总 (净额: <span className={totalIncome - totalExpense >= 0 ? "text-emerald-600" : "text-rose-600"}>{formatCurrency(totalIncome - totalExpense)}</span>)</td>
+                  <td colSpan={4} className="text-slate-600 pr-4">筛选汇总 (净额: <span className={totalIncome - totalExpense >= 0 ? "text-emerald-600" : "text-rose-600"}>{formatCurrency(totalIncome - totalExpense)}</span>)</td>
                   <td className="number-cell text-xs leading-5">
                     <div className="text-emerald-700">+ {formatCurrency(totalIncome)}</div>
                     <div className="text-rose-700">- {formatCurrency(totalExpense)}</div>

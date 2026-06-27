@@ -340,9 +340,9 @@ a {
 
   .data-table.orders-table th.order-attr-col,
   .data-table.orders-table td.order-attr-col {
-    width: 15rem;
-    min-width: 15rem;
-    max-width: 15rem;
+    width: 14rem;
+    min-width: 14rem;
+    max-width: 14rem;
     white-space: nowrap;
   }
 
@@ -396,9 +396,9 @@ a {
 
   .data-table.orders-table th.order-product-col,
   .data-table.orders-table td.order-product-col {
-    width: 21rem;
-    min-width: 21rem;
-    max-width: 21rem;
+    width: 17rem;
+    min-width: 17rem;
+    max-width: 17rem;
     white-space: nowrap;
   }
 
@@ -441,7 +441,7 @@ a {
   }
 
   .data-table .text-right {
-    text-align: left !important;
+    text-align: right !important;
   }
 
   .table-cell-preview {
@@ -484,6 +484,44 @@ a {
     cursor: default;
   }
 
+  table.data-table td:not([data-cell-detail-disabled="true"]) {
+    cursor: default;
+  }
+
+  table.data-table td[data-full-text],
+  table.data-table td.order-product-col,
+  table.data-table td.order-attr-col,
+  table.data-table td.order-address-col {
+    cursor: pointer;
+  }
+
+  table.data-table td.cell-expanded {
+    white-space: normal !important;
+    word-break: break-word;
+    min-width: 0;
+  }
+
+  table.data-table td.cell-expanded .cell-truncate,
+  table.data-table td.cell-expanded .table-cell-preview,
+  table.data-table td.cell-expanded .table-cell-clamp {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  table.data-table td.order-address-col.cell-expanded {
+    width: 28rem;
+    min-width: 28rem;
+    max-width: 28rem;
+  }
+
+  table.data-table td .cell-truncate {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .data-table tbody tr {
     transition: background-color 150ms ease;
   }
@@ -510,10 +548,12 @@ a {
 
   .money {
     @apply font-semibold tabular-nums text-slate-900;
+    text-align: right !important;
   }
 
   .number-cell {
-    @apply text-left tabular-nums font-medium;
+    @apply tabular-nums font-medium;
+    text-align: center !important;
   }
 
   .btn-primary {

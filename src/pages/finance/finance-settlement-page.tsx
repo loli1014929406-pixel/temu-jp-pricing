@@ -433,8 +433,18 @@ export function FinanceSettlementPage({ user }: Props) {
                       const accountingStatus = getAccountingStatus(row as any);
                       return (
                         <tr key={row.order.id} className="hover:bg-slate-50/50">
-                        <td className="font-semibold text-slate-800">{row.order.order_no}</td>
-                        <td className="font-mono text-slate-600 text-xs font-bold">{row.order.sku_code || "--"}</td>
+                        <td
+                          className="font-semibold text-slate-800"
+                          data-full-text={row.order.order_no}
+                        >
+                          {row.order.order_no}
+                        </td>
+                        <td
+                          className="font-mono text-slate-600 text-xs font-bold"
+                          data-full-text={row.order.sku_code || "--"}
+                        >
+                          {row.order.sku_code || "--"}
+                        </td>
                         <td className="text-slate-700 font-medium">
                           <TableCellPreview
                             label={row.product ? "系统匹配商品" : "订单规格"}
@@ -586,7 +596,7 @@ export function FinanceSettlementPage({ user }: Props) {
                 >
                   <thead>
                     <tr>
-                      <th className="bg-slate-50 w-16 text-center">序号</th>
+                      <th className="number-cell bg-slate-50 w-16">序号</th>
                       <th className="bg-slate-50">订单编号</th>
                       <th className="bg-slate-50">Temu SKU Code</th>
                       <th className="bg-slate-50">系统匹配商品</th>
@@ -604,11 +614,21 @@ export function FinanceSettlementPage({ user }: Props) {
                       const accountingStatus = getAccountingStatus(row as any);
                       return (
                         <tr key={row.order.id} className="hover:bg-slate-50/50">
-                          <td className="text-center text-slate-400 font-mono text-xs">
+                          <td className="number-cell text-slate-400 font-mono text-xs">
                             {(incomePaginated.page - 1) * incomePageSize + index + 1}
                           </td>
-                          <td className="font-semibold text-slate-800">{row.order.order_no}</td>
-                          <td className="font-mono text-slate-600 text-xs">{row.order.sku_code || "--"}</td>
+                          <td
+                            className="font-semibold text-slate-800"
+                            data-full-text={row.order.order_no}
+                          >
+                            {row.order.order_no}
+                          </td>
+                          <td
+                            className="font-mono text-slate-600 text-xs"
+                            data-full-text={row.order.sku_code || "--"}
+                          >
+                            {row.order.sku_code || "--"}
+                          </td>
                           <td className="text-slate-700 font-medium">
                             <TableCellPreview
                               label={row.product ? "系统匹配商品" : "订单规格"}
