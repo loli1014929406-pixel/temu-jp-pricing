@@ -1,7 +1,7 @@
 import type { User } from "@supabase/supabase-js";
 import { useState, useMemo, useEffect } from "react";
 import { Plus, Trash2, AlertTriangle, Check, X, RefreshCw, Edit2, Search } from "lucide-react";
-import { PageHeader, Badge, StandardTable } from "../../components/ui";
+import { PageHeader, Badge, StandardTable, TableCellPreview } from "../../components/ui";
 import { usePermissions } from "../../hooks/use-permissions";
 import { useFinanceData } from "./use-finance-data";
 import {
@@ -34,6 +34,29 @@ import { confirmAction, confirmDelete, confirmSave } from "../../utils/confirmat
 type Props = {
   user: User;
 };
+
+const settlementReconColumns = [
+  { key: "status", width: "9rem" },
+  { key: "order_no", width: "13rem" },
+  { key: "sku_code", width: "13rem" },
+  { key: "suggestion", width: "20rem" },
+  { key: "shipping_fee", width: "10rem" },
+  { key: "actions", width: "14rem" },
+] as const;
+
+const settlementIncomeColumns = [
+  { key: "index", width: "4rem" },
+  { key: "order_no", width: "13rem" },
+  { key: "sku_code", width: "13rem" },
+  { key: "product", width: "18rem" },
+  { key: "product_cost", width: "10rem" },
+  { key: "shipping_fee", width: "10rem" },
+  { key: "bill", width: "10rem" },
+  { key: "revenue", width: "10rem" },
+  { key: "logistics", width: "13rem" },
+  { key: "settlement", width: "8rem" },
+  { key: "accounting", width: "8rem" },
+] as const;
 
 export function FinanceSettlementPage({ user }: Props) {
   const { canEdit } = usePermissions();
@@ -385,6 +408,8 @@ export function FinanceSettlementPage({ user }: Props) {
               <>
                 <StandardTable 
                   minWidth="min-w-[1080px]"
+                  columns={settlementReconColumns}
+                  layout="fixed"
                   page={reconPaginated.page}
                   pageSize={reconPageSize}
                   totalPages={reconPaginated.totalPages}
@@ -411,11 +436,14 @@ export function FinanceSettlementPage({ user }: Props) {
                         <td className="font-semibold text-slate-800">{row.order.order_no}</td>
                         <td className="font-mono text-slate-600 text-xs font-bold">{row.order.sku_code || "--"}</td>
                         <td className="text-slate-700 font-medium">
-                          {row.product ? (
-                            <span>{row.product.product_name_cn}</span>
-                          ) : (
-                            <span className="text-slate-400 italic">规格: {row.order.product_attributes || "--"}</span>
-                          )}
+                          <TableCellPreview
+                            label={row.product ? "系统匹配商品" : "订单规格"}
+                            value={row.product ? row.product.product_name_cn : `规格: ${row.order.product_attributes || "--"}`}
+                            lines={2}
+                            alwaysShowDetail
+                            detailTitle={row.product ? "系统匹配商品" : "订单规格"}
+                            detailSubtitle={row.order.order_no}
+                          />
                         </td>
                         <td>
                           <div className="flex flex-wrap gap-1.5">
@@ -547,6 +575,8 @@ export function FinanceSettlementPage({ user }: Props) {
                 <StandardTable 
                   minWidth="min-w-[1450px]" 
                   tableClassName="finance-freeze-order"
+                  columns={settlementIncomeColumns}
+                  layout="fixed"
                   page={incomePaginated.page}
                   pageSize={incomePageSize}
                   totalPages={incomePaginated.totalPages}
@@ -579,8 +609,15 @@ export function FinanceSettlementPage({ user }: Props) {
                           </td>
                           <td className="font-semibold text-slate-800">{row.order.order_no}</td>
                           <td className="font-mono text-slate-600 text-xs">{row.order.sku_code || "--"}</td>
-                          <td className="text-slate-700 font-medium max-w-xs truncate" title={row.product?.product_name_cn}>
-                            {row.product ? row.product.product_name_cn : <span className="text-slate-400 italic">规格: {row.order.product_attributes || "--"}</span>}
+                          <td className="text-slate-700 font-medium">
+                            <TableCellPreview
+                              label={row.product ? "系统匹配商品" : "订单规格"}
+                              value={row.product ? row.product.product_name_cn : `规格: ${row.order.product_attributes || "--"}`}
+                              lines={2}
+                              alwaysShowDetail
+                              detailTitle={row.product ? "系统匹配商品" : "订单规格"}
+                              detailSubtitle={row.order.order_no}
+                            />
                           </td>
                           <td className="money text-slate-500">{formatCurrency(row.productCostRmb)}</td>
                           <td className="money">

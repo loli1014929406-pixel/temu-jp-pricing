@@ -3,6 +3,7 @@ import { Link, Navigate, Route, Routes } from "react-router-dom";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PageShell } from "./components/page-shell";
 import { ProtectedRoute } from "./components/protected-route";
+import { DataTableCellFullText } from "./components/ui/DataTableCellFullText";
 import { useAuth } from "./hooks/use-auth";
 import { PermissionGate, PermissionProvider } from "./hooks/use-permissions";
 import { AuthPage } from "./pages/auth-page";
@@ -48,6 +49,7 @@ export default function App() {
 
   return (
     <ErrorBoundary>
+      <DataTableCellFullText />
       <Suspense fallback={<div className="flex h-screen items-center justify-center"><div className="text-slate-500">Loading...</div></div>}>
         <Routes>
         <Route path="/login" element={<AuthPage user={user} />} />

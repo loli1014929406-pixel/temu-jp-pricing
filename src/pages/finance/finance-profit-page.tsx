@@ -1,7 +1,7 @@
 import type { User } from "@supabase/supabase-js";
 import { useMemo, useState, useEffect } from "react";
 import { TrendingUp, RefreshCw, Search } from "lucide-react";
-import { PageHeader, StandardTable } from "../../components/ui";
+import { PageHeader, StandardTable, TableCellPreview } from "../../components/ui";
 import { useFinanceData } from "./use-finance-data";
 import {
   EmptyPanel,
@@ -35,6 +35,18 @@ type Props = {
 
 const PROFIT_CHART_TARGET_TICKS = 5;
 const PROFIT_CHART_MIN_PADDING = 100;
+
+const financeProductProfitColumns = [
+  { key: "product_code", width: "9rem" },
+  { key: "product_name", width: "18rem" },
+  { key: "order_count", width: "8rem" },
+  { key: "quantity", width: "8rem" },
+  { key: "product_cost", width: "10rem" },
+  { key: "shipping", width: "10rem" },
+  { key: "revenue", width: "11rem" },
+  { key: "profit", width: "10rem" },
+  { key: "margin", width: "9rem" },
+] as const;
 
 function normalizeAxisValue(value: number) {
   const normalized = Math.abs(value) < 1e-9 ? 0 : value;
@@ -592,6 +604,8 @@ export function FinanceProfitPage({ user }: Props) {
               </div>
               <StandardTable 
                 minWidth="min-w-[1250px]"
+                columns={financeProductProfitColumns}
+                layout="fixed"
                 page={paginatedProduct.page}
                 pageSize={productPageSize}
                 totalPages={paginatedProduct.totalPages}
@@ -632,7 +646,16 @@ export function FinanceProfitPage({ user }: Props) {
                     return (
                       <tr key={`${row.productCode}-${row.productName}`} className="hover:bg-slate-50/50">
                         <td className="font-bold text-slate-900">{row.productCode}</td>
-                        <td className="text-slate-700 max-w-xs truncate font-medium" title={row.productName}>{row.productName}</td>
+                        <td className="text-slate-700 font-medium">
+                          <TableCellPreview
+                            label="商品名称"
+                            value={row.productName}
+                            lines={2}
+                            alwaysShowDetail
+                            detailTitle="商品利润详情名称"
+                            detailSubtitle={row.productCode}
+                          />
+                        </td>
                         <td className="number-cell font-semibold">{row.orderCount}</td>
                         <td className="number-cell font-semibold">{row.quantity}</td>
                         <td className="money">{formatCurrency(row.productCost)}</td>

@@ -25,7 +25,7 @@ import { getErrorMessage } from "../utils/errors";
 import { confirmAction, confirmCancelEdit, confirmDelete, confirmSave } from "../utils/confirmations";
 import type { AccountProfile, Product } from "../types";
 import type { User } from "@supabase/supabase-js";
-import { PageHeader, StatCard } from "../components/ui";
+import { PageHeader, StatCard, TableCellPreview } from "../components/ui";
 import { StandardTable } from "../components/ui/StandardTable";
 
 type ProductsPageProps = {
@@ -33,6 +33,21 @@ type ProductsPageProps = {
 };
 
 type ProductSellingFilter = "selling" | "not_selling" | "all";
+
+const productTableColumns = [
+  { key: "product_code", width: "8rem" },
+  { key: "product_name_cn", width: "15rem" },
+  { key: "material_en", width: "11rem" },
+  { key: "material_cn", width: "11rem" },
+  { key: "length", width: "6rem" },
+  { key: "width", width: "6rem" },
+  { key: "height", width: "6rem" },
+  { key: "weight", width: "7rem" },
+  { key: "is_selling", width: "7rem" },
+  { key: "owner", width: "10rem" },
+  { key: "created_at", width: "10rem" },
+  { key: "actions", width: "11rem" },
+] as const;
 
 export function ProductsPage({ user }: ProductsPageProps) {
   const { canEdit, canDelete } = usePermissions();
@@ -510,6 +525,9 @@ export function ProductsPage({ user }: ProductsPageProps) {
           onPageSizeChange={setPageSize}
           loading={loading}
           empty={filteredProducts.length === 0}
+          columns={productTableColumns}
+          layout="fixed"
+          minWidth="min-w-[1200px]"
         >
             <thead>
               <tr>
@@ -532,9 +550,22 @@ export function ProductsPage({ user }: ProductsPageProps) {
                 filteredProducts.map((product) => (
                   <tr key={product.id}>
                     <td className="px-4 py-3">{product.product_code}</td>
-                    <td className="product-name-col px-4 py-3">{product.product_name_cn}</td>
-                    <td className="px-4 py-3">{product.material_en || "--"}</td>
-                    <td className="px-4 py-3">{product.material_cn || "--"}</td>
+                    <td className="product-name-col px-4 py-3">
+                      <TableCellPreview
+                        label="中文名称"
+                        value={product.product_name_cn}
+                        lines={2}
+                        alwaysShowDetail
+                        detailTitle="商品中文名称"
+                        detailSubtitle={product.product_code}
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <TableCellPreview label="英文材质" value={product.material_en || "--"} />
+                    </td>
+                    <td className="px-4 py-3">
+                      <TableCellPreview label="中文材质" value={product.material_cn || "--"} />
+                    </td>
                     <td className="number-cell">{product.package_length_cm} cm</td>
                     <td className="number-cell">{product.package_width_cm} cm</td>
                     <td className="number-cell">{product.package_height_cm} cm</td>
@@ -556,7 +587,10 @@ export function ProductsPage({ user }: ProductsPageProps) {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      {formatAccountProfileDisplay(profilesByOwnerId.get(product.owner_id))}
+                      <TableCellPreview
+                        label="创建用户"
+                        value={formatAccountProfileDisplay(profilesByOwnerId.get(product.owner_id))}
+                      />
                     </td>
                     <td className="px-4 py-3">
                       {new Date(product.created_at).toLocaleString("zh-CN", {

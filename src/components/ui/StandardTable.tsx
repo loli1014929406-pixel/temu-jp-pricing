@@ -1,10 +1,19 @@
 import { ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
+export type StandardTableColumn = {
+  key: string;
+  width?: string;
+  minWidth?: string;
+  className?: string;
+};
+
 export type StandardTableProps = {
   children: ReactNode;
   minWidth?: string;
   tableClassName?: string;
+  columns?: readonly StandardTableColumn[];
+  layout?: "auto" | "fixed";
   loading?: boolean;
   empty?: boolean;
   emptyMessage?: string;
@@ -23,6 +32,8 @@ export function StandardTable({
   children,
   minWidth = "min-w-full",
   tableClassName = "",
+  columns,
+  layout,
   loading = false,
   empty = false,
   emptyMessage = "暂无数据",
@@ -34,10 +45,26 @@ export function StandardTable({
   onPageSizeChange,
   pageSizeOptions = [20, 50, 100]
 }: StandardTableProps) {
+  const tableLayout = layout ?? (columns && columns.length > 0 ? "fixed" : "auto");
+
   return (
     <div className="table-card flex flex-col bg-panel">
       <div className="overflow-x-auto">
-        <table className={`data-table ${minWidth} ${tableClassName}`}>
+        <table className={`data-table ${tableLayout === "fixed" ? "is-fixed-table" : ""} ${minWidth} ${tableClassName}`}>
+          {columns && columns.length > 0 && (
+            <colgroup>
+              {columns.map((column) => (
+                <col
+                  key={column.key}
+                  className={column.className}
+                  style={{
+                    width: column.width,
+                    minWidth: column.minWidth,
+                  }}
+                />
+              ))}
+            </colgroup>
+          )}
           {children}
           {(loading || empty) && (
             <tbody>

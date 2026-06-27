@@ -1,7 +1,7 @@
 import type { User } from "@supabase/supabase-js";
 import { useState, useMemo, useEffect } from "react";
 import { RefreshCw } from "lucide-react";
-import { PageHeader, Badge, StandardTable } from "../../components/ui";
+import { PageHeader, Badge, StandardTable, TableCellPreview } from "../../components/ui";
 import { useFinanceData } from "./use-finance-data";
 import {
   EmptyPanel,
@@ -21,6 +21,15 @@ import { buildSettlementLookup } from "../../lib/settlement";
 type Props = {
   user: User;
 };
+
+const ledgerTableColumns = [
+  { key: "date", width: "8rem" },
+  { key: "type", width: "8rem" },
+  { key: "direction", width: "7rem" },
+  { key: "subject", width: "18rem" },
+  { key: "amount", width: "10rem" },
+  { key: "remark", width: "24rem" },
+] as const;
 
 type LedgerRow = {
   date: string;
@@ -218,6 +227,9 @@ export function FinanceLedgerPage({ user }: Props) {
               totalRecordCount={paginated.total}
               onPageChange={setPage}
               onPageSizeChange={setPageSize}
+              columns={ledgerTableColumns}
+              layout="fixed"
+              minWidth="min-w-[980px]"
             >
               <thead>
                 <tr>
@@ -239,11 +251,28 @@ export function FinanceLedgerPage({ user }: Props) {
                         {row.direction}
                       </Badge>
                     </td>
-                    <td className="font-bold text-slate-800">{row.subject}</td>
+                    <td className="font-bold text-slate-800">
+                      <TableCellPreview
+                        label="流水对象 / 单号"
+                        value={row.subject}
+                        alwaysShowDetail={row.subject.length > 18}
+                        detailTitle="流水对象 / 单号"
+                        detailSubtitle={row.date}
+                      />
+                    </td>
                     <td className={`money ${row.direction === "支出" ? "text-rose-700" : "text-emerald-700"}`}>
                       {formatCurrency(Math.abs(row.amountRmb))}
                     </td>
-                    <td className="text-slate-500 text-xs font-medium">{row.remark || "--"}</td>
+                    <td className="text-slate-500 font-medium">
+                      <TableCellPreview
+                        label="流水详情说明"
+                        value={row.remark || "--"}
+                        lines={2}
+                        alwaysShowDetail={Boolean(row.remark)}
+                        detailTitle="流水详情说明"
+                        detailSubtitle={row.subject}
+                      />
+                    </td>
                   </tr>
                 ))}
               </tbody>

@@ -99,3 +99,6 @@ export function StatCard({ label, value, tone = "default" }: StatCardProps) {
 }
 
 export * from "./ui/StandardTable";
+export * from "./ui/RecordDetailModal";
+export * from "./ui/TableCellPreview";
+export * from "./ui/DataTableCellFullText";

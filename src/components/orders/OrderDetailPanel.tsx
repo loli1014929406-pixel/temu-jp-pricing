@@ -56,7 +56,7 @@ export function OrderDetailPanel({
                 className="rounded-md border border-line bg-slate-50 px-3 py-2"
               >
                 <dt className="text-xs font-semibold text-slate-500">{label}</dt>
-                <dd className="mt-1 whitespace-pre-wrap break-words text-sm font-medium text-slate-900">
+                <dd className="mt-1 whitespace-pre-wrap break-words text-sm font-medium text-slate-900 [overflow-wrap:anywhere]">
                   {value || "--"}
                 </dd>
               </div>

@@ -2,12 +2,18 @@
 @tailwind components;
 @tailwind utilities;
 
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 :root {
   color: #1e293b;
   background: #f8fafc;
   font-family:
-    Inter, "PingFang SC", "Microsoft YaHei", system-ui, -apple-system,
-    BlinkMacSystemFont, "Segoe UI", sans-serif;
+    "Microsoft YaHei", "PingFang SC", "Noto Sans SC", "Segoe UI",
+    system-ui, -apple-system, BlinkMacSystemFont, Arial, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -23,7 +29,15 @@ body {
   min-width: 320px;
   min-height: 100vh;
   background: #f8fafc;
-  font-size: 15px;
+  font-family: inherit;
+  font-size: 16px;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
 }
 
 a {
@@ -149,6 +163,12 @@ a {
     @apply min-w-full text-left text-sm;
     border-collapse: separate;
     border-spacing: 0;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  .data-table.is-fixed-table {
+    table-layout: fixed;
   }
 
   .data-table thead {
@@ -164,6 +184,7 @@ a {
     @apply py-2 text-sm font-semibold tracking-normal text-slate-600 bg-slate-50/75 backdrop-blur-sm whitespace-nowrap;
     padding-left: 0.75rem !important;
     padding-right: 0.75rem !important;
+    font-size: 13px;
     line-height: 1.35;
     background: #f8fafc;
     text-align: left;
@@ -173,7 +194,12 @@ a {
     @apply py-2.5 align-middle text-slate-700 border-t border-slate-100;
     padding-left: 0.75rem !important;
     padding-right: 0.75rem !important;
+    font-size: 13px;
+    line-height: 1.45;
     text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .data-table.finance-freeze-order th:nth-child(1),
@@ -244,12 +270,27 @@ a {
     background: #f8fafc;
   }
 
+  .data-table.finance-freeze-order th:nth-child(1),
+  .data-table.finance-freeze-order td:nth-child(1) {
+    width: 4rem;
+    min-width: 4rem;
+    max-width: 4rem;
+  }
+
+  .data-table.finance-freeze-order th:nth-child(2),
+  .data-table.finance-freeze-order td:nth-child(2) {
+    left: 4rem;
+    width: 13rem;
+    min-width: 13rem;
+    max-width: 13rem;
+  }
+
   .data-table th.product-name-col,
   .data-table td.product-name-col {
-    width: calc(11em + 1rem);
-    min-width: calc(11em + 1rem);
-    max-width: calc(11em + 1rem);
-    white-space: normal;
+    width: 15rem;
+    min-width: 15rem;
+    max-width: 15rem;
+    white-space: nowrap;
     word-break: normal;
     overflow-wrap: normal;
     line-break: strict;
@@ -257,106 +298,190 @@ a {
 
   .data-table.orders-table th.order-no-col,
   .data-table.orders-table td.order-no-col {
+    width: 14.5rem;
     min-width: 14.5rem;
+    max-width: 14.5rem;
     white-space: nowrap;
     @apply font-mono;
   }
 
   .data-table.orders-table th.order-stage-col,
   .data-table.orders-table td.order-stage-col {
-    min-width: 5rem;
+    width: 6rem;
+    min-width: 6rem;
+    max-width: 6rem;
     white-space: nowrap;
   }
 
   .data-table.orders-table th.order-warehouse-col,
   .data-table.orders-table td.order-warehouse-col {
-    min-width: 5rem;
+    width: 5.5rem;
+    min-width: 5.5rem;
+    max-width: 5.5rem;
     white-space: nowrap;
   }
 
   .data-table.orders-table th.order-logistics-col,
   .data-table.orders-table td.order-logistics-col {
-    min-width: 7rem;
+    width: 8rem;
+    min-width: 8rem;
+    max-width: 8rem;
     white-space: nowrap;
   }
 
   .data-table.orders-table th.order-qty-col,
   .data-table.orders-table td.order-qty-col {
-    min-width: 3.5rem;
+    width: 4rem;
+    min-width: 4rem;
+    max-width: 4rem;
     white-space: nowrap;
     text-align: center;
   }
 
   .data-table.orders-table th.order-attr-col,
   .data-table.orders-table td.order-attr-col {
-    min-width: 10rem;
-    white-space: normal;
+    width: 15rem;
+    min-width: 15rem;
+    max-width: 15rem;
+    white-space: nowrap;
   }
 
   .data-table.orders-table th.order-phone-col,
   .data-table.orders-table td.order-phone-col {
+    width: 9rem;
     min-width: 9rem;
+    max-width: 9rem;
     white-space: nowrap;
   }
 
   .data-table.orders-table th.order-address-col,
   .data-table.orders-table td.order-address-col {
-    min-width: 20rem;
-    white-space: normal;
-    word-break: break-all;
-    overflow-wrap: break-word;
+    width: 18rem;
+    min-width: 18rem;
+    max-width: 18rem;
+    white-space: nowrap;
+    overflow-wrap: anywhere;
   }
 
   .data-table.orders-table th.order-time-col,
   .data-table.orders-table td.order-time-col {
-    min-width: 11rem;
+    width: 7.5rem;
+    min-width: 7.5rem;
+    max-width: 7.5rem;
     white-space: nowrap;
+  }
+
+  .data-table.orders-table th.order-actual-ship-time-col,
+  .data-table.orders-table td.order-actual-ship-time-col {
+    width: 11rem;
+    min-width: 11rem;
+    max-width: 11rem;
   }
 
   .data-table.orders-table th.order-fee-col,
   .data-table.orders-table td.order-fee-col {
+    width: 8.5rem;
     min-width: 8.5rem;
+    max-width: 8.5rem;
     white-space: nowrap;
   }
 
   .data-table.orders-table th.order-tracking-status-col,
   .data-table.orders-table td.order-tracking-status-col {
-    min-width: 7.5rem;
+    width: 9rem;
+    min-width: 9rem;
+    max-width: 9rem;
     white-space: nowrap;
   }
 
   .data-table.orders-table th.order-product-col,
   .data-table.orders-table td.order-product-col {
-    min-width: 18rem;
-    max-width: 24rem;
-    white-space: normal;
+    width: 21rem;
+    min-width: 21rem;
+    max-width: 21rem;
+    white-space: nowrap;
   }
 
   .data-table.orders-table th.order-tracking-col,
   .data-table.orders-table td.order-tracking-col {
-    min-width: 10rem;
+    width: 11rem;
+    min-width: 11rem;
+    max-width: 11rem;
     white-space: nowrap;
     @apply font-mono;
   }
 
   .data-table.orders-table th.order-recipient-col,
   .data-table.orders-table td.order-recipient-col {
+    width: 7rem;
     min-width: 7rem;
+    max-width: 7rem;
     white-space: nowrap;
   }
 
   .data-table.orders-table th.order-postal-col,
   .data-table.orders-table td.order-postal-col {
+    width: 6rem;
     min-width: 6rem;
+    max-width: 6rem;
     white-space: nowrap;
   }
 
   .data-table input {
+    font-size: 13px;
+    line-height: 1.35;
     text-align: left !important;
+  }
+
+  .data-table button,
+  .data-table select,
+  .data-table textarea {
+    font-size: 13px;
+    line-height: 1.35;
   }
 
   .data-table .text-right {
     text-align: left !important;
+  }
+
+  .table-cell-preview {
+    @apply block min-w-0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .table-cell-clamp {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow-wrap: anywhere;
+  }
+
+  .table-cell-clamp-1 {
+    -webkit-line-clamp: unset;
+  }
+
+  .table-cell-clamp-2 {
+    -webkit-line-clamp: unset;
+  }
+
+  .table-cell-clamp-3 {
+    -webkit-line-clamp: unset;
+  }
+
+  .table-cell-detail-button {
+    @apply inline-flex w-fit items-center gap-1 text-xs font-semibold text-accent transition hover:text-accentDeep hover:underline;
+  }
+
+  .data-table .table-cell-detail-button {
+    display: none;
+  }
+
+  .data-table tbody td:not(:has(a, button, input, select, textarea, [role='button'], [data-table-cell-ignore])) {
+    cursor: default;
   }
 
   .data-table tbody tr {
@@ -539,6 +664,7 @@ a {
       @apply py-2 text-xs;
       padding-left: 0.5rem !important;
       padding-right: 0.5rem !important;
+      font-size: 12px;
       width: calc(4em + 0.8rem);
       min-width: calc(4em + 0.8rem);
       max-width: calc(4em + 0.8rem);
@@ -546,15 +672,16 @@ a {
 
     .data-table th.product-name-col,
     .data-table td.product-name-col {
-      width: calc(10em + 0.8rem);
-      min-width: calc(10em + 0.8rem);
-      max-width: calc(10em + 0.8rem);
+      width: 12rem;
+      min-width: 12rem;
+      max-width: 12rem;
     }
 
     .data-table td {
       @apply py-2.5 text-xs;
       padding-left: 0.5rem !important;
       padding-right: 0.5rem !important;
+      font-size: 12px;
     }
 
     .btn-primary,

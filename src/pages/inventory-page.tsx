@@ -38,7 +38,7 @@ import type {
 import { getErrorMessage } from "../utils/errors";
 import { confirmAction, confirmDelete, confirmSave } from "../utils/confirmations";
 import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../utils/sku-code";
-import { PageHeader, StandardTable } from "../components/ui";
+import { PageHeader, StandardTable, TableCellPreview } from "../components/ui";
 import { readDraft, useDraftPersistence } from "../hooks/use-draft-persistence";
 import { usePermissions } from "../hooks/use-permissions";
 import { useAutoDismiss } from "../hooks/use-auto-dismiss";
@@ -49,6 +49,16 @@ import { defaultFirstLegMethods, defaultLastLegMethods } from "../lib/defaults";
 type InventoryPageProps = {
   user: User;
 };
+
+const inventoryTableColumns = [
+  { key: "product_code", width: "8rem" },
+  { key: "product_name", width: "15rem" },
+  { key: "sku_code", width: "12rem" },
+  { key: "sales_spec", width: "14rem" },
+  { key: "stock", width: "9rem" },
+  { key: "components", width: "9rem" },
+  { key: "actions", width: "7rem" },
+] as const;
 
 type InventoryDraft = {
   draftWarehouseName: string;
@@ -1508,6 +1518,9 @@ export function InventoryPage({ user }: InventoryPageProps) {
                             void loadWarehousePage(warehouse.id, 1, newSize);
                           }}
                           loading={warehousePageLoading[warehouse.id] ?? false}
+                          columns={inventoryTableColumns}
+                          layout="fixed"
+                          minWidth="min-w-[980px]"
                         >
                           <thead>
                             <tr>
@@ -1531,25 +1544,47 @@ export function InventoryPage({ user }: InventoryPageProps) {
                               filteredItems.map((item) => {
                                 const product = productsById[item.product_id];
                                 const sku = skusById[item.sku_id];
+                                const skuDisplayCode = getSkuDisplayCode(sku);
+                                const salesSpecText =
+                                  sku && Object.keys(sku.attributes).length > 0
+                                    ? Object.entries(sku.attributes)
+                                      .map(([name, value]) => `${name}：${value}`)
+                                      .join("\n")
+                                    : "无规格";
                                 const isEditingSkuStock = Boolean(editingSkuStockIds[item.id]);
                                 return (
                                   <Fragment key={item.id}>
                                     <tr className="border-t border-line hover:bg-slate-50/50 transition">
                                       <td className="px-4 py-3 font-medium text-ink">{product?.product_code ?? "--"}</td>
-                                      <td className="product-name-col px-4 py-3 text-slate-600">{product?.product_name_cn ?? "--"}</td>
-                                      <td className="px-4 py-3 font-mono text-xs">{getSkuDisplayCode(sku)}</td>
+                                      <td className="product-name-col px-4 py-3 text-slate-600">
+                                        <TableCellPreview
+                                          label="产品名称"
+                                          value={product?.product_name_cn ?? "--"}
+                                          lines={2}
+                                          alwaysShowDetail
+                                          detailTitle="库存产品名称"
+                                          detailSubtitle={product?.product_code}
+                                        />
+                                      </td>
+                                      <td className="px-4 py-3 font-mono text-xs">
+                                        <TableCellPreview
+                                          label="SKU编号"
+                                          value={skuDisplayCode}
+                                          monospace
+                                          alwaysShowDetail={skuDisplayCode.length > 14}
+                                          detailTitle="SKU编号"
+                                          detailSubtitle={product?.product_code}
+                                        />
+                                      </td>
                                       <td className="px-4 py-3 text-slate-600">
-                                        {sku && Object.keys(sku.attributes).length > 0 ? (
-                                          <div className="grid gap-1 text-xs">
-                                            {Object.entries(sku.attributes).map(([name, value]) => (
-                                              <span key={name}>
-                                                {name}：{value}
-                                              </span>
-                                            ))}
-                                          </div>
-                                        ) : (
-                                          <span className="text-slate-400">无规格</span>
-                                        )}
+                                        <TableCellPreview
+                                          label="销售规格"
+                                          value={salesSpecText}
+                                          lines={2}
+                                          alwaysShowDetail={salesSpecText !== "无规格"}
+                                          detailTitle="SKU销售规格"
+                                          detailSubtitle={skuDisplayCode}
+                                        />
                                       </td>
                                       <td className="px-4 py-3">
                                         {isEditingSkuStock ? (

@@ -1,13 +1,12 @@
 import type { User } from "@supabase/supabase-js";
 import { useEffect, useState, useMemo } from "react";
 import { Plus, Trash2, Edit2, X, Check, RefreshCw } from "lucide-react";
-import { PageHeader } from "../../components/ui";
+import { PageHeader, StandardTable, TableCellPreview } from "../../components/ui";
 import { usePermissions } from "../../hooks/use-permissions";
 import { useFinanceData } from "./use-finance-data";
 import { addExpense, addExpensesBulk, updateExpense, deleteExpense } from "../../lib/expenses";
 import { EmptyPanel, getPaginatedRows } from "./shared";
 import { formatCurrency } from "../../utils/pricing";
-import { StandardTable } from "../../components/ui";
 import type { FinanceExpense } from "../../types";
 import { confirmAction, confirmCancelEdit, confirmDelete, confirmSave } from "../../utils/confirmations";
 
@@ -23,6 +22,14 @@ const categoryLabels: Record<FinanceExpense["category"], string> = {
   refund_loss: "退款损失",
   other: "其他杂费",
 };
+
+const expenseTableColumns = [
+  { key: "date", width: "8rem" },
+  { key: "category", width: "9rem" },
+  { key: "amount", width: "9rem" },
+  { key: "remark", width: "22rem" },
+  { key: "actions", width: "9rem" },
+] as const;
 
 export function FinanceExpensesPage({ user }: Props) {
   const { canEdit } = usePermissions();
@@ -205,6 +212,9 @@ export function FinanceExpensesPage({ user }: Props) {
               totalRecordCount={paginated.total}
               onPageChange={setPage}
               onPageSizeChange={setPageSize}
+              columns={expenseTableColumns}
+              layout="fixed"
+              minWidth="min-w-[760px]"
             >
               <thead>
                 <tr>
@@ -225,7 +235,16 @@ export function FinanceExpensesPage({ user }: Props) {
                       </span>
                     </td>
                     <td className="money text-rose-700">{formatCurrency(expense.amount_rmb)}</td>
-                    <td className="text-slate-600 font-medium max-w-xs truncate" title={expense.remark}>{expense.remark || "--"}</td>
+                    <td className="text-slate-600 font-medium">
+                      <TableCellPreview
+                        label="备注说明"
+                        value={expense.remark || "--"}
+                        lines={2}
+                        alwaysShowDetail={Boolean(expense.remark)}
+                        detailTitle="费用备注说明"
+                        detailSubtitle={expense.expense_date}
+                      />
+                    </td>
                     <td className="text-center">
                       <div className="flex items-center justify-center gap-3">
                         <button

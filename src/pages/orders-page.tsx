@@ -11,7 +11,7 @@ import { OrderDetailPanel } from "../components/orders/OrderDetailPanel";
 import { OrderFilters } from "../components/orders/OrderFilters";
 import { memo, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { Badge, PageHeader } from "../components/ui";
-import { StandardTable } from "../components/ui/StandardTable";
+import { StandardTable, type StandardTableColumn } from "../components/ui/StandardTable";
 import {
   createEmptyDraft,
   getOrdersErrorMessage,
@@ -281,7 +281,7 @@ const visibleColumns = [
   { key: "phone", label: "电话", className: "order-phone-col" },
   { key: "address", label: "地址", className: "order-address-col" },
   { key: "postal_code", label: "邮编", className: "order-postal-col" },
-  { key: "actual_ship_time", label: "实际发货时间", className: "order-time-col" },
+  { key: "actual_ship_time", label: "实际发货时间", className: "order-time-col order-actual-ship-time-col" },
 ] satisfies Array<{
   key: string;
   label: string;
@@ -289,6 +289,25 @@ const visibleColumns = [
   sortable?: boolean;
   shippedOnly?: boolean;
 }>;
+
+const orderColumnWidths: Record<string, string> = {
+  order_no: "14.5rem",
+  stage: "6rem",
+  ship_deadline: "7.5rem",
+  delivery_deadline: "7.5rem",
+  warehouse: "5.5rem",
+  logistics: "8rem",
+  quantity: "4rem",
+  product: "21rem",
+  sales_spec: "15rem",
+  logistics_tracking_no: "11rem",
+  logistics_status: "9rem",
+  recipient: "7rem",
+  phone: "9rem",
+  address: "18rem",
+  postal_code: "6rem",
+  actual_ship_time: "11rem",
+};
 
 function cleanCell(value: unknown) {
   if (value === null || value === undefined) return "";
@@ -608,43 +627,6 @@ function getOrderDisplayRowSalesSpec(rowOrders: TemuOrderRecord[]) {
   return Array.from(specGroups.values())
     .map((item) => (item.quantity > 1 ? `${item.label} ×${item.quantity}` : item.label))
     .join(" / ");
-}
-
-type OrderDisplaySkuLine = {
-  key: string;
-  skuCode: string;
-  spec: string;
-  quantity: number;
-};
-
-function getOrderDisplayRowSkuLines(
-  rowOrders: TemuOrderRecord[],
-  productsById: ProductsById,
-  skuOrderLookup: SkuOrderLookup,
-): OrderDisplaySkuLine[] {
-  const groups = new Map<string, OrderDisplaySkuLine>();
-
-  rowOrders.forEach((order) => {
-    const declaration = getOrderDeclarationFromLookups(order, productsById, skuOrderLookup);
-    const skuCode =
-      declaration?.sku.sku_code.trim() ||
-      order.sku_code.trim() ||
-      "--";
-    const spec = order.product_attributes.trim() || "--";
-    const key =
-      declaration?.sku.id ||
-      [normalizeSkuCode(skuCode), normalizeSalesSpec(spec)].join("\u0000");
-    const current = groups.get(key);
-
-    groups.set(key, {
-      key,
-      skuCode: current?.skuCode ?? skuCode,
-      spec: current?.spec ?? spec,
-      quantity: (current?.quantity ?? 0) + getOrderFulfillmentQuantity(order),
-    });
-  });
-
-  return Array.from(groups.values());
 }
 
 function getOrderDisplayRowDeclarationGroups(
@@ -1208,7 +1190,6 @@ const OrderTableRow = memo(function OrderTableRow({
   warehouses,
   settings,
 }: OrderTableRowProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
   const rowOrders = useMemo(
     () =>
       rowOrderIds
@@ -1317,10 +1298,6 @@ const OrderTableRow = memo(function OrderTableRow({
     () => getOrderDisplayRowSalesSpec(rowOrders),
     [rowOrders],
   );
-  const skuLines = useMemo(
-    () => getOrderDisplayRowSkuLines(rowOrders, productsById, skuOrderLookup),
-    [productsById, rowOrders, skuOrderLookup],
-  );
   const normalizedDraftLogisticsMethod = useMemo(
     () => normalizeLogisticsMethod(draft.logistics_method),
     [draft.logistics_method],
@@ -1418,50 +1395,40 @@ const OrderTableRow = memo(function OrderTableRow({
         )}
       </td>
       <td className="order-qty-col number-cell">{rowQuantity}</td>
-      <td className="order-product-col">
+      <td
+        className="order-product-col"
+        data-full-text={
+          primaryDeclaration
+            ? [
+                primaryDeclaration.product.product_name_cn || "--",
+                productMeta || skuSummary,
+              ].filter(Boolean).join(" · ")
+            : skuSummary
+        }
+      >
         {primaryDeclaration ? (
-          <div className="flex items-start gap-3 min-w-[16rem]">
-            {/* 图片缩略图容器：固定宽度刚好容纳2张图。未展开时仅显示前2张，展开时自动折行显示全部 */}
-            <div className="flex w-[100px] shrink-0 gap-1 flex-wrap">
-              {(isExpanded ? declarationGroups : declarationGroups.slice(0, 2)).map((group) => (
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex w-[58px] shrink-0 items-center gap-1 overflow-hidden">
+              {declarationGroups.slice(0, 1).map((group) => (
                 <SkuImageThumb
                   key={group.declaration.sku.id || group.declaration.sku.sku_code}
                   product={group.declaration.product}
                   sku={group.declaration.sku}
                 />
               ))}
+              {declarationGroups.length > 1 && (
+                <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-md border border-slate-200 bg-slate-50 px-1 text-[11px] font-semibold text-slate-500">
+                  +{declarationGroups.length - 1}
+                </span>
+              )}
             </div>
-            {/* 规格及商品文字容器：在展开时自动折行，在收起时单行截断 */}
-            <div className="grid min-w-0 flex-1 gap-1">
-              <span className="font-medium text-slate-900 break-all whitespace-normal">
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <span className="table-cell-clamp table-cell-clamp-1 font-medium text-slate-900">
                 {primaryDeclaration.product.product_name_cn || "--"}
               </span>
-              <div className="grid gap-0.5 text-xs font-medium text-slate-500">
-                <span className="break-all whitespace-normal">{productMeta || skuSummary}</span>
-                {(isExpanded ? skuLines : skuLines.slice(0, 2)).map((line) => (
-                  <span
-                    key={line.key}
-                    className={`block ${
-                      isExpanded
-                        ? "whitespace-normal break-all"
-                        : "truncate max-w-[14rem] whitespace-nowrap"
-                    }`}
-                    title={isExpanded ? undefined : `${line.skuCode} · ${line.spec}${line.quantity > 1 ? ` ×${line.quantity}` : ""}`}
-                  >
-                    {line.skuCode} · {line.spec}
-                    {line.quantity > 1 ? ` ×${line.quantity}` : ""}
-                  </span>
-                ))}
-                {(skuLines.length > 2 || declarationGroups.length > 2) && (
-                  <button
-                    type="button"
-                    onClick={() => setIsExpanded(!isExpanded)}
-                    className="text-action text-left text-[11px] font-semibold mt-1 hover:underline cursor-pointer"
-                  >
-                    {isExpanded ? "收起" : `展开更多 (共 ${Math.max(skuLines.length, declarationGroups.length)} 项)`}
-                  </button>
-                )}
-              </div>
+              <span className="table-cell-clamp table-cell-clamp-1 shrink-0 text-xs font-medium text-slate-500">
+                {productMeta || skuSummary}
+              </span>
             </div>
           </div>
         ) : (
@@ -1470,17 +1437,10 @@ const OrderTableRow = memo(function OrderTableRow({
           </span>
         )}
       </td>
-      <td className="order-attr-col">
-        <span
-          className={`block ${
-            isExpanded
-              ? "whitespace-normal break-all"
-              : "truncate max-w-[12rem] whitespace-nowrap"
-          }`}
-          title={isExpanded ? undefined : salesSpec || undefined}
-        >
-          {salesSpec || "--"}
-        </span>
+      <td className="order-attr-col" data-full-text={salesSpec || undefined}>
+        <div className="table-cell-preview">
+          <span className="table-cell-clamp table-cell-clamp-1">{salesSpec || "--"}</span>
+        </div>
       </td>
       {isShippingTrackingStage(activeStage) && (
         <>
@@ -1530,7 +1490,13 @@ const OrderTableRow = memo(function OrderTableRow({
       )}
       <td className="order-recipient-col">{formatRecipientName(mergedOrder.recipient_name) || "--"}</td>
       <td className="order-phone-col">{formatRecipientPhone(mergedOrder.recipient_phone) || "--"}</td>
-      <td className="order-address-col">{getFullAddress(mergedOrder) || "--"}</td>
+      <td className="order-address-col" data-full-text={getFullAddress(mergedOrder) || undefined}>
+        <div className="table-cell-preview">
+          <span className="table-cell-clamp table-cell-clamp-1">
+            {getFullAddress(mergedOrder) || "--"}
+          </span>
+        </div>
+      </td>
       <td className="order-postal-col">{mergedOrder.postal_code || "--"}</td>
       <td>
         {activeStage === "uploaded_temu" ? (
@@ -2172,6 +2138,17 @@ export function OrdersPage({ user }: OrdersPageProps) {
           (!column.shippedOnly || isShippingTrackingStage(activeStage)),
       ),
     [activeStage],
+  );
+
+  const orderTableLayoutColumns = useMemo<StandardTableColumn[]>(
+    () => [
+      { key: "select", width: "3.25rem" },
+      ...tableColumns.map((column) => ({
+        key: column.key,
+        width: orderColumnWidths[column.key] ?? "8rem",
+      })),
+    ],
+    [tableColumns],
   );
 
   const newOrdersInView = useMemo(
@@ -4677,6 +4654,9 @@ export function OrdersPage({ user }: OrdersPageProps) {
               onPageSizeChange={setPageSize}
               loading={loading}
               empty={filteredOrderRows.length === 0}
+              columns={orderTableLayoutColumns}
+              layout="fixed"
+              minWidth="min-w-[1880px]"
               tableClassName="orders-table"
             >
                 <thead>
