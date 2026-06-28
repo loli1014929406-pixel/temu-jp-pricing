@@ -105,6 +105,10 @@ type TrackingImportRecord = {
 };
 
 type TrackingCarrier = "yamato" | "japan_post";
+type TrackingStatusResult = {
+  status: string;
+  actualSignedTime?: string;
+};
 
 type OrderStockDeduction = {
   orderId: string;
@@ -248,6 +252,7 @@ const stageDefinitions = [
 const rmbPerUsdForDeclaration = 7;
 const defaultOrderSort: OrderSort = { key: "ship_deadline", direction: "asc" };
 const yamatoTrackingBaseUrl = "https://toi.kuronekoyamato.co.jp/cgi-bin/tneko";
+const ocsTrackingBaseUrl = "https://webcsw.ocs.co.jp/csw/ECSWG0201R00003P.do";
 const japanPostTrackingBaseUrl =
   "https://trackings.post.japanpost.jp/services/srv/search/direct";
 const japanPostTrackingProxyPath = "/japanpost-tracking/services/srv/search/direct";
@@ -298,10 +303,10 @@ const orderColumnWidths: Record<string, string> = {
   warehouse: "5.5rem",
   logistics: "8rem",
   quantity: "4rem",
-  product: "17rem",
-  sales_spec: "14rem",
-  logistics_tracking_no: "11rem",
-  logistics_status: "9rem",
+  product: "14rem",
+  sales_spec: "12rem",
+  logistics_tracking_no: "9.5rem",
+  logistics_status: "8.5rem",
   recipient: "7rem",
   phone: "9rem",
   address: "18rem",
@@ -961,8 +966,16 @@ function hasFukuokaText(value: string) {
   return /福[冈岡]|fukuoka/i.test(value);
 }
 
+function hasSuzhouText(value: string) {
+  return /苏州|蘇州|suzhou/i.test(value);
+}
+
 function hasJapanPostText(value: string) {
   return /japan\s*post|japanpost|日本[邮郵]便|邮便|郵便/i.test(value);
+}
+
+function hasOcsYamatoText(value: string) {
+  return /ocs\s*yamato|yamato|ヤマト/i.test(value);
 }
 
 function getOrderTrackingCarrier(order: Pick<TemuOrderRecord, "warehouse_name" | "logistics_method">): TrackingCarrier {
@@ -994,16 +1007,44 @@ function getJapanPostTrackingUrl(trackingNo: string) {
   return `${japanPostTrackingBaseUrl}?${params.toString()}`;
 }
 
+function getOcsTrackingUrl(trackingNo: string) {
+  const normalizedTrackingNo = trackingNo.trim();
+  if (!normalizedTrackingNo) return "";
+
+  const params = new URLSearchParams({ cwbno: normalizedTrackingNo });
+  return `${ocsTrackingBaseUrl}?${params.toString()}`;
+}
+
 function getTrackingUrl(order: TemuOrderRecord) {
   const trackingNo = order.logistics_tracking_no.trim();
   if (!trackingNo) return "";
+
+  if (getOrderTrackingCarrier(order) === "japan_post") {
+    return "";
+  }
+
+  if (
+    hasSuzhouText(order.warehouse_name) &&
+    hasOcsYamatoText(order.logistics_method)
+  ) {
+    return getOcsTrackingUrl(trackingNo);
+  }
+
+  return "";
+}
+
+function getTrackingStatusUrl(order: TemuOrderRecord) {
+  const trackingNo = order.logistics_tracking_no.trim();
+  if (!trackingNo) return "";
+
   if (getOrderTrackingCarrier(order) === "japan_post") {
     return getJapanPostTrackingUrl(trackingNo);
   }
+
   return yamatoTrackingBaseUrl;
 }
 
-function openTracking(event: MouseEvent<HTMLAnchorElement>, order: TemuOrderRecord) {
+function openTrackingStatus(event: MouseEvent<HTMLAnchorElement>, order: TemuOrderRecord) {
   const trackingNo = order.logistics_tracking_no.trim();
   if (!trackingNo) return;
   if (getOrderTrackingCarrier(order) === "japan_post") return;
@@ -1357,6 +1398,10 @@ const OrderTableRow = memo(function OrderTableRow({
     () => (mergedOrder ? getTrackingUrl(mergedOrder) : ""),
     [mergedOrder],
   );
+  const trackingStatusUrl = useMemo(
+    () => (mergedOrder ? getTrackingStatusUrl(mergedOrder) : ""),
+    [mergedOrder],
+  );
 
   if (!primaryOrder || !mergedOrder) return null;
 
@@ -1573,9 +1618,6 @@ const OrderTableRow = memo(function OrderTableRow({
               trackingUrl ? (
                 <a
                   href={trackingUrl}
-                  onClick={(event) =>
-                    openTracking(event, mergedOrder)
-                  }
                   target="_blank"
                   rel="noreferrer"
                   className="font-semibold text-sky-700 hover:text-sky-900"
@@ -1591,12 +1633,10 @@ const OrderTableRow = memo(function OrderTableRow({
           </td>
           <td className="order-tracking-status-col">
             {mergedOrder.logistics_tracking_no ? (
-              trackingUrl ? (
+              trackingStatusUrl ? (
                 <a
-                  href={trackingUrl}
-                  onClick={(event) =>
-                    openTracking(event, mergedOrder)
-                  }
+                  href={trackingStatusUrl}
+                  onClick={(event) => openTrackingStatus(event, mergedOrder)}
                   target="_blank"
                   rel="noreferrer"
                   className="font-semibold text-sky-700 hover:text-sky-900"
@@ -2456,35 +2496,38 @@ export function OrdersPage({ user }: OrdersPageProps) {
   }
 
   function canQueryTrackingStatus(order: TemuOrderRecord) {
-    return Boolean(getTrackingUrl(order));
+    return Boolean(order.logistics_tracking_no.trim());
   }
 
   function cleanTrackingText(value: string) {
     return value.replace(/▶/g, " ").replace(/\s+/g, " ").trim();
   }
 
-  function parseJapanPostDateTime(value: string) {
+  function formatJapanPostDateTime(value: string) {
     const match = value.match(
       /(\d{4})[\/年](\d{1,2})[\/月](\d{1,2})日?\s+(\d{1,2}):(\d{2})/,
     );
-    if (!match) return null;
+    if (!match) return "";
 
     const [, year, month, day, hour, minute] = match;
-    return new Date(
-      Number(year),
-      Number(month) - 1,
-      Number(day),
-      Number(hour),
-      Number(minute),
-    ).getTime();
+    return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")} ${hour.padStart(2, "0")}:${minute}`;
   }
 
-  function getJapanPostHistoryStatus(document: Document) {
+  function parseJapanPostDateTime(value: string) {
+    const formatted = formatJapanPostDateTime(value);
+    if (!formatted) return null;
+
+    const timestamp = parseOrderDateTime(formatted)?.getTime() ?? Number.NaN;
+    return Number.isNaN(timestamp) ? null : timestamp;
+  }
+
+  function getJapanPostHistoryStatus(document: Document): TrackingStatusResult | null {
     const historyRows = Array.from(
       document.querySelectorAll('table[summary="履歴情報"] tr'),
     );
     const candidates: Array<{
       status: string;
+      actualSignedTime?: string;
       timestamp: number | null;
       index: number;
     }> = [];
@@ -2500,19 +2543,27 @@ export function OrdersPage({ user }: OrdersPageProps) {
 
       candidates.push({
         status,
+        actualSignedTime: formatJapanPostDateTime(cells[0]) || undefined,
         timestamp: parseJapanPostDateTime(cells[0]),
         index: candidates.length,
       });
     });
 
-    return (
-      candidates.sort((left, right) => {
-        const timestampComparison =
-          (right.timestamp ?? Number.NEGATIVE_INFINITY) -
-          (left.timestamp ?? Number.NEGATIVE_INFINITY);
-        return timestampComparison || right.index - left.index;
-      })[0]?.status ?? ""
-    );
+    const latest = candidates.sort((left, right) => {
+      const timestampComparison =
+        (right.timestamp ?? Number.NEGATIVE_INFINITY) -
+        (left.timestamp ?? Number.NEGATIVE_INFINITY);
+      return timestampComparison || right.index - left.index;
+    })[0];
+
+    if (!latest) return null;
+
+    return {
+      status: latest.status,
+      actualSignedTime: isDeliveredTrackingStatus(latest.status)
+        ? latest.actualSignedTime
+        : undefined,
+    };
   }
 
   function getJapanPostResultStatus(document: Document) {
@@ -2530,7 +2581,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
     return "";
   }
 
-  function parseYamatoTrackingStatus(html: string) {
+  function parseYamatoTrackingStatus(html: string): TrackingStatusResult {
     const document = new DOMParser().parseFromString(html, "text/html");
     const statusTitle = cleanTrackingText(
       document.querySelector(".tracking-invoice-block-state-title")?.textContent ?? "",
@@ -2546,7 +2597,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
         ?.textContent ?? "",
     );
     const displayStatus = statusTitle || latestStatus || listStatus;
-    return getTrackingStatusLabel(displayStatus) || "暂无轨迹";
+    return { status: getTrackingStatusLabel(displayStatus) || "暂无轨迹" };
   }
 
   async function fetchYamatoTrackingStatus(trackingNo: string) {
@@ -2571,16 +2622,21 @@ export function OrdersPage({ user }: OrdersPageProps) {
     return parseYamatoTrackingStatus(await response.text());
   }
 
-  function parseJapanPostTrackingStatus(html: string) {
+  function parseJapanPostTrackingStatus(html: string): TrackingStatusResult {
     const document = new DOMParser().parseFromString(html, "text/html");
     const bodyText = cleanTrackingText(document.body?.textContent ?? "");
-    if (bodyText.includes("お問い合わせ番号が見つかりません")) return "暂无轨迹";
+    if (bodyText.includes("お問い合わせ番号が見つかりません")) {
+      return { status: "暂无轨迹" };
+    }
 
-    return (
-      getTrackingStatusLabel(getJapanPostHistoryStatus(document)) ||
-      getTrackingStatusLabel(getJapanPostResultStatus(document)) ||
-      "暂无轨迹"
-    );
+    const historyStatus = getJapanPostHistoryStatus(document);
+    if (historyStatus) return historyStatus;
+
+    return {
+      status:
+        getTrackingStatusLabel(getJapanPostResultStatus(document)) ||
+        "暂无轨迹",
+    };
   }
 
   async function fetchJapanPostTrackingStatus(trackingNo: string) {
@@ -2607,8 +2663,9 @@ export function OrdersPage({ user }: OrdersPageProps) {
 
   function buildTrackingStatusUpdates(
     order: TemuOrderRecord,
-    logisticsStatus: string,
+    trackingResult: TrackingStatusResult,
   ) {
+    const logisticsStatus = trackingResult.status;
     const updates: Parameters<typeof updateTemuOrder>[1] = {
       logistics_status: logisticsStatus,
     };
@@ -2617,7 +2674,9 @@ export function OrdersPage({ user }: OrdersPageProps) {
       const draft = drafts[order.id] ?? toDraft(order);
       updates.order_status = "已完成";
       updates.actual_signed_time =
-        draft.actual_signed_time.trim() || formatLocalDateTime();
+        trackingResult.actualSignedTime ||
+        draft.actual_signed_time.trim() ||
+        formatLocalDateTime();
     }
 
     return updates;
@@ -2638,7 +2697,9 @@ export function OrdersPage({ user }: OrdersPageProps) {
 
     try {
       const saveEntries = targetOrders.map((order) => {
-        const updates = buildTrackingStatusUpdates(order, order.logistics_status);
+        const updates = buildTrackingStatusUpdates(order, {
+          status: order.logistics_status,
+        });
         return { order, updates, nextOrder: { ...order, ...updates } };
       });
       const { nextOrders, inventoryChanges, failures } =
@@ -3184,16 +3245,16 @@ export function OrdersPage({ user }: OrdersPageProps) {
       const statusResults = await Promise.all(
         queryableOrders.map(async (order) => {
           try {
-            const logisticsStatus = await fetchTrackingStatus(order);
-            return { order, logisticsStatus };
+            const trackingResult = await fetchTrackingStatus(order);
+            return { order, trackingResult };
           } catch {
-            return { order, logisticsStatus: "查询失败" };
+            return { order, trackingResult: { status: "查询失败" } };
           }
         }),
       );
 
-      const saveEntries = statusResults.map(({ order, logisticsStatus }) => {
-        const updates = buildTrackingStatusUpdates(order, logisticsStatus);
+      const saveEntries = statusResults.map(({ order, trackingResult }) => {
+        const updates = buildTrackingStatusUpdates(order, trackingResult);
         return { order, updates, nextOrder: { ...order, ...updates } };
       });
       const { nextOrders, inventoryChanges, failures } =
@@ -3204,8 +3265,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
 
       updateOrdersState(nextOrders);
       if (showNotice) {
-        const completedCount = statusResults.filter(({ logisticsStatus }) =>
-          isDeliveredTrackingStatus(logisticsStatus),
+        const completedCount = statusResults.filter(({ trackingResult }) =>
+          isDeliveredTrackingStatus(trackingResult.status),
         ).length;
         setNoticeMessage(
           [

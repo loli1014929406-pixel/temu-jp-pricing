@@ -340,9 +340,9 @@ a {
 
   .data-table.orders-table th.order-attr-col,
   .data-table.orders-table td.order-attr-col {
-    width: 14rem;
-    min-width: 14rem;
-    max-width: 14rem;
+    width: 12rem;
+    min-width: 12rem;
+    max-width: 12rem;
     white-space: nowrap;
   }
 
@@ -388,25 +388,25 @@ a {
 
   .data-table.orders-table th.order-tracking-status-col,
   .data-table.orders-table td.order-tracking-status-col {
-    width: 9rem;
-    min-width: 9rem;
-    max-width: 9rem;
+    width: 8.5rem;
+    min-width: 8.5rem;
+    max-width: 8.5rem;
     white-space: nowrap;
   }
 
   .data-table.orders-table th.order-product-col,
   .data-table.orders-table td.order-product-col {
-    width: 17rem;
-    min-width: 17rem;
-    max-width: 17rem;
+    width: 14rem;
+    min-width: 14rem;
+    max-width: 14rem;
     white-space: nowrap;
   }
 
   .data-table.orders-table th.order-tracking-col,
   .data-table.orders-table td.order-tracking-col {
-    width: 11rem;
-    min-width: 11rem;
-    max-width: 11rem;
+    width: 9.5rem;
+    min-width: 9.5rem;
+    max-width: 9.5rem;
     white-space: nowrap;
     @apply font-mono;
   }
