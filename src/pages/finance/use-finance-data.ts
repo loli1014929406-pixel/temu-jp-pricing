@@ -7,7 +7,16 @@ import { fetchSettings } from "../../lib/settings";
 import { fetchExpenses } from "../../lib/expenses";
 import { useAutoDismiss } from "../../hooks/use-auto-dismiss";
 import { getErrorMessage } from "../../utils/errors";
-import type { FinanceExpense } from "../../types";
+import type {
+  FinanceExpense,
+  PricingSettings,
+  Product,
+  ProductItem,
+  ProductSku,
+  Warehouse,
+  WarehouseSku,
+} from "../../types";
+import type { SettlementFile } from "../../lib/settlement";
 import type { FinanceData } from "./shared";
 
 type FetchOptions = {
@@ -30,8 +39,8 @@ export function useFinanceData(userId: string, options: FetchOptions) {
     warehouseSkus: [],
   });
   const [expenses, setExpenses] = useState<FinanceExpense[]>([]);
-  const [settlementFiles, setSettlementFiles] = useState<any[]>([]);
-  const [settings, setSettings] = useState<any>(null);
+  const [settlementFiles, setSettlementFiles] = useState<SettlementFile[]>([]);
+  const [settings, setSettings] = useState<PricingSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   useAutoDismiss(error, () => setError(""));
@@ -40,7 +49,7 @@ export function useFinanceData(userId: string, options: FetchOptions) {
     setLoading(true);
     setError("");
     try {
-      const promises: any[] = [];
+      const promises: Promise<unknown>[] = [];
       const keys: string[] = [];
 
       if (options.orders || options.products || options.inventory) {
@@ -83,12 +92,14 @@ export function useFinanceData(userId: string, options: FetchOptions) {
       const results = await Promise.all(promises);
       const resultMap = Object.fromEntries(keys.map((k, i) => [k, results[i]]));
 
-      let productItems: any[] = [];
-      let productSkus: any[] = [];
-      let warehouseSkus: any[] = [];
+      let productItems: ProductItem[] = [];
+      let productSkus: ProductSku[] = [];
+      let warehouseSkus: WarehouseSku[] = [];
+      const products = (resultMap.products as Product[] | undefined) ?? [];
+      const warehouses = (resultMap.warehouses as Warehouse[] | undefined) ?? [];
 
-      if (resultMap.products) {
-        const productIds = resultMap.products.map((p: any) => p.id);
+      if (products.length > 0) {
+        const productIds = products.map((p) => p.id);
         const [items, skus] = await Promise.all([
           fetchProductItemsByProductIds(productIds),
           fetchProductSkusByProductIds(productIds),
@@ -97,28 +108,28 @@ export function useFinanceData(userId: string, options: FetchOptions) {
         productSkus = skus;
       }
 
-      if (resultMap.warehouses) {
-         warehouseSkus = await fetchWarehouseSkus(resultMap.warehouses.map((w: any) => w.id));
+      if (warehouses.length > 0) {
+         warehouseSkus = await fetchWarehouseSkus(warehouses.map((w) => w.id));
       }
 
       setData({
-        orders: resultMap.orders || [],
-        purchases: resultMap.purchases || [],
-        products: resultMap.products || [],
+        orders: (resultMap.orders as FinanceData["orders"] | undefined) ?? [],
+        purchases: (resultMap.purchases as FinanceData["purchases"] | undefined) ?? [],
+        products,
         productItems,
         productSkus,
-        warehouses: resultMap.warehouses || [],
+        warehouses,
         warehouseSkus,
       });
 
       if (resultMap.expenses) {
-         setExpenses(resultMap.expenses);
+         setExpenses(resultMap.expenses as FinanceExpense[]);
       }
       if (resultMap.settlements) {
-         setSettlementFiles(resultMap.settlements);
+         setSettlementFiles(resultMap.settlements as SettlementFile[]);
       }
       if (resultMap.settings !== undefined) {
-         setSettings(resultMap.settings);
+         setSettings(resultMap.settings as PricingSettings | null);
       }
 
     } catch (err) {

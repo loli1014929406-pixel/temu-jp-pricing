@@ -1337,11 +1337,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                       className="product-name-col px-3 py-2"
                       data-full-text={product.product_name_cn}
                     >
-                      <span
-                        className="cell-truncate"
-                        style={{ maxWidth: "15rem" }}
-                        title={product.product_name_cn}
-                      >
+                      <span className="table-cell-clamp" title={product.product_name_cn}>
                         {product.product_name_cn}
                       </span>
                     </td>
@@ -1418,7 +1414,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                         ? summary.criticalValue.toFixed(2)
                         : "--"}
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-2 text-right-num">
                       {typeof summary?.profitRmb === "number"
                         ? (
                           <span
@@ -1435,7 +1431,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                         )
                         : "--"}
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-2 text-right-num">
                       {typeof summary?.profitRate === "number"
                         ? (() => {
                             const profitRate = summary.profitRate;

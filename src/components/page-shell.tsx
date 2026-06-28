@@ -1,9 +1,13 @@
 import {
+  ArrowLeftRight,
+  BarChart3,
   Calculator,
   CircleDollarSign,
   ClipboardList,
+  FileCheck,
   LogOut,
   PackageSearch,
+  Receipt,
   ShoppingCart,
   Truck,
   Warehouse,
@@ -34,9 +38,9 @@ const navSections = [
     items: [
       { to: "/finance", label: "财务总览", icon: CircleDollarSign },
       { to: "/finance/ledger", label: "收支流水", icon: WalletCards },
-      { to: "/finance/expenses", label: "费用管理", icon: WalletCards },
-      { to: "/finance/profit", label: "利润报表", icon: Calculator },
-      { to: "/finance/settlement", label: "对账中心", icon: ClipboardList }
+      { to: "/finance/expenses", label: "费用管理", icon: Receipt },
+      { to: "/finance/profit", label: "利润报表", icon: BarChart3 },
+      { to: "/finance/settlement", label: "对账中心", icon: FileCheck }
     ]
   },
   {
@@ -53,7 +57,7 @@ const navSections = [
     items: [
       { to: "/purchases/records", label: "采购管理", icon: ShoppingCart },
       { to: "/inventory", label: "仓储库存", icon: Warehouse },
-      { to: "/inventory/transfer", label: "库存调拨", icon: Warehouse }
+      { to: "/inventory/transfer", label: "库存调拨", icon: ArrowLeftRight }
     ]
   },
   {

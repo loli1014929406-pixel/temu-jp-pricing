@@ -4,10 +4,10 @@ import {
   calculateSfCostRmb,
   calculateDynamicMethodCost,
 } from "./shipping-costs";
-import { defaultFirstLegMethods, defaultLastLegMethods } from "../lib/defaults";
+import { resolveFirstLegMethods, resolveLastLegMethods } from "../lib/defaults";
 
 const round = (value: number, digits = 2) =>
-  Number(value.toFixed(digits));
+  Math.round((value + Number.EPSILON) * Math.pow(10, digits)) / Math.pow(10, digits);
 
 export function calculatePricing(
   packageWeightG: number,
@@ -28,86 +28,8 @@ export function calculatePricing(
     settings.exchange_rate_rmb_per_jpy;
   const packageWeightKg = packageWeightG / 1000;
 
-  const firstLegs = settings.first_leg_methods || [
-    {
-      id: "sf-first-leg",
-      name: "顺丰",
-      type: "first_leg",
-      formula: "sf",
-      params: {
-        firstWeight: settings.sf_first_weight_kg,
-        firstPrice: settings.sf_first_price_rmb,
-        extraPrice: settings.sf_extra_price_per_kg_rmb,
-      },
-      isActive: true,
-    },
-    {
-      id: "huaian-air-first-leg",
-      name: "淮安空运 RMB/kg",
-      type: "first_leg",
-      formula: "flat_rmb",
-      params: {
-        price: settings.huaian_air_price_per_kg_rmb,
-      },
-      isActive: true,
-    },
-    {
-      id: "ocs-first-leg",
-      name: "OCS RMB/kg",
-      type: "first_leg",
-      formula: "flat_rmb_tariff",
-      params: {
-        price: settings.ocs_price_per_kg_rmb,
-        tariffRate: settings.ocs_tariff_rate ?? 0,
-      },
-      isActive: true,
-    },
-  ];
-
-  const lastLegs = settings.last_leg_methods || [
-    {
-      id: "ocs-yamato-last-leg",
-      name: "OCS Yamato",
-      type: "last_leg",
-      formula: "ocs_3cm",
-      params: {
-        firstPrice: settings.test_ocs_3cm_first_price_rmb,
-        extraPrice: settings.test_ocs_3cm_extra_price_per_100g_rmb,
-      },
-      isActive: true,
-    },
-    {
-      id: "ocs-small-last-leg",
-      name: "OCS 小包",
-      type: "last_leg",
-      formula: "ocs_small",
-      params: {
-        firstPrice: settings.test_ocs_small_parcel_first_price_rmb,
-        extraPrice: settings.test_ocs_small_parcel_extra_price_per_500g_rmb,
-      },
-      isActive: true,
-    },
-    {
-      id: "osaka-jp-last-leg",
-      name: "大阪Japan Post",
-      type: "last_leg",
-      formula: "flat_jpy",
-      params: {
-        price: settings.osaka_lastmile_jpy,
-      },
-      isActive: true,
-    },
-    {
-      id: "fukuoka-jp-last-leg",
-      name: "福冈Japan Post",
-      type: "last_leg",
-      formula: "flat_jpy",
-      params: {
-        price: settings.fukuoka_lastmile_jpy,
-      },
-      isActive: true,
-    },
-  ];
+  const firstLegs = resolveFirstLegMethods(settings);
+  const lastLegs = resolveLastLegMethods(settings);
 
   const activeFirstLegs = firstLegs.filter((m) => m.isActive);
   const activeLastLegs = lastLegs.filter((m) => m.isActive);

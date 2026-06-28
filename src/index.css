@@ -128,12 +128,8 @@ a {
     @apply ml-0 lg:ml-[220px] flex min-h-screen min-w-0 flex-1 flex-col bg-[#f8fafc] transition-all duration-300;
   }
 
-  .erp-workspace-topbar {
-    @apply sticky top-0 lg:top-0 z-30 flex h-[60px] items-center justify-between border-b border-slate-100 bg-white/90 backdrop-blur-md px-6 lg:rounded-2xl lg:border lg:shadow-[0_8px_30px_rgb(0,0,0,0.01)];
-  }
-
   .erp-main {
-    @apply min-w-0 flex-1 px-0 py-6 lg:px-6;
+    @apply min-w-0 flex-1 px-0 pb-6 pt-0 lg:px-6;
   }
 
   .surface-card,
@@ -215,6 +211,7 @@ a {
     overflow-wrap: anywhere;
     background: #ffffff;
     box-shadow: 1px 0 0 #e2e8f0;
+    transition: background-color 150ms ease;
   }
 
   .data-table.finance-freeze-order th:nth-child(2),
@@ -230,6 +227,7 @@ a {
     overflow-wrap: anywhere;
     background: #ffffff;
     box-shadow: 1px 0 0 #e2e8f0;
+    transition: background-color 150ms ease;
   }
 
   .data-table.finance-freeze-product th:nth-child(1),
@@ -243,6 +241,7 @@ a {
     overflow-wrap: anywhere;
     background: #ffffff;
     box-shadow: 1px 0 0 #e2e8f0;
+    transition: background-color 150ms ease;
   }
 
   .data-table.finance-freeze-product th:nth-child(2),
@@ -255,6 +254,7 @@ a {
     max-width: 17rem;
     background: #ffffff;
     box-shadow: 1px 0 0 #e2e8f0;
+    transition: background-color 150ms ease;
   }
 
   .data-table.finance-freeze-order thead th:nth-child(-n + 2),
@@ -267,7 +267,7 @@ a {
   .data-table.finance-freeze-order tbody tr:hover > td:nth-child(-n + 2),
   .data-table.finance-freeze-reconciliation tbody tr:hover > td:nth-child(-n + 2),
   .data-table.finance-freeze-product tbody tr:hover > td:nth-child(-n + 2) {
-    background: #f8fafc;
+    background: rgba(248, 250, 252, 0.6);
   }
 
   .data-table.finance-freeze-order th:nth-child(1),
@@ -335,7 +335,7 @@ a {
     min-width: 4rem;
     max-width: 4rem;
     white-space: nowrap;
-    text-align: center;
+    text-align: right;
   }
 
   .data-table.orders-table th.order-attr-col,
@@ -369,6 +369,7 @@ a {
     min-width: 7.5rem;
     max-width: 7.5rem;
     white-space: nowrap;
+    text-align: center;
   }
 
   .data-table.orders-table th.order-actual-ship-time-col,
@@ -376,6 +377,7 @@ a {
     width: 11rem;
     min-width: 11rem;
     max-width: 11rem;
+    text-align: center;
   }
 
   .data-table.orders-table th.order-fee-col,
@@ -548,7 +550,12 @@ a {
 
   .money,
   .number-cell {
-    @apply px-3 py-2 text-center tabular-nums;
+    @apply px-3 py-2 text-right tabular-nums;
+  }
+
+  .text-right-num {
+    text-align: right !important;
+    font-variant-numeric: tabular-nums;
   }
 
   .btn-primary {
@@ -666,7 +673,7 @@ a {
     }
 
     .erp-side-section-title {
-      @apply hidden;
+      @apply inline-flex items-center text-[10px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap px-1;
     }
 
     .erp-side-nav-item {
@@ -681,12 +688,8 @@ a {
       @apply ml-0 pt-[104px];
     }
 
-    .erp-workspace-topbar {
-      @apply top-[104px] h-12 px-4;
-    }
-
     .erp-main {
-      @apply px-4 py-4;
+      @apply px-4 pb-4 pt-0;
     }
   }
 

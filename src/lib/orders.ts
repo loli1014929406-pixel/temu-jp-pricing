@@ -66,6 +66,13 @@ function isMissingActualShippingFeeColumnError(error: unknown) {
   return code === "42703" && message.includes("actual_shipping_fee_rmb");
 }
 
+/**
+ * Normalizes logistics method names parsed from Temu order exports.
+ * Temu frequently changes the exact string representation of logistics channels.
+ * This function maps known variations to our internal standard names (e.g., 'OCS Yamato').
+ * @param value The raw logistics method string from the Temu export.
+ * @returns The normalized internal logistics method name.
+ */
 function normalizeLogisticsMethod(value: string) {
   const text = value.trim();
   if (

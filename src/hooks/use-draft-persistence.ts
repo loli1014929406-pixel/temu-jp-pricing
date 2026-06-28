@@ -81,6 +81,9 @@ export function isSameDraft<T>(left: T, right: T) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+/**
+ * @todo (Technical Debt) Migrate draft persistence from localStorage to Supabase to support cross-device session continuity.
+ */
 export function useDraftPersistence<T>(
   key: string,
   value: T,

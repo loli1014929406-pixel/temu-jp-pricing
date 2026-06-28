@@ -13,7 +13,7 @@ import type {
 import { calculatePurchaseShippingRmb, calculateDynamicMethodCost } from "../../utils/shipping-costs";
 import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../../utils/sku-code";
 import { normalizeLogisticsMethodName } from "../../lib/logistics-methods";
-import { defaultLastLegMethods } from "../../lib/defaults";
+import { resolveLastLegMethods } from "../../lib/defaults";
 import { type SettlementLookup, getOrderSettlementRevenue } from "../../lib/settlement";
 
 export function getTodayInputValue() {
@@ -143,7 +143,7 @@ export function getReconciliationIssues(row: FinanceOrderRow): ReconciliationIss
 export function getAccountingStatus(row: FinanceOrderRow): { label: string; tone: FinanceBadgeTone } {
   const issues = getReconciliationIssues(row);
   if (issues.includes("unmatched")) return { label: "异常(未匹配)", tone: "danger" };
-  if (issues.includes("shipping-missing")) return { label: "待处理(缺运费)", tone: "danger" };
+  if (issues.includes("shipping-missing")) return { label: "待处理(缺运费)", tone: "warning" };
   return { label: "对账成功", tone: "success" };
 }
 
@@ -233,7 +233,7 @@ export function estimateOrderShippingFee(
   const orderMethodName = normalizeLogisticsMethodName(orderMethodRaw);
   if (!orderMethodName) return 0;
 
-  const lastLegs = settings.last_leg_methods || defaultLastLegMethods;
+  const lastLegs = resolveLastLegMethods(settings);
 
   let matchedMethod = lastLegs.find(
     (m) => normalizeLogisticsMethodName(m.name).toLowerCase() === orderMethodName.toLowerCase()
@@ -276,7 +276,7 @@ export function estimateOrderShippingFee(
 
 export function roundMoney(value: number) {
   if (!Number.isFinite(value)) return 0;
-  return Number(value.toFixed(2));
+  return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
 export function getOrderDate(order: TemuOrderRecord) {
@@ -344,7 +344,7 @@ export function calculateFinanceTotals(orderRows: FinanceOrderRow[], purchases: 
 
 export function EmptyPanel({ label, compact = false }: { label: string; compact?: boolean }) {
   return (
-    <div className={`rounded-lg border border-dashed border-line bg-slate-50/70 text-center text-sm font-medium text-slate-500 ${compact ? "p-4" : "p-8"}`}>
+    <div className={`empty-state ${compact ? "py-4" : ""}`}>
       {label}
     </div>
   );

@@ -50,7 +50,16 @@ export default function App() {
   return (
     <ErrorBoundary>
       <DataTableCellFullText />
-      <Suspense fallback={<div className="flex h-screen items-center justify-center"><div className="text-slate-500">Loading...</div></div>}>
+      <Suspense
+        fallback={
+          <div className="flex h-screen items-center justify-center">
+            <div className="flex flex-col items-center gap-3">
+              <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-accent" />
+              <span className="text-sm font-medium text-slate-400">加载中…</span>
+            </div>
+          </div>
+        }
+      >
         <Routes>
         <Route path="/login" element={<AuthPage user={user} />} />
         <Route

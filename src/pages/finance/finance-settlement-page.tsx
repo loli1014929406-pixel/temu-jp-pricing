@@ -437,15 +437,18 @@ export function FinanceSettlementPage({ user }: Props) {
                           className="font-semibold text-slate-800"
                           data-full-text={row.order.order_no}
                         >
-                          {row.order.order_no}
+                          <span className="table-cell-clamp">{row.order.order_no}</span>
                         </td>
                         <td
                           className="font-mono text-slate-600 text-xs font-bold"
                           data-full-text={row.order.sku_code || "--"}
                         >
-                          {row.order.sku_code || "--"}
+                          <span className="table-cell-clamp">{row.order.sku_code || "--"}</span>
                         </td>
-                        <td className="text-slate-700 font-medium">
+                        <td
+                          className="text-slate-700 font-medium"
+                          data-full-text={row.product ? row.product.product_name_cn : `规格: ${row.order.product_attributes || "--"}`}
+                        >
                           <TableCellPreview
                             label={row.product ? "系统匹配商品" : "订单规格"}
                             value={row.product ? row.product.product_name_cn : `规格: ${row.order.product_attributes || "--"}`}
@@ -621,15 +624,18 @@ export function FinanceSettlementPage({ user }: Props) {
                             className="font-semibold text-slate-800"
                             data-full-text={row.order.order_no}
                           >
-                            {row.order.order_no}
+                            <span className="table-cell-clamp">{row.order.order_no}</span>
                           </td>
                           <td
                             className="font-mono text-slate-600 text-xs"
                             data-full-text={row.order.sku_code || "--"}
                           >
-                            {row.order.sku_code || "--"}
+                            <span className="table-cell-clamp">{row.order.sku_code || "--"}</span>
                           </td>
-                          <td className="text-slate-700 font-medium">
+                          <td
+                            className="text-slate-700 font-medium"
+                            data-full-text={row.product ? row.product.product_name_cn : `规格: ${row.order.product_attributes || "--"}`}
+                          >
                             <TableCellPreview
                               label={row.product ? "系统匹配商品" : "订单规格"}
                               value={row.product ? row.product.product_name_cn : `规格: ${row.order.product_attributes || "--"}`}

@@ -44,7 +44,12 @@ import { usePermissions } from "../hooks/use-permissions";
 import { useAutoDismiss } from "../hooks/use-auto-dismiss";
 import { AsyncProductSelect } from "../components/inventory/AsyncProductSelect";
 import { fetchSettings } from "../lib/settings";
-import { defaultFirstLegMethods, defaultLastLegMethods } from "../lib/defaults";
+import {
+  defaultFirstLegMethods,
+  defaultLastLegMethods,
+  resolveFirstLegMethods,
+  resolveLastLegMethods,
+} from "../lib/defaults";
 
 type InventoryPageProps = {
   user: User;
@@ -349,12 +354,15 @@ export function InventoryPage({ user }: InventoryPageProps) {
           nextSettings = await fetchSettings(user.id);
         } catch (e) {
           console.error("Failed to fetch settings in inventory page:", e);
+          if (active) {
+            setErrorMessage(getErrorMessage(e, "加载设置失败"));
+          }
         }
 
         const firstLegs: LogisticsMethodConfig[] =
-          nextSettings?.first_leg_methods || defaultFirstLegMethods;
+          nextSettings ? resolveFirstLegMethods(nextSettings) : defaultFirstLegMethods;
         const lastLegs: LogisticsMethodConfig[] =
-          nextSettings?.last_leg_methods || defaultLastLegMethods;
+          nextSettings ? resolveLastLegMethods(nextSettings) : defaultLastLegMethods;
         const updatedDbLogisticsMethods = [...nextLogisticsMethods];
 
         const nextWarehouseTotals = await fetchWarehouseSkuCounts(
@@ -1556,7 +1564,10 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                   <Fragment key={item.id}>
                                     <tr className="border-t border-line hover:bg-slate-50/50 transition">
                                       <td className="px-3 py-2 font-medium text-ink">{product?.product_code ?? "--"}</td>
-                                      <td className="product-name-col px-3 py-2 text-slate-600">
+                                      <td
+                                        className="product-name-col px-3 py-2 text-slate-600"
+                                        data-full-text={product?.product_name_cn ?? "--"}
+                                      >
                                         <TableCellPreview
                                           label="产品名称"
                                           value={product?.product_name_cn ?? "--"}
@@ -1566,7 +1577,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                           detailSubtitle={product?.product_code}
                                         />
                                       </td>
-                                      <td className="px-3 py-2 font-mono text-xs">
+                                      <td className="px-3 py-2 font-mono text-xs" data-full-text={skuDisplayCode}>
                                         <TableCellPreview
                                           label="SKU编号"
                                           value={skuDisplayCode}
@@ -1576,7 +1587,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                           detailSubtitle={product?.product_code}
                                         />
                                       </td>
-                                      <td className="px-3 py-2 text-slate-600">
+                                      <td className="px-3 py-2 text-slate-600" data-full-text={salesSpecText}>
                                         <TableCellPreview
                                           label="销售规格"
                                           value={salesSpecText}
@@ -1586,7 +1597,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                           detailSubtitle={skuDisplayCode}
                                         />
                                       </td>
-                                      <td className="px-3 py-2">
+                                      <td className="px-3 py-2 text-right-num">
                                         {isEditingSkuStock ? (
                                           <div className="flex flex-col gap-2">
                                             <div className="flex items-center gap-2">
@@ -1717,14 +1728,20 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                                       item.stock_quantity * Math.max(0, Math.trunc(Number(link.quantity) || 0));
                                                     return (
                                                       <tr key={link.item_id} className="border-t border-line hover:bg-slate-50/50">
-                                                        <td className="px-3 py-2 text-sm text-ink font-medium">
-                                                          {component?.item_name ?? "--"}
+                                                        <td
+                                                          className="px-3 py-2 text-sm text-ink font-medium"
+                                                          data-full-text={component?.item_name ?? "--"}
+                                                        >
+                                                          <span className="table-cell-clamp">{component?.item_name ?? "--"}</span>
                                                         </td>
-                                                        <td className="px-3 py-2 text-xs text-slate-500">
-                                                          {component?.item_spec || "--"}
+                                                        <td
+                                                          className="px-3 py-2 text-xs text-slate-500"
+                                                          data-full-text={component?.item_spec || "--"}
+                                                        >
+                                                          <span className="table-cell-clamp">{component?.item_spec || "--"}</span>
                                                         </td>
-                                                        <td className="px-3 py-2 text-sm font-semibold text-slate-700">{link.quantity}</td>
-                                                        <td className="px-3 py-2 text-sm font-semibold text-slate-700">
+                                                        <td className="number-cell px-3 py-2 text-sm font-semibold text-slate-700">{link.quantity}</td>
+                                                        <td className="number-cell px-3 py-2 text-sm font-semibold text-slate-700">
                                                           {inferredQuantity}
                                                         </td>
                                                       </tr>

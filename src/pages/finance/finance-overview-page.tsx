@@ -235,10 +235,23 @@ export function FinanceOverviewPage({ user }: Props) {
                       const accountingStatus = getAccountingStatus(row);
                       return (
                         <tr key={row.order.id} className="hover:bg-slate-50/50">
-                          <td className="font-semibold text-slate-800">{row.order.order_no}</td>
-                          <td className="font-mono text-slate-600 text-xs font-bold">{row.order.sku_code || "--"}</td>
-                          <td className="text-slate-700 font-medium">
-                            {row.product ? row.product.product_name_cn : <span className="text-slate-400 italic">规格: {row.order.product_attributes || "--"}</span>}
+                          <td className="font-semibold text-slate-800" data-full-text={row.order.order_no}>
+                            <span className="table-cell-clamp">{row.order.order_no}</span>
+                          </td>
+                          <td className="font-mono text-slate-600 text-xs font-bold" data-full-text={row.order.sku_code || "--"}>
+                            <span className="table-cell-clamp">{row.order.sku_code || "--"}</span>
+                          </td>
+                          <td
+                            className="text-slate-700 font-medium"
+                            data-full-text={row.product ? row.product.product_name_cn : `规格: ${row.order.product_attributes || "--"}`}
+                          >
+                            {row.product ? (
+                              <span className="table-cell-clamp">{row.product.product_name_cn}</span>
+                            ) : (
+                              <span className="table-cell-clamp text-slate-400 italic">
+                                规格: {row.order.product_attributes || "--"}
+                              </span>
+                            )}
                           </td>
                           <td className="text-center">
                             <Badge tone={accountingStatus.tone}>{accountingStatus.label}</Badge>

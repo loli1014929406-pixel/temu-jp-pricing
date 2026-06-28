@@ -13,8 +13,7 @@ import type {
 } from "../types";
 import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../utils/sku-code";
 import { upsertProductWarehouseShippingLimits } from "./product-warehouse-shipping-limits";
-
-const requestTimeoutMs = 45000;
+import { withTimeout } from "./supabase-helpers";
 
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -22,22 +21,6 @@ const uuidPattern =
 type FetchProductsOptions = {
   includeNotSelling?: boolean;
 };
-
-async function withTimeout<T>(promise: PromiseLike<T>, label: string) {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timeoutId = setTimeout(
-      () => reject(new Error(`${label}超时，请稍后重试`)),
-      requestTimeoutMs,
-    );
-  });
-
-  try {
-    return await Promise.race([promise, timeout]);
-  } finally {
-    if (timeoutId) clearTimeout(timeoutId);
-  }
-}
 
 async function requireSession() {
   const supabase = getSupabaseClient();

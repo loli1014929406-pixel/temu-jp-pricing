@@ -102,6 +102,91 @@ export const defaultLastLegMethods: LogisticsMethodConfig[] = [
   },
 ];
 
+export function resolveFirstLegMethods(settings: PricingSettings): LogisticsMethodConfig[] {
+  return settings.first_leg_methods || [
+    {
+      id: "sf-first-leg",
+      name: "顺丰",
+      type: "first_leg",
+      formula: "sf",
+      params: {
+        firstWeight: settings.sf_first_weight_kg,
+        firstPrice: settings.sf_first_price_rmb,
+        extraPrice: settings.sf_extra_price_per_kg_rmb,
+      },
+      isActive: true,
+    },
+    {
+      id: "huaian-air-first-leg",
+      name: "淮安空运 RMB/kg",
+      type: "first_leg",
+      formula: "flat_rmb",
+      params: {
+        price: settings.huaian_air_price_per_kg_rmb,
+      },
+      isActive: true,
+    },
+    {
+      id: "ocs-first-leg",
+      name: "OCS RMB/kg",
+      type: "first_leg",
+      formula: "flat_rmb_tariff",
+      params: {
+        price: settings.ocs_price_per_kg_rmb,
+        tariffRate: settings.ocs_tariff_rate ?? 0,
+      },
+      isActive: true,
+    },
+  ];
+}
+
+export function resolveLastLegMethods(settings: PricingSettings): LogisticsMethodConfig[] {
+  return settings.last_leg_methods || [
+    {
+      id: "ocs-yamato-last-leg",
+      name: "OCS Yamato",
+      type: "last_leg",
+      formula: "ocs_3cm",
+      params: {
+        firstPrice: settings.test_ocs_3cm_first_price_rmb,
+        extraPrice: settings.test_ocs_3cm_extra_price_per_100g_rmb,
+      },
+      isActive: true,
+    },
+    {
+      id: "ocs-small-last-leg",
+      name: "OCS 小包",
+      type: "last_leg",
+      formula: "ocs_small",
+      params: {
+        firstPrice: settings.test_ocs_small_parcel_first_price_rmb,
+        extraPrice: settings.test_ocs_small_parcel_extra_price_per_500g_rmb,
+      },
+      isActive: true,
+    },
+    {
+      id: "osaka-jp-last-leg",
+      name: "大阪Japan Post",
+      type: "last_leg",
+      formula: "flat_jpy",
+      params: {
+        price: settings.osaka_lastmile_jpy,
+      },
+      isActive: true,
+    },
+    {
+      id: "fukuoka-jp-last-leg",
+      name: "福冈Japan Post",
+      type: "last_leg",
+      formula: "flat_jpy",
+      params: {
+        price: settings.fukuoka_lastmile_jpy,
+      },
+      isActive: true,
+    },
+  ];
+}
+
 export const defaultSettings: PricingSettings = {
   packaging_cost_rmb: 0.2,
   exchange_rate_rmb_per_jpy: 0.0425,

@@ -1758,10 +1758,12 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                                 <tbody>
                                   {groupedItems.map(({ component, draftItem }) => (
                                     <tr key={draftItem.id} className="border-t border-line">
-                                      <td className="px-3 py-2">{component.item_name}</td>
-                                      <td className="px-3 py-2">{draftItem.quantity}</td>
-                                      <td className="px-3 py-2">¥{Number(draftItem.unitPriceRmb || 0).toFixed(2)}</td>
-                                      <td className="px-3 py-2">
+                                      <td className="px-3 py-2" data-full-text={component.item_name || undefined}>
+                                        <span className="table-cell-clamp">{component.item_name}</span>
+                                      </td>
+                                      <td className="number-cell px-3 py-2">{draftItem.quantity}</td>
+                                      <td className="money px-3 py-2">¥{Number(draftItem.unitPriceRmb || 0).toFixed(2)}</td>
+                                      <td className="money px-3 py-2">
                                         ¥
                                         {(
                                           Number(draftItem.quantity || 0) *
@@ -2137,9 +2139,9 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                                         const isPartiallyReceived = receivedQty > 0 && receivedQty < item.quantity;
                                         return (
                                           <tr key={item.key}>
-                                            <td>
+                                            <td data-full-text={item.label}>
                                               <div className="font-semibold text-ink">
-                                                {item.label}
+                                                <span className="table-cell-clamp">{item.label}</span>
                                               </div>
                                             </td>
                                             <td>
@@ -2173,9 +2175,9 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                                       })}
                                       {skuReceiptView.missing.map((item) => (
                                         <tr key={item.key}>
-                                          <td>
+                                          <td data-full-text={item.label}>
                                             <div className="font-semibold text-amber-700">
-                                              {item.label}
+                                              <span className="table-cell-clamp">{item.label}</span>
                                             </div>
                                           </td>
                                           <td>
@@ -2225,12 +2227,16 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                                         const preview = getSkuBindingPreview(item, skusById[selectedSkuId]);
                                         return (
                                           <tr key={item.id}>
-                                            <td>
+                                            <td
+                                              data-full-text={`${item.product_code} ${item.item_name}${item.item_spec ? ` / ${item.item_spec}` : ""} x ${item.quantity}`}
+                                            >
                                               <div className="font-semibold text-ink">
-                                                {item.product_code}
+                                                <span className="table-cell-clamp">{item.product_code}</span>
                                               </div>
                                               <div className="mt-0.5 text-xs text-slate-500">
-                                                {item.item_name}{item.item_spec ? ` / ${item.item_spec}` : ""} x {item.quantity}
+                                                <span className="table-cell-clamp">
+                                                  {item.item_name}{item.item_spec ? ` / ${item.item_spec}` : ""} x {item.quantity}
+                                                </span>
                                               </div>
                                             </td>
                                             <td className="min-w-[220px]">
@@ -2715,11 +2721,15 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                       ) : (
                         remainingSkuRows.map((row) => (
                           <tr key={row.key}>
-                            <td>
+                            <td data-full-text={`${row.productCode} ${row.productName}`}>
                               <div className="font-semibold text-ink">{row.productCode}</div>
-                              <div className="mt-0.5 text-xs text-slate-500">{row.productName}</div>
+                              <div className="mt-0.5 text-xs text-slate-500">
+                                <span className="table-cell-clamp">{row.productName}</span>
+                              </div>
                             </td>
-                            <td>{row.label}</td>
+                            <td data-full-text={row.label}>
+                              <span className="table-cell-clamp">{row.label}</span>
+                            </td>
                             <td className="number-cell font-bold text-slate-500">{row.remainingQuantity}</td>
                             <td className="p-2 align-middle text-right">
                               <TextInput

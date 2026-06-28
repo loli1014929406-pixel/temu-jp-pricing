@@ -646,7 +646,7 @@ export function FinanceProfitPage({ user }: Props) {
                     return (
                       <tr key={`${row.productCode}-${row.productName}`} className="hover:bg-slate-50/50">
                         <td className="font-bold text-slate-900">{row.productCode}</td>
-                        <td className="text-slate-700 font-medium">
+                        <td className="text-slate-700 font-medium" data-full-text={row.productName}>
                           <TableCellPreview
                             label="商品名称"
                             value={row.productName}

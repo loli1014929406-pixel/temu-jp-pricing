@@ -11,7 +11,10 @@ import {
 import { useAutoDismiss } from "../hooks/use-auto-dismiss";
 import { usePermissions } from "../hooks/use-permissions";
 import { fetchSettings, saveSettings } from "../lib/settings";
-import { defaultFirstLegMethods, defaultLastLegMethods } from "../lib/defaults";
+import {
+  resolveFirstLegMethods,
+  resolveLastLegMethods,
+} from "../lib/defaults";
 import type { LogisticsMethodConfig, PricingSettings } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { PageHeader } from "../components/ui";
@@ -672,7 +675,7 @@ export function SettingsPage({ user }: SettingsPageProps) {
 
     updateSettings({
       first_leg_methods: [
-        ...(settings.first_leg_methods || []),
+        ...resolveFirstLegMethods(settings),
         createLogisticsMethod("first_leg", name, newFirstLegFormula, newFirstLegParams),
       ],
     });
@@ -689,7 +692,7 @@ export function SettingsPage({ user }: SettingsPageProps) {
 
     updateSettings({
       last_leg_methods: [
-        ...(settings.last_leg_methods || []),
+        ...resolveLastLegMethods(settings),
         createLogisticsMethod("last_leg", name, newLastLegFormula, newLastLegParams),
       ],
     });
@@ -698,26 +701,28 @@ export function SettingsPage({ user }: SettingsPageProps) {
 
   async function handleDeleteFirstLeg(id: string) {
     if (!settings) return;
-    const method = (settings.first_leg_methods || []).find((item) => item.id === id);
+    const methods = resolveFirstLegMethods(settings);
+    const method = methods.find((item) => item.id === id);
     if (!(await confirmDelete(`头程物流方式“${method?.name ?? id}”`))) return;
     updateSettings({
-      first_leg_methods: (settings.first_leg_methods || []).filter((method) => method.id !== id),
+      first_leg_methods: methods.filter((method) => method.id !== id),
     });
   }
 
   async function handleDeleteLastLeg(id: string) {
     if (!settings) return;
-    const method = (settings.last_leg_methods || []).find((item) => item.id === id);
+    const methods = resolveLastLegMethods(settings);
+    const method = methods.find((item) => item.id === id);
     if (!(await confirmDelete(`尾程物流方式“${method?.name ?? id}”`))) return;
     updateSettings({
-      last_leg_methods: (settings.last_leg_methods || []).filter((method) => method.id !== id),
+      last_leg_methods: methods.filter((method) => method.id !== id),
     });
   }
 
   function handleUpdateFirstLeg(id: string, updates: Partial<LogisticsMethodConfig>) {
     if (!settings) return;
     updateSettings({
-      first_leg_methods: (settings.first_leg_methods || []).map((method) =>
+      first_leg_methods: resolveFirstLegMethods(settings).map((method) =>
         method.id === id ? { ...method, ...updates } : method,
       ),
     });
@@ -726,7 +731,7 @@ export function SettingsPage({ user }: SettingsPageProps) {
   function handleUpdateLastLeg(id: string, updates: Partial<LogisticsMethodConfig>) {
     if (!settings) return;
     updateSettings({
-      last_leg_methods: (settings.last_leg_methods || []).map((method) =>
+      last_leg_methods: resolveLastLegMethods(settings).map((method) =>
         method.id === id ? { ...method, ...updates } : method,
       ),
     });
@@ -849,7 +854,7 @@ export function SettingsPage({ user }: SettingsPageProps) {
             type="first_leg"
             title="头程物流设置"
             description="用于计算从发货地到目的国或分拨仓的头程成本"
-            methods={settings.first_leg_methods || defaultFirstLegMethods}
+            methods={resolveFirstLegMethods(settings)}
             isAdding={addingFirstLeg}
             newName={newFirstLegName}
             newFormula={newFirstLegFormula}
@@ -872,7 +877,7 @@ export function SettingsPage({ user }: SettingsPageProps) {
             type="last_leg"
             title="尾程物流设置"
             description="用于计算派送给买家的最后一公里成本"
-            methods={settings.last_leg_methods || defaultLastLegMethods}
+            methods={resolveLastLegMethods(settings)}
             isAdding={addingLastLeg}
             newName={newLastLegName}
             newFormula={newLastLegFormula}

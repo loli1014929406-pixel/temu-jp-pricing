@@ -237,11 +237,7 @@ export function DeclarationPricesPage({ user }: DeclarationPricesPageProps) {
                         className="product-name-col px-3 py-2"
                         data-full-text={product.product_name_cn}
                       >
-                        <span
-                          className="cell-truncate"
-                          style={{ maxWidth: "15rem" }}
-                          title={product.product_name_cn}
-                        >
+                        <span className="table-cell-clamp" title={product.product_name_cn}>
                           {product.product_name_cn}
                         </span>
                       </td>

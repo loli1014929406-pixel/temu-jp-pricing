@@ -277,7 +277,7 @@ const visibleColumns = [
   { key: "delivery_deadline", label: "签收时效", className: "order-time-col", sortable: true },
   { key: "warehouse", label: "仓库", className: "order-warehouse-col" },
   { key: "logistics", label: "发货方式", className: "order-logistics-col" },
-  { key: "quantity", label: "数量", className: "order-qty-col text-center" },
+  { key: "quantity", label: "数量", className: "order-qty-col text-right-num" },
   { key: "product", label: "商品信息", className: "order-product-col", sortable: true },
   { key: "sales_spec", label: "销售规格", className: "order-attr-col" },
   { key: "logistics_tracking_no", label: "物流单号", className: "order-tracking-col", shippedOnly: true },
@@ -1378,6 +1378,14 @@ const OrderTableRow = memo(function OrderTableRow({
   if (!primaryOrder || !mergedOrder) return null;
 
   const canAssignOrder = canEdit && persistedStage === "pending_assignment";
+  const productCellFullText = primaryDeclaration
+    ? declarationGroups
+        .map(
+          (group) =>
+            `${group.declaration.product.product_name_cn || "--"} ${group.declaration.sku.sku_code || "--"} x${group.quantity}`,
+        )
+        .join("\n")
+    : skuSummary;
 
   return (
     <tr key={rowId}>
@@ -1462,8 +1470,8 @@ const OrderTableRow = memo(function OrderTableRow({
           </span>
         )}
       </td>
-      <td className="order-qty-col text-center">{rowQuantity}</td>
-      <td className="order-product-col">
+      <td className="order-qty-col text-right-num">{rowQuantity}</td>
+      <td className="order-product-col" data-full-text={productCellFullText || undefined}>
         {primaryDeclaration ? (
           <div className="flex min-w-0 items-center gap-2">
             <div className="flex w-[58px] shrink-0 items-center gap-1 overflow-hidden">
@@ -1495,6 +1503,7 @@ const OrderTableRow = memo(function OrderTableRow({
       </td>
       <td
         className="order-attr-col"
+        data-full-text={salesSpec || undefined}
         style={{ cursor: canExpandAttrCell ? "pointer" : "default" }}
         onClick={() => {
           if (canExpandAttrCell) {
