@@ -32,6 +32,8 @@ const tables = [
   "purchase_order_items",
   "purchase_packages",
   "purchase_package_items",
+  "finance_settlement_files",
+  "finance_settlement_records",
 ];
 
 function parseEnv(contents) {

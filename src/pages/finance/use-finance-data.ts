@@ -3,6 +3,7 @@ import { fetchTemuOrders } from "../../lib/orders";
 import { fetchPurchaseOrders } from "../../lib/purchases";
 import { fetchProducts, fetchProductItemsByProductIds, fetchProductSkusByProductIds } from "../../lib/products";
 import { fetchWarehouses, fetchWarehouseSkus } from "../../lib/inventory";
+import { fetchLogisticsMethods, fetchWarehouseLogisticsMethods } from "../../lib/logistics-methods";
 import { fetchSettings } from "../../lib/settings";
 import { fetchExpenses } from "../../lib/expenses";
 import { useAutoDismiss } from "../../hooks/use-auto-dismiss";
@@ -15,6 +16,8 @@ import type {
   ProductSku,
   Warehouse,
   WarehouseSku,
+  LogisticsMethod,
+  WarehouseLogisticsMethod,
 } from "../../types";
 import type { SettlementFile } from "../../lib/settlement";
 import type { FinanceData } from "./shared";
@@ -26,6 +29,7 @@ type FetchOptions = {
   inventory?: boolean;
   expenses?: boolean;
   settlements?: boolean;
+  logistics?: boolean;
 };
 
 export function useFinanceData(userId: string, options: FetchOptions) {
@@ -37,6 +41,8 @@ export function useFinanceData(userId: string, options: FetchOptions) {
     productSkus: [],
     warehouses: [],
     warehouseSkus: [],
+    logisticsMethods: [],
+    warehouseLogisticsMethods: [],
   });
   const [expenses, setExpenses] = useState<FinanceExpense[]>([]);
   const [settlementFiles, setSettlementFiles] = useState<SettlementFile[]>([]);
@@ -51,6 +57,7 @@ export function useFinanceData(userId: string, options: FetchOptions) {
     try {
       const promises: Promise<unknown>[] = [];
       const keys: string[] = [];
+      let optionalError = "";
 
       if (options.orders || options.products || options.inventory) {
          promises.push(fetchSettings(userId).catch(() => null));
@@ -72,9 +79,14 @@ export function useFinanceData(userId: string, options: FetchOptions) {
         keys.push("products");
       }
 
-      if (options.inventory) {
+      if (options.inventory || options.logistics) {
         promises.push(fetchWarehouses());
         keys.push("warehouses");
+      }
+
+      if (options.logistics) {
+        promises.push(fetchLogisticsMethods());
+        keys.push("logisticsMethods");
       }
 
       if (options.expenses) {
@@ -85,7 +97,12 @@ export function useFinanceData(userId: string, options: FetchOptions) {
       if (options.settlements) {
         // dynamically import to avoid circular dependencies or bloating non-settlement pages
         const { loadSettlementFiles } = await import("../../lib/settlement");
-        promises.push(loadSettlementFiles(userId));
+        promises.push(
+          loadSettlementFiles(userId).catch((err) => {
+            optionalError = getErrorMessage(err, "加载结算文件失败");
+            return [] as SettlementFile[];
+          }),
+        );
         keys.push("settlements");
       }
 
@@ -95,6 +112,7 @@ export function useFinanceData(userId: string, options: FetchOptions) {
       let productItems: ProductItem[] = [];
       let productSkus: ProductSku[] = [];
       let warehouseSkus: WarehouseSku[] = [];
+      let warehouseLogisticsMethods: WarehouseLogisticsMethod[] = [];
       const products = (resultMap.products as Product[] | undefined) ?? [];
       const warehouses = (resultMap.warehouses as Warehouse[] | undefined) ?? [];
 
@@ -109,7 +127,13 @@ export function useFinanceData(userId: string, options: FetchOptions) {
       }
 
       if (warehouses.length > 0) {
-         warehouseSkus = await fetchWarehouseSkus(warehouses.map((w) => w.id));
+        const warehouseIds = warehouses.map((w) => w.id);
+        if (options.inventory) {
+          warehouseSkus = await fetchWarehouseSkus(warehouseIds);
+        }
+        if (options.logistics) {
+          warehouseLogisticsMethods = await fetchWarehouseLogisticsMethods(warehouseIds);
+        }
       }
 
       setData({
@@ -120,6 +144,8 @@ export function useFinanceData(userId: string, options: FetchOptions) {
         productSkus,
         warehouses,
         warehouseSkus,
+        logisticsMethods: (resultMap.logisticsMethods as LogisticsMethod[] | undefined) ?? [],
+        warehouseLogisticsMethods,
       });
 
       if (resultMap.expenses) {
@@ -129,7 +155,10 @@ export function useFinanceData(userId: string, options: FetchOptions) {
          setSettlementFiles(resultMap.settlements as SettlementFile[]);
       }
       if (resultMap.settings !== undefined) {
-         setSettings(resultMap.settings as PricingSettings | null);
+          setSettings(resultMap.settings as PricingSettings | null);
+      }
+      if (optionalError) {
+        setError(optionalError);
       }
 
     } catch (err) {

@@ -29,6 +29,7 @@ import { buildSettlementLookup } from "../../lib/settlement";
 import { getErrorMessage } from "../../utils/errors";
 import { updateSkuCode } from "../../lib/products";
 import { updateTemuOrder } from "../../lib/orders";
+import { getWarehouseLogisticsMethodNames, normalizeLogisticsMethodName } from "../../lib/logistics-methods";
 import { confirmAction, confirmDelete, confirmSave } from "../../utils/confirmations";
 
 type Props = {
@@ -36,10 +37,11 @@ type Props = {
 };
 
 const settlementReconColumns = [
-  { key: "status", width: "9rem" },
   { key: "order_no", width: "13rem" },
-  { key: "sku_code", width: "13rem" },
-  { key: "suggestion", width: "20rem" },
+  { key: "sku_code", width: "11rem" },
+  { key: "product", width: "18rem" },
+  { key: "status", width: "16rem" },
+  { key: "logistics", width: "13rem" },
   { key: "shipping_fee", width: "10rem" },
   { key: "actions", width: "14rem" },
 ] as const;
@@ -58,12 +60,19 @@ const settlementIncomeColumns = [
   { key: "accounting", width: "8rem" },
 ] as const;
 
+function getReconciliationIssueLabel(issue: ReturnType<typeof getReconciliationIssues>[number]) {
+  if (issue === "unmatched") return "SKU 货号未匹配";
+  if (issue === "shipping-method-missing") return "缺发货方式 (无法估算运费)";
+  return "运费缺失 (无法估算)";
+}
+
 export function FinanceSettlementPage({ user }: Props) {
   const { canEdit } = usePermissions();
   const { data, settlementFiles, settings, loading, error, reload } = useFinanceData(user.id, {
     orders: true,
     products: true,
     settlements: true,
+    logistics: true,
   });
 
   const [activeTab, setActiveTab] = useState<"files" | "recon" | "income">("files");
@@ -93,6 +102,9 @@ export function FinanceSettlementPage({ user }: Props) {
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [editingFeeValue, setEditingFeeValue] = useState("");
   const [savingOrderId, setSavingOrderId] = useState<string | null>(null);
+  const [editingLogisticsOrderId, setEditingLogisticsOrderId] = useState<string | null>(null);
+  const [editingLogisticsValue, setEditingLogisticsValue] = useState("");
+  const [savingLogisticsOrderId, setSavingLogisticsOrderId] = useState<string | null>(null);
 
   const [matchingOrderId, setMatchingOrderId] = useState<string | null>(null);
   const [matchingSkuId, setMatchingSkuId] = useState("");
@@ -134,21 +146,26 @@ export function FinanceSettlementPage({ user }: Props) {
       const unitCost = sku ? getSkuUnitCostRmb(sku, productItemsById) : 0;
       const productCostRmb = roundMoney(unitCost * quantity);
 
-      const { actualSalesRevenueRmb, actualFreightRevenueRmb, isSettled } = getResolvedSettlementMetrics(order, quantity, settlementLookup);
+      const { actualSalesRevenueRmb, actualFreightRevenueRmb, isSettled, matchType } = getResolvedSettlementMetrics(order, quantity, settlementLookup);
       const actualRevenueRmb = roundMoney(actualSalesRevenueRmb + actualFreightRevenueRmb);
 
       return {
         order,
         sku,
         product,
+        quantity,
         productCostRmb,
         shippingFeeRmb,
+        estimatedShippingRmb,
         shippingFeeSource,
         isShippingFeeEstimated: shippingFeeSource === "estimated",
         billAmountRmb: roundMoney(productCostRmb + shippingFeeRmb),
+        actualSalesRevenueRmb,
+        actualFreightRevenueRmb,
         actualRevenueRmb,
         isSettled,
         matched: Boolean(sku && product),
+        matchLabel: matchType === "po" ? "PO单号" : matchType === "sku_avg" ? "SKU均值" : "",
       };
     });
   }, [data.orders, skuLookup, data.products, settings, productItemsById, settlementLookup]);
@@ -211,7 +228,7 @@ export function FinanceSettlementPage({ user }: Props) {
       if (records.length === 0) throw new Error("未解析到有效结算数据");
       
       const newFile = await addSettlementFile(user.id, file.name, records as any);
-      alert(`成功导入 ${records.length} 条结算记录！\n总回款：${formatCurrency(newFile.totalRevenue)}`);
+      alert(`成功导入 ${records.length} 条结算记录！\n总回款（销售回款+运费回款）：${formatCurrency(newFile.totalRevenue)}`);
       await reload();
     } catch (err) {
       alert("导入失败: " + getErrorMessage(err, "请确保选择的是 SettledParentFlow 导出文件"));
@@ -245,6 +262,108 @@ export function FinanceSettlementPage({ user }: Props) {
     } finally {
       setSavingOrderId(null);
     }
+  };
+
+  const getOrderLogisticsOptions = (row: any) => {
+    const warehouseId = row.order.warehouse_id ?? "";
+    const options = warehouseId
+      ? getWarehouseLogisticsMethodNames(
+          warehouseId,
+          data.logisticsMethods,
+          data.warehouseLogisticsMethods,
+        )
+      : [];
+    const current = normalizeLogisticsMethodName(row.order.logistics_method || "");
+    return current && !options.includes(current) ? [...options, current] : options;
+  };
+
+  const startEditingLogisticsMethod = (row: any) => {
+    setEditingLogisticsOrderId(row.order.id);
+    setEditingLogisticsValue(normalizeLogisticsMethodName(row.order.logistics_method || ""));
+  };
+
+  const handleSaveLogisticsMethod = async (orderId: string, methodValue: string) => {
+    const logisticsMethod = normalizeLogisticsMethodName(methodValue);
+    if (!logisticsMethod) return alert("请选择发货方式");
+    if (!confirmSave()) return;
+    setSavingLogisticsOrderId(orderId);
+    try {
+      await updateTemuOrder(orderId, { logistics_method: logisticsMethod });
+      setEditingLogisticsOrderId(null);
+      await reload();
+    } catch (err) {
+      alert("更新发货方式失败: " + getErrorMessage(err, "未知错误"));
+    } finally {
+      setSavingLogisticsOrderId(null);
+    }
+  };
+
+  const renderLogisticsMethodCell = (row: any) => {
+    const options = getOrderLogisticsOptions(row);
+    const current = normalizeLogisticsMethodName(row.order.logistics_method || "");
+    const isEditing = editingLogisticsOrderId === row.order.id;
+    const isSaving = savingLogisticsOrderId === row.order.id;
+
+    if (isEditing) {
+      return (
+        <div className="flex items-center gap-1.5">
+          <select
+            value={editingLogisticsValue}
+            onChange={(event) => setEditingLogisticsValue(event.target.value)}
+            disabled={isSaving || options.length === 0}
+            className="h-8 w-36 rounded border border-line bg-white px-2 text-xs font-semibold outline-none focus:border-accent disabled:bg-slate-50 disabled:text-slate-400"
+            autoFocus
+          >
+            <option value="">选择发货方式</option>
+            {options.map((method) => (
+              <option key={method} value={method}>
+                {method}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => handleSaveLogisticsMethod(row.order.id, editingLogisticsValue)}
+            disabled={!editingLogisticsValue || isSaving}
+            className="rounded-lg bg-emerald-500 p-1 text-white hover:bg-emerald-600 disabled:opacity-50"
+          >
+            <Check size={12} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setEditingLogisticsOrderId(null)}
+            className="rounded-lg bg-slate-200 p-1 text-slate-600 hover:bg-slate-300"
+          >
+            <X size={12} />
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="group flex min-w-0 flex-col gap-1">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className={`truncate font-semibold ${current ? "text-slate-700" : "text-rose-600"}`}>
+            {current || "缺发货方式"}
+          </span>
+          {canEdit && (
+            <button
+              type="button"
+              onClick={() => startEditingLogisticsMethod(row)}
+              disabled={!row.order.warehouse_id || options.length === 0}
+              className={`rounded bg-sky-50 px-2 py-0.5 text-[10px] font-bold text-sky-600 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400 ${
+                current ? "opacity-0 group-hover:opacity-100" : ""
+              }`}
+            >
+              {current ? "修改" : "补发货方式"}
+            </button>
+          )}
+        </div>
+        <span className="truncate font-mono text-[10px] text-slate-400">
+          {row.order.logistics_tracking_no || (options.length === 0 ? "当前仓库未配置发货方式" : "--")}
+        </span>
+      </div>
+    );
   };
 
   const handleLinkSkuCode = async (orderId: string, temuSkuCode: string, skuId: string) => {
@@ -407,7 +526,7 @@ export function FinanceSettlementPage({ user }: Props) {
             ) : (
               <>
                 <StandardTable 
-                  minWidth="min-w-[1080px]"
+                  minWidth="min-w-[1250px]"
                   columns={settlementReconColumns}
                   layout="fixed"
                   page={reconPaginated.page}
@@ -419,10 +538,11 @@ export function FinanceSettlementPage({ user }: Props) {
                 >
                   <thead>
                     <tr>
-                      <th className="bg-slate-50">异常状态</th>
                       <th className="bg-slate-50">订单号</th>
                       <th className="bg-slate-50">Temu SKU Code</th>
-                      <th className="bg-slate-50">排查建议操作</th>
+                      <th className="bg-slate-50">系统匹配商品 / 订单规格</th>
+                      <th className="bg-slate-50">异常状态</th>
+                      <th className="bg-slate-50">发货方式</th>
                       <th className="number-cell bg-slate-50 px-3 py-2">核算运费</th>
                       <th className="text-center bg-slate-50">操作对账</th>
                     </tr>
@@ -467,12 +587,13 @@ export function FinanceSettlementPage({ user }: Props) {
                             ) : (
                               issueTypes.map((issue) => (
                                 <span key={issue} className="inline-flex items-center gap-1 rounded bg-rose-50 px-2 py-0.5 text-xs font-bold text-rose-600">
-                                  <AlertTriangle size={12} /> {issue === "unmatched" ? "SKU 货号未匹配" : "运费缺失 (无法估算)"}
+                                  <AlertTriangle size={12} /> {getReconciliationIssueLabel(issue)}
                                 </span>
                               ))
                             )}
                           </div>
                         </td>
+                        <td>{renderLogisticsMethodCell(row)}</td>
                         <td className="money px-3 py-2">
                           {editingOrderId === row.order.id ? (
                             <div className="flex items-center gap-1 justify-end">
@@ -571,7 +692,7 @@ export function FinanceSettlementPage({ user }: Props) {
                   <option value="unsettled">未结算订单</option>
                   <option value="settled">已结算订单</option>
                   <option value="unmatched">异常: 未匹配SKU</option>
-                  <option value="missing-shipping">异常: 缺失运费</option>
+                  <option value="missing-shipping">异常: 缺发货方式/运费</option>
                 </select>
               </div>
               <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500">
@@ -690,12 +811,7 @@ export function FinanceSettlementPage({ user }: Props) {
                           <td className="money px-3 py-2">
                             {row.isSettled ? <span className="font-bold text-indigo-700">{formatCurrency(row.actualRevenueRmb)}</span> : <span className="text-slate-400 font-medium">未结算</span>}
                           </td>
-                          <td>
-                            <div className="flex flex-col">
-                              <span className="font-semibold text-slate-700">{row.order.logistics_method || "--"}</span>
-                              <span className="text-[10px] text-slate-400 font-mono mt-0.5">{row.order.logistics_tracking_no}</span>
-                            </div>
-                          </td>
+                          <td>{renderLogisticsMethodCell(row)}</td>
                           <td>
                             <Badge tone={row.isSettled ? "success" : "neutral"}>
                               {row.isSettled ? "已结算" : "未结算"}

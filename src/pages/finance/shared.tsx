@@ -9,6 +9,8 @@ import type {
   PricingSettings,
   Warehouse,
   WarehouseSku,
+  LogisticsMethod,
+  WarehouseLogisticsMethod,
 } from "../../types";
 import { calculatePurchaseShippingRmb, calculateDynamicMethodCost } from "../../utils/shipping-costs";
 import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../../utils/sku-code";
@@ -71,11 +73,13 @@ export type FinanceData = {
   productSkus: ProductSku[];
   warehouses: Warehouse[];
   warehouseSkus: WarehouseSku[];
+  logisticsMethods: LogisticsMethod[];
+  warehouseLogisticsMethods: WarehouseLogisticsMethod[];
 };
 
 export type FinanceBadgeTone = "success" | "warning" | "danger" | "neutral" | "info";
 export type ShippingFeeSource = "actual" | "estimated" | "missing";
-export type ReconciliationIssue = "unmatched" | "shipping-missing";
+export type ReconciliationIssue = "unmatched" | "shipping-method-missing" | "shipping-cost-missing";
 
 export type FinanceOrderRow = {
   order: TemuOrderRecord;
@@ -125,6 +129,10 @@ export function needsShippingFeeAttention(row: FinanceOrderRow) {
   return row.shippingFeeSource === "missing" && hasShippingActivity(row);
 }
 
+export function needsShippingMethodAttention(row: FinanceOrderRow) {
+  return needsShippingFeeAttention(row) && !normalizeLogisticsMethodName(row.order.logistics_method || "");
+}
+
 export function getShippingFeeSourceLabel(source: ShippingFeeSource) {
   if (source === "actual") return "实际";
   if (source === "estimated") return "自动估算";
@@ -135,7 +143,7 @@ export function getReconciliationIssues(row: FinanceOrderRow): ReconciliationIss
   const issues: ReconciliationIssue[] = [];
   if (!row.matched) issues.push("unmatched");
   if (needsShippingFeeAttention(row)) {
-    issues.push("shipping-missing");
+    issues.push(needsShippingMethodAttention(row) ? "shipping-method-missing" : "shipping-cost-missing");
   }
   return issues;
 }
@@ -143,7 +151,8 @@ export function getReconciliationIssues(row: FinanceOrderRow): ReconciliationIss
 export function getAccountingStatus(row: FinanceOrderRow): { label: string; tone: FinanceBadgeTone } {
   const issues = getReconciliationIssues(row);
   if (issues.includes("unmatched")) return { label: "异常(未匹配)", tone: "danger" };
-  if (issues.includes("shipping-missing")) return { label: "待处理(缺运费)", tone: "warning" };
+  if (issues.includes("shipping-method-missing")) return { label: "待处理(缺发货方式)", tone: "warning" };
+  if (issues.includes("shipping-cost-missing")) return { label: "待处理(缺运费)", tone: "warning" };
   return { label: "对账成功", tone: "success" };
 }
 
@@ -455,20 +464,17 @@ export function getResolvedSettlementMetrics(
 
   // Level 1: PO exact match
   const poKey = order.order_no.trim();
-  const skuCodeKey = order.sku_code.trim().toLowerCase();
   
   if (poKey && settlementLookup.byPO.has(poKey)) {
     const matchingRecords = settlementLookup.byPO.get(poKey)!;
-    let matchedRecord = matchingRecords.find(r => r.skuCode.toLowerCase() === skuCodeKey);
-    if (!matchedRecord && matchingRecords.length === 1) {
-      matchedRecord = matchingRecords[0];
-    }
-    if (matchedRecord) {
-      actualSalesRevenueRmb = matchedRecord.salesRevenue;
-      actualFreightRevenueRmb = matchedRecord.freightRevenue;
-      isSettled = true;
-      matchType = "po";
-    }
+    actualSalesRevenueRmb = roundMoney(
+      matchingRecords.reduce((sum, record) => sum + record.salesRevenue, 0),
+    );
+    actualFreightRevenueRmb = roundMoney(
+      matchingRecords.reduce((sum, record) => sum + record.freightRevenue, 0),
+    );
+    isSettled = true;
+    matchType = "po";
   }
 
   // Level 2: SKU average fallback

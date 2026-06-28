@@ -147,6 +147,18 @@ function roundMoney(value: number): number {
   return Number(value.toFixed(2));
 }
 
+function getSettlementStorageErrorMessage(error: { code?: string; message?: string } | null, action: string) {
+  const code = error?.code ?? "";
+  const message = error?.message ?? "";
+  if (code === "42P01" || code === "PGRST205" || message.toLowerCase().includes("schema cache")) {
+    return "结算数据库表尚未初始化，请先执行最新结算迁移后再导入 Temu 结算文件。";
+  }
+  if (code === "42703") {
+    return "结算数据库字段不完整，请先执行最新结算迁移后再导入 Temu 结算文件。";
+  }
+  return `${action}失败: ${message || "未知错误"}`;
+}
+
 // ── Storage (Supabase) ─────────────────────────────────────────────────────
 
 export async function loadSettlementFiles(userId: string): Promise<SettlementFile[]> {
@@ -159,7 +171,7 @@ export async function loadSettlementFiles(userId: string): Promise<SettlementFil
 
   if (filesError || !filesData) {
     console.error("Failed to load settlement files:", filesError);
-    return [];
+    throw new Error(getSettlementStorageErrorMessage(filesError, "加载结算文件"));
   }
 
   // To build the full file structure, we need the records too.
@@ -171,7 +183,7 @@ export async function loadSettlementFiles(userId: string): Promise<SettlementFil
 
   if (recordsError || !recordsData) {
     console.error("Failed to load settlement records:", recordsError);
-    return [];
+    throw new Error(getSettlementStorageErrorMessage(recordsError, "加载结算记录"));
   }
 
   const recordsByFile = new Map<string, SettlementRecord[]>();
@@ -257,7 +269,7 @@ export async function addSettlementFile(
     .select()
     .single();
 
-  if (fileError) throw new Error("保存文件信息失败: " + fileError.message);
+  if (fileError) throw new Error(getSettlementStorageErrorMessage(fileError, "保存文件信息"));
 
   const fileId = fileData.id;
 
@@ -287,7 +299,7 @@ export async function addSettlementFile(
     const { error: batchError } = await supabase.from("finance_settlement_records").insert(batch);
     if (batchError) {
       await deleteSettlementFile(fileId);
-      throw new Error("保存文件数据失败: " + batchError.message);
+      throw new Error(getSettlementStorageErrorMessage(batchError, "保存文件数据"));
     }
   }
 
@@ -351,9 +363,10 @@ export function buildSettlementLookup(files: SettlementFile[]): SettlementLookup
         byPO.set(poKey, list);
       }
 
-      // Index by SKU code
+      // Index by SKU code. Combo-order child rows carry the SKU but no money,
+      // so they should not lower SKU average revenue.
       const skuKey = record.skuCode.trim().toLowerCase();
-      if (skuKey) {
+      if (skuKey && record.totalRevenue !== 0) {
         const existing = bySkuCode.get(skuKey) ?? {
           totalRevenue: 0,
           salesRevenue: 0,
@@ -403,7 +416,7 @@ export function getOrderSettlementRevenue(
   if (!key) return null;
 
   const skuData = lookup.bySkuCode.get(key);
-  if (!skuData || skuData.recordCount === 0) return null;
+  if (!skuData || skuData.recordCount === 0 || skuData.quantity <= 0) return null;
 
   // Calculate per-unit average revenue from settlement data
   const avgRevenuePerUnit = skuData.totalRevenue / skuData.quantity;

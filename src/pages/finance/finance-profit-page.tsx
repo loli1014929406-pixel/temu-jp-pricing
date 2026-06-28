@@ -1,10 +1,11 @@
 import type { User } from "@supabase/supabase-js";
 import { useMemo, useState, useEffect } from "react";
-import { TrendingUp, RefreshCw, Search } from "lucide-react";
+import { TrendingUp, RefreshCw, Search, Truck, ReceiptText, PackageCheck } from "lucide-react";
 import { PageHeader, StandardTable, TableCellPreview } from "../../components/ui";
 import { useFinanceData } from "./use-finance-data";
 import {
   EmptyPanel,
+  FinanceTable,
   getPaginatedRows,
   formatCurrency,
   calculateMarginRate,
@@ -35,6 +36,29 @@ type Props = {
 
 const PROFIT_CHART_TARGET_TICKS = 5;
 const PROFIT_CHART_MIN_PADDING = 100;
+
+type ProfitSeriesKey = "cashProfit" | "orderProfit";
+
+const profitChartSeries: Array<{
+  key: ProfitSeriesKey;
+  label: string;
+  color: string;
+}> = [
+  { key: "cashProfit", label: "结算口径现金利润", color: "#6366f1" },
+  { key: "orderProfit", label: "发货口径利润", color: "#10b981" },
+];
+
+type ShippingMethodRow = {
+  method: string;
+  orderCount: number;
+  quantity: number;
+  actualShipping: number;
+  estimatedShipping: number;
+  totalShipping: number;
+  missingShippingCount: number;
+  averagePerOrder: number;
+  averagePerItem: number;
+};
 
 const financeProductProfitColumns = [
   { key: "product_code", width: "9rem" },
@@ -99,6 +123,25 @@ function formatChartTick(value: number) {
   if (Math.abs(value) >= 100 || Number.isInteger(value)) return value.toFixed(0);
   if (Math.abs(value) >= 10) return value.toFixed(1);
   return value.toFixed(2);
+}
+
+function formatCompactCurrency(value: number) {
+  const sign = value < 0 ? "-" : "";
+  const abs = Math.abs(value);
+  if (abs >= 10000) return `${sign}¥${(abs / 10000).toFixed(1)}万`;
+  if (abs >= 1000) return `${sign}¥${abs.toFixed(0)}`;
+  if (abs >= 100) return `${sign}¥${abs.toFixed(0)}`;
+  return `${sign}¥${abs.toFixed(2)}`;
+}
+
+function formatShare(value: number, total: number) {
+  if (!Number.isFinite(value) || !Number.isFinite(total) || total <= 0) return "0.00%";
+  return `${((value / total) * 100).toFixed(2)}%`;
+}
+
+function getShippingMethodLabel(value: unknown) {
+  const label = String(value ?? "").trim().replace(/\s+/g, " ");
+  return label || "未填写发货方式";
 }
 
 export function FinanceProfitPage({ user }: Props) {
@@ -299,6 +342,91 @@ export function FinanceProfitPage({ user }: Props) {
       });
   }, [data.orders, data.purchases, expenses, productItemsById, productsById, skuLookup, settings, settlementLookup, period]);
 
+  const shippingMethodRows = useMemo<ShippingMethodRow[]>(() => {
+    const shippingData = new Map<string, ShippingMethodRow>();
+
+    const getShippingObj = (method: string) => {
+      if (!shippingData.has(method)) {
+        shippingData.set(method, {
+          method,
+          orderCount: 0,
+          quantity: 0,
+          actualShipping: 0,
+          estimatedShipping: 0,
+          totalShipping: 0,
+          missingShippingCount: 0,
+          averagePerOrder: 0,
+          averagePerItem: 0,
+        });
+      }
+      return shippingData.get(method)!;
+    };
+
+    data.orders.forEach((order: any) => {
+      const date = order.actual_ship_time || order.latest_ship_time || order.created_at;
+      if (period.mode !== "all" && !isDateInPeriod(date, period)) return;
+
+      const sku = getOrderSku(order, skuLookup);
+      const product = sku?.product_id ? productsById.get(sku.product_id) ?? null : null;
+      const quantity = getOrderQuantity(order);
+      const actualShippingFeeRmb = Number(order.actual_shipping_fee_rmb || 0);
+      const estimatedShippingRmb = estimateOrderShippingFee(order, product, settings);
+      const method = getShippingMethodLabel(order.logistics_method);
+      const obj = getShippingObj(method);
+
+      obj.orderCount += 1;
+      obj.quantity += quantity;
+
+      if (actualShippingFeeRmb > 0) {
+        obj.actualShipping += actualShippingFeeRmb;
+        obj.totalShipping += actualShippingFeeRmb;
+      } else if (estimatedShippingRmb > 0) {
+        obj.estimatedShipping += estimatedShippingRmb;
+        obj.totalShipping += estimatedShippingRmb;
+      } else {
+        obj.missingShippingCount += 1;
+      }
+    });
+
+    return Array.from(shippingData.values())
+      .map((row) => {
+        const totalShipping = roundMoney(row.totalShipping);
+        const actualShipping = roundMoney(row.actualShipping);
+        const estimatedShipping = roundMoney(row.estimatedShipping);
+        return {
+          ...row,
+          quantity: roundMoney(row.quantity),
+          actualShipping,
+          estimatedShipping,
+          totalShipping,
+          averagePerOrder: row.orderCount > 0 ? roundMoney(totalShipping / row.orderCount) : 0,
+          averagePerItem: row.quantity > 0 ? roundMoney(totalShipping / row.quantity) : 0,
+        };
+      })
+      .sort((a, b) => b.totalShipping - a.totalShipping);
+  }, [data.orders, productsById, settings, skuLookup, period]);
+
+  const shippingMethodSummary = useMemo(() => {
+    return shippingMethodRows.reduce(
+      (summary, row) => ({
+        totalShipping: roundMoney(summary.totalShipping + row.totalShipping),
+        actualShipping: roundMoney(summary.actualShipping + row.actualShipping),
+        estimatedShipping: roundMoney(summary.estimatedShipping + row.estimatedShipping),
+        orderCount: summary.orderCount + row.orderCount,
+        quantity: roundMoney(summary.quantity + row.quantity),
+        missingShippingCount: summary.missingShippingCount + row.missingShippingCount,
+      }),
+      {
+        totalShipping: 0,
+        actualShipping: 0,
+        estimatedShipping: 0,
+        orderCount: 0,
+        quantity: 0,
+        missingShippingCount: 0,
+      },
+    );
+  }, [shippingMethodRows]);
+
   const paginatedMonthly = getPaginatedRows("finance-monthly-profit", monthlyRows, monthlyPage, monthlyPageSize);
 
   // Product Profit Logic
@@ -391,68 +519,127 @@ export function FinanceProfitPage({ user }: Props) {
   const paginatedProduct = getPaginatedRows("finance-product-profit", filteredProductRows, productPage, productPageSize);
 
   const MonthlyProfitChart = () => {
-    const chartData = [...monthlyRows].reverse().slice(-6); // last 6 months
+    const chartData = [...monthlyRows].reverse().slice(-6);
     if (chartData.length === 0) return null;
 
-    const height = 180;
-    const width = 500;
-    const padding = { top: 20, right: 20, bottom: 30, left: 50 };
+    const latest = chartData[chartData.length - 1];
+    const height = 260;
+    const width = 720;
+    const padding = { top: 34, right: 28, bottom: 48, left: 72 };
     const chartHeight = height - padding.top - padding.bottom;
     const values = chartData.flatMap((d) => [d.cashProfit, d.orderProfit]);
     const { minVal, maxVal, ticks } = buildProfitChartAxis(values);
     const totalRange = maxVal - minVal || 1;
     const yForValue = (value: number) => padding.top + chartHeight * ((maxVal - value) / totalRange);
     const y0 = yForValue(0);
+    const title = chartData.length > 1 ? "近 6 个月利润分析趋势 (元)" : "所选月份利润分析 (元)";
+    const latestCashMargin = calculateMarginRate(latest.cashProfit, latest.settledIncome);
+    const latestOrderMargin = calculateMarginRate(latest.orderProfit, latest.estimatedIncome);
 
     return (
-      <div className="rounded-2xl border border-line bg-white p-5 shadow-sm">
-        <h4 className="text-xs font-bold text-slate-400 mb-4 flex items-center gap-1.5">
-          <TrendingUp size={14} className="text-accent" />
-          <span>近 6 个月利润分析趋势 (元)</span>
-        </h4>
-        <div className="relative w-full min-h-[350px] overflow-x-auto">
-          <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[450px] h-full absolute inset-0">
-            {/* Grid lines */}
+      <div className="rounded-lg border border-line bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h4 className="flex items-center gap-1.5 text-sm font-bold text-slate-800">
+              <TrendingUp size={16} className="text-accent" />
+              <span>{title}</span>
+            </h4>
+            <p className="mt-1 text-xs text-slate-400">柱子低于 0 轴即为亏损，颜色仍对应原利润口径。</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-4 text-xs font-semibold">
+            {profitChartSeries.map((series) => (
+              <div key={series.key} className="flex items-center gap-1.5">
+                <span className="block h-3 w-3 rounded-sm" style={{ backgroundColor: series.color }} />
+                <span className="text-slate-600">{series.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-4 grid border-y border-slate-100 sm:grid-cols-2 sm:divide-x sm:divide-slate-100">
+          <div className="py-3 sm:pr-4">
+            <div className="text-xs font-semibold text-slate-500">结算口径现金利润</div>
+            <div className={`mt-1 text-xl font-bold ${getSignedAmountClass(latest.cashProfit)}`}>
+              {formatCurrency(latest.cashProfit)}
+            </div>
+            <div className="mt-1 text-xs text-slate-400">利润率 {latestCashMargin.toFixed(2)}%</div>
+          </div>
+          <div className="border-t border-slate-100 py-3 sm:border-t-0 sm:pl-4">
+            <div className="text-xs font-semibold text-slate-500">发货口径利润</div>
+            <div className={`mt-1 text-xl font-bold ${getSignedAmountClass(latest.orderProfit)}`}>
+              {formatCurrency(latest.orderProfit)}
+            </div>
+            <div className="mt-1 text-xs text-slate-400">利润率 {latestOrderMargin.toFixed(2)}%</div>
+          </div>
+        </div>
+
+        <div className="relative mt-4 w-full overflow-x-auto">
+          <svg viewBox={`0 0 ${width} ${height}`} className="h-[330px] min-w-[680px] w-full">
             {ticks.map((val) => {
               const y = yForValue(val);
               return (
                 <g key={val} className="opacity-40">
                   <line x1={padding.left} y1={y} x2={width - padding.right} y2={y} stroke="#e2e8f0" strokeDasharray="3 3" />
-                  <text x={padding.left - 8} y={y + 4} textAnchor="end" className="fill-slate-400 text-[10px] font-medium font-mono">{formatChartTick(val)}</text>
+                  <text x={padding.left - 10} y={y + 4} textAnchor="end" className="fill-slate-400 text-[11px] font-medium font-mono">
+                    {formatChartTick(val)}
+                  </text>
                 </g>
               );
             })}
-            
-            {/* Zero Line */}
             <line x1={padding.left} y1={y0} x2={width - padding.right} y2={y0} stroke="#cbd5e1" strokeWidth={1.5} strokeDasharray="3 3" />
 
-            {/* Bars */}
             {chartData.map((d, index) => {
               const xRange = width - padding.left - padding.right;
               const step = xRange / chartData.length;
               const x = padding.left + step * index + step / 2;
-
-              const cashProfitValueY = yForValue(d.cashProfit);
-              const cashProfitBarH = Math.abs(cashProfitValueY - y0);
-              const cashProfitY = Math.min(cashProfitValueY, y0);
-              const cashProfitFill = d.cashProfit >= 0 ? "#818cf8" : "#fb7185";
-              const cashProfitHover = d.cashProfit >= 0 ? "hover:fill-indigo-500" : "hover:fill-rose-500";
-
-              const orderValueY = yForValue(d.orderProfit);
-              const orderBarH = Math.abs(orderValueY - y0);
-              const orderY = Math.min(orderValueY, y0);
-              const orderFill = d.orderProfit >= 0 ? "#34d399" : "#fb7185";
-              const orderHover = d.orderProfit >= 0 ? "hover:fill-emerald-500" : "hover:fill-rose-500";
+              const barWidth = Math.min(26, Math.max(14, step / 7));
+              const gap = Math.max(6, barWidth * 0.45);
 
               return (
-                <g key={d.month} className="group">
-                  <rect x={x - 10} y={cashProfitY} width={10} height={Math.max(2, cashProfitBarH)} fill={cashProfitFill} rx={2} className={`transition-all duration-300 ${cashProfitHover}`}>
-                    <title>{`${d.month} 结算口径现金利润 ${formatCurrency(d.cashProfit)}\n实际结算回款: ${formatCurrency(d.settledIncome)}`}</title>
-                  </rect>
-                  <rect x={x + 4} y={orderY} width={10} height={Math.max(2, orderBarH)} fill={orderFill} rx={2} className={`transition-all duration-300 ${orderHover}`}>
-                    <title>{`${d.month} 发货口径利润 ${formatCurrency(d.orderProfit)}\n订单口径预估回款: ${formatCurrency(d.estimatedIncome)}`}</title>
-                  </rect>
-                  <text x={x} y={height - padding.bottom + 16} textAnchor="middle" className="fill-slate-500 text-[10px] font-bold">
+                <g key={d.month}>
+                  {profitChartSeries.map((series, seriesIndex) => {
+                    const value = series.key === "cashProfit" ? d.cashProfit : d.orderProfit;
+                    const revenue = series.key === "cashProfit" ? d.settledIncome : d.estimatedIncome;
+                    const primaryCost = series.key === "cashProfit" ? d.purchase : d.productCost;
+                    const primaryCostLabel = series.key === "cashProfit" ? "当月采购付款" : "订单商品成本";
+                    const valueY = yForValue(value);
+                    const barHeight = Math.abs(valueY - y0);
+                    const barY = Math.min(valueY, y0);
+                    const barX = x + (seriesIndex === 0 ? -barWidth - gap / 2 : gap / 2);
+                    const labelY = value >= 0 ? Math.max(12, barY - 6) : Math.min(height - padding.bottom - 4, barY + barHeight + 14);
+
+                    return (
+                      <g key={series.key}>
+                        <rect
+                          x={barX}
+                          y={barY}
+                          width={barWidth}
+                          height={Math.max(3, barHeight)}
+                          fill={series.color}
+                          opacity={value < 0 ? 0.68 : 0.92}
+                          stroke={value < 0 ? "#e11d48" : "transparent"}
+                          strokeWidth={value < 0 ? 1 : 0}
+                          rx={3}
+                          className="transition-opacity hover:opacity-100"
+                        >
+                          <title>{`${d.month} ${series.label}: ${formatCurrency(value)}
+收入: ${formatCurrency(revenue)}
+${primaryCostLabel}: ${formatCurrency(primaryCost)}
+核算运费支出: ${formatCurrency(d.shipping)}
+其他杂项费用: ${formatCurrency(d.otherExpense)}`}</title>
+                        </rect>
+                        <text
+                          x={barX + barWidth / 2}
+                          y={labelY}
+                          textAnchor="middle"
+                          className="fill-slate-500 text-[10px] font-semibold"
+                        >
+                          {formatCompactCurrency(value)}
+                        </text>
+                      </g>
+                    );
+                  })}
+                  <text x={x} y={height - padding.bottom + 28} textAnchor="middle" className="fill-slate-600 text-[12px] font-bold">
                     {d.month}
                   </text>
                 </g>
@@ -460,12 +647,130 @@ export function FinanceProfitPage({ user }: Props) {
             })}
           </svg>
         </div>
-        <div className="flex items-center gap-4 mt-2 justify-center text-xs font-semibold">
-          <div className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-indigo-400 block" /><span className="text-slate-500">结算口径现金利润</span></div>
-          <div className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-emerald-400 block" /><span className="text-slate-500">发货口径利润</span></div>
-          <div className="flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-rose-400 block" /><span className="text-slate-500">负数向下</span></div>
-        </div>
       </div>
+    );
+  };
+
+  const ShippingMethodAnalysis = () => {
+    if (shippingMethodRows.length === 0) return null;
+
+    const topRows = shippingMethodRows.slice(0, 6);
+    const maxShipping = Math.max(...topRows.map((row) => row.totalShipping), 1);
+
+    return (
+      <section className="rounded-lg border border-line bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h4 className="flex items-center gap-1.5 text-sm font-bold text-slate-800">
+              <Truck size={16} className="text-accent" />
+              <span>发货方式运费分析</span>
+            </h4>
+            <p className="mt-1 text-xs text-slate-400">按当前时间范围统计，实际运费优先；没有实际运费时使用页面核算估算值。</p>
+          </div>
+          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500">
+            共 {shippingMethodRows.length} 种发货方式
+          </span>
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <div className="flex items-center gap-3 border-y border-slate-100 py-3">
+            <ReceiptText size={18} className="text-indigo-500" />
+            <div>
+              <div className="text-xs font-semibold text-slate-500">当月总运费</div>
+              <div className="money mt-1 text-lg font-bold text-slate-900">{formatCurrency(shippingMethodSummary.totalShipping)}</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 border-y border-slate-100 py-3">
+            <PackageCheck size={18} className="text-emerald-500" />
+            <div>
+              <div className="text-xs font-semibold text-slate-500">实际录入运费</div>
+              <div className="money mt-1 text-lg font-bold text-slate-900">{formatCurrency(shippingMethodSummary.actualShipping)}</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 border-y border-slate-100 py-3">
+            <Truck size={18} className="text-amber-500" />
+            <div>
+              <div className="text-xs font-semibold text-slate-500">自动估算运费</div>
+              <div className="money mt-1 text-lg font-bold text-slate-900">{formatCurrency(shippingMethodSummary.estimatedShipping)}</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(320px,0.85fr)_minmax(560px,1.15fr)]">
+          <div className="min-w-0">
+            <div className="mb-3 flex items-center justify-between text-xs font-bold text-slate-500">
+              <span>运费占比 Top {topRows.length}</span>
+              <span>实际 / 估算</span>
+            </div>
+            <div className="grid gap-3">
+              {topRows.map((row) => {
+                const totalWidth = row.totalShipping > 0 ? Math.max(2, (row.totalShipping / maxShipping) * 100) : 0;
+                const actualShare = row.totalShipping > 0 ? (row.actualShipping / row.totalShipping) * 100 : 0;
+                const estimatedShare = row.totalShipping > 0 ? (row.estimatedShipping / row.totalShipping) * 100 : 0;
+                return (
+                  <div key={row.method} className="grid gap-1.5">
+                    <div className="flex items-center justify-between gap-3 text-xs">
+                      <span className="truncate font-semibold text-slate-700" title={row.method}>{row.method}</span>
+                      <span className="money shrink-0 font-bold text-slate-900">{formatCurrency(row.totalShipping)}</span>
+                    </div>
+                    <div className="h-4 overflow-hidden rounded bg-slate-100">
+                      <div className="flex h-full rounded" style={{ width: `${totalWidth}%` }}>
+                        <span className="h-full bg-indigo-500" style={{ width: `${actualShare}%` }} />
+                        <span className="h-full bg-amber-400" style={{ width: `${estimatedShare}%` }} />
+                      </div>
+                    </div>
+                    <div className="flex justify-between text-[11px] text-slate-400">
+                      <span>{formatShare(row.totalShipping, shippingMethodSummary.totalShipping)}</span>
+                      <span>{row.orderCount} 单 / {row.quantity} 件</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <FinanceTable minWidth="min-w-[860px]">
+            <thead>
+              <tr>
+                <th>发货方式</th>
+                <th className="number-cell px-3 py-2">订单数</th>
+                <th className="number-cell px-3 py-2">件数</th>
+                <th className="number-cell px-3 py-2">实际运费</th>
+                <th className="number-cell px-3 py-2">估算运费</th>
+                <th className="number-cell px-3 py-2">总运费</th>
+                <th className="number-cell px-3 py-2">单均</th>
+                <th className="number-cell px-3 py-2">件均</th>
+                <th className="number-cell px-3 py-2">缺失</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shippingMethodRows.map((row) => (
+                <tr key={row.method} className="hover:bg-slate-50/50">
+                  <td className="font-semibold text-slate-800" data-full-text={row.method}>
+                    <TableCellPreview
+                      label="发货方式"
+                      value={row.method}
+                      lines={1}
+                      alwaysShowDetail
+                      detailTitle="发货方式"
+                    />
+                  </td>
+                  <td className="number-cell font-semibold px-3 py-2">{row.orderCount}</td>
+                  <td className="number-cell font-semibold px-3 py-2">{row.quantity}</td>
+                  <td className="money px-3 py-2 text-indigo-700">{formatCurrency(row.actualShipping)}</td>
+                  <td className="money px-3 py-2 text-amber-700">{formatCurrency(row.estimatedShipping)}</td>
+                  <td className="money px-3 py-2 font-bold text-slate-900">{formatCurrency(row.totalShipping)}</td>
+                  <td className="money px-3 py-2">{formatCurrency(row.averagePerOrder)}</td>
+                  <td className="money px-3 py-2">{formatCurrency(row.averagePerItem)}</td>
+                  <td className={`number-cell px-3 py-2 font-semibold ${row.missingShippingCount > 0 ? "text-rose-700" : "text-slate-400"}`}>
+                    {row.missingShippingCount}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </FinanceTable>
+        </div>
+      </section>
     );
   };
 
@@ -521,6 +826,7 @@ export function FinanceProfitPage({ user }: Props) {
           ) : (
             <div className="grid gap-5">
               <MonthlyProfitChart />
+              <ShippingMethodAnalysis />
 
               <section className="grid gap-4">
                 <h3 className="text-sm font-bold text-slate-800">月度实际利润与订单利润表</h3>
