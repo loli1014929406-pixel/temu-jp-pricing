@@ -578,10 +578,10 @@ export function ProductsPage({ user }: ProductsPageProps) {
                         {product.material_cn || "--"}
                       </span>
                     </td>
-                    <td className="number-cell">{product.package_length_cm} cm</td>
-                    <td className="number-cell">{product.package_width_cm} cm</td>
-                    <td className="number-cell">{product.package_height_cm} cm</td>
-                    <td className="number-cell">{product.package_weight_g} g</td>
+                    <td className="number-cell px-3 py-2">{product.package_length_cm} cm</td>
+                    <td className="number-cell px-3 py-2">{product.package_width_cm} cm</td>
+                    <td className="number-cell px-3 py-2">{product.package_height_cm} cm</td>
+                    <td className="number-cell px-3 py-2">{product.package_weight_g} g</td>
                     <td className="px-3 py-2">
                       {canEdit && editingSellingProductId === product.id ? (
                         <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">

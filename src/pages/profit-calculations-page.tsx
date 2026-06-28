@@ -1345,13 +1345,13 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                         {product.product_name_cn}
                       </span>
                     </td>
-                    <td className="number-cell">{salesQuantities[product.id] ?? 0}</td>
-                    <td className="money">
+                    <td className="number-cell px-3 py-2">{salesQuantities[product.id] ?? 0}</td>
+                    <td className="money px-3 py-2">
                       {typeof temuPrices[product.id] === "number"
                         ? formatCurrency(temuPrices[product.id] as number)
                         : "--"}
                     </td>
-                    <td className="money">
+                    <td className="money px-3 py-2">
                       {typeof summary?.totalCostRmb === "number"
                         ? formatCurrency(summary.totalCostRmb)
                         : "--"}
@@ -1398,22 +1398,22 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                         }
                       />
                     </td>
-                    <td className="money">
+                    <td className="money px-3 py-2">
                       {typeof summary?.adFeeRmb === "number"
                         ? formatCurrency(summary.adFeeRmb)
                         : "--"}
                     </td>
-                    <td className="money">
+                    <td className="money px-3 py-2">
                       {typeof summary?.discountedSalePriceRmb === "number"
                         ? formatCurrency(summary.discountedSalePriceRmb)
                         : "--"}
                     </td>
-                    <td className="number-cell">
+                    <td className="number-cell px-3 py-2">
                       {typeof summary?.costProfitRate === "number"
                         ? `${(summary.costProfitRate * 100).toFixed(2)}%`
                         : "--"}
                     </td>
-                    <td className="number-cell">
+                    <td className="number-cell px-3 py-2">
                       {typeof summary?.criticalValue === "number"
                         ? summary.criticalValue.toFixed(2)
                         : "--"}
@@ -1455,7 +1455,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                           })()
                         : "--"}
                     </td>
-                    <td className="number-cell">
+                    <td className="number-cell px-3 py-2">
                       {summary?.freeShippingThresholdQty ?? "--"}
                     </td>
                     <td className="w-24 px-3 py-2">

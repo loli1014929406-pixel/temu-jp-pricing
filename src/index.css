@@ -546,14 +546,9 @@ a {
     background-color: inherit;
   }
 
-  .money {
-    @apply font-semibold tabular-nums text-slate-900;
-    text-align: right !important;
-  }
-
+  .money,
   .number-cell {
-    @apply tabular-nums font-medium;
-    text-align: center !important;
+    @apply px-3 py-2 text-center tabular-nums;
   }
 
   .btn-primary {

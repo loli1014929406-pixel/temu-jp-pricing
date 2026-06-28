@@ -245,19 +245,19 @@ export function DeclarationPricesPage({ user }: DeclarationPricesPageProps) {
                           {product.product_name_cn}
                         </span>
                       </td>
-                      <td className="money">
+                      <td className="money px-3 py-2">
                         {formatPricingValue(summary, "purchaseCostRmb")}
                       </td>
-                      <td className="money">
+                      <td className="money px-3 py-2">
                         {formatPricingValue(summary, "logisticsCostRmb")}
                       </td>
-                      <td className="money">
+                      <td className="money px-3 py-2">
                         {formatPricingValue(summary, "totalCostRmb")}
                       </td>
-                      <td className="money">
+                      <td className="money px-3 py-2">
                         {formatPricingValue(summary, "profitRmb")}
                       </td>
-                      <td className="money">
+                      <td className="money px-3 py-2">
                         {formatPricingValue(summary, "temuDeclarationPriceRmb")}
                       </td>
                       <td className="px-3 py-2">

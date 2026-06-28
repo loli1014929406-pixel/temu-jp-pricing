@@ -351,8 +351,8 @@ export function FinanceSettlementPage({ user }: Props) {
                   <tr>
                     <th className="bg-slate-50">结算账期 / 时间段</th>
                     <th className="bg-slate-50">文件名</th>
-                    <th className="number-cell bg-slate-50">解析记录数</th>
-                    <th className="number-cell bg-slate-50">结算总金额</th>
+                    <th className="number-cell bg-slate-50 px-3 py-2">解析记录数</th>
+                    <th className="number-cell bg-slate-50 px-3 py-2">结算总金额</th>
                     <th className="text-center bg-slate-50">操作</th>
                   </tr>
                 </thead>
@@ -361,8 +361,8 @@ export function FinanceSettlementPage({ user }: Props) {
                     <tr key={file.id} className="hover:bg-slate-50/50">
                       <td className="text-slate-500 font-mono text-xs">{formatDateRange(file.dateRangeStart, file.dateRangeEnd)}</td>
                       <td className="font-bold text-slate-800 text-xs">{file.fileName}</td>
-                      <td className="number-cell font-semibold">{file.recordCount}</td>
-                      <td className="money text-emerald-700">{formatCurrency(file.totalRevenue)}</td>
+                      <td className="number-cell font-semibold px-3 py-2">{file.recordCount}</td>
+                      <td className="money text-emerald-700 px-3 py-2">{formatCurrency(file.totalRevenue)}</td>
                       <td className="text-center">
                         <button
                           type="button"
@@ -423,7 +423,7 @@ export function FinanceSettlementPage({ user }: Props) {
                       <th className="bg-slate-50">订单号</th>
                       <th className="bg-slate-50">Temu SKU Code</th>
                       <th className="bg-slate-50">排查建议操作</th>
-                      <th className="number-cell bg-slate-50">核算运费</th>
+                      <th className="number-cell bg-slate-50 px-3 py-2">核算运费</th>
                       <th className="text-center bg-slate-50">操作对账</th>
                     </tr>
                   </thead>
@@ -470,7 +470,7 @@ export function FinanceSettlementPage({ user }: Props) {
                             )}
                           </div>
                         </td>
-                        <td className="money">
+                        <td className="money px-3 py-2">
                           {editingOrderId === row.order.id ? (
                             <div className="flex items-center gap-1 justify-end">
                               <input
@@ -596,14 +596,14 @@ export function FinanceSettlementPage({ user }: Props) {
                 >
                   <thead>
                     <tr>
-                      <th className="number-cell bg-slate-50 w-16">序号</th>
+                      <th className="number-cell bg-slate-50 w-16 px-3 py-2">序号</th>
                       <th className="bg-slate-50">订单编号</th>
                       <th className="bg-slate-50">Temu SKU Code</th>
                       <th className="bg-slate-50">系统匹配商品</th>
-                      <th className="number-cell bg-slate-50">订单商品成本</th>
-                      <th className="number-cell bg-slate-50">订单核算运费</th>
-                      <th className="number-cell bg-slate-50">总预估账单</th>
-                      <th className="number-cell bg-slate-50">实际结算回款</th>
+                      <th className="number-cell bg-slate-50 px-3 py-2">订单商品成本</th>
+                      <th className="number-cell bg-slate-50 px-3 py-2">订单核算运费</th>
+                      <th className="number-cell bg-slate-50 px-3 py-2">总预估账单</th>
+                      <th className="number-cell bg-slate-50 px-3 py-2">实际结算回款</th>
                       <th className="bg-slate-50">发货方式</th>
                       <th className="bg-slate-50">结算状态</th>
                       <th className="bg-slate-50">财务对账</th>
@@ -614,7 +614,7 @@ export function FinanceSettlementPage({ user }: Props) {
                       const accountingStatus = getAccountingStatus(row as any);
                       return (
                         <tr key={row.order.id} className="hover:bg-slate-50/50">
-                          <td className="number-cell text-slate-400 font-mono text-xs">
+                          <td className="number-cell text-slate-400 font-mono text-xs px-3 py-2">
                             {(incomePaginated.page - 1) * incomePageSize + index + 1}
                           </td>
                           <td
@@ -639,8 +639,8 @@ export function FinanceSettlementPage({ user }: Props) {
                               detailSubtitle={row.order.order_no}
                             />
                           </td>
-                          <td className="money text-slate-500">{formatCurrency(row.productCostRmb)}</td>
-                          <td className="money">
+                          <td className="money text-slate-500 px-3 py-2">{formatCurrency(row.productCostRmb)}</td>
+                          <td className="money px-3 py-2">
                             {editingOrderId === row.order.id ? (
                               <div className="flex items-center gap-1 justify-end">
                                 <input
@@ -680,8 +680,8 @@ export function FinanceSettlementPage({ user }: Props) {
                               </div>
                             )}
                           </td>
-                          <td className="money text-slate-500">{formatCurrency(row.billAmountRmb)}</td>
-                          <td className="money">
+                          <td className="money text-slate-500 px-3 py-2">{formatCurrency(row.billAmountRmb)}</td>
+                          <td className="money px-3 py-2">
                             {row.isSettled ? <span className="font-bold text-indigo-700">{formatCurrency(row.actualRevenueRmb)}</span> : <span className="text-slate-400 font-medium">未结算</span>}
                           </td>
                           <td>

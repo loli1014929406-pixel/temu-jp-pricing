@@ -536,20 +536,20 @@ export function FinanceProfitPage({ user }: Props) {
                   <thead>
                     <tr>
                       <th className="bg-slate-50">月份</th>
-                      <th className="number-cell bg-slate-50">实际结算回款 (+)</th>
-                      <th className="number-cell bg-slate-50" title="对未结算订单使用核算账单金额进行收入估算，对齐所有已发出订单成本。">
+                      <th className="number-cell bg-slate-50 px-3 py-2">实际结算回款 (+)</th>
+                      <th className="number-cell bg-slate-50 px-3 py-2" title="对未结算订单使用核算账单金额进行收入估算，对齐所有已发出订单成本。">
                         订单口径预估回款 (+)
                       </th>
-                      <th className="number-cell bg-slate-50">当月采购付款 (-)</th>
-                      <th className="number-cell bg-slate-50">订单商品成本 (-)</th>
-                      <th className="number-cell bg-slate-50">核算运费支出 (-)</th>
-                      <th className="number-cell bg-slate-50">其他杂项费用 (-)</th>
-                      <th className="number-cell" title="仅统计已导入结算文件匹配到的订单的(实际回款 - 采购 - 运费 - 杂费)">结算口径现金利润</th>
-                      <th className="number-cell" title="所有已发出订单的(估算回款 - 商品成本 - 运费 - 杂费)">
+                      <th className="number-cell bg-slate-50 px-3 py-2">当月采购付款 (-)</th>
+                      <th className="number-cell bg-slate-50 px-3 py-2">订单商品成本 (-)</th>
+                      <th className="number-cell bg-slate-50 px-3 py-2">核算运费支出 (-)</th>
+                      <th className="number-cell bg-slate-50 px-3 py-2">其他杂项费用 (-)</th>
+                      <th className="number-cell px-3 py-2" title="仅统计已导入结算文件匹配到的订单的(实际回款 - 采购 - 运费 - 杂费)">结算口径现金利润</th>
+                      <th className="number-cell px-3 py-2" title="所有已发出订单的(估算回款 - 商品成本 - 运费 - 杂费)">
                         发货口径利润
                       </th>
-                      <th className="number-cell">结算口径现金利润率</th>
-                      <th className="number-cell">发货口径利润率</th>
+                      <th className="number-cell px-3 py-2">结算口径现金利润率</th>
+                      <th className="number-cell px-3 py-2">发货口径利润率</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -561,16 +561,16 @@ export function FinanceProfitPage({ user }: Props) {
                       return (
                         <tr key={row.month} className="hover:bg-slate-50/50">
                           <td className="font-bold text-slate-900">{row.month}</td>
-                          <td className="money text-emerald-700">{formatCurrency(row.settledIncome)}</td>
-                          <td className="money text-indigo-700">{formatCurrency(row.estimatedIncome)}</td>
-                          <td className="money text-rose-700">{formatCurrency(row.purchase)}</td>
-                          <td className="money text-slate-700">{formatCurrency(row.productCost)}</td>
-                          <td className="money text-slate-700">{formatCurrency(row.shipping)}</td>
-                          <td className="money text-slate-700">{formatCurrency(row.otherExpense)}</td>
-                          <td className={`money ${cashClass}`}>{formatCurrency(row.cashProfit)}</td>
-                          <td className={`money ${orderClass}`}>{formatCurrency(row.orderProfit)}</td>
-                          <td className={`number-cell font-bold ${cashClass}`}>{cashMargin.toFixed(2)}%</td>
-                          <td className={`number-cell font-bold ${orderClass}`}>{orderMargin.toFixed(2)}%</td>
+                          <td className="money text-emerald-700 px-3 py-2">{formatCurrency(row.settledIncome)}</td>
+                          <td className="money text-indigo-700 px-3 py-2">{formatCurrency(row.estimatedIncome)}</td>
+                          <td className="money text-rose-700 px-3 py-2">{formatCurrency(row.purchase)}</td>
+                          <td className="money text-slate-700 px-3 py-2">{formatCurrency(row.productCost)}</td>
+                          <td className="money text-slate-700 px-3 py-2">{formatCurrency(row.shipping)}</td>
+                          <td className="money text-slate-700 px-3 py-2">{formatCurrency(row.otherExpense)}</td>
+                          <td className={`money ${cashClass} px-3 py-2`}>{formatCurrency(row.cashProfit)}</td>
+                          <td className={`money ${orderClass} px-3 py-2`}>{formatCurrency(row.orderProfit)}</td>
+                          <td className={`number-cell font-bold ${cashClass} px-3 py-2`}>{cashMargin.toFixed(2)}%</td>
+                          <td className={`number-cell font-bold ${orderClass} px-3 py-2`}>{orderMargin.toFixed(2)}%</td>
                         </tr>
                       );
                     })}
@@ -617,25 +617,25 @@ export function FinanceProfitPage({ user }: Props) {
                   <tr>
                     <th>商品编码</th>
                     <th>商品名称</th>
-                    <th className="number-cell cursor-pointer hover:bg-slate-100 transition rounded select-none" onClick={() => { setProductSortField("orderCount"); setProductSortOrder(o => o === "asc" ? "desc" : "asc"); setProductPage(1); }}>
+                    <th className="number-cell cursor-pointer hover:bg-slate-100 transition rounded select-none px-3 py-2" onClick={() => { setProductSortField("orderCount"); setProductSortOrder(o => o === "asc" ? "desc" : "asc"); setProductPage(1); }}>
                       订单量 {productSortField === "orderCount" ? (productSortOrder === "asc" ? "▲" : "▼") : "⇅"}
                     </th>
-                    <th className="number-cell cursor-pointer hover:bg-slate-100 transition rounded select-none" onClick={() => { setProductSortField("quantity"); setProductSortOrder(o => o === "asc" ? "desc" : "asc"); setProductPage(1); }}>
+                    <th className="number-cell cursor-pointer hover:bg-slate-100 transition rounded select-none px-3 py-2" onClick={() => { setProductSortField("quantity"); setProductSortOrder(o => o === "asc" ? "desc" : "asc"); setProductPage(1); }}>
                       销售件数 {productSortField === "quantity" ? (productSortOrder === "asc" ? "▲" : "▼") : "⇅"}
                     </th>
-                    <th className="number-cell cursor-pointer hover:bg-slate-100 transition rounded select-none" onClick={() => { setProductSortField("productCost"); setProductSortOrder(o => o === "asc" ? "desc" : "asc"); setProductPage(1); }}>
+                    <th className="number-cell cursor-pointer hover:bg-slate-100 transition rounded select-none px-3 py-2" onClick={() => { setProductSortField("productCost"); setProductSortOrder(o => o === "asc" ? "desc" : "asc"); setProductPage(1); }}>
                       采购总成本 {productSortField === "productCost" ? (productSortOrder === "asc" ? "▲" : "▼") : "⇅"}
                     </th>
-                    <th className="number-cell cursor-pointer hover:bg-slate-100 transition rounded select-none" onClick={() => { setProductSortField("shipping"); setProductSortOrder(o => o === "asc" ? "desc" : "asc"); setProductPage(1); }}>
+                    <th className="number-cell cursor-pointer hover:bg-slate-100 transition rounded select-none px-3 py-2" onClick={() => { setProductSortField("shipping"); setProductSortOrder(o => o === "asc" ? "desc" : "asc"); setProductPage(1); }}>
                       核算总运费 {productSortField === "shipping" ? (productSortOrder === "asc" ? "▲" : "▼") : "⇅"}
                     </th>
-                    <th className="number-cell cursor-pointer hover:bg-slate-100 transition rounded select-none" onClick={() => { setProductSortField("actualRevenue"); setProductSortOrder(o => o === "asc" ? "desc" : "asc"); setProductPage(1); }}>
+                    <th className="number-cell cursor-pointer hover:bg-slate-100 transition rounded select-none px-3 py-2" onClick={() => { setProductSortField("actualRevenue"); setProductSortOrder(o => o === "asc" ? "desc" : "asc"); setProductPage(1); }}>
                       实际结算总回款 {productSortField === "actualRevenue" ? (productSortOrder === "asc" ? "▲" : "▼") : "⇅"}
                     </th>
-                    <th className="number-cell cursor-pointer hover:bg-slate-100 transition rounded select-none" onClick={() => { setProductSortField("profit"); setProductSortOrder(o => o === "asc" ? "desc" : "asc"); setProductPage(1); }}>
+                    <th className="number-cell cursor-pointer hover:bg-slate-100 transition rounded select-none px-3 py-2" onClick={() => { setProductSortField("profit"); setProductSortOrder(o => o === "asc" ? "desc" : "asc"); setProductPage(1); }}>
                       实际毛利润 {productSortField === "profit" ? (productSortOrder === "asc" ? "▲" : "▼") : "⇅"}
                     </th>
-                    <th className="number-cell cursor-pointer hover:bg-slate-100 transition rounded select-none" onClick={() => { setProductSortField("margin"); setProductSortOrder(o => o === "asc" ? "desc" : "asc"); setProductPage(1); }}>
+                    <th className="number-cell cursor-pointer hover:bg-slate-100 transition rounded select-none px-3 py-2" onClick={() => { setProductSortField("margin"); setProductSortOrder(o => o === "asc" ? "desc" : "asc"); setProductPage(1); }}>
                       商品毛利率 {productSortField === "margin" ? (productSortOrder === "asc" ? "▲" : "▼") : "⇅"}
                     </th>
                   </tr>
@@ -656,13 +656,13 @@ export function FinanceProfitPage({ user }: Props) {
                             detailSubtitle={row.productCode}
                           />
                         </td>
-                        <td className="number-cell font-semibold">{row.orderCount}</td>
-                        <td className="number-cell font-semibold">{row.quantity}</td>
-                        <td className="money">{formatCurrency(row.productCost)}</td>
-                        <td className="money">{formatCurrency(row.shipping)}</td>
-                        <td className="money text-slate-900">{formatCurrency(row.actualRevenue)}</td>
-                        <td className={`money ${profitClass}`}>{formatCurrency(row.profit)}</td>
-                        <td className={`number-cell font-bold ${profitClass}`}>{row.margin.toFixed(2)}%</td>
+                        <td className="number-cell font-semibold px-3 py-2">{row.orderCount}</td>
+                        <td className="number-cell font-semibold px-3 py-2">{row.quantity}</td>
+                        <td className="money px-3 py-2">{formatCurrency(row.productCost)}</td>
+                        <td className="money px-3 py-2">{formatCurrency(row.shipping)}</td>
+                        <td className="money text-slate-900 px-3 py-2">{formatCurrency(row.actualRevenue)}</td>
+                        <td className={`money ${profitClass} px-3 py-2`}>{formatCurrency(row.profit)}</td>
+                        <td className={`number-cell font-bold ${profitClass} px-3 py-2`}>{row.margin.toFixed(2)}%</td>
                       </tr>
                     );
                   })}

@@ -180,8 +180,8 @@ export function MultiShipmentProductsPage({
                     <td className="px-3 py-2">
                       {product.package_length_cm} × {product.package_width_cm} × {product.package_height_cm} cm
                     </td>
-                    <td className="number-cell">{product.package_weight_g}g</td>
-                    <td className="number-cell">{product.max_units_per_parcel}</td>
+                    <td className="number-cell px-3 py-2">{product.package_weight_g}g</td>
+                    <td className="number-cell px-3 py-2">{product.max_units_per_parcel}</td>
                     <td className="px-3 py-2">
                       {getProductThreeCmUnavailableReason(product) ? (
                         <Badge tone="warning">
