@@ -637,6 +637,97 @@ function getSkuIdentity(sku: Pick<ProductSku, "sku_code" | "attributes">) {
   });
 }
 
+function getComparableNumber(value: unknown) {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : 0;
+}
+
+function getComparableText(value: unknown) {
+  return String(value ?? "");
+}
+
+function getComparableAttributes(attributes: Record<string, string>) {
+  return Object.fromEntries(
+    Object.entries(attributes ?? {}).sort(([left], [right]) => left.localeCompare(right)),
+  );
+}
+
+function getComparableItem(item: ProductItem) {
+  return {
+    item_name: getComparableText(item.item_name),
+    item_spec: getComparableText(item.item_spec),
+    quantity: getComparableNumber(item.quantity),
+    item_length_cm: getComparableNumber(item.item_length_cm),
+    item_width_cm: getComparableNumber(item.item_width_cm),
+    item_height_cm: getComparableNumber(item.item_height_cm),
+    item_weight_g: getComparableNumber(item.item_weight_g),
+    purchase_price_rmb: getComparableNumber(item.purchase_price_rmb),
+    purchase_shipping_fee_per_500g_rmb: getComparableNumber(
+      item.purchase_shipping_fee_per_500g_rmb,
+    ),
+    purchase_url: getComparableText(item.purchase_url),
+  };
+}
+
+function getComparableSkuLinks(links: Array<ProductSkuItemLink | ProductSkuDraftLink>) {
+  return links
+    .map((link) => ({
+      item_key: "item_key" in link ? link.item_key : link.item_id,
+      quantity: getComparableNumber(link.quantity),
+    }))
+    .sort((left, right) => left.item_key.localeCompare(right.item_key));
+}
+
+function getComparableSku(
+  sku: ProductSku | ProductSkuDraft,
+  skuCode: string,
+) {
+  return {
+    sku_code: getComparableText(skuCode),
+    temu_image_url: getComparableText(sku.temu_image_url),
+    attributes: getComparableAttributes(sku.attributes),
+    notes: getComparableText(sku.notes),
+    component_links: getComparableSkuLinks(sku.component_links),
+  };
+}
+
+function areProductItemsUnchanged(existingItems: ProductItem[], draftItems: ProductItem[]) {
+  if (existingItems.length !== draftItems.length) return false;
+
+  return existingItems.every((existingItem, index) => {
+    const draftItem = draftItems[index];
+    if (!existingItem.id || !draftItem?.id || existingItem.id !== draftItem.id) return false;
+    return (
+      JSON.stringify(getComparableItem(existingItem)) ===
+      JSON.stringify(getComparableItem(draftItem))
+    );
+  });
+}
+
+function areProductSkusUnchanged(
+  existingSkus: ProductSku[],
+  draftSkus: ProductSkuDraft[],
+  productCode: string,
+) {
+  if (existingSkus.length !== draftSkus.length) return false;
+
+  return existingSkus.every((existingSku, index) => {
+    const draftSku = draftSkus[index];
+    if (!existingSku.id || !draftSku?.id || existingSku.id !== draftSku.id) return false;
+
+    const existingSkuCode =
+      isLegacyDefaultSkuCode(existingSku.sku_code) &&
+      draftSku.sku_code === buildDefaultSkuCode(productCode, index)
+        ? draftSku.sku_code
+        : existingSku.sku_code;
+
+    return (
+      JSON.stringify(getComparableSku(existingSku, existingSkuCode)) ===
+      JSON.stringify(getComparableSku(draftSku, draftSku.sku_code))
+    );
+  });
+}
+
 export async function createProduct(
   product: ProductDraft,
   items: ProductItem[],
@@ -715,37 +806,10 @@ export async function updateProduct(
   await assertProductCodeAvailable(normalizedProduct.product_code, productId);
 
   const { supabase } = await requireSession();
-  const existingSkus = await fetchProductSkus(productId);
-  const existingCalculationsByIdentity = new Map<string, SavedProfitCalculation>();
-  const existingCalculationRows = await Promise.all(
-    existingSkus.flatMap((sku) =>
-      sku.id
-        ? [
-            supabase
-              .from("profit_calculations")
-              .select("temu_price_rmb, traffic_discount_rate, activity_discount_rate, coupon_discount_rate")
-              .eq("sku_id", sku.id)
-              .maybeSingle(),
-          ]
-        : [],
-    ),
-  );
-
-  existingSkus.forEach((sku, index) => {
-    const calculation = existingCalculationRows[index]?.data as SavedProfitCalculation | null;
-    if (calculation) {
-      existingCalculationsByIdentity.set(getSkuIdentity(sku), calculation);
-      if (isLegacyDefaultSkuCode(sku.sku_code)) {
-        existingCalculationsByIdentity.set(
-          getSkuIdentity({
-            ...sku,
-            sku_code: buildDefaultSkuCode(normalizedProduct.product_code, index),
-          }),
-          calculation,
-        );
-      }
-    }
-  });
+  const [existingItems, existingSkus] = await Promise.all([
+    fetchProductItems(productId),
+    fetchProductSkus(productId),
+  ]);
 
   let error: unknown = null;
   let omitParcelCapacity = false;
@@ -794,6 +858,46 @@ export async function updateProduct(
     throw new Error(getMissingProductSellingColumnMessage());
   }
   if (error) throw error;
+
+  const productStructureUnchanged =
+    areProductItemsUnchanged(existingItems, items) &&
+    areProductSkusUnchanged(existingSkus, skus, normalizedProduct.product_code);
+
+  if (productStructureUnchanged) {
+    await upsertProductWarehouseShippingLimits(productId, warehouseShippingLimits);
+    return;
+  }
+
+  const existingCalculationsByIdentity = new Map<string, SavedProfitCalculation>();
+  const existingCalculationRows = await Promise.all(
+    existingSkus.flatMap((sku) =>
+      sku.id
+        ? [
+            supabase
+              .from("profit_calculations")
+              .select("temu_price_rmb, traffic_discount_rate, activity_discount_rate, coupon_discount_rate")
+              .eq("sku_id", sku.id)
+              .maybeSingle(),
+          ]
+        : [],
+    ),
+  );
+
+  existingSkus.forEach((sku, index) => {
+    const calculation = existingCalculationRows[index]?.data as SavedProfitCalculation | null;
+    if (calculation) {
+      existingCalculationsByIdentity.set(getSkuIdentity(sku), calculation);
+      if (isLegacyDefaultSkuCode(sku.sku_code)) {
+        existingCalculationsByIdentity.set(
+          getSkuIdentity({
+            ...sku,
+            sku_code: buildDefaultSkuCode(normalizedProduct.product_code, index),
+          }),
+          calculation,
+        );
+      }
+    }
+  });
 
   const { error: deleteSkuError } = await withTimeout(
     supabase.from("product_skus").delete().eq("product_id", productId),

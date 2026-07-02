@@ -40,6 +40,12 @@ type LedgerRow = {
   remark: string;
 };
 
+function formatExpenseRemarkForLedger(remark: string | null | undefined) {
+  const text = String(remark ?? "").trim();
+  if (text.startsWith("广告费支付")) return "广告费支付";
+  return text;
+}
+
 export function FinanceLedgerPage({ user }: Props) {
   const { data, expenses, settlementFiles, loading, error, reload } = useFinanceData(user.id, {
     orders: true,
@@ -108,7 +114,7 @@ export function FinanceLedgerPage({ user }: Props) {
       direction: "支出" as const,
       subject: categoryLabels[expense.category] || expense.category,
       amountRmb: -expense.amount_rmb,
-      remark: expense.remark,
+      remark: formatExpenseRemarkForLedger(expense.remark),
     }));
 
     return [...orderLedgerRows, ...purchaseLedgerRows, ...otherExpensesLedgerRows].sort((left, right) =>

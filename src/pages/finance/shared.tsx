@@ -16,7 +16,11 @@ import { calculatePurchaseShippingRmb, calculateDynamicMethodCost } from "../../
 import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../../utils/sku-code";
 import { normalizeLogisticsMethodName } from "../../lib/logistics-methods";
 import { resolveLastLegMethods } from "../../lib/defaults";
-import { type SettlementLookup, getOrderSettlementRevenue } from "../../lib/settlement";
+import {
+  calculateSettlementNetFreightRevenue,
+  calculateSettlementNetSalesRevenue,
+  type SettlementLookup,
+} from "../../lib/settlement";
 
 export function getTodayInputValue() {
   const now = new Date();
@@ -468,24 +472,13 @@ export function getResolvedSettlementMetrics(
   if (poKey && settlementLookup.byPO.has(poKey)) {
     const matchingRecords = settlementLookup.byPO.get(poKey)!;
     actualSalesRevenueRmb = roundMoney(
-      matchingRecords.reduce((sum, record) => sum + record.salesRevenue, 0),
+      matchingRecords.reduce((sum, record) => sum + calculateSettlementNetSalesRevenue(record), 0),
     );
     actualFreightRevenueRmb = roundMoney(
-      matchingRecords.reduce((sum, record) => sum + record.freightRevenue, 0),
+      matchingRecords.reduce((sum, record) => sum + calculateSettlementNetFreightRevenue(record), 0),
     );
     isSettled = true;
     matchType = "po";
-  }
-
-  // Level 2: SKU average fallback
-  if (!isSettled && order.sku_code) {
-    const fallback = getOrderSettlementRevenue(order.sku_code, quantity, settlementLookup);
-    if (fallback && fallback.matched) {
-      actualSalesRevenueRmb = fallback.salesRevenue;
-      actualFreightRevenueRmb = fallback.freightRevenue;
-      isSettled = true;
-      matchType = "sku_avg";
-    }
   }
 
   return { actualSalesRevenueRmb, actualFreightRevenueRmb, isSettled, matchType };

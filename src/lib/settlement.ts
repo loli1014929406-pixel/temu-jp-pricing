@@ -26,7 +26,7 @@ export type SettlementRecord = {
   freightRevenue: number;
   freightDiscountDeducted: number;
   freightReversal: number;
-  /** 实际回款 = 销售回款 + 运费回款 */
+  /** 实际回款 = 销售回款 + 销售冲回 + 运费回款 + 运费冲回 */
   totalRevenue: number;
 };
 
@@ -117,7 +117,12 @@ export function parseSettlementData(
       freightRevenue,
       freightDiscountDeducted,
       freightReversal,
-      totalRevenue: roundMoney(salesRevenue + freightRevenue),
+      totalRevenue: calculateSettlementNetTotalRevenue({
+        salesRevenue,
+        salesReversal,
+        freightRevenue,
+        freightReversal,
+      }),
     });
   }
 
@@ -145,6 +150,27 @@ export function parseDateRange(fileName: string): { start: string; end: string }
 function roundMoney(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Number(value.toFixed(2));
+}
+
+export function calculateSettlementNetSalesRevenue(
+  record: Pick<SettlementRecord, "salesRevenue" | "salesReversal">,
+): number {
+  return roundMoney(record.salesRevenue + record.salesReversal);
+}
+
+export function calculateSettlementNetFreightRevenue(
+  record: Pick<SettlementRecord, "freightRevenue" | "freightReversal">,
+): number {
+  return roundMoney(record.freightRevenue + record.freightReversal);
+}
+
+export function calculateSettlementNetTotalRevenue(
+  record: Pick<SettlementRecord, "salesRevenue" | "salesReversal" | "freightRevenue" | "freightReversal">,
+): number {
+  return roundMoney(
+    calculateSettlementNetSalesRevenue(record) +
+    calculateSettlementNetFreightRevenue(record),
+  );
 }
 
 function getSettlementStorageErrorMessage(error: { code?: string; message?: string } | null, action: string) {
@@ -189,7 +215,7 @@ export async function loadSettlementFiles(userId: string): Promise<SettlementFil
   const recordsByFile = new Map<string, SettlementRecord[]>();
   for (const r of recordsData) {
     const list = recordsByFile.get(r.file_id) ?? [];
-    list.push({
+    const record: SettlementRecord = {
       poNumber: r.po_number,
       skuId: r.sku_id,
       skuName: r.sku_name,
@@ -205,22 +231,27 @@ export async function loadSettlementFiles(userId: string): Promise<SettlementFil
       freightDiscountDeducted: Number(r.freight_discount_deducted),
       freightReversal: Number(r.freight_reversal),
       totalRevenue: Number(r.total_revenue),
-    });
+    };
+    record.totalRevenue = calculateSettlementNetTotalRevenue(record);
+    list.push(record);
     recordsByFile.set(r.file_id, list);
   }
 
-  return filesData.map((f: any) => ({
-    id: f.id,
-    fileName: f.file_name,
-    dateRangeStart: f.date_range_start,
-    dateRangeEnd: f.date_range_end,
-    importedAt: f.imported_at,
-    totalSalesRevenue: Number(f.total_sales_revenue),
-    totalFreightRevenue: Number(f.total_freight_revenue),
-    totalRevenue: Number(f.total_revenue),
-    recordCount: f.record_count,
-    records: recordsByFile.get(f.id) ?? [],
-  }));
+  return filesData.map((f: any) => {
+    const records = recordsByFile.get(f.id) ?? [];
+    return {
+      id: f.id,
+      fileName: f.file_name,
+      dateRangeStart: f.date_range_start,
+      dateRangeEnd: f.date_range_end,
+      importedAt: f.imported_at,
+      totalSalesRevenue: Number(f.total_sales_revenue),
+      totalFreightRevenue: Number(f.total_freight_revenue),
+      totalRevenue: roundMoney(records.reduce((sum, record) => sum + calculateSettlementNetTotalRevenue(record), 0)),
+      recordCount: f.record_count,
+      records,
+    };
+  });
 }
 
 export async function deleteSettlementFile(fileId: string): Promise<void> {
@@ -238,6 +269,7 @@ export async function addSettlementFile(
   const { start, end } = parseDateRange(fileName);
   const totalSalesRevenue = roundMoney(records.reduce((sum, r) => sum + r.salesRevenue, 0));
   const totalFreightRevenue = roundMoney(records.reduce((sum, r) => sum + r.freightRevenue, 0));
+  const totalRevenue = roundMoney(records.reduce((sum, r) => sum + calculateSettlementNetTotalRevenue(r), 0));
 
   // Check existing file with same name
   const { data: existing } = await supabase
@@ -262,7 +294,7 @@ export async function addSettlementFile(
       date_range_end: end,
       total_sales_revenue: totalSalesRevenue,
       total_freight_revenue: totalFreightRevenue,
-      total_revenue: roundMoney(totalSalesRevenue + totalFreightRevenue),
+      total_revenue: totalRevenue,
       record_count: records.length,
       imported_at: new Date().toISOString(),
     })
@@ -311,7 +343,7 @@ export async function addSettlementFile(
     importedAt: fileData.imported_at,
     totalSalesRevenue: Number(fileData.total_sales_revenue),
     totalFreightRevenue: Number(fileData.total_freight_revenue),
-    totalRevenue: Number(fileData.total_revenue),
+    totalRevenue,
     recordCount: fileData.record_count,
     records,
   };
@@ -366,7 +398,10 @@ export function buildSettlementLookup(files: SettlementFile[]): SettlementLookup
       // Index by SKU code. Combo-order child rows carry the SKU but no money,
       // so they should not lower SKU average revenue.
       const skuKey = record.skuCode.trim().toLowerCase();
-      if (skuKey && record.totalRevenue !== 0) {
+      const netSalesRevenue = calculateSettlementNetSalesRevenue(record);
+      const netFreightRevenue = calculateSettlementNetFreightRevenue(record);
+      const netTotalRevenue = calculateSettlementNetTotalRevenue(record);
+      if (skuKey && netTotalRevenue !== 0) {
         const existing = bySkuCode.get(skuKey) ?? {
           totalRevenue: 0,
           salesRevenue: 0,
@@ -374,16 +409,16 @@ export function buildSettlementLookup(files: SettlementFile[]): SettlementLookup
           quantity: 0,
           recordCount: 0,
         };
-        existing.totalRevenue += record.totalRevenue;
-        existing.salesRevenue += record.salesRevenue;
-        existing.freightRevenue += record.freightRevenue;
+        existing.totalRevenue += netTotalRevenue;
+        existing.salesRevenue += netSalesRevenue;
+        existing.freightRevenue += netFreightRevenue;
         existing.quantity += record.quantity;
         existing.recordCount += 1;
         bySkuCode.set(skuKey, existing);
       }
 
-      totalSalesRevenue += record.salesRevenue;
-      totalFreightRevenue += record.freightRevenue;
+      totalSalesRevenue += netSalesRevenue;
+      totalFreightRevenue += netFreightRevenue;
       totalQuantity += record.quantity;
     }
   }

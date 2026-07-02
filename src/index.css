@@ -167,6 +167,18 @@ a {
     table-layout: fixed;
   }
 
+  .data-table.multi-shipment-profit-table th,
+  .data-table.multi-shipment-profit-table td {
+    vertical-align: middle;
+  }
+
+  .data-table.multi-shipment-profit-table td.multi-shipment-candidates-cell {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+  }
+
   .data-table thead {
     position: sticky;
     top: 0;

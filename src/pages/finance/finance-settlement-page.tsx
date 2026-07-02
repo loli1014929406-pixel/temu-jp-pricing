@@ -18,6 +18,7 @@ import {
   getOrderQuantity,
   getSkuUnitCostRmb,
   getResolvedSettlementMetrics,
+  getOrderDate,
 } from "./shared";
 import { 
   parseSettlementData, 
@@ -34,6 +35,19 @@ import { confirmAction, confirmDelete, confirmSave } from "../../utils/confirmat
 
 type Props = {
   user: User;
+};
+
+type IncomeDateFilterMode = "all" | "month" | "custom";
+
+type IncomeShippingMethodRow = {
+  method: string;
+  orderCount: number;
+  quantity: number;
+  actualShipping: number;
+  estimatedShipping: number;
+  totalShipping: number;
+  missingShippingCount: number;
+  averagePerOrder: number;
 };
 
 const settlementReconColumns = [
@@ -66,6 +80,32 @@ function getReconciliationIssueLabel(issue: ReturnType<typeof getReconciliationI
   return "运费缺失 (无法估算)";
 }
 
+function getCurrentMonthValue() {
+  return new Date().toISOString().slice(0, 7);
+}
+
+function normalizeDatePart(value: string) {
+  const trimmed = value.trim();
+  const match = trimmed.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (match) {
+    const [, year, month, day] = match;
+    return [year, month.padStart(2, "0"), day.padStart(2, "0")].join("-");
+  }
+
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toISOString().slice(0, 10);
+}
+
+function getIncomeOrderDate(row: { order: any }) {
+  return normalizeDatePart(getOrderDate(row.order));
+}
+
+function getShippingMethodDisplay(value: unknown) {
+  const label = String(value ?? "").trim().replace(/\s+/g, " ");
+  return label || "未填写发货方式";
+}
+
 export function FinanceSettlementPage({ user }: Props) {
   const { canEdit } = usePermissions();
   const { data, settlementFiles, settings, loading, error, reload } = useFinanceData(user.id, {
@@ -90,6 +130,10 @@ export function FinanceSettlementPage({ user }: Props) {
   // Income Tab states
   const [orderSearch, setOrderSearch] = useState("");
   const [orderStatusFilter, setOrderStatusFilter] = useState("all");
+  const [incomeDateFilterMode, setIncomeDateFilterMode] = useState<IncomeDateFilterMode>("all");
+  const [incomeMonth, setIncomeMonth] = useState(getCurrentMonthValue());
+  const [incomeStartDate, setIncomeStartDate] = useState("");
+  const [incomeEndDate, setIncomeEndDate] = useState("");
 
   useEffect(() => {
     setReconPage(1);
@@ -97,7 +141,7 @@ export function FinanceSettlementPage({ user }: Props) {
 
   useEffect(() => {
     setIncomePage(1);
-  }, [incomePageSize, orderSearch, orderStatusFilter]);
+  }, [incomePageSize, orderSearch, orderStatusFilter, incomeDateFilterMode, incomeMonth, incomeStartDate, incomeEndDate]);
 
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [editingFeeValue, setEditingFeeValue] = useState("");
@@ -186,6 +230,18 @@ export function FinanceSettlementPage({ user }: Props) {
     else if (orderStatusFilter === "missing-shipping") result = result.filter((r: any) => r.shippingFeeSource === "missing");
     else if (orderStatusFilter === "unmatched") result = result.filter((r: any) => !r.matched);
 
+    if (incomeDateFilterMode === "month" && incomeMonth) {
+      result = result.filter((r: any) => getIncomeOrderDate(r).startsWith(incomeMonth));
+    } else if (incomeDateFilterMode === "custom") {
+      result = result.filter((r: any) => {
+        const orderDate = getIncomeOrderDate(r);
+        if (!orderDate) return false;
+        if (incomeStartDate && orderDate < incomeStartDate) return false;
+        if (incomeEndDate && orderDate > incomeEndDate) return false;
+        return true;
+      });
+    }
+
     if (orderSearch.trim()) {
       const q = orderSearch.toLowerCase();
       result = result.filter((r: any) => {
@@ -196,10 +252,84 @@ export function FinanceSettlementPage({ user }: Props) {
         return str.includes(q);
       });
     }
-    return result.sort((a: any, b: any) => new Date(b.order.created_at || 0).getTime() - new Date(a.order.created_at || 0).getTime());
-  }, [orderRows, orderSearch, orderStatusFilter]);
+    return result.sort((a: any, b: any) => {
+      const leftDate = getIncomeOrderDate(a);
+      const rightDate = getIncomeOrderDate(b);
+      return rightDate.localeCompare(leftDate);
+    });
+  }, [incomeDateFilterMode, incomeEndDate, incomeMonth, incomeStartDate, orderRows, orderSearch, orderStatusFilter]);
 
   const incomePaginated = getPaginatedRows("finance-income", filteredOrderRows, incomePage, incomePageSize);
+
+  const incomeSummary = useMemo(() => {
+    return filteredOrderRows.reduce(
+      (summary, row: any) => ({
+        orderCount: summary.orderCount + 1,
+        quantity: roundMoney(summary.quantity + row.quantity),
+        productCost: roundMoney(summary.productCost + row.productCostRmb),
+        shipping: roundMoney(summary.shipping + row.shippingFeeRmb),
+        bill: roundMoney(summary.bill + row.billAmountRmb),
+        actualRevenue: roundMoney(summary.actualRevenue + row.actualRevenueRmb),
+        settledCount: summary.settledCount + (row.isSettled ? 1 : 0),
+        missingShippingCount: summary.missingShippingCount + (row.shippingFeeSource === "missing" ? 1 : 0),
+      }),
+      {
+        orderCount: 0,
+        quantity: 0,
+        productCost: 0,
+        shipping: 0,
+        bill: 0,
+        actualRevenue: 0,
+        settledCount: 0,
+        missingShippingCount: 0,
+      },
+    );
+  }, [filteredOrderRows]);
+
+  const incomeShippingMethodRows = useMemo<IncomeShippingMethodRow[]>(() => {
+    const rowsByMethod = new Map<string, IncomeShippingMethodRow>();
+
+    const getRow = (method: string) => {
+      const existing = rowsByMethod.get(method);
+      if (existing) return existing;
+      const next: IncomeShippingMethodRow = {
+        method,
+        orderCount: 0,
+        quantity: 0,
+        actualShipping: 0,
+        estimatedShipping: 0,
+        totalShipping: 0,
+        missingShippingCount: 0,
+        averagePerOrder: 0,
+      };
+      rowsByMethod.set(method, next);
+      return next;
+    };
+
+    filteredOrderRows.forEach((row: any) => {
+      const method = getShippingMethodDisplay(row.order.logistics_method);
+      const methodRow = getRow(method);
+      methodRow.orderCount += 1;
+      methodRow.quantity = roundMoney(methodRow.quantity + row.quantity);
+
+      if (row.shippingFeeSource === "actual") {
+        methodRow.actualShipping = roundMoney(methodRow.actualShipping + row.shippingFeeRmb);
+        methodRow.totalShipping = roundMoney(methodRow.totalShipping + row.shippingFeeRmb);
+      } else if (row.shippingFeeSource === "estimated") {
+        methodRow.estimatedShipping = roundMoney(methodRow.estimatedShipping + row.shippingFeeRmb);
+        methodRow.totalShipping = roundMoney(methodRow.totalShipping + row.shippingFeeRmb);
+      } else {
+        methodRow.missingShippingCount += 1;
+      }
+    });
+
+    return Array.from(rowsByMethod.values())
+      .map((row) => ({
+        ...row,
+        averagePerOrder: row.orderCount > 0 ? roundMoney(row.totalShipping / row.orderCount) : 0,
+      }))
+      .sort((left, right) => right.totalShipping - left.totalShipping || right.orderCount - left.orderCount);
+  }, [filteredOrderRows]);
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -228,7 +358,7 @@ export function FinanceSettlementPage({ user }: Props) {
       if (records.length === 0) throw new Error("未解析到有效结算数据");
       
       const newFile = await addSettlementFile(user.id, file.name, records as any);
-      alert(`成功导入 ${records.length} 条结算记录！\n总回款（销售回款+运费回款）：${formatCurrency(newFile.totalRevenue)}`);
+      alert(`成功导入 ${records.length} 条结算记录！\n总回款（销售回款+销售冲回+运费回款+运费冲回）：${formatCurrency(newFile.totalRevenue)}`);
       await reload();
     } catch (err) {
       alert("导入失败: " + getErrorMessage(err, "请确保选择的是 SettledParentFlow 导出文件"));
@@ -673,7 +803,7 @@ export function FinanceSettlementPage({ user }: Props) {
         {activeTab === "income" && (
           <div className="animate-in fade-in duration-300">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4 mb-4">
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <div className="relative">
                   <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
@@ -694,6 +824,43 @@ export function FinanceSettlementPage({ user }: Props) {
                   <option value="unmatched">异常: 未匹配SKU</option>
                   <option value="missing-shipping">异常: 缺发货方式/运费</option>
                 </select>
+                <select
+                  value={incomeDateFilterMode}
+                  onChange={(e) => {
+                    setIncomeDateFilterMode(e.target.value as IncomeDateFilterMode);
+                    setIncomePage(1);
+                  }}
+                  className="h-9 rounded-lg border border-line bg-white px-3 text-xs font-semibold outline-none focus:border-accent"
+                >
+                  <option value="all">全部时间</option>
+                  <option value="month">按月筛选</option>
+                  <option value="custom">自定义时间段</option>
+                </select>
+                {incomeDateFilterMode === "month" && (
+                  <input
+                    type="month"
+                    value={incomeMonth}
+                    onChange={(e) => { setIncomeMonth(e.target.value); setIncomePage(1); }}
+                    className="h-9 rounded-lg border border-line bg-white px-3 text-xs font-semibold outline-none focus:border-accent"
+                  />
+                )}
+                {incomeDateFilterMode === "custom" && (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="date"
+                      value={incomeStartDate}
+                      onChange={(e) => { setIncomeStartDate(e.target.value); setIncomePage(1); }}
+                      className="h-9 rounded-lg border border-line bg-white px-3 text-xs font-semibold outline-none focus:border-accent"
+                    />
+                    <span className="text-xs font-semibold text-slate-400">至</span>
+                    <input
+                      type="date"
+                      value={incomeEndDate}
+                      onChange={(e) => { setIncomeEndDate(e.target.value); setIncomePage(1); }}
+                      className="h-9 rounded-lg border border-line bg-white px-3 text-xs font-semibold outline-none focus:border-accent"
+                    />
+                  </div>
+                )}
               </div>
               <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500">
                 筛选后共 {filteredOrderRows.length} 单
@@ -706,6 +873,79 @@ export function FinanceSettlementPage({ user }: Props) {
               <EmptyPanel label="未找到匹配的订单记录" />
             ) : (
               <>
+                <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="rounded-lg border border-slate-100 bg-slate-50/70 p-3">
+                    <div className="text-xs font-semibold text-slate-500">订单商品成本</div>
+                    <div className="money mt-1 text-lg font-bold text-slate-900">{formatCurrency(incomeSummary.productCost)}</div>
+                  </div>
+                  <div className="rounded-lg border border-slate-100 bg-slate-50/70 p-3">
+                    <div className="text-xs font-semibold text-slate-500">订单核算运费</div>
+                    <div className="money mt-1 text-lg font-bold text-slate-900">{formatCurrency(incomeSummary.shipping)}</div>
+                    <div className="mt-1 text-[11px] font-semibold text-slate-400">缺失 {incomeSummary.missingShippingCount} 单</div>
+                  </div>
+                  <div className="rounded-lg border border-slate-100 bg-slate-50/70 p-3">
+                    <div className="text-xs font-semibold text-slate-500">总预估账单</div>
+                    <div className="money mt-1 text-lg font-bold text-slate-900">{formatCurrency(incomeSummary.bill)}</div>
+                  </div>
+                  <div className="rounded-lg border border-slate-100 bg-slate-50/70 p-3">
+                    <div className="text-xs font-semibold text-slate-500">实际结算回款</div>
+                    <div className="money mt-1 text-lg font-bold text-indigo-700">{formatCurrency(incomeSummary.actualRevenue)}</div>
+                    <div className="mt-1 text-[11px] font-semibold text-slate-400">已结算 {incomeSummary.settledCount} / {incomeSummary.orderCount} 单</div>
+                  </div>
+                </div>
+
+                <div className="mb-5 rounded-lg border border-slate-100 bg-white">
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-3 py-2.5">
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-800">发货方式运费明细</h4>
+                      <p className="mt-0.5 text-xs text-slate-400">按当前筛选结果统计；实际运费优先，没有实际运费时使用自动估算运费。</p>
+                    </div>
+                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500">
+                      共 {incomeShippingMethodRows.length} 种发货方式
+                    </span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[780px] text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-100 text-left text-xs font-bold text-slate-500">
+                          <th className="py-2 pl-3 pr-3">发货方式</th>
+                          <th className="py-2 pr-3 text-right">订单数</th>
+                          <th className="py-2 pr-3 text-right">件数</th>
+                          <th className="py-2 pr-3 text-right">实际运费</th>
+                          <th className="py-2 pr-3 text-right">估算运费</th>
+                          <th className="py-2 pr-3 text-right">总运费</th>
+                          <th className="py-2 pr-3 text-right">单均</th>
+                          <th className="py-2 pr-3 text-right">缺失</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {incomeShippingMethodRows.map((row) => (
+                          <tr key={row.method} className="border-b border-slate-50 last:border-0">
+                            <td className="py-2 pl-3 pr-3 font-semibold text-slate-800">
+                              <TableCellPreview
+                                label="发货方式"
+                                value={row.method}
+                                lines={1}
+                                alwaysShowDetail={row.method.length > 18}
+                                detailTitle="发货方式"
+                              />
+                            </td>
+                            <td className="py-2 pr-3 text-right font-semibold text-slate-700">{row.orderCount}</td>
+                            <td className="py-2 pr-3 text-right font-semibold text-slate-700">{row.quantity}</td>
+                            <td className="money py-2 pr-3 text-right text-emerald-700">{formatCurrency(row.actualShipping)}</td>
+                            <td className="money py-2 pr-3 text-right text-amber-700">{formatCurrency(row.estimatedShipping)}</td>
+                            <td className="money py-2 pr-3 text-right font-bold text-slate-900">{formatCurrency(row.totalShipping)}</td>
+                            <td className="money py-2 pr-3 text-right text-slate-700">{formatCurrency(row.averagePerOrder)}</td>
+                            <td className={`py-2 pr-3 text-right font-semibold ${row.missingShippingCount > 0 ? "text-rose-700" : "text-slate-400"}`}>
+                              {row.missingShippingCount}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
                 <StandardTable 
                   minWidth="min-w-[1450px]" 
                   tableClassName="finance-freeze-order"
@@ -824,6 +1064,18 @@ export function FinanceSettlementPage({ user }: Props) {
                       );
                     })}
                   </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-line bg-slate-50 font-bold">
+                      <td colSpan={4} className="px-3 py-2 text-slate-600">当前筛选合计</td>
+                      <td className="money px-3 py-2 text-slate-700">{formatCurrency(incomeSummary.productCost)}</td>
+                      <td className="money px-3 py-2 text-slate-700">{formatCurrency(incomeSummary.shipping)}</td>
+                      <td className="money px-3 py-2 text-slate-700">{formatCurrency(incomeSummary.bill)}</td>
+                      <td className="money px-3 py-2 text-indigo-700">{formatCurrency(incomeSummary.actualRevenue)}</td>
+                      <td colSpan={3} className="px-3 py-2 text-xs text-slate-500">
+                        {incomeSummary.orderCount} 单，{incomeSummary.quantity} 件，缺失运费 {incomeSummary.missingShippingCount} 单
+                      </td>
+                    </tr>
+                  </tfoot>
                 </StandardTable>
               </>
             )}

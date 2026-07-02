@@ -424,7 +424,23 @@ export function MultiShipmentProfitPage({
 
                 <div className="table-card hidden md:block">
                   <div className="overflow-x-auto">
-                    <table className="data-table">
+                    <table className="data-table is-fixed-table multi-shipment-profit-table w-full min-w-[1400px]">
+                      <colgroup>
+                        <col className="w-16" />
+                        <col className="w-24" />
+                        <col className="w-20" />
+                        <col className="w-32" />
+                        <col className="w-20" />
+                        <col className="w-24" />
+                        <col className="w-24" />
+                        {mode === "direct" && <col className="w-24" />}
+                        <col className="w-20" />
+                        <col className="w-24" />
+                        <col className="w-24" />
+                        <col className="w-20" />
+                        <col className="w-20" />
+                        <col className="w-[22rem]" />
+                      </colgroup>
                       <thead>
                         <tr>
                           <th className="px-4 py-3 font-medium">件数</th>
@@ -487,7 +503,7 @@ export function MultiShipmentProfitPage({
                                 <Badge tone="success">否</Badge>
                               )}
                             </td>
-                            <td className="px-4 py-3 text-xs leading-5 text-slate-500">
+                            <td className="multi-shipment-candidates-cell px-4 py-3 text-xs leading-5 text-slate-500">
                               {row.candidates
                                 .map((candidate) =>
                                   candidate.available
