@@ -12,7 +12,7 @@ import { resolveFirstLegMethods, resolveLastLegMethods } from "../lib/defaults";
 const round = (value: number, digits = 2) =>
   Math.round((value + Number.EPSILON) * Math.pow(10, digits)) / Math.pow(10, digits);
 
-export const PROFIT_CALCULATION_VERSION = 5;
+export const PROFIT_CALCULATION_VERSION = 6;
 
 type SavedProfitCalculationSnapshot = Pick<
   SavedProfitCalculation,
@@ -112,8 +112,7 @@ export function calculateProfitProjection(
   const sharedBaseCostRmb =
     pricing.purchaseCostRmb +
     pricing.purchaseShippingRmb +
-    pricing.packagingCostRmb +
-    pricing.sfCostRmb;
+    pricing.packagingCostRmb;
 
   const firstLegs = resolveFirstLegMethods(settings);
   const lastLegs = resolveLastLegMethods(settings);

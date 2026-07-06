@@ -13,7 +13,7 @@ export async function savePricingResult(
     purchase_cost_rmb: result.purchaseCostRmb,
     purchase_shipping_cost_rmb: result.purchaseShippingRmb,
     packaging_cost_rmb: result.packagingCostRmb,
-    sf_allocated_cost_rmb: result.sfCostRmb,
+    sf_allocated_cost_rmb: 0,
     plan_a_cost_rmb: result.planA,
     plan_b_cost_rmb: result.planB,
     plan_c_cost_rmb: result.planC,

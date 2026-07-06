@@ -13,7 +13,7 @@ import {
   getOrderSku,
   getOrderQuantity,
   getSkuUnitCostRmb,
-  estimateOrderShippingFee,
+  estimateOrderShippingBreakdown,
   roundMoney,
   getMonthKey,
   formatDate,
@@ -151,6 +151,7 @@ export function FinanceProfitPage({ user }: Props) {
     products: true,
     expenses: true,
     settlements: true,
+    logistics: true,
   });
 
   const settlementLookup = useMemo(() => buildSettlementLookup(settlementFiles || []), [settlementFiles]);
@@ -269,13 +270,14 @@ export function FinanceProfitPage({ user }: Props) {
         purchase: number;
         productCost: number;
         shipping: number;
+        cashShipping: number;
         otherExpense: number;
       }
     >();
 
     const getMonthlyObj = (monthKey: string) => {
       if (!monthlyData.has(monthKey)) {
-        monthlyData.set(monthKey, { month: monthKey, settledIncome: 0, estimatedIncome: 0, purchase: 0, productCost: 0, shipping: 0, otherExpense: 0 });
+        monthlyData.set(monthKey, { month: monthKey, settledIncome: 0, estimatedIncome: 0, purchase: 0, productCost: 0, shipping: 0, cashShipping: 0, otherExpense: 0 });
       }
       return monthlyData.get(monthKey)!;
     };
@@ -292,20 +294,24 @@ export function FinanceProfitPage({ user }: Props) {
       const product = sku?.product_id ? productsById.get(sku.product_id) ?? null : null;
       const unitCost = sku ? getSkuUnitCostRmb(sku, productItemsById) : 0;
       const productCostRmb = unitCost * quantity;
-      
-      const actualShippingFeeRmb = Number(order.actual_shipping_fee_rmb || 0);
-      const estimatedShippingRmb = estimateOrderShippingFee(order, product, settings);
-      const shippingFeeRmb = actualShippingFeeRmb > 0 ? actualShippingFeeRmb : estimatedShippingRmb;
+      const shipping = estimateOrderShippingBreakdown({
+        order,
+        product,
+        settings,
+        logisticsMethods: data.logisticsMethods,
+        warehouseLogisticsMethods: data.warehouseLogisticsMethods,
+      });
 
-      const billAmountRmb = roundMoney(productCostRmb + shippingFeeRmb); // Simplified billAmount for estimation
+      const billAmountRmb = roundMoney(productCostRmb + shipping.shippingFeeRmb); // Simplified billAmount for estimation
       
       const obj = getMonthlyObj(getMonthKey(date));
       obj.settledIncome += actualRevenueRmb;
       obj.estimatedIncome += isSettled ? actualRevenueRmb : billAmountRmb;
 
-      if (productCostRmb > 0 || shippingFeeRmb > 0) {
+      if (productCostRmb > 0 || shipping.shippingFeeRmb > 0) {
         obj.productCost += productCostRmb;
-        obj.shipping += shippingFeeRmb;
+        obj.shipping += shipping.shippingFeeRmb;
+        obj.cashShipping += shipping.cashShippingFeeRmb;
       }
     });
 
@@ -326,7 +332,7 @@ export function FinanceProfitPage({ user }: Props) {
     return Array.from(monthlyData.values())
       .sort((a: any, b: any) => b.month.localeCompare(a.month))
       .map((m) => {
-        const cashProfit = roundMoney(m.settledIncome - m.purchase - m.shipping - m.otherExpense);
+        const cashProfit = roundMoney(m.settledIncome - m.purchase - m.cashShipping - m.otherExpense);
         const orderProfit = roundMoney(m.estimatedIncome - m.productCost - m.shipping - m.otherExpense);
         return {
           ...m,
@@ -335,12 +341,25 @@ export function FinanceProfitPage({ user }: Props) {
           purchase: roundMoney(m.purchase),
           productCost: roundMoney(m.productCost),
           shipping: roundMoney(m.shipping),
+          cashShipping: roundMoney(m.cashShipping),
           otherExpense: roundMoney(m.otherExpense),
           cashProfit,
           orderProfit,
         };
       });
-  }, [data.orders, data.purchases, expenses, productItemsById, productsById, skuLookup, settings, settlementLookup, period]);
+  }, [
+    data.orders,
+    data.purchases,
+    data.logisticsMethods,
+    data.warehouseLogisticsMethods,
+    expenses,
+    productItemsById,
+    productsById,
+    skuLookup,
+    settings,
+    settlementLookup,
+    period,
+  ]);
 
   const shippingMethodRows = useMemo<ShippingMethodRow[]>(() => {
     const shippingData = new Map<string, ShippingMethodRow>();
@@ -369,21 +388,29 @@ export function FinanceProfitPage({ user }: Props) {
       const sku = getOrderSku(order, skuLookup);
       const product = sku?.product_id ? productsById.get(sku.product_id) ?? null : null;
       const quantity = getOrderQuantity(order);
-      const actualShippingFeeRmb = Number(order.actual_shipping_fee_rmb || 0);
-      const estimatedShippingRmb = estimateOrderShippingFee(order, product, settings);
+      const shipping = estimateOrderShippingBreakdown({
+        order,
+        product,
+        settings,
+        logisticsMethods: data.logisticsMethods,
+        warehouseLogisticsMethods: data.warehouseLogisticsMethods,
+      });
       const method = getShippingMethodLabel(order.logistics_method);
       const obj = getShippingObj(method);
 
       obj.orderCount += 1;
       obj.quantity += quantity;
 
-      if (actualShippingFeeRmb > 0) {
-        obj.actualShipping += actualShippingFeeRmb;
-        obj.totalShipping += actualShippingFeeRmb;
-      } else if (estimatedShippingRmb > 0) {
-        obj.estimatedShipping += estimatedShippingRmb;
-        obj.totalShipping += estimatedShippingRmb;
+      if (shipping.shippingFeeSource === "actual") {
+        obj.actualShipping += shipping.lastLegShippingRmb;
+        obj.estimatedShipping += shipping.firstLegShippingRmb;
+        obj.totalShipping += shipping.shippingFeeRmb;
+      } else if (shipping.shippingFeeSource === "estimated") {
+        obj.estimatedShipping += shipping.shippingFeeRmb;
+        obj.totalShipping += shipping.shippingFeeRmb;
       } else {
+        obj.estimatedShipping += shipping.firstLegShippingRmb;
+        obj.totalShipping += shipping.firstLegShippingRmb;
         obj.missingShippingCount += 1;
       }
     });
@@ -404,7 +431,15 @@ export function FinanceProfitPage({ user }: Props) {
         };
       })
       .sort((a, b) => b.totalShipping - a.totalShipping);
-  }, [data.orders, productsById, settings, skuLookup, period]);
+  }, [
+    data.orders,
+    data.logisticsMethods,
+    data.warehouseLogisticsMethods,
+    productsById,
+    settings,
+    skuLookup,
+    period,
+  ]);
 
   const shippingMethodSummary = useMemo(() => {
     return shippingMethodRows.reduce(
@@ -482,9 +517,14 @@ export function FinanceProfitPage({ user }: Props) {
       const unitCost = sku ? getSkuUnitCostRmb(sku, productItemsById) : 0;
       obj.productCost += unitCost * quantity;
 
-      const actualShippingFeeRmb = Number(order.actual_shipping_fee_rmb || 0);
-      const estimatedShippingRmb = estimateOrderShippingFee(order, product, settings);
-      obj.shipping += actualShippingFeeRmb > 0 ? actualShippingFeeRmb : estimatedShippingRmb;
+      const shipping = estimateOrderShippingBreakdown({
+        order,
+        product,
+        settings,
+        logisticsMethods: data.logisticsMethods,
+        warehouseLogisticsMethods: data.warehouseLogisticsMethods,
+      });
+      obj.shipping += shipping.shippingFeeRmb;
 
       const { actualSalesRevenueRmb, actualFreightRevenueRmb } = getResolvedSettlementMetrics(order, quantity, settlementLookup);
       obj.actualRevenue += roundMoney(actualSalesRevenueRmb + actualFreightRevenueRmb);
@@ -495,7 +535,17 @@ export function FinanceProfitPage({ user }: Props) {
       const margin = calculateMarginRate(profit, p.actualRevenue);
       return { ...p, profit, margin };
     });
-  }, [data.orders, productItemsById, productsById, skuLookup, settings, settlementLookup, period]);
+  }, [
+    data.orders,
+    data.logisticsMethods,
+    data.warehouseLogisticsMethods,
+    productItemsById,
+    productsById,
+    skuLookup,
+    settings,
+    settlementLookup,
+    period,
+  ]);
 
   const filteredProductRows = useMemo(() => {
     let result = productRows;

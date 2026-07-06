@@ -196,7 +196,6 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
             ["采购成本", formatCurrency(result.purchaseCostRmb)],
             ["采购运费", formatCurrency(result.purchaseShippingRmb)],
             ["包装成本", formatCurrency(result.packagingCostRmb)],
-            ["顺丰成本", formatCurrency(result.sfCostRmb)],
             ["方案 A：淮安空运 + 大阪海外仓", formatCurrency(result.planA)],
             ["方案 B：淮安空运 + 福冈海外仓", formatCurrency(result.planB)],
             ["方案 C：OCS + 大阪海外仓", formatCurrency(result.planC)],

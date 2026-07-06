@@ -214,6 +214,14 @@ function parseStockDraftValue(item: Pick<WarehouseSku, "stock_quantity">, value:
   return { stockQuantity, errorMessage: "" };
 }
 
+function groupWarehouseLogisticsMethodIds(links: WarehouseLogisticsMethod[]) {
+  return links.reduce<Record<string, string[]>>((groups, item) => {
+    groups[item.warehouse_id] ??= [];
+    groups[item.warehouse_id].push(item.logistics_method_id);
+    return groups;
+  }, {});
+}
+
 export function InventoryPage({ user }: InventoryPageProps) {
   const { warehouseSlug } = useParams();
   const { canEdit, canDelete } = usePermissions();
@@ -228,6 +236,10 @@ export function InventoryPage({ user }: InventoryPageProps) {
   const [warehouseLogisticsMethods, setWarehouseLogisticsMethods] = useState<
     WarehouseLogisticsMethod[]
   >([]);
+  const [
+    warehouseLogisticsDraftIdsByWarehouseId,
+    setWarehouseLogisticsDraftIdsByWarehouseId,
+  ] = useState<Record<string, string[]>>({});
   const [warehouseSkus, setWarehouseSkus] = useState<WarehouseSku[]>([]);
   const [draftWarehouseName, setDraftWarehouseName] = useState(restoredDraft?.draftWarehouseName ?? "");
   const [draftLogisticsMethodName, setDraftLogisticsMethodName] = useState(
@@ -373,6 +385,9 @@ export function InventoryPage({ user }: InventoryPageProps) {
           setWarehouses(nextWarehouses);
           setLogisticsMethods(updatedDbLogisticsMethods);
           setWarehouseLogisticsMethods(nextWarehouseLogisticsMethods);
+          setWarehouseLogisticsDraftIdsByWarehouseId(
+            groupWarehouseLogisticsMethodIds(nextWarehouseLogisticsMethods),
+          );
           setSettingsFirstLegs(firstLegs);
           setSettingsLastLegs(lastLegs);
           setWarehouseTotals(nextWarehouseTotals);
@@ -530,12 +545,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
   );
 
   const warehouseLogisticsMethodIdsByWarehouseId = useMemo(
-    () =>
-      warehouseLogisticsMethods.reduce<Record<string, string[]>>((groups, item) => {
-        groups[item.warehouse_id] ??= [];
-        groups[item.warehouse_id].push(item.logistics_method_id);
-        return groups;
-      }, {}),
+    () => groupWarehouseLogisticsMethodIds(warehouseLogisticsMethods),
     [warehouseLogisticsMethods],
   );
 
@@ -615,18 +625,80 @@ export function InventoryPage({ user }: InventoryPageProps) {
     }
   }
 
-  async function handleToggleWarehouseLogisticsMethod(
+  function getWarehouseLogisticsSelectionIssue(
+    warehouse: Warehouse,
+    methodIds: string[],
+  ) {
+    const selectedMethods = methodIds.flatMap((methodId) => {
+      const selected = logisticsMethods.find((item) => item.id === methodId);
+      return selected ? [selected] : [];
+    });
+    const matchesConfig = (
+      selectedMethod: LogisticsMethod,
+      config: LogisticsMethodConfig,
+    ) => {
+      if (!config.isActive) return false;
+      if (config.db_method_id && config.db_method_id === selectedMethod.id) return true;
+      return (
+        normalizeLogisticsMethodName(config.name).toLowerCase() ===
+        normalizeLogisticsMethodName(selectedMethod.name).toLowerCase()
+      );
+    };
+    const hasFirstLeg = selectedMethods.some((selectedMethod) =>
+      settingsFirstLegs.some((config) => matchesConfig(selectedMethod, config)),
+    );
+    const hasLastLeg = selectedMethods.some((selectedMethod) =>
+      settingsLastLegs.some((config) => matchesConfig(selectedMethod, config)),
+    );
+
+    if (!hasFirstLeg || !hasLastLeg) {
+      const missing = [
+        hasFirstLeg ? "" : "头程物流方式",
+        hasLastLeg ? "" : "尾程物流方式",
+      ].filter(Boolean);
+      return `仓库“${warehouse.name}”必须同时设置头程和尾程。当前缺少${missing.join("、")}。`;
+    }
+
+    return "";
+  }
+
+  function handleToggleWarehouseLogisticsMethod(
     warehouse: Warehouse,
     method: LogisticsMethod,
     checked: boolean,
   ) {
     if (!canEdit) return;
-    if (!(await confirmSave(`确认更新仓库“${warehouse.name}”的发货方式吗？`))) return;
 
-    const currentMethodIds = warehouseLogisticsMethodIdsByWarehouseId[warehouse.id] ?? [];
-    const nextMethodIds = checked
-      ? [...currentMethodIds, method.id]
-      : currentMethodIds.filter((methodId) => methodId !== method.id);
+    setWarehouseLogisticsDraftIdsByWarehouseId((current) => {
+      const currentMethodIds =
+        current[warehouse.id] ??
+        warehouseLogisticsMethodIdsByWarehouseId[warehouse.id] ??
+        [];
+      const nextMethodIds = checked
+        ? Array.from(new Set([...currentMethodIds, method.id]))
+        : currentMethodIds.filter((methodId) => methodId !== method.id);
+
+      return {
+        ...current,
+        [warehouse.id]: nextMethodIds,
+      };
+    });
+  }
+
+  async function handleSaveWarehouseLogisticsMethods(warehouse: Warehouse) {
+    if (!canEdit) return;
+
+    const nextMethodIds =
+      warehouseLogisticsDraftIdsByWarehouseId[warehouse.id] ??
+      warehouseLogisticsMethodIdsByWarehouseId[warehouse.id] ??
+      [];
+    const issue = getWarehouseLogisticsSelectionIssue(warehouse, nextMethodIds);
+    if (issue) {
+      setErrorMessage(issue);
+      return;
+    }
+
+    if (!(await confirmSave(`确认更新仓库“${warehouse.name}”的发货方式吗？`))) return;
 
     setBusyKey(`warehouse-logistics-${warehouse.id}`);
     setErrorMessage("");
@@ -636,6 +708,10 @@ export function InventoryPage({ user }: InventoryPageProps) {
         ...current.filter((item) => item.warehouse_id !== warehouse.id),
         ...nextLinks,
       ]);
+      setWarehouseLogisticsDraftIdsByWarehouseId((current) => ({
+        ...current,
+        [warehouse.id]: nextLinks.map((item) => item.logistics_method_id),
+      }));
     } catch (error) {
       setErrorMessage(getInventoryErrorMessage(error, "更新仓库发货方式失败"));
     } finally {
@@ -659,6 +735,10 @@ export function InventoryPage({ user }: InventoryPageProps) {
       const warehouse = await createWarehouse(name);
       setWarehouses((current) => [...current, warehouse]);
       setWarehouseTotals((current) => ({ ...current, [warehouse.id]: 0 }));
+      setWarehouseLogisticsDraftIdsByWarehouseId((current) => ({
+        ...current,
+        [warehouse.id]: [],
+      }));
       setDraftWarehouseName("");
       setIsCreateModalOpen(false);
     } catch (error) {
@@ -710,6 +790,11 @@ export function InventoryPage({ user }: InventoryPageProps) {
       setWarehouseLogisticsMethods((current) =>
         current.filter((item) => item.warehouse_id !== warehouse.id),
       );
+      setWarehouseLogisticsDraftIdsByWarehouseId((current) => {
+        const { [warehouse.id]: _methodIds, ...rest } = current;
+        void _methodIds;
+        return rest;
+      });
       setWarehouseSkus((current) =>
         current.filter((item) => item.warehouse_id !== warehouse.id),
       );
@@ -1175,7 +1260,10 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                 {settingsFirstLegs.map((config) => {
                                   const dbMethod = findDbMethod(config.name);
                                   if (!dbMethod) return null;
-                                  const methodIds = warehouseLogisticsMethodIdsByWarehouseId[warehouse.id] ?? [];
+                                  const methodIds =
+                                    warehouseLogisticsDraftIdsByWarehouseId[warehouse.id] ??
+                                    warehouseLogisticsMethodIdsByWarehouseId[warehouse.id] ??
+                                    [];
                                   const checked = methodIds.includes(dbMethod.id);
                                   return (
                                     <label
@@ -1221,7 +1309,10 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                 {settingsLastLegs.map((config) => {
                                   const dbMethod = findDbMethod(config.name);
                                   if (!dbMethod) return null;
-                                  const methodIds = warehouseLogisticsMethodIdsByWarehouseId[warehouse.id] ?? [];
+                                  const methodIds =
+                                    warehouseLogisticsDraftIdsByWarehouseId[warehouse.id] ??
+                                    warehouseLogisticsMethodIdsByWarehouseId[warehouse.id] ??
+                                    [];
                                   const checked = methodIds.includes(dbMethod.id);
                                   return (
                                     <label
@@ -1254,6 +1345,16 @@ export function InventoryPage({ user }: InventoryPageProps) {
                               </div>
                             )}
                           </div>
+                        </div>
+                        <div className="flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => void handleSaveWarehouseLogisticsMethods(warehouse)}
+                            disabled={!canEdit || busyKey === `warehouse-logistics-${warehouse.id}`}
+                            className="btn-primary h-8 px-3 text-xs"
+                          >
+                            保存物流配置
+                          </button>
                         </div>
                       </div>
                     )}
@@ -1414,7 +1515,10 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                 {settingsFirstLegs.map((config) => {
                                   const dbMethod = findDbMethod(config.name);
                                   if (!dbMethod) return null;
-                                  const methodIds = warehouseLogisticsMethodIdsByWarehouseId[warehouse.id] ?? [];
+                                  const methodIds =
+                                    warehouseLogisticsDraftIdsByWarehouseId[warehouse.id] ??
+                                    warehouseLogisticsMethodIdsByWarehouseId[warehouse.id] ??
+                                    [];
                                   const checked = methodIds.includes(dbMethod.id);
                                   return (
                                     <label
@@ -1461,7 +1565,10 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                 {settingsLastLegs.map((config) => {
                                   const dbMethod = findDbMethod(config.name);
                                   if (!dbMethod) return null;
-                                  const methodIds = warehouseLogisticsMethodIdsByWarehouseId[warehouse.id] ?? [];
+                                  const methodIds =
+                                    warehouseLogisticsDraftIdsByWarehouseId[warehouse.id] ??
+                                    warehouseLogisticsMethodIdsByWarehouseId[warehouse.id] ??
+                                    [];
                                   const checked = methodIds.includes(dbMethod.id);
                                   return (
                                     <label
@@ -1494,6 +1601,16 @@ export function InventoryPage({ user }: InventoryPageProps) {
                               </div>
                             )}
                           </div>
+                        </div>
+                        <div className="flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => void handleSaveWarehouseLogisticsMethods(warehouse)}
+                            disabled={!canEdit || busyKey === `warehouse-logistics-${warehouse.id}`}
+                            className="btn-primary h-9 px-3 text-xs"
+                          >
+                            保存物流配置
+                          </button>
                         </div>
                       </div>
                     )}

@@ -1,7 +1,6 @@
 import type { PricingResult, PricingSettings, ProductItem } from "../types";
 import {
   calculatePurchaseShippingRmb,
-  calculateSfCostRmb,
   calculateDynamicMethodCost,
 } from "./shipping-costs";
 import { resolveFirstLegMethods, resolveLastLegMethods } from "../lib/defaults";
@@ -34,11 +33,9 @@ export function calculatePricing(
   const activeFirstLegs = firstLegs.filter((m) => m.isActive);
   const activeLastLegs = lastLegs.filter((m) => m.isActive);
 
-  // sfCostRmb
-  const sfMethod = activeFirstLegs.find((m) => m.formula === "sf" || m.name.includes("顺丰"));
-  const sfCostRmb = sfMethod
-    ? calculateDynamicMethodCost(sfMethod, packageWeightG, settings.exchange_rate_rmb_per_jpy)
-    : calculateSfCostRmb(packageWeightKg, settings);
+  // Normal pricing already includes first-leg cost inside logisticsCostRmb.
+  // Keep this legacy field at 0 so saved records remain schema-compatible.
+  const sfCostRmb = 0;
 
   // huaianAirCostRmb
   const huaianAirMethod = activeFirstLegs.find(
@@ -115,7 +112,6 @@ export function calculatePricing(
     purchaseCostRmb +
     purchaseShippingRmb +
     packagingCostRmb +
-    sfCostRmb +
     logisticsCostRmb;
   const temuDeclarationPriceRmb =
     totalCostRmb / (1 - settings.target_profit_rate) - subsidyRmb;

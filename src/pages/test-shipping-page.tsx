@@ -14,6 +14,7 @@ import { useAutoDismiss } from "../hooks/use-auto-dismiss";
 import type { Product, ProfitCalculationInput } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { calculatePricing, formatCurrency } from "../utils/pricing";
+import { calculateInboundSfCostRmb } from "../utils/shipping-costs";
 import {
   buildProfitCalculationInputFromSaved,
   resolveProfitCalculationResult,
@@ -129,6 +130,10 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                 skuItems,
                 nextSettings,
               );
+              const sfCostRmb = calculateInboundSfCostRmb(
+                product.package_weight_g,
+                nextSettings,
+              );
               const saved = savedCalculationBySkuId[sku.id];
               const baseInput = buildProfitCalculationInputFromSaved(
                 saved,
@@ -154,7 +159,7 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                 pricing.purchaseCostRmb +
                 pricing.purchaseShippingRmb +
                 pricing.packagingCostRmb +
-                pricing.sfCostRmb +
+                sfCostRmb +
                 selectedLogisticsCostRmb +
                 adFeeRmb;
               const revenueRmb = profitResult.isValid
@@ -168,7 +173,7 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                   purchaseTotalCostRmb:
                     pricing.purchaseCostRmb + pricing.purchaseShippingRmb,
                   temuShippingSubsidyRmb: effectiveSubsidyRmb,
-                  sfCostRmb: pricing.sfCostRmb,
+                  sfCostRmb,
                   logisticsCostRmb: selectedLogisticsCostRmb,
                   adFeeRmb,
                   totalCostRmb,

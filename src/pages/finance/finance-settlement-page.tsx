@@ -11,7 +11,7 @@ import {
   formatCurrency,
   buildSkuLookup,
   getOrderSku,
-  estimateOrderShippingFee,
+  estimateOrderShippingBreakdown,
   roundMoney,
   getPaginatedRows,
   renderPaginationControls,
@@ -76,6 +76,7 @@ const settlementIncomeColumns = [
 
 function getReconciliationIssueLabel(issue: ReturnType<typeof getReconciliationIssues>[number]) {
   if (issue === "unmatched") return "SKU 货号未匹配";
+  if (issue === "warehouse-logistics-incomplete") return "仓库物流配置不完整";
   if (issue === "shipping-method-missing") return "缺发货方式 (无法估算运费)";
   return "运费缺失 (无法估算)";
 }
@@ -182,10 +183,13 @@ export function FinanceSettlementPage({ user }: Props) {
       const product = sku?.product_id ? data.products.find((p: any) => p.id === sku.product_id) ?? null : null;
       const quantity = getOrderQuantity(order);
       
-      const estimatedShippingRmb = estimateOrderShippingFee(order, product, settings);
-      const actualShippingFeeRmb = Number(order.actual_shipping_fee_rmb || 0);
-      const shippingFeeSource = actualShippingFeeRmb > 0 ? "actual" : estimatedShippingRmb > 0 ? "estimated" : "missing";
-      const shippingFeeRmb = roundMoney(shippingFeeSource === "actual" ? actualShippingFeeRmb : estimatedShippingRmb);
+      const shipping = estimateOrderShippingBreakdown({
+        order,
+        product,
+        settings,
+        logisticsMethods: data.logisticsMethods,
+        warehouseLogisticsMethods: data.warehouseLogisticsMethods,
+      });
       
       const unitCost = sku ? getSkuUnitCostRmb(sku, productItemsById) : 0;
       const productCostRmb = roundMoney(unitCost * quantity);
@@ -199,11 +203,15 @@ export function FinanceSettlementPage({ user }: Props) {
         product,
         quantity,
         productCostRmb,
-        shippingFeeRmb,
-        estimatedShippingRmb,
-        shippingFeeSource,
-        isShippingFeeEstimated: shippingFeeSource === "estimated",
-        billAmountRmb: roundMoney(productCostRmb + shippingFeeRmb),
+        shippingFeeRmb: shipping.shippingFeeRmb,
+        firstLegShippingRmb: shipping.firstLegShippingRmb,
+        lastLegShippingRmb: shipping.lastLegShippingRmb,
+        cashShippingFeeRmb: shipping.cashShippingFeeRmb,
+        estimatedShippingRmb: shipping.estimatedShippingRmb,
+        shippingFeeSource: shipping.shippingFeeSource,
+        isShippingFeeEstimated: shipping.isShippingFeeEstimated,
+        warehouseLogisticsIssue: shipping.warehouseLogisticsIssue,
+        billAmountRmb: roundMoney(productCostRmb + shipping.shippingFeeRmb),
         actualSalesRevenueRmb,
         actualFreightRevenueRmb,
         actualRevenueRmb,
@@ -212,7 +220,16 @@ export function FinanceSettlementPage({ user }: Props) {
         matchLabel: matchType === "po" ? "PO单号" : matchType === "sku_avg" ? "SKU均值" : "",
       };
     });
-  }, [data.orders, skuLookup, data.products, settings, productItemsById, settlementLookup]);
+  }, [
+    data.orders,
+    data.logisticsMethods,
+    data.warehouseLogisticsMethods,
+    skuLookup,
+    data.products,
+    settings,
+    productItemsById,
+    settlementLookup,
+  ]);
 
   // Reconciliation data
   const displayOrders = useMemo(() => {
@@ -313,12 +330,15 @@ export function FinanceSettlementPage({ user }: Props) {
       methodRow.quantity = roundMoney(methodRow.quantity + row.quantity);
 
       if (row.shippingFeeSource === "actual") {
-        methodRow.actualShipping = roundMoney(methodRow.actualShipping + row.shippingFeeRmb);
+        methodRow.actualShipping = roundMoney(methodRow.actualShipping + row.lastLegShippingRmb);
+        methodRow.estimatedShipping = roundMoney(methodRow.estimatedShipping + row.firstLegShippingRmb);
         methodRow.totalShipping = roundMoney(methodRow.totalShipping + row.shippingFeeRmb);
       } else if (row.shippingFeeSource === "estimated") {
         methodRow.estimatedShipping = roundMoney(methodRow.estimatedShipping + row.shippingFeeRmb);
         methodRow.totalShipping = roundMoney(methodRow.totalShipping + row.shippingFeeRmb);
       } else {
+        methodRow.estimatedShipping = roundMoney(methodRow.estimatedShipping + row.firstLegShippingRmb);
+        methodRow.totalShipping = roundMoney(methodRow.totalShipping + row.firstLegShippingRmb);
         methodRow.missingShippingCount += 1;
       }
     });
@@ -722,6 +742,11 @@ export function FinanceSettlementPage({ user }: Props) {
                               ))
                             )}
                           </div>
+                          {row.warehouseLogisticsIssue && (
+                            <p className="mt-1 text-xs font-semibold text-amber-600">
+                              {row.warehouseLogisticsIssue}
+                            </p>
+                          )}
                         </td>
                         <td>{renderLogisticsMethodCell(row)}</td>
                         <td className="money px-3 py-2">
@@ -754,7 +779,7 @@ export function FinanceSettlementPage({ user }: Props) {
                                 </>
                               )}
                               {canEdit && (
-                                <button onClick={() => { setEditingOrderId(row.order.id); setEditingFeeValue(row.shippingFeeRmb > 0 ? String(row.shippingFeeRmb) : ""); }} className="rounded bg-sky-50 px-2 py-0.5 text-sky-600 text-[10px] font-bold opacity-0 group-hover:opacity-100">
+                                <button onClick={() => { setEditingOrderId(row.order.id); setEditingFeeValue(row.lastLegShippingRmb > 0 ? String(row.lastLegShippingRmb) : ""); }} className="rounded bg-sky-50 px-2 py-0.5 text-sky-600 text-[10px] font-bold opacity-0 group-hover:opacity-100">
                                   填实际
                                 </button>
                               )}
@@ -1040,7 +1065,7 @@ export function FinanceSettlementPage({ user }: Props) {
                                   </>
                                 )}
                                 {canEdit && (
-                                  <button onClick={() => { setEditingOrderId(row.order.id); setEditingFeeValue(row.shippingFeeRmb > 0 ? String(row.shippingFeeRmb) : ""); }} className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-700 p-1">
+                                  <button onClick={() => { setEditingOrderId(row.order.id); setEditingFeeValue(row.lastLegShippingRmb > 0 ? String(row.lastLegShippingRmb) : ""); }} className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-700 p-1">
                                     <Edit2 size={12} />
                                   </button>
                                 )}

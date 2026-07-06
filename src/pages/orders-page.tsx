@@ -36,6 +36,7 @@ import {
   isLogisticsMethodAllowedForWarehouse as isConfiguredLogisticsMethodAllowedForWarehouse,
   normalizeLogisticsMethodName,
 } from "../lib/logistics-methods";
+import { getWarehouseLogisticsConfigStatus } from "../lib/warehouse-logistics";
 import {
   deleteTemuOrder,
   importTemuOrders,
@@ -2375,6 +2376,34 @@ export function OrdersPage({ user }: OrdersPageProps) {
     };
   }
 
+  function getOrderWarehouseLogisticsIssue(order: Pick<TemuOrderRecord, "warehouse_id" | "warehouse_name" | "order_no">) {
+    if (!order.warehouse_id) return "";
+    const status = getWarehouseLogisticsConfigStatus(
+      order.warehouse_id,
+      settings,
+      logisticsMethods,
+      warehouseLogisticsMethods,
+    );
+    if (!status.issue) return "";
+
+    const warehouseName =
+      warehouses.find((warehouse) => warehouse.id === order.warehouse_id)?.name ||
+      order.warehouse_name ||
+      order.warehouse_id;
+    return `${order.order_no}（${warehouseName}）：${status.issue}`;
+  }
+
+  function assertOrdersWarehouseLogisticsComplete(
+    ordersToValidate: Array<Pick<TemuOrderRecord, "warehouse_id" | "warehouse_name" | "order_no">>,
+  ) {
+    const issue = ordersToValidate
+      .map((order) => getOrderWarehouseLogisticsIssue(order))
+      .find(Boolean);
+    if (issue) {
+      throw new Error(`仓库物流配置不完整，不能保存订单：${issue}`);
+    }
+  }
+
   function handleWarehouseChangeForOrders(orderIds: string[], warehouseId: string) {
     if (!warehouseId) {
       updateDraftFieldsForOrders(orderIds, {
@@ -2386,6 +2415,19 @@ export function OrdersPage({ user }: OrdersPageProps) {
     }
 
     const warehouse = warehouses.find((item) => item.id === warehouseId);
+    if (warehouse) {
+      const status = getWarehouseLogisticsConfigStatus(
+        warehouse.id,
+        settings,
+        logisticsMethods,
+        warehouseLogisticsMethods,
+      );
+      if (!status.isComplete) {
+        setErrorMessage(`仓库“${warehouse.name}”物流配置不完整，不能选择：${status.issue}`);
+        return;
+      }
+    }
+
     const currentDraft = drafts[orderIds[0]] ?? createEmptyDraft();
     const nextWarehouseName = warehouse?.name ?? "";
     const nextLogisticsMethod =
@@ -3257,6 +3299,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
       nextOrder: TemuOrderRecord;
     }>,
   ) {
+    assertOrdersWarehouseLogisticsComplete(entries.map((entry) => entry.nextOrder));
+
     const nextOrders: TemuOrderRecord[] = [];
     const inventoryChanges: Awaited<ReturnType<typeof deductInventoryForOrders>> = [];
     const deductedInventoryChanges: Awaited<ReturnType<typeof deductInventoryForOrders>> = [];
@@ -4729,6 +4773,18 @@ export function OrdersPage({ user }: OrdersPageProps) {
           onDeleteSelectedOrders={() => void handleDeleteSelectedOrders()}
           onBulkWarehouseChange={(warehouseId) => {
             const warehouse = warehouses.find((item) => item.id === warehouseId);
+            if (warehouse) {
+              const status = getWarehouseLogisticsConfigStatus(
+                warehouse.id,
+                settings,
+                logisticsMethods,
+                warehouseLogisticsMethods,
+              );
+              if (!status.isComplete) {
+                setErrorMessage(`仓库“${warehouse.name}”物流配置不完整，不能选择：${status.issue}`);
+                return;
+              }
+            }
             setBulkWarehouseId(warehouseId);
             if (
               warehouse &&

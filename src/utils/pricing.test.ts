@@ -57,7 +57,7 @@ describe("calculatePricing", () => {
     expect(result.purchaseShippingRmb).toBe(2);
   });
 
-  it("prorates SF first-weight cost by package weight", () => {
+  it("does not add SF as a separate cost during normal pricing", () => {
     const result = calculatePricing(
       500,
       [],
@@ -68,21 +68,8 @@ describe("calculatePricing", () => {
       }),
     );
 
-    expect(result.sfCostRmb).toBe(5);
-  });
-
-  it("applies SF extra-weight pricing above the first weight", () => {
-    const result = calculatePricing(
-      1500,
-      [],
-      buildSettings({
-        sf_first_weight_kg: 1,
-        sf_first_price_rmb: 10,
-        sf_extra_price_per_kg_rmb: 8,
-      }),
-    );
-
-    expect(result.sfCostRmb).toBe(14);
+    expect(result.sfCostRmb).toBe(0);
+    expect(result.totalCostRmb).toBe(result.logisticsCostRmb);
   });
 
   it("includes OCS tariff when comparing logistics plans", () => {

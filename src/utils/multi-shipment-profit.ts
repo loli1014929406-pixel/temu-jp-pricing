@@ -10,19 +10,15 @@ import {
   calculateOcsSmallParcelCostRmb,
   calculateOcsThreeCmCostRmb,
   calculatePurchaseShippingRmb,
-  calculateSfCostRmb,
+  calculateInboundSfCostRmb,
   getThreeCmDimensionIssue as getSharedThreeCmDimensionIssue,
   getThreeCmUnavailableReason,
   THREE_CM_WEIGHT_LIMIT_G,
   calculateDynamicMethodCost,
 } from "./shipping-costs";
-import { resolveFirstLegMethods, resolveLastLegMethods } from "../lib/defaults";
+import { resolveLastLegMethods } from "../lib/defaults";
 
 export type MultiShipmentMode = "direct" | "standard";
-
-function getFirstLegs(settings: PricingSettings) {
-  return resolveFirstLegMethods(settings);
-}
 
 function getLastLegs(settings: PricingSettings) {
   return resolveLastLegMethods(settings);
@@ -349,16 +345,8 @@ export function calculateMultiShipmentProfitRow(
     safeQuantity;
   const packagingCostRmb = settings.packaging_cost_rmb * safeQuantity;
   const totalWeightG = product.package_weight_g * safeQuantity;
-  const firstLegs = getFirstLegs(settings);
-  const activeFirstLegs = firstLegs.filter((m) => m.isActive);
-  const sfMethod = activeFirstLegs.find((m) => m.formula === "sf" || m.name.includes("顺丰"));
-
   const inboundSfCostRmb =
-    mode === "direct"
-      ? sfMethod
-        ? calculateDynamicMethodCost(sfMethod, totalWeightG, settings.exchange_rate_rmb_per_jpy)
-        : calculateSfCostRmb(totalWeightG / 1000, settings)
-      : 0;
+    mode === "direct" ? calculateInboundSfCostRmb(totalWeightG, settings) : 0;
   const adFeeRmb = isValid ? calculateAdFeeRmb(input) * safeQuantity : 0;
   const candidates = buildShipmentCandidates(
     mode,

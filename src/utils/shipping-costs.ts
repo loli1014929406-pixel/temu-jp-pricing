@@ -1,3 +1,4 @@
+import { resolveFirstLegMethods } from "../lib/defaults";
 import type { PricingSettings, Product, ProductItem, LogisticsMethodConfig } from "../types";
 
 export const THREE_CM_WEIGHT_LIMIT_G = 1000;
@@ -71,6 +72,25 @@ export function calculateSfCostRmb(
     Math.max(packageWeightKg - firstWeightKg, 0) *
     settings.sf_extra_price_per_kg_rmb
   );
+}
+
+export function calculateInboundSfCostRmb(
+  packageWeightG: number,
+  settings: PricingSettings,
+): number {
+  const sfMethod = resolveFirstLegMethods(settings)
+    .filter((method) => method.isActive)
+    .find((method) => method.formula === "sf" || method.name.includes("顺丰"));
+
+  if (sfMethod) {
+    return calculateDynamicMethodCost(
+      sfMethod,
+      packageWeightG,
+      settings.exchange_rate_rmb_per_jpy,
+    );
+  }
+
+  return calculateSfCostRmb(packageWeightG / 1000, settings);
 }
 
 /**

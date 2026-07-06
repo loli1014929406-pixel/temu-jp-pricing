@@ -17,6 +17,10 @@ import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../../utils/sku-cod
 import { normalizeLogisticsMethodName } from "../../lib/logistics-methods";
 import { resolveLastLegMethods } from "../../lib/defaults";
 import {
+  calculateHighestWarehouseFirstLegCostRmb,
+  getWarehouseLogisticsConfigStatus,
+} from "../../lib/warehouse-logistics";
+import {
   calculateSettlementNetFreightRevenue,
   calculateSettlementNetSalesRevenue,
   type SettlementLookup,
@@ -83,7 +87,11 @@ export type FinanceData = {
 
 export type FinanceBadgeTone = "success" | "warning" | "danger" | "neutral" | "info";
 export type ShippingFeeSource = "actual" | "estimated" | "missing";
-export type ReconciliationIssue = "unmatched" | "shipping-method-missing" | "shipping-cost-missing";
+export type ReconciliationIssue =
+  | "unmatched"
+  | "shipping-method-missing"
+  | "shipping-cost-missing"
+  | "warehouse-logistics-incomplete";
 
 export type FinanceOrderRow = {
   order: TemuOrderRecord;
@@ -92,9 +100,13 @@ export type FinanceOrderRow = {
   quantity: number;
   productCostRmb: number;
   shippingFeeRmb: number;
+  firstLegShippingRmb: number;
+  lastLegShippingRmb: number;
+  cashShippingFeeRmb: number;
   estimatedShippingRmb: number;
   shippingFeeSource: ShippingFeeSource;
   isShippingFeeEstimated: boolean;
+  warehouseLogisticsIssue: string;
   billAmountRmb: number;
   actualSalesRevenueRmb: number;
   actualFreightRevenueRmb: number;
@@ -146,6 +158,7 @@ export function getShippingFeeSourceLabel(source: ShippingFeeSource) {
 export function getReconciliationIssues(row: FinanceOrderRow): ReconciliationIssue[] {
   const issues: ReconciliationIssue[] = [];
   if (!row.matched) issues.push("unmatched");
+  if (row.warehouseLogisticsIssue) issues.push("warehouse-logistics-incomplete");
   if (needsShippingFeeAttention(row)) {
     issues.push(needsShippingMethodAttention(row) ? "shipping-method-missing" : "shipping-cost-missing");
   }
@@ -155,6 +168,7 @@ export function getReconciliationIssues(row: FinanceOrderRow): ReconciliationIss
 export function getAccountingStatus(row: FinanceOrderRow): { label: string; tone: FinanceBadgeTone } {
   const issues = getReconciliationIssues(row);
   if (issues.includes("unmatched")) return { label: "异常(未匹配)", tone: "danger" };
+  if (issues.includes("warehouse-logistics-incomplete")) return { label: "待处理(仓库物流配置)", tone: "warning" };
   if (issues.includes("shipping-method-missing")) return { label: "待处理(缺发货方式)", tone: "warning" };
   if (issues.includes("shipping-cost-missing")) return { label: "待处理(缺运费)", tone: "warning" };
   return { label: "对账成功", tone: "success" };
@@ -235,7 +249,7 @@ export function getSkuUnitCostRmb(sku: ProductSku, productItemsById: Map<string,
   }, 0);
 }
 
-export function estimateOrderShippingFee(
+function estimateOrderLastLegShippingFee(
   order: TemuOrderRecord,
   product: Product | null,
   settings: PricingSettings | null
@@ -287,6 +301,83 @@ export function estimateOrderShippingFee(
   return Number(costRmb.toFixed(2));
 }
 
+export function estimateOrderShippingBreakdown({
+  order,
+  product,
+  settings,
+  logisticsMethods,
+  warehouseLogisticsMethods,
+}: {
+  order: TemuOrderRecord;
+  product: Product | null;
+  settings: PricingSettings | null;
+  logisticsMethods: LogisticsMethod[];
+  warehouseLogisticsMethods: WarehouseLogisticsMethod[];
+}) {
+  const actualShippingFeeRmb = Number(order.actual_shipping_fee_rmb || 0);
+  const estimatedLastLegShippingRmb = estimateOrderLastLegShippingFee(
+    order,
+    product,
+    settings,
+  );
+  const shippingFeeSource: ShippingFeeSource =
+    actualShippingFeeRmb > 0
+      ? "actual"
+      : estimatedLastLegShippingRmb > 0
+        ? "estimated"
+        : "missing";
+  const qty = Math.max(0, Number(order.fulfillment_quantity || 0));
+  const packageWeightG = Math.max(0, (product?.package_weight_g ?? 0) * qty);
+  const warehouseLogisticsIssue = !order.warehouse_id
+    ? "仓库物流配置不完整：缺少仓库"
+    : getWarehouseLogisticsConfigStatus(
+        order.warehouse_id,
+        settings,
+        logisticsMethods,
+        warehouseLogisticsMethods,
+      ).issue;
+  const firstLegShippingRmb = warehouseLogisticsIssue
+    ? 0
+    : calculateHighestWarehouseFirstLegCostRmb({
+        warehouseId: order.warehouse_id,
+        packageWeightG,
+        settings,
+        logisticsMethods,
+        warehouseLogisticsMethods,
+      });
+  const lastLegShippingRmb =
+    shippingFeeSource === "actual" ? actualShippingFeeRmb : estimatedLastLegShippingRmb;
+  const estimatedShippingRmb = roundMoney(firstLegShippingRmb + estimatedLastLegShippingRmb);
+  const shippingFeeRmb = roundMoney(firstLegShippingRmb + lastLegShippingRmb);
+
+  return {
+    firstLegShippingRmb: roundMoney(firstLegShippingRmb),
+    lastLegShippingRmb: roundMoney(lastLegShippingRmb),
+    cashShippingFeeRmb: roundMoney(lastLegShippingRmb),
+    estimatedShippingRmb,
+    shippingFeeRmb,
+    shippingFeeSource,
+    isShippingFeeEstimated: firstLegShippingRmb > 0 || shippingFeeSource === "estimated",
+    warehouseLogisticsIssue,
+  };
+}
+
+export function estimateOrderShippingFee(
+  order: TemuOrderRecord,
+  product: Product | null,
+  settings: PricingSettings | null,
+  logisticsMethods: LogisticsMethod[] = [],
+  warehouseLogisticsMethods: WarehouseLogisticsMethod[] = [],
+): number {
+  return estimateOrderShippingBreakdown({
+    order,
+    product,
+    settings,
+    logisticsMethods,
+    warehouseLogisticsMethods,
+  }).shippingFeeRmb;
+}
+
 export function roundMoney(value: number) {
   if (!Number.isFinite(value)) return 0;
   return Math.round((value + Number.EPSILON) * 100) / 100;
@@ -335,6 +426,7 @@ export function calculateFinanceTotals(orderRows: FinanceOrderRow[], purchases: 
   const estimatedBillAmount = orderRows.reduce((sum, row) => sum + row.billAmountRmb, 0);
   const actualRevenueAmount = orderRows.reduce((sum, row) => sum + row.actualRevenueRmb, 0);
   const orderShippingFee = orderRows.reduce((sum, row) => sum + row.shippingFeeRmb, 0);
+  const cashOrderShippingFee = orderRows.reduce((sum, row) => sum + row.cashShippingFeeRmb, 0);
   const orderProductCost = orderRows.reduce((sum, row) => sum + row.productCostRmb, 0);
   const purchasePayment = purchases.reduce(
     (sum, purchase) => sum + getPurchaseTotalRmb(purchase),
@@ -347,6 +439,7 @@ export function calculateFinanceTotals(orderRows: FinanceOrderRow[], purchases: 
     estimatedBillAmount: roundMoney(estimatedBillAmount),
     actualRevenueAmount: roundMoney(actualRevenueAmount),
     orderShippingFee: roundMoney(orderShippingFee),
+    cashOrderShippingFee: roundMoney(cashOrderShippingFee),
     orderProductCost: roundMoney(orderProductCost),
     purchasePayment: roundMoney(purchasePayment),
     missingShippingFeeCount,

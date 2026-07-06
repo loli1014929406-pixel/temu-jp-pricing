@@ -14,7 +14,7 @@ import {
   getOrderSku,
   getOrderQuantity,
   getSkuUnitCostRmb,
-  estimateOrderShippingFee,
+  estimateOrderShippingBreakdown,
   roundMoney,
   buildSkuLookup,
   getResolvedSettlementMetrics,
@@ -33,6 +33,7 @@ export function FinanceOverviewPage({ user }: Props) {
     inventory: true,
     expenses: true,
     settlements: true,
+    logistics: true,
   });
 
   const settlementLookup = useMemo(() => buildSettlementLookup(settlementFiles), [settlementFiles]);
@@ -49,10 +50,13 @@ export function FinanceOverviewPage({ user }: Props) {
       const quantity = getOrderQuantity(order);
       const unitCost = sku ? getSkuUnitCostRmb(sku, productItemsById) : 0;
       const productCostRmb = roundMoney(unitCost * quantity);
-      const estimatedShippingRmb = estimateOrderShippingFee(order, product, settings);
-      const actualShippingFeeRmb = Number(order.actual_shipping_fee_rmb || 0);
-      const shippingFeeSource = (actualShippingFeeRmb > 0 ? "actual" : estimatedShippingRmb > 0 ? "estimated" : "missing") as "actual" | "estimated" | "missing";
-      const shippingFeeRmb = roundMoney(shippingFeeSource === "actual" ? actualShippingFeeRmb : estimatedShippingRmb);
+      const shipping = estimateOrderShippingBreakdown({
+        order,
+        product,
+        settings,
+        logisticsMethods: data.logisticsMethods,
+        warehouseLogisticsMethods: data.warehouseLogisticsMethods,
+      });
       
       const { actualSalesRevenueRmb, actualFreightRevenueRmb, isSettled } = getResolvedSettlementMetrics(order, quantity, settlementLookup);
 
@@ -64,11 +68,15 @@ export function FinanceOverviewPage({ user }: Props) {
         product,
         quantity,
         productCostRmb,
-        shippingFeeRmb,
-        estimatedShippingRmb,
-        shippingFeeSource,
-        isShippingFeeEstimated: shippingFeeSource === "estimated",
-        billAmountRmb: roundMoney(productCostRmb + shippingFeeRmb),
+        shippingFeeRmb: shipping.shippingFeeRmb,
+        firstLegShippingRmb: shipping.firstLegShippingRmb,
+        lastLegShippingRmb: shipping.lastLegShippingRmb,
+        cashShippingFeeRmb: shipping.cashShippingFeeRmb,
+        estimatedShippingRmb: shipping.estimatedShippingRmb,
+        shippingFeeSource: shipping.shippingFeeSource,
+        isShippingFeeEstimated: shipping.isShippingFeeEstimated,
+        warehouseLogisticsIssue: shipping.warehouseLogisticsIssue,
+        billAmountRmb: roundMoney(productCostRmb + shipping.shippingFeeRmb),
         actualSalesRevenueRmb,
         actualFreightRevenueRmb,
         actualRevenueRmb,
@@ -77,7 +85,16 @@ export function FinanceOverviewPage({ user }: Props) {
         matchLabel: sku && product ? "已匹配" : "待匹配",
       };
     });
-  }, [data.orders, productItemsById, productsById, skuLookup, settings, settlementLookup]);
+  }, [
+    data.orders,
+    data.logisticsMethods,
+    data.warehouseLogisticsMethods,
+    productItemsById,
+    productsById,
+    skuLookup,
+    settings,
+    settlementLookup,
+  ]);
 
   const totals = useMemo(() => calculateFinanceTotals(orderRows, data.purchases), [orderRows, data.purchases]);
 
@@ -93,7 +110,7 @@ export function FinanceOverviewPage({ user }: Props) {
     }, 0);
   }, [data.warehouseSkus, skusById, productItemsById]);
 
-  const cashProfit = totals.actualRevenueAmount - totals.purchasePayment - totals.orderShippingFee - totalOtherExpenses;
+  const cashProfit = totals.actualRevenueAmount - totals.purchasePayment - totals.cashOrderShippingFee - totalOtherExpenses;
   const orderProfit = totals.actualRevenueAmount - totals.orderProductCost - totals.orderShippingFee - totalOtherExpenses;
   const cashMarginRate = calculateMarginRate(cashProfit, totals.actualRevenueAmount);
   const orderMarginRate = calculateMarginRate(orderProfit, totals.actualRevenueAmount);

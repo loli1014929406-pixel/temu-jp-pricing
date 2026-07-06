@@ -2,6 +2,7 @@ import type { PricingSettings, Product, TestShippingResult } from "../types";
 import {
   calculateOcsSmallParcelCostRmb,
   calculateOcsThreeCmCostRmb,
+  calculateInboundSfCostRmb,
   getThreeCmUnavailableReason,
 } from "./shipping-costs";
 
@@ -22,7 +23,7 @@ export function calculateTestShipping(
   const canUseOcsKunshan3cm = !getThreeCmUnavailableReason(product);
 
   return {
-    sfCostRmb: 0,
+    sfCostRmb: round(calculateInboundSfCostRmb(product.package_weight_g, settings)),
     ocsKunshan3cmCostRmb: round(ocsKunshan3cmCostRmb),
     ocsKunshanSmallParcelCostRmb: round(ocsKunshanSmallParcelCostRmb),
     canUseOcsKunshan3cm,
