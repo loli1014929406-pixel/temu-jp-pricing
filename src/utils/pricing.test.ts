@@ -54,7 +54,7 @@ describe("calculatePricing", () => {
       buildSettings(),
     );
 
-    expect(result.purchaseShippingRmb).toBe(2);
+    expect(result.purchaseShippingRmb).toBe(1);
   });
 
   it("does not add SF as a separate cost during normal pricing", () => {

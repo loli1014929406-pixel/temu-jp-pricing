@@ -35,7 +35,7 @@ type ThreeCmEligibilityProduct = ThreeCmDimensionProduct &
 /**
  * 计算单个采购项的采购运费。
  *
- * @param item 采购项，`item_weight_g` 单位为 g，`purchase_shipping_fee_per_500g_rmb` 单位为人民币 / 500g。
+ * @param item 采购项，`item_weight_g` 单位为 g，`purchase_shipping_fee_per_500g_rmb` 单位为人民币 / kg。
  * @param quantity 采购数量，单位为件。
  * @returns 采购运费，单位为人民币。
  */
@@ -45,7 +45,7 @@ export function calculatePurchaseShippingRmb(
 ): number {
   const weightG = Math.max(0, item.item_weight_g * quantity);
   if (weightG === 0 || item.purchase_shipping_fee_per_500g_rmb <= 0) return 0;
-  return (weightG / 500) * item.purchase_shipping_fee_per_500g_rmb;
+  return (weightG / 1000) * item.purchase_shipping_fee_per_500g_rmb;
 }
 
 /**

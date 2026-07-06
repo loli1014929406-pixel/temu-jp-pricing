@@ -66,9 +66,11 @@ const settlementIncomeColumns = [
   { key: "sku_code", width: "13rem" },
   { key: "product", width: "18rem" },
   { key: "product_cost", width: "10rem" },
-  { key: "shipping_fee", width: "10rem" },
+  { key: "first_leg_shipping", width: "9rem" },
+  { key: "last_leg_shipping", width: "9rem" },
   { key: "bill", width: "10rem" },
   { key: "revenue", width: "10rem" },
+  { key: "profit", width: "9rem" },
   { key: "logistics", width: "13rem" },
   { key: "settlement", width: "8rem" },
   { key: "accounting", width: "8rem" },
@@ -284,23 +286,32 @@ export function FinanceSettlementPage({ user }: Props) {
 
   const incomeSummary = useMemo(() => {
     return filteredOrderRows.reduce(
-      (summary, row: any) => ({
-        orderCount: summary.orderCount + 1,
-        quantity: roundMoney(summary.quantity + row.quantity),
-        productCost: roundMoney(summary.productCost + row.productCostRmb),
-        shipping: roundMoney(summary.shipping + row.shippingFeeRmb),
-        bill: roundMoney(summary.bill + row.billAmountRmb),
-        actualRevenue: roundMoney(summary.actualRevenue + row.actualRevenueRmb),
-        settledCount: summary.settledCount + (row.isSettled ? 1 : 0),
-        missingShippingCount: summary.missingShippingCount + (row.shippingFeeSource === "missing" ? 1 : 0),
-      }),
+      (summary, row: any) => {
+        const rowProfit = row.isSettled ? roundMoney(row.actualRevenueRmb - row.billAmountRmb) : 0;
+        return {
+          orderCount: summary.orderCount + 1,
+          quantity: roundMoney(summary.quantity + row.quantity),
+          productCost: roundMoney(summary.productCost + row.productCostRmb),
+          firstLegShipping: roundMoney(summary.firstLegShipping + row.firstLegShippingRmb),
+          lastLegShipping: roundMoney(summary.lastLegShipping + row.lastLegShippingRmb),
+          shipping: roundMoney(summary.shipping + row.shippingFeeRmb),
+          bill: roundMoney(summary.bill + row.billAmountRmb),
+          actualRevenue: roundMoney(summary.actualRevenue + row.actualRevenueRmb),
+          profit: roundMoney(summary.profit + rowProfit),
+          settledCount: summary.settledCount + (row.isSettled ? 1 : 0),
+          missingShippingCount: summary.missingShippingCount + (row.shippingFeeSource === "missing" ? 1 : 0),
+        };
+      },
       {
         orderCount: 0,
         quantity: 0,
         productCost: 0,
+        firstLegShipping: 0,
+        lastLegShipping: 0,
         shipping: 0,
         bill: 0,
         actualRevenue: 0,
+        profit: 0,
         settledCount: 0,
         missingShippingCount: 0,
       },
@@ -903,14 +914,19 @@ export function FinanceSettlementPage({ user }: Props) {
               <EmptyPanel label="未找到匹配的订单记录" />
             ) : (
               <>
-                <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
                   <div className="rounded-lg border border-slate-100 bg-slate-50/70 p-3">
                     <div className="text-xs font-semibold text-slate-500">订单商品成本</div>
                     <div className="money mt-1 text-lg font-bold text-slate-900">{formatCurrency(incomeSummary.productCost)}</div>
                   </div>
                   <div className="rounded-lg border border-slate-100 bg-slate-50/70 p-3">
-                    <div className="text-xs font-semibold text-slate-500">订单核算运费</div>
-                    <div className="money mt-1 text-lg font-bold text-slate-900">{formatCurrency(incomeSummary.shipping)}</div>
+                    <div className="text-xs font-semibold text-slate-500">头程运费</div>
+                    <div className="money mt-1 text-lg font-bold text-slate-900">{formatCurrency(incomeSummary.firstLegShipping)}</div>
+                    <div className="mt-1 text-[11px] font-semibold text-slate-400">合计核算运费 {formatCurrency(incomeSummary.shipping)}</div>
+                  </div>
+                  <div className="rounded-lg border border-slate-100 bg-slate-50/70 p-3">
+                    <div className="text-xs font-semibold text-slate-500">尾程运费</div>
+                    <div className="money mt-1 text-lg font-bold text-slate-900">{formatCurrency(incomeSummary.lastLegShipping)}</div>
                     <div className="mt-1 text-[11px] font-semibold text-slate-400">缺失 {incomeSummary.missingShippingCount} 单</div>
                   </div>
                   <div className="rounded-lg border border-slate-100 bg-slate-50/70 p-3">
@@ -921,6 +937,11 @@ export function FinanceSettlementPage({ user }: Props) {
                     <div className="text-xs font-semibold text-slate-500">实际结算回款</div>
                     <div className="money mt-1 text-lg font-bold text-indigo-700">{formatCurrency(incomeSummary.actualRevenue)}</div>
                     <div className="mt-1 text-[11px] font-semibold text-slate-400">已结算 {incomeSummary.settledCount} / {incomeSummary.orderCount} 单</div>
+                  </div>
+                  <div className="rounded-lg border border-slate-100 bg-slate-50/70 p-3">
+                    <div className="text-xs font-semibold text-slate-500">已结算利润</div>
+                    <div className={`money mt-1 text-lg font-bold ${incomeSummary.profit >= 0 ? "text-emerald-700" : "text-rose-700"}`}>{formatCurrency(incomeSummary.profit)}</div>
+                    <div className="mt-1 text-[11px] font-semibold text-slate-400">仅统计已结算订单</div>
                   </div>
                 </div>
 
@@ -995,9 +1016,11 @@ export function FinanceSettlementPage({ user }: Props) {
                       <th className="bg-slate-50">Temu SKU Code</th>
                       <th className="bg-slate-50">系统匹配商品</th>
                       <th className="number-cell bg-slate-50 px-3 py-2">订单商品成本</th>
-                      <th className="number-cell bg-slate-50 px-3 py-2">订单核算运费</th>
+                      <th className="number-cell bg-slate-50 px-3 py-2">头程运费</th>
+                      <th className="number-cell bg-slate-50 px-3 py-2">尾程运费</th>
                       <th className="number-cell bg-slate-50 px-3 py-2">总预估账单</th>
                       <th className="number-cell bg-slate-50 px-3 py-2">实际结算回款</th>
+                      <th className="number-cell bg-slate-50 px-3 py-2">利润</th>
                       <th className="bg-slate-50">发货方式</th>
                       <th className="bg-slate-50">结算状态</th>
                       <th className="bg-slate-50">财务对账</th>
@@ -1037,9 +1060,18 @@ export function FinanceSettlementPage({ user }: Props) {
                             />
                           </td>
                           <td className="money text-slate-500 px-3 py-2">{formatCurrency(row.productCostRmb)}</td>
+                          {/* 头程运费 */}
                           <td className="money px-3 py-2">
+                            {row.firstLegShippingRmb > 0 ? (
+                              <span className="font-semibold text-slate-700">{formatCurrency(row.firstLegShippingRmb)}</span>
+                            ) : (
+                              <span className="text-slate-300">--</span>
+                            )}
+                          </td>
+                          {/* 尾程运费 */}
+                          <td className="px-3 py-2 text-right">
                             {editingOrderId === row.order.id ? (
-                              <div className="flex items-center gap-1 justify-end">
+                              <div className="inline-flex items-center gap-1 justify-end">
                                 <input
                                   type="number"
                                   value={editingFeeValue}
@@ -1056,16 +1088,16 @@ export function FinanceSettlementPage({ user }: Props) {
                                 <button onClick={() => setEditingOrderId(null)} className="text-slate-400"><X size={14}/></button>
                               </div>
                             ) : (
-                              <div className="flex items-center gap-1.5 group justify-end">
+                              <div className="inline-flex items-center gap-1 group justify-end">
                                 {row.shippingFeeSource === "missing" ? (
-                                  <span className="text-rose-600 font-bold">缺失</span>
+                                  <span className="money text-rose-600 font-bold">缺失</span>
                                 ) : (
                                   <>
-                                    <span className={row.isShippingFeeEstimated ? "text-accent font-semibold" : "font-bold text-slate-900"}>{formatCurrency(row.shippingFeeRmb)}</span>
+                                    <span className={`money ${row.shippingFeeSource === "actual" ? "font-bold text-slate-900" : "text-accent font-semibold"}`}>{formatCurrency(row.lastLegShippingRmb)}</span>
                                     {row.shippingFeeSource === "actual" ? (
-                                      <span className="rounded bg-emerald-50 px-1 py-0.2 text-[9px] font-black text-emerald-600">实际</span>
+                                      <span className="rounded bg-emerald-50 px-1 py-0.5 text-[9px] font-black text-emerald-600">实际</span>
                                     ) : (
-                                      <span className="rounded bg-accentSoft px-1 py-0.2 text-[9px] font-black text-accent">估算</span>
+                                      <span className="rounded bg-accentSoft px-1 py-0.5 text-[9px] font-black text-accent">估算</span>
                                     )}
                                   </>
                                 )}
@@ -1080,6 +1112,13 @@ export function FinanceSettlementPage({ user }: Props) {
                           <td className="money text-slate-500 px-3 py-2">{formatCurrency(row.billAmountRmb)}</td>
                           <td className="money px-3 py-2">
                             {row.isSettled ? <span className="font-bold text-indigo-700">{formatCurrency(row.actualRevenueRmb)}</span> : <span className="text-slate-400 font-medium">未结算</span>}
+                          </td>
+                          {/* 利润 */}
+                          <td className="money px-3 py-2">
+                            {row.isSettled ? (() => {
+                              const profit = roundMoney(row.actualRevenueRmb - row.billAmountRmb);
+                              return <span className={`font-bold ${profit >= 0 ? "text-emerald-700" : "text-rose-700"}`}>{formatCurrency(profit)}</span>;
+                            })() : <span className="text-slate-300 text-xs">--</span>}
                           </td>
                           <td>{renderLogisticsMethodCell(row)}</td>
                           <td>
@@ -1098,9 +1137,11 @@ export function FinanceSettlementPage({ user }: Props) {
                     <tr className="border-t-2 border-line bg-slate-50 font-bold">
                       <td colSpan={4} className="px-3 py-2 text-slate-600">当前筛选合计</td>
                       <td className="money px-3 py-2 text-slate-700">{formatCurrency(incomeSummary.productCost)}</td>
-                      <td className="money px-3 py-2 text-slate-700">{formatCurrency(incomeSummary.shipping)}</td>
+                      <td className="money px-3 py-2 text-slate-700">{formatCurrency(incomeSummary.firstLegShipping)}</td>
+                      <td className="money px-3 py-2 text-slate-700">{formatCurrency(incomeSummary.lastLegShipping)}</td>
                       <td className="money px-3 py-2 text-slate-700">{formatCurrency(incomeSummary.bill)}</td>
                       <td className="money px-3 py-2 text-indigo-700">{formatCurrency(incomeSummary.actualRevenue)}</td>
+                      <td className={`money px-3 py-2 ${incomeSummary.profit >= 0 ? "text-emerald-700" : "text-rose-700"}`}>{formatCurrency(incomeSummary.profit)}</td>
                       <td colSpan={3} className="px-3 py-2 text-xs text-slate-500">
                         {incomeSummary.orderCount} 单，{incomeSummary.quantity} 件，缺失运费 {incomeSummary.missingShippingCount} 单
                       </td>

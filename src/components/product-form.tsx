@@ -553,7 +553,7 @@ export function ProductForm({
                     onChange={(event) => updateItem(index, "purchase_price_rmb", toNumber(event.target.value))}
                   />
                 </Field>
-                <Field label="采购运费/500g">
+                <Field label="采购运费/kg">
                   <TextInput
                     required
                     min="0"
