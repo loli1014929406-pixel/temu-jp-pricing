@@ -43,6 +43,14 @@ export type SettlementFile = {
   recordCount: number;
 };
 
+export type SettlementImportResult = {
+  file: SettlementFile | null;
+  parsedRecordCount: number;
+  importedRecordCount: number;
+  skippedRecordCount: number;
+  totalRevenue: number;
+};
+
 export type SettlementSummary = {
   totalSalesRevenue: number;
   totalFreightRevenue: number;
@@ -150,6 +158,10 @@ export function parseDateRange(fileName: string): { start: string; end: string }
 function roundMoney(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Number(value.toFixed(2));
+}
+
+function getSettlementRecordKey(record: Pick<SettlementRecord, "poNumber" | "skuCode">) {
+  return `${record.poNumber.trim().toLowerCase()}\u0000${record.skuCode.trim().toLowerCase()}`;
 }
 
 export function calculateSettlementNetSalesRevenue(
@@ -264,24 +276,52 @@ export async function addSettlementFile(
   userId: string,
   fileName: string,
   records: SettlementRecord[],
-): Promise<SettlementFile> {
+): Promise<SettlementImportResult> {
   const supabase = getSupabaseClient();
-  const { start, end } = parseDateRange(fileName);
-  const totalSalesRevenue = roundMoney(records.reduce((sum, r) => sum + r.salesRevenue, 0));
-  const totalFreightRevenue = roundMoney(records.reduce((sum, r) => sum + r.freightRevenue, 0));
-  const totalRevenue = roundMoney(records.reduce((sum, r) => sum + calculateSettlementNetTotalRevenue(r), 0));
+  const importedAt = new Date().toISOString();
+  const { data: existingRecords, error: existingRecordsError } = await supabase
+    .from("finance_settlement_records")
+    .select("po_number, sku_code")
+    .eq("user_id", userId);
 
-  // Check existing file with same name
-  const { data: existing } = await supabase
-    .from("finance_settlement_files")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("file_name", fileName);
-    
-  if (existing && existing.length > 0) {
-    for (const f of existing) {
-      await deleteSettlementFile(f.id);
+  if (existingRecordsError) {
+    throw new Error(getSettlementStorageErrorMessage(existingRecordsError, "检查已有结算记录"));
+  }
+
+  const seenKeys = new Set(
+    (existingRecords ?? []).map((record: { po_number: string; sku_code: string }) =>
+      `${String(record.po_number ?? "").trim().toLowerCase()}\u0000${String(record.sku_code ?? "").trim().toLowerCase()}`,
+    ),
+  );
+  const recordsToInsert: SettlementRecord[] = [];
+  let skippedRecordCount = 0;
+
+  for (const record of records) {
+    if (!record.poNumber.trim() || !record.skuCode.trim()) {
+      skippedRecordCount += 1;
+      continue;
     }
+    const key = getSettlementRecordKey(record);
+    if (seenKeys.has(key)) {
+      skippedRecordCount += 1;
+      continue;
+    }
+    recordsToInsert.push(record);
+    seenKeys.add(key);
+  }
+
+  const totalSalesRevenue = roundMoney(recordsToInsert.reduce((sum, r) => sum + r.salesRevenue, 0));
+  const totalFreightRevenue = roundMoney(recordsToInsert.reduce((sum, r) => sum + r.freightRevenue, 0));
+  const totalRevenue = roundMoney(recordsToInsert.reduce((sum, r) => sum + calculateSettlementNetTotalRevenue(r), 0));
+
+  if (recordsToInsert.length === 0) {
+    return {
+      file: null,
+      parsedRecordCount: records.length,
+      importedRecordCount: 0,
+      skippedRecordCount,
+      totalRevenue: 0,
+    };
   }
 
   // Insert file
@@ -290,13 +330,13 @@ export async function addSettlementFile(
     .insert({
       user_id: userId,
       file_name: fileName,
-      date_range_start: start,
-      date_range_end: end,
+      date_range_start: importedAt.slice(0, 10).replace(/-/g, ""),
+      date_range_end: importedAt.slice(0, 10).replace(/-/g, ""),
       total_sales_revenue: totalSalesRevenue,
       total_freight_revenue: totalFreightRevenue,
       total_revenue: totalRevenue,
-      record_count: records.length,
-      imported_at: new Date().toISOString(),
+      record_count: recordsToInsert.length,
+      imported_at: importedAt,
     })
     .select()
     .single();
@@ -307,8 +347,8 @@ export async function addSettlementFile(
 
   // Insert records in batches of 500
   const BATCH_SIZE = 500;
-  for (let i = 0; i < records.length; i += BATCH_SIZE) {
-    const batch = records.slice(i, i + BATCH_SIZE).map((r) => ({
+  for (let i = 0; i < recordsToInsert.length; i += BATCH_SIZE) {
+    const batch = recordsToInsert.slice(i, i + BATCH_SIZE).map((r) => ({
       user_id: userId,
       file_id: fileId,
       po_number: r.poNumber,
@@ -335,7 +375,7 @@ export async function addSettlementFile(
     }
   }
 
-  return {
+  const file: SettlementFile = {
     id: fileId,
     fileName: fileData.file_name,
     dateRangeStart: fileData.date_range_start,
@@ -345,7 +385,15 @@ export async function addSettlementFile(
     totalFreightRevenue: Number(fileData.total_freight_revenue),
     totalRevenue,
     recordCount: fileData.record_count,
-    records,
+    records: recordsToInsert,
+  };
+
+  return {
+    file,
+    parsedRecordCount: records.length,
+    importedRecordCount: recordsToInsert.length,
+    skippedRecordCount,
+    totalRevenue,
   };
 }
 
@@ -473,4 +521,17 @@ export function formatDateRange(start: string, end: string): string {
   if (!start || !end) return "未知日期范围";
   const fmt = (d: string) => `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`;
   return `${fmt(start)} ~ ${fmt(end)}`;
+}
+
+export function formatImportedAt(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value || "--";
+  return parsed.toLocaleString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
 }

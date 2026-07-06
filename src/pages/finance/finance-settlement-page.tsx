@@ -24,7 +24,7 @@ import {
   parseSettlementData, 
   deleteSettlementFile, 
   addSettlementFile, 
-  formatDateRange,
+  formatImportedAt,
 } from "../../lib/settlement";
 import { buildSettlementLookup } from "../../lib/settlement";
 import { getErrorMessage } from "../../utils/errors";
@@ -77,6 +77,7 @@ const settlementIncomeColumns = [
 function getReconciliationIssueLabel(issue: ReturnType<typeof getReconciliationIssues>[number]) {
   if (issue === "unmatched") return "SKU 货号未匹配";
   if (issue === "warehouse-logistics-incomplete") return "仓库物流配置不完整";
+  if (issue === "settlement-overdue") return "签收超一个月未结算";
   if (issue === "shipping-method-missing") return "缺发货方式 (无法估算运费)";
   return "运费缺失 (无法估算)";
 }
@@ -244,6 +245,9 @@ export function FinanceSettlementPage({ user }: Props) {
     let result = orderRows;
     if (orderStatusFilter === "unsettled") result = result.filter((r: any) => !r.isSettled);
     else if (orderStatusFilter === "settled") result = result.filter((r: any) => r.isSettled);
+    else if (orderStatusFilter === "settlement-overdue") {
+      result = result.filter((r: any) => getReconciliationIssues(r as any).includes("settlement-overdue"));
+    }
     else if (orderStatusFilter === "missing-shipping") result = result.filter((r: any) => r.shippingFeeSource === "missing");
     else if (orderStatusFilter === "unmatched") result = result.filter((r: any) => !r.matched);
 
@@ -355,15 +359,7 @@ export function FinanceSettlementPage({ user }: Props) {
     const file = e.target.files?.[0];
     if (!file) return;
     
-    // 检查是否覆盖
-    const existing = settlementFiles.find(f => f.fileName === file.name);
-    if (existing) {
-       if (!confirmAction(`文件 "${file.name}" 已存在。继续导入将覆盖原有数据。是否继续？`)) {
-          e.target.value = "";
-          return;
-       }
-    }
-    if (!confirmAction(`确认导入结算文件 "${file.name}" 吗？`)) {
+    if (!confirmAction(`确认导入结算文件 "${file.name}" 吗？已有订单结算记录会自动跳过，不会覆盖。`)) {
       e.target.value = "";
       return;
     }
@@ -377,8 +373,16 @@ export function FinanceSettlementPage({ user }: Props) {
       const records = parseSettlementData(sheet.data);
       if (records.length === 0) throw new Error("未解析到有效结算数据");
       
-      const newFile = await addSettlementFile(user.id, file.name, records as any);
-      alert(`成功导入 ${records.length} 条结算记录！\n总回款（销售回款+销售冲回+运费回款+运费冲回）：${formatCurrency(newFile.totalRevenue)}`);
+      const result = await addSettlementFile(user.id, file.name, records as any);
+      if (result.importedRecordCount === 0) {
+        alert(`没有新增结算记录。\n解析 ${result.parsedRecordCount} 条，已有数据跳过 ${result.skippedRecordCount} 条。`);
+      } else {
+        alert(
+          `成功导入 ${result.importedRecordCount} 条结算记录！\n` +
+          `已有数据跳过 ${result.skippedRecordCount} 条。\n` +
+          `总回款（销售回款+销售冲回+运费回款+运费冲回）：${formatCurrency(result.totalRevenue)}`,
+        );
+      }
       await reload();
     } catch (err) {
       alert("导入失败: " + getErrorMessage(err, "请确保选择的是 SettledParentFlow 导出文件"));
@@ -587,7 +591,7 @@ export function FinanceSettlementPage({ user }: Props) {
             <AlertTriangle className="text-amber-500 mt-0.5" size={20} />
             <div>
               <h4 className="text-sm font-bold text-amber-800">尚未导入结算文件，请先在「结算文件」Tab 导入 Temu SettledParentFlow 文件</h4>
-              <p className="text-xs text-amber-700 mt-1">系统当前无法对订单的实际回款进行准确核算和对账，目前的所有回款金额均为 0，且所有订单都将显示为“异常”状态。</p>
+              <p className="text-xs text-amber-700 mt-1">系统当前无法对订单的实际回款进行准确核算。订单签收超过一个月仍无结算数据时，会进入对账排查。</p>
             </div>
           </div>
         )}
@@ -618,9 +622,9 @@ export function FinanceSettlementPage({ user }: Props) {
               >
                 <thead>
                   <tr>
-                    <th className="bg-slate-50">结算账期 / 时间段</th>
+                    <th className="bg-slate-50">上传时间</th>
                     <th className="bg-slate-50">文件名</th>
-                    <th className="number-cell bg-slate-50 px-3 py-2">解析记录数</th>
+                    <th className="number-cell bg-slate-50 px-3 py-2">导入记录数</th>
                     <th className="number-cell bg-slate-50 px-3 py-2">结算总金额</th>
                     <th className="text-center bg-slate-50">操作</th>
                   </tr>
@@ -628,7 +632,7 @@ export function FinanceSettlementPage({ user }: Props) {
                 <tbody>
                   {settlementFiles.map((file) => (
                     <tr key={file.id} className="hover:bg-slate-50/50">
-                      <td className="text-slate-500 font-mono text-xs">{formatDateRange(file.dateRangeStart, file.dateRangeEnd)}</td>
+                      <td className="text-slate-500 font-mono text-xs">{formatImportedAt(file.importedAt)}</td>
                       <td className="font-bold text-slate-800 text-xs">{file.fileName}</td>
                       <td className="number-cell font-semibold px-3 py-2">{file.recordCount}</td>
                       <td className="money text-emerald-700 px-3 py-2">{formatCurrency(file.totalRevenue)}</td>
@@ -846,6 +850,7 @@ export function FinanceSettlementPage({ user }: Props) {
                   <option value="all">全部订单</option>
                   <option value="unsettled">未结算订单</option>
                   <option value="settled">已结算订单</option>
+                  <option value="settlement-overdue">异常: 签收超期未结算</option>
                   <option value="unmatched">异常: 未匹配SKU</option>
                   <option value="missing-shipping">异常: 缺发货方式/运费</option>
                 </select>

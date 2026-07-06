@@ -91,7 +91,8 @@ export type ReconciliationIssue =
   | "unmatched"
   | "shipping-method-missing"
   | "shipping-cost-missing"
-  | "warehouse-logistics-incomplete";
+  | "warehouse-logistics-incomplete"
+  | "settlement-overdue";
 
 export type FinanceOrderRow = {
   order: TemuOrderRecord;
@@ -149,6 +150,19 @@ export function needsShippingMethodAttention(row: FinanceOrderRow) {
   return needsShippingFeeAttention(row) && !normalizeLogisticsMethodName(row.order.logistics_method || "");
 }
 
+export function needsSettlementOverdueAttention(row: FinanceOrderRow, now = new Date()) {
+  if (row.isSettled) return false;
+  const signedAt = row.order.actual_signed_time;
+  if (!signedAt) return false;
+
+  const signedDate = new Date(signedAt);
+  if (Number.isNaN(signedDate.getTime())) return false;
+
+  const settlementDeadline = new Date(signedDate);
+  settlementDeadline.setMonth(settlementDeadline.getMonth() + 1);
+  return now.getTime() > settlementDeadline.getTime();
+}
+
 export function getShippingFeeSourceLabel(source: ShippingFeeSource) {
   if (source === "actual") return "实际";
   if (source === "estimated") return "自动估算";
@@ -159,6 +173,7 @@ export function getReconciliationIssues(row: FinanceOrderRow): ReconciliationIss
   const issues: ReconciliationIssue[] = [];
   if (!row.matched) issues.push("unmatched");
   if (row.warehouseLogisticsIssue) issues.push("warehouse-logistics-incomplete");
+  if (needsSettlementOverdueAttention(row)) issues.push("settlement-overdue");
   if (needsShippingFeeAttention(row)) {
     issues.push(needsShippingMethodAttention(row) ? "shipping-method-missing" : "shipping-cost-missing");
   }
@@ -169,6 +184,7 @@ export function getAccountingStatus(row: FinanceOrderRow): { label: string; tone
   const issues = getReconciliationIssues(row);
   if (issues.includes("unmatched")) return { label: "异常(未匹配)", tone: "danger" };
   if (issues.includes("warehouse-logistics-incomplete")) return { label: "待处理(仓库物流配置)", tone: "warning" };
+  if (issues.includes("settlement-overdue")) return { label: "待处理(结算超期)", tone: "warning" };
   if (issues.includes("shipping-method-missing")) return { label: "待处理(缺发货方式)", tone: "warning" };
   if (issues.includes("shipping-cost-missing")) return { label: "待处理(缺运费)", tone: "warning" };
   return { label: "对账成功", tone: "success" };
