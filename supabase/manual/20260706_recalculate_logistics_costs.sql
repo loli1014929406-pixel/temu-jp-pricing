@@ -58,8 +58,7 @@ pricing_updates as (
         4
       ),
       0
-    ),
-    updated_at = now()
+    )
   from recalculated r
   where pr.id = r.id
   returning pr.id
@@ -72,8 +71,7 @@ profit_updates as (
       '{calculationVersion}',
       '0'::jsonb,
       true
-    ),
-    updated_at = now()
+    )
   where coalesce(
     case
       when (pc.result_json ->> 'calculationVersion') ~ '^-?[0-9]+(\.[0-9]+)?$'
