@@ -300,17 +300,26 @@ export async function addSettlementFile(
 ): Promise<SettlementImportResult> {
   const supabase = getSupabaseClient();
   const importedAt = new Date().toISOString();
-  const { data: existingRecords, error: existingRecordsError } = await supabase
-    .from("finance_settlement_records")
-    .select("po_number, sku_code")
-    .eq("user_id", userId);
+  type ExistingSettlementRecordKey = { po_number: string; sku_code: string };
+  const { data: existingRecords, error: existingRecordsError } = await fetchAllPages<
+    ExistingSettlementRecordKey,
+    { code?: string; message?: string }
+  >(async (from, to) => {
+    const { data, error } = await supabase
+      .from("finance_settlement_records")
+      .select("po_number, sku_code")
+      .eq("user_id", userId)
+      .order("id", { ascending: true })
+      .range(from, to);
+    return { data: (data ?? []) as ExistingSettlementRecordKey[], error };
+  });
 
   if (existingRecordsError) {
     throw new Error(getSettlementStorageErrorMessage(existingRecordsError, "检查已有结算记录"));
   }
 
   const seenKeys = new Set(
-    (existingRecords ?? []).map((record: { po_number: string; sku_code: string }) =>
+    (existingRecords ?? []).map((record) =>
       `${String(record.po_number ?? "").trim().toLowerCase()}\u0000${String(record.sku_code ?? "").trim().toLowerCase()}`,
     ),
   );

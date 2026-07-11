@@ -10,7 +10,7 @@ const outputFile = path.join(outputDir, "codex-supabase-data.json");
 
 const tables = [
   "account_permissions",
-  "profiles",
+  "account_profiles",
   "products",
   "product_skus",
   "product_items",
@@ -23,15 +23,19 @@ const tables = [
   "warehouses",
   "logistics_methods",
   "warehouse_logistics_methods",
+  "product_warehouse_shipping_limits",
   "warehouse_skus",
+  "warehouse_sku_stock_adjustments",
   "warehouse_item_stocks",
   "warehouse_item_stock_adjustments",
   "temu_orders",
+  "temu_order_sku_inventory_reservations",
   "purchase_orders",
   "purchase_order_sources",
   "purchase_order_items",
   "purchase_packages",
   "purchase_package_items",
+  "finance_expenses",
   "finance_settlement_files",
   "finance_settlement_records",
 ];

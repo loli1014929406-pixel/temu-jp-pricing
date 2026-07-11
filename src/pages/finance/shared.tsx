@@ -26,10 +26,47 @@ import {
   type SettlementLookup,
 } from "../../lib/settlement";
 
+export const financeBusinessTimeZone = "Asia/Tokyo";
+
+const financeBusinessDateFormatter = new Intl.DateTimeFormat("en-CA", {
+  timeZone: financeBusinessTimeZone,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+function getDirectDateKey(value: string) {
+  const match = value.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (!match) return "";
+
+  const [, year, month, day] = match;
+  const yearNumber = Number(year);
+  const monthNumber = Number(month);
+  const dayNumber = Number(day);
+  const candidate = new Date(Date.UTC(yearNumber, monthNumber - 1, dayNumber));
+  if (
+    candidate.getUTCFullYear() !== yearNumber ||
+    candidate.getUTCMonth() !== monthNumber - 1 ||
+    candidate.getUTCDate() !== dayNumber
+  ) {
+    return "";
+  }
+
+  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+}
+
+function formatBusinessDate(value: Date) {
+  const parts = Object.fromEntries(
+    financeBusinessDateFormatter
+      .formatToParts(value)
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value]),
+  );
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
 export function getTodayInputValue() {
-  const now = new Date();
-  const localDate = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
-  return localDate.toISOString().slice(0, 10);
+  return formatBusinessDate(new Date());
 }
 
 export function getCurrentMonthInputValue() {
@@ -48,11 +85,16 @@ export function getMonthEnd(month: string) {
 }
 
 export function getDateKey(value: string) {
-  if (!value) return "";
-  const parsed = new Date(value);
-  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
-  const direct = value.slice(0, 10);
-  return /^\d{4}-\d{2}-\d{2}$/.test(direct) ? direct : "";
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+
+  const hasExplicitTimeZone = /(?:z|[+-]\d{2}:?\d{2})$/i.test(trimmed);
+  if (!hasExplicitTimeZone && /^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(trimmed)) {
+    return getDirectDateKey(trimmed);
+  }
+
+  const parsed = new Date(trimmed);
+  return Number.isNaN(parsed.getTime()) ? "" : formatBusinessDate(parsed);
 }
 
 export type FinancePeriodMode = "all" | "month" | "custom";
@@ -410,15 +452,12 @@ export function getOrderDate(order: TemuOrderRecord) {
 }
 
 export function formatDate(value: string) {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value || "--";
-  return parsed.toISOString().slice(0, 10);
+  return getDateKey(value) || value || "--";
 }
 
 export function getMonthKey(value: string) {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "未定";
-  return parsed.toISOString().slice(0, 7);
+  const dateKey = getDateKey(value);
+  return dateKey ? dateKey.slice(0, 7) : "未定";
 }
 
 export function getOrderSearchText(row: FinanceOrderRow) {

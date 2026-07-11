@@ -11,13 +11,29 @@ const migrationFiles = (await readdir(migrationsDir))
   .sort();
 const errors = [];
 const warnings = [];
+const sqlByFile = Object.fromEntries(
+  await Promise.all(
+    migrationFiles.map(async (file) => [
+      file,
+      await readFile(path.join(migrationsDir, file), "utf8"),
+    ]),
+  ),
+);
 
-for (const file of migrationFiles) {
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+for (const [fileIndex, file] of migrationFiles.entries()) {
   if (!migrationNamePattern.test(file)) {
     errors.push(`${file}: migration filename must use YYYYMMDD_snake_case.sql`);
   }
 
-  const sql = await readFile(path.join(migrationsDir, file), "utf8");
+  const sql = sqlByFile[file];
+  const laterSql = migrationFiles
+    .slice(fileIndex + 1)
+    .map((laterFile) => sqlByFile[laterFile])
+    .join("\n");
   const functionMatches = Array.from(
     sql.matchAll(/create\s+or\s+replace\s+function\s+([^\s(]+)/gi),
   );
@@ -33,7 +49,11 @@ for (const file of migrationFiles) {
       (file >= "20260710_" ? errors : warnings).push(securityMessage);
     }
     const searchPathMessage = `${file}: ${functionName} must pin search_path to public`;
-    if (!/set\s+search_path\s*=\s*public/i.test(block)) {
+    const laterSearchPathHardening = new RegExp(
+      `alter\\s+function\\s+${escapeRegex(functionName)}\\s*\\([^;]*\\)\\s+set\\s+search_path\\s*=\\s*public`,
+      "i",
+    ).test(laterSql);
+    if (!/set\s+search_path\s*=\s*public/i.test(block) && !laterSearchPathHardening) {
       (file >= "20260710_" ? errors : warnings).push(searchPathMessage);
     }
     if (
@@ -44,9 +64,19 @@ for (const file of migrationFiles) {
     }
   });
 
-  if (/grant\s+all\s+on\s+table[\s\S]*?\s+to\s+anon\b/i.test(sql)) {
-    warnings.push(`${file}: grants table access to anon; verify a later migration revokes it`);
-  }
+  const anonGrantMatches = Array.from(
+    sql.matchAll(/grant\s+all\s+on\s+table\s+([^\s;]+)\s+to\s+anon\b/gi),
+  );
+  anonGrantMatches.forEach((match) => {
+    const tableName = match[1];
+    const laterRevoke = new RegExp(
+      `revoke\\s+all\\s+on\\s+table\\s+${escapeRegex(tableName)}\\s+from\\s+anon\\b`,
+      "i",
+    ).test(laterSql);
+    if (!laterRevoke) {
+      warnings.push(`${file}: grants ${tableName} access to anon without a later revoke`);
+    }
+  });
 }
 
 if (warnings.length > 0) {

@@ -238,18 +238,27 @@ export async function importTemuOrders(rows: TemuOrderImportRow[]) {
   const { supabase, session } = await requireSession();
   if (rows.length === 0) return [] as TemuOrderRecord[];
 
-  const { data: existingData, error: existingError } = await withTimeout(
-    supabase
-      .from("temu_orders")
-      .select("order_no, sub_order_no, sku_code, product_attributes")
-      .eq("owner_id", session.user.id),
-    "检查已有订单",
+  type ExistingOrderLine = Pick<
+    TemuOrderImportRow,
+    "order_no" | "sub_order_no" | "sku_code" | "product_attributes"
+  >;
+  const { data: existingData, error: existingError } = await fetchAllPages<ExistingOrderLine>(
+    async (from, to) => {
+      const { data, error } = await withTimeout(
+        supabase
+          .from("temu_orders")
+          .select("order_no, sub_order_no, sku_code, product_attributes")
+          .eq("owner_id", session.user.id)
+          .order("id", { ascending: true })
+          .range(from, to),
+        "检查已有订单",
+      );
+      return { data: (data ?? []) as ExistingOrderLine[], error };
+    },
   );
   if (existingError) throw existingError;
 
-  const existingRows = (existingData ?? []) as Array<
-    Pick<TemuOrderImportRow, "order_no" | "sub_order_no" | "sku_code" | "product_attributes">
-  >;
+  const existingRows = existingData ?? [];
   const existingRowsByLineKey = new Map<string, typeof existingRows[number]>();
   const existingRowsBySkuKey = new Map<string, typeof existingRows[number]>();
   const existingOrderNoCounts = existingRows.reduce<Record<string, number>>(

@@ -18,6 +18,8 @@ import {
   getSkuUnitCostRmb,
   getResolvedSettlementMetrics,
   getOrderDate,
+  getDateKey,
+  getCurrentMonthInputValue,
 } from "./shared";
 import { 
   parseSettlementData, 
@@ -84,20 +86,11 @@ function getReconciliationIssueLabel(issue: ReturnType<typeof getReconciliationI
 }
 
 function getCurrentMonthValue() {
-  return new Date().toISOString().slice(0, 7);
+  return getCurrentMonthInputValue();
 }
 
 function normalizeDatePart(value: string) {
-  const trimmed = value.trim();
-  const match = trimmed.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
-  if (match) {
-    const [, year, month, day] = match;
-    return [year, month.padStart(2, "0"), day.padStart(2, "0")].join("-");
-  }
-
-  const parsed = new Date(trimmed);
-  if (Number.isNaN(parsed.getTime())) return "";
-  return parsed.toISOString().slice(0, 10);
+  return getDateKey(value);
 }
 
 function getIncomeOrderDate(row: { order: any }) {

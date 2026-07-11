@@ -1,4 +1,5 @@
 import { withTimeout, requireSession } from "./supabase-helpers";
+import { fetchAllPages } from "./paginated-fetch";
 import type {
   Product,
   ProductItem,
@@ -128,52 +129,70 @@ export async function fetchWarehouseSkus(warehouseIds: string[]) {
   if (warehouseIds.length === 0) return [] as WarehouseSku[];
 
   const { supabase } = await requireSession();
-  const { data, error } = await withTimeout(
-    supabase
-      .from("warehouse_skus")
-      .select("id, warehouse_id, product_id, sku_id, owner_id, stock_quantity, created_at, updated_at")
-      .in("warehouse_id", warehouseIds)
-      .order("created_at", { ascending: true }),
-    "加载库存 SKU",
-  );
+  const { data, error } = await fetchAllPages<WarehouseSku>(async (from, to) => {
+    const { data: page, error: pageError } = await withTimeout(
+      supabase
+        .from("warehouse_skus")
+        .select("id, warehouse_id, product_id, sku_id, owner_id, stock_quantity, created_at, updated_at")
+        .in("warehouse_id", warehouseIds)
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to),
+      "加载库存 SKU",
+    );
+    return { data: (page ?? []) as WarehouseSku[], error: pageError };
+  });
 
   if (error) throw error;
-  return data as WarehouseSku[];
+  return data ?? [];
 }
 
 export async function fetchWarehouseSkuStockAdjustments(warehouseIds: string[]) {
   if (warehouseIds.length === 0) return [] as WarehouseSkuStockAdjustment[];
 
   const { supabase } = await requireSession();
-  const { data, error } = await withTimeout(
-    supabase
-      .from("warehouse_sku_stock_adjustments")
-      .select("id, warehouse_id, sku_id, previous_quantity, next_quantity, change_quantity, reason, created_at")
-      .in("warehouse_id", warehouseIds)
-      .order("created_at", { ascending: false }),
-    "加载库存调整记录",
+  const { data, error } = await fetchAllPages<WarehouseSkuStockAdjustment>(
+    async (from, to) => {
+      const { data: page, error: pageError } = await withTimeout(
+        supabase
+          .from("warehouse_sku_stock_adjustments")
+          .select("id, warehouse_id, sku_id, previous_quantity, next_quantity, change_quantity, reason, created_at")
+          .in("warehouse_id", warehouseIds)
+          .order("created_at", { ascending: false })
+          .order("id", { ascending: true })
+          .range(from, to),
+        "加载库存调整记录",
+      );
+      return { data: (page ?? []) as WarehouseSkuStockAdjustment[], error: pageError };
+    },
   );
 
   if (error) throw error;
-  return data as WarehouseSkuStockAdjustment[];
+  return data ?? [];
 }
 
 export async function fetchWarehouseItemStockAdjustments(warehouseIds: string[]) {
   if (warehouseIds.length === 0) return [];
 
   const { supabase } = await requireSession();
-  const { data, error } = await withTimeout(
-    supabase
-      .from("warehouse_item_stock_adjustments")
-      .select("id, warehouse_id, item_id, previous_quantity, next_quantity, change_quantity, reason, created_at")
-      .in("warehouse_id", warehouseIds)
-      .order("created_at", { ascending: false }),
-    "加载历史配件库存调整记录",
+  const { data, error } = await fetchAllPages<WarehouseItemStockAdjustment>(
+    async (from, to) => {
+      const { data: page, error: pageError } = await withTimeout(
+        supabase
+          .from("warehouse_item_stock_adjustments")
+          .select("id, warehouse_id, item_id, previous_quantity, next_quantity, change_quantity, reason, created_at")
+          .in("warehouse_id", warehouseIds)
+          .order("created_at", { ascending: false })
+          .order("id", { ascending: true })
+          .range(from, to),
+        "加载历史配件库存调整记录",
+      );
+      return { data: (page ?? []) as WarehouseItemStockAdjustment[], error: pageError };
+    },
   );
 
   if (error) throw error;
-  // Use any to avoid circular type import issues right now, though we added it to types.ts
-  return data as any[];
+  return data ?? [];
 }
 
 export async function fetchWarehouseSkuStockAdjustmentsForSkus(
