@@ -9,10 +9,7 @@ type AuthPageProps = {
   user: User | null;
 };
 
-const signUpEnabled = import.meta.env.VITE_ENABLE_SIGNUP === "true";
-
 export function AuthPage({ user }: AuthPageProps) {
-  const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -32,11 +29,10 @@ export function AuthPage({ user }: AuthPageProps) {
     setMessage("");
 
     const supabase = getSupabaseClient();
-    const isRegister = mode === "register" && signUpEnabled;
-    const action = isRegister
-      ? supabase.auth.signUp({ email: nextEmail, password: nextPassword })
-      : supabase.auth.signInWithPassword({ email: nextEmail, password: nextPassword });
-    const { error } = await action;
+    const { error } = await supabase.auth.signInWithPassword({
+      email: nextEmail,
+      password: nextPassword,
+    });
 
     if (error) {
       setMessage(
@@ -45,7 +41,7 @@ export function AuthPage({ user }: AuthPageProps) {
           : error.message,
       );
     } else {
-      setMessage(isRegister ? "注册成功，请检查邮箱验证状态" : "登录成功");
+      setMessage("登录成功");
     }
     setBusy(false);
   }
@@ -99,26 +95,8 @@ export function AuthPage({ user }: AuthPageProps) {
           <div className="mb-6">
             <p className="text-2xl font-bold text-slate-900">账号登录</p>
             <p className="mt-2 text-sm text-slate-500 font-medium">
-              {mode === "login" ? "登录后继续访问管理控制台" : "新建运营系统账号"}
+              登录后继续访问管理控制台
             </p>
-          </div>
-          <div className="mb-5 grid grid-cols-2 rounded-xl border border-line bg-slate-100/60 p-1 text-sm font-semibold">
-            <button
-              type="button"
-              onClick={() => setMode("login")}
-              className={`h-10 rounded-lg transition ${mode === "login" ? "bg-white text-accentDeep shadow-sm font-bold" : "text-slate-500 hover:text-slate-855"} ${signUpEnabled ? "" : "col-span-2"}`}
-            >
-              登录
-            </button>
-            {signUpEnabled && (
-              <button
-                type="button"
-                onClick={() => setMode("register")}
-                className={`h-10 rounded-lg transition ${mode === "register" ? "bg-white text-accentDeep shadow-sm font-bold" : "text-slate-500 hover:text-slate-855"}`}
-              >
-                注册
-              </button>
-            )}
           </div>
           {supabaseConfigError && (
             <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 font-medium">
@@ -149,7 +127,7 @@ export function AuthPage({ user }: AuthPageProps) {
               disabled={busy || Boolean(supabaseConfigError)}
               className="btn-primary mt-2 w-full text-base py-3"
             >
-              {busy ? "处理中..." : mode === "login" ? "安全登录" : "注册账号"}
+              {busy ? "处理中..." : "安全登录"}
             </button>
           </form>
         </div>
