@@ -44,8 +44,6 @@ function NotFoundPage() {
 
 export default function App() {
   const { user, loading } = useAuth();
-  const isOrdersSubdomain =
-    typeof window !== "undefined" && window.location.hostname.split(".")[0] === "orders";
 
   return (
     <ErrorBoundary>
@@ -71,7 +69,7 @@ export default function App() {
             </ProtectedRoute>
           }
         >
-          <Route index element={isOrdersSubdomain ? <Navigate to="/orders" replace /> : <NotFoundPage />} />
+          <Route index element={<Navigate to="/orders" replace />} />
           <Route path="/user" element={user ? <UserPage /> : null} />
           <Route path="/products" element={user ? <ProductsPage user={user} /> : null} />
           <Route

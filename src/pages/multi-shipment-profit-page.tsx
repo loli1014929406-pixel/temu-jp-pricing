@@ -6,6 +6,8 @@ import { BackToParentAction, Badge, PageHeader, StatCard } from "../components/u
 import { fetchProfitCalculationsBySkuIds } from "../lib/profit-calculations";
 import { fetchProduct, fetchProductItems, fetchProductSkus } from "../lib/products";
 import { fetchSettings } from "../lib/settings";
+import { fetchWarehouses } from "../lib/inventory";
+import { fetchProductWarehouseShippingLimits } from "../lib/product-warehouse-shipping-limits";
 import type {
   PricingSettings,
   Product,
@@ -150,10 +152,20 @@ export function MultiShipmentProfitPage({
           fetchProduct(productKey),
           fetchSettings(user.id),
         ]);
-        const [items, skus] = await Promise.all([
+        const [items, skus, warehouses, shippingLimits] = await Promise.all([
           fetchProductItems(nextProduct.id),
           fetchProductSkus(nextProduct.id),
+          fetchWarehouses(),
+          fetchProductWarehouseShippingLimits(nextProduct.id),
         ]);
+        const suzhouWarehouse = warehouses.find((w) => /苏州|suzhou/i.test(w.name));
+        const suzhouLimit = suzhouWarehouse
+          ? shippingLimits.find((l) => l.warehouse_id === suzhouWarehouse.id)?.max_units_per_parcel
+          : undefined;
+        if (suzhouLimit !== undefined) {
+          nextProduct.max_units_per_parcel = suzhouLimit;
+        }
+
         const savedCalculations = await fetchProfitCalculationsBySkuIds(
           skus.flatMap((sku) => (sku.id ? [sku.id] : [])),
         );

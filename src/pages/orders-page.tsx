@@ -64,19 +64,19 @@ import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../utils/sku-code";
 import { confirmAction, confirmDelete, confirmSave } from "../utils/confirmations";
 import type { PricingSettings } from "../types";
 import { defaultLastLegMethods } from "../lib/defaults";
+import {
+  getOrderStage,
+  getOrderStageDefinition as getStageDefinition,
+  isShippingTrackingStage,
+  orderStageDefinitions as stageDefinitions,
+  shouldReserveOrderInventory,
+  type OrderStage,
+  uploadedTemuOrderStatus,
+} from "../domain/order-workflow";
 
 type OrdersPageProps = {
   user: User;
 };
-
-type OrderStage =
-  | "all"
-  | "pending_assignment"
-  | "new_order"
-  | "pending_shipping"
-  | "shipped"
-  | "uploaded_temu"
-  | "completed";
 
 type OrderSortKey =
   | "ship_deadline"
@@ -236,20 +236,6 @@ const trackingSubOrderNoImportColumnAliases = [
   "Sub-order ID",
 ] as const;
 
-const stageDefinitions = [
-  { key: "all", label: "全部", tone: "neutral" },
-  { key: "pending_assignment", label: "待分配", tone: "warning" },
-  { key: "new_order", label: "新订单", tone: "info" },
-  { key: "pending_shipping", label: "待发货", tone: "warning" },
-  { key: "shipped", label: "已发货", tone: "success" },
-  { key: "uploaded_temu", label: "上传Temu", tone: "info" },
-  { key: "completed", label: "已完成", tone: "neutral" },
-] satisfies Array<{
-  key: OrderStage;
-  label: string;
-  tone: "success" | "warning" | "danger" | "neutral" | "info";
-}>;
-
 const rmbPerUsdForDeclaration = 7;
 const defaultOrderSort: OrderSort = { key: "ship_deadline", direction: "asc" };
 const yamatoTrackingBaseUrl = "https://toi.kuronekoyamato.co.jp/cgi-bin/tneko";
@@ -257,8 +243,6 @@ const ocsTrackingBaseUrl = "https://webcsw.ocs.co.jp/csw/ECSWG0201R00003P.do";
 const japanPostTrackingBaseUrl =
   "https://trackings.post.japanpost.jp/services/srv/search/direct";
 const japanPostTrackingProxyPath = "/japanpost-tracking/services/srv/search/direct";
-const uploadedTemuOrderStatus = "上传Temu";
-const legacyUploadedTemuOrderStatus = "已上传Temu";
 const temuUploadWarehouseName = "东京仓";
 const urgentUnuploadedDeadlineMs = 12 * 60 * 60 * 1000;
 
@@ -758,22 +742,6 @@ function getOrderLineLabel(order: Pick<TemuOrderRecord, "order_no" | "sub_order_
   return subOrderNo ? `${order.order_no} / ${subOrderNo}` : `${order.order_no} / ${order.id}`;
 }
 
-function isUploadedTemuStatus(value: string) {
-  const status = value.trim().toLowerCase();
-  return (
-    status === uploadedTemuOrderStatus.toLowerCase() ||
-    status === legacyUploadedTemuOrderStatus.toLowerCase()
-  );
-}
-
-function isShippingTrackingStage(stage: OrderStage) {
-  return stage === "shipped" || stage === "uploaded_temu";
-}
-
-function shouldReserveOrderInventory(stage: Exclude<OrderStage, "all">) {
-  return stage !== "pending_assignment";
-}
-
 function dedupeImportRowsByOrderLine(rows: TemuOrderImportRow[]) {
   const uniqueRows = new Map<string, TemuOrderImportRow>();
 
@@ -866,15 +834,6 @@ function hasCompleteRecipientInfo(
   );
 }
 
-function getOrderStage(order: TemuOrderRecord): Exclude<OrderStage, "all"> {
-  if (order.actual_signed_time.trim()) return "completed";
-  if (isUploadedTemuStatus(order.order_status)) return "uploaded_temu";
-  if (order.actual_ship_time.trim() || order.logistics_tracking_no.trim()) return "shipped";
-  if (order.label_printed_at.trim()) return "pending_shipping";
-  if (order.warehouse_id || order.warehouse_name.trim()) return "new_order";
-  return "pending_assignment";
-}
-
 function isDeliveredTrackingStatus(status: string) {
   return ["配達完了", "お届け済み", "配達済み", "Delivered"].some((keyword) =>
     status.includes(keyword),
@@ -941,10 +900,6 @@ function compareTrackingStatus(left: string, right: string) {
 
 function isJapanPostTrackingStatus(value: string) {
   return japanPostTrackingStatusKeywords.some((status) => value.includes(status));
-}
-
-function getStageDefinition(stage: OrderStage) {
-  return stageDefinitions.find((item) => item.key === stage) ?? stageDefinitions[0];
 }
 
 function hasFukuokaText(value: string) {
@@ -1964,7 +1919,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
     clearDrafts,
     applyWarehouseSkuStockUpdates,
     fetchLatestProductsAndSkus,
-  } = useOrders(user, { page: 1, pageSize: 20 });
+  } = useOrders(user);
   const [activeStage, setActiveStage] = useState<OrderStage>("all");
   const [warehouseFilter, setWarehouseFilter] = useState("");
   const [logisticsMethodFilter, setLogisticsMethodFilter] = useState("");

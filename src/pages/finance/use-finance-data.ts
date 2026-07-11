@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { fetchTemuOrders } from "../../lib/orders";
 import { fetchPurchaseOrders } from "../../lib/purchases";
 import { fetchProducts, fetchProductItemsByProductIds, fetchProductSkusByProductIds } from "../../lib/products";
@@ -8,6 +8,7 @@ import { fetchSettings } from "../../lib/settings";
 import { fetchExpenses } from "../../lib/expenses";
 import { useAutoDismiss } from "../../hooks/use-auto-dismiss";
 import { getErrorMessage } from "../../utils/errors";
+import { getCachedAsync } from "../../lib/async-cache";
 import type {
   FinanceExpense,
   PricingSettings,
@@ -33,6 +34,13 @@ type FetchOptions = {
 };
 
 export function useFinanceData(userId: string, options: FetchOptions) {
+  const ordersEnabled = Boolean(options.orders);
+  const purchasesEnabled = Boolean(options.purchases);
+  const productsEnabled = Boolean(options.products);
+  const inventoryEnabled = Boolean(options.inventory);
+  const expensesEnabled = Boolean(options.expenses);
+  const settlementsEnabled = Boolean(options.settlements);
+  const logisticsEnabled = Boolean(options.logistics);
   const [data, setData] = useState<FinanceData>({
     orders: [],
     purchases: [],
@@ -51,7 +59,7 @@ export function useFinanceData(userId: string, options: FetchOptions) {
   const [error, setError] = useState("");
   useAutoDismiss(error, () => setError(""));
 
-  const load = async () => {
+  const load = useCallback(async (force = false) => {
     setLoading(true);
     setError("");
     try {
@@ -59,48 +67,79 @@ export function useFinanceData(userId: string, options: FetchOptions) {
       const keys: string[] = [];
       let optionalError = "";
 
-      if (options.orders || options.products || options.inventory) {
-         promises.push(fetchSettings(userId).catch(() => null));
-         keys.push("settings");
-      }
+       if (ordersEnabled || productsEnabled || inventoryEnabled) {
+          promises.push(
+            getCachedAsync(
+              `finance:${userId}:settings`,
+              () => fetchSettings(userId),
+              { force },
+            ).catch(() => null),
+          );
+          keys.push("settings");
+       }
 
-      if (options.orders) {
-        promises.push(fetchTemuOrders());
-        keys.push("orders");
-      }
+       if (ordersEnabled) {
+         promises.push(
+           getCachedAsync(`finance:${userId}:orders`, fetchTemuOrders, { force }),
+         );
+         keys.push("orders");
+       }
 
-      if (options.purchases) {
-        promises.push(fetchPurchaseOrders());
-        keys.push("purchases");
-      }
+       if (purchasesEnabled) {
+         promises.push(
+           getCachedAsync(`finance:${userId}:purchases`, fetchPurchaseOrders, { force }),
+         );
+         keys.push("purchases");
+       }
 
-      if (options.products || options.orders) {
-        promises.push(fetchProducts({ includeNotSelling: true }));
-        keys.push("products");
-      }
+       if (productsEnabled) {
+         promises.push(
+           getCachedAsync(
+             `finance:${userId}:products`,
+             () => fetchProducts({ includeNotSelling: true }),
+             { force },
+           ),
+         );
+         keys.push("products");
+       }
 
-      if (options.inventory || options.logistics) {
-        promises.push(fetchWarehouses());
-        keys.push("warehouses");
-      }
+       if (inventoryEnabled || logisticsEnabled) {
+         promises.push(
+           getCachedAsync(`finance:${userId}:warehouses`, fetchWarehouses, { force }),
+         );
+         keys.push("warehouses");
+       }
 
-      if (options.logistics) {
-        promises.push(fetchLogisticsMethods());
-        keys.push("logisticsMethods");
-      }
+       if (logisticsEnabled) {
+         promises.push(
+           getCachedAsync(
+             `finance:${userId}:logistics-methods`,
+             fetchLogisticsMethods,
+             { force },
+           ),
+         );
+         keys.push("logisticsMethods");
+       }
 
-      if (options.expenses) {
-        promises.push(fetchExpenses());
-        keys.push("expenses");
-      }
+       if (expensesEnabled) {
+         promises.push(
+           getCachedAsync(`finance:${userId}:expenses`, fetchExpenses, { force }),
+         );
+         keys.push("expenses");
+       }
 
-      if (options.settlements) {
-        // dynamically import to avoid circular dependencies or bloating non-settlement pages
-        const { loadSettlementFiles } = await import("../../lib/settlement");
-        promises.push(
-          loadSettlementFiles(userId).catch((err) => {
-            optionalError = getErrorMessage(err, "加载结算文件失败");
-            return [] as SettlementFile[];
+       if (settlementsEnabled) {
+         promises.push(
+           getCachedAsync(
+             `finance:${userId}:settlements`,
+             async () => {
+               const { loadSettlementFiles } = await import("../../lib/settlement");
+               return loadSettlementFiles(userId);
+             },
+             { force },
+           ).catch((err) => {
+             optionalError = getErrorMessage(err, "加载结算文件失败");
+             return [] as SettlementFile[];
           }),
         );
         keys.push("settlements");
@@ -116,23 +155,36 @@ export function useFinanceData(userId: string, options: FetchOptions) {
       const products = (resultMap.products as Product[] | undefined) ?? [];
       const warehouses = (resultMap.warehouses as Warehouse[] | undefined) ?? [];
 
-      if (products.length > 0) {
-        const productIds = products.map((p) => p.id);
-        const [items, skus] = await Promise.all([
-          fetchProductItemsByProductIds(productIds),
-          fetchProductSkusByProductIds(productIds),
-        ]);
-        productItems = items;
+       if (products.length > 0) {
+         const productIds = products.map((p) => p.id);
+         const productDetailKey = productIds.slice().sort().join(",");
+         const [items, skus] = await getCachedAsync(
+           `finance:${userId}:product-details:${productDetailKey}`,
+           () => Promise.all([
+             fetchProductItemsByProductIds(productIds),
+             fetchProductSkusByProductIds(productIds),
+           ]),
+           { force },
+         );
+         productItems = items;
         productSkus = skus;
       }
 
       if (warehouses.length > 0) {
         const warehouseIds = warehouses.map((w) => w.id);
-        if (options.inventory) {
-          warehouseSkus = await fetchWarehouseSkus(warehouseIds);
-        }
-        if (options.logistics) {
-          warehouseLogisticsMethods = await fetchWarehouseLogisticsMethods(warehouseIds);
+         if (inventoryEnabled) {
+           warehouseSkus = await getCachedAsync(
+             `finance:${userId}:warehouse-skus:${warehouseIds.slice().sort().join(",")}`,
+             () => fetchWarehouseSkus(warehouseIds),
+             { force },
+           );
+         }
+         if (logisticsEnabled) {
+           warehouseLogisticsMethods = await getCachedAsync(
+             `finance:${userId}:warehouse-logistics:${warehouseIds.slice().sort().join(",")}`,
+             () => fetchWarehouseLogisticsMethods(warehouseIds),
+             { force },
+           );
         }
       }
 
@@ -166,13 +218,30 @@ export function useFinanceData(userId: string, options: FetchOptions) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [
+    expensesEnabled,
+    inventoryEnabled,
+    logisticsEnabled,
+    ordersEnabled,
+    productsEnabled,
+    purchasesEnabled,
+    settlementsEnabled,
+    userId,
+  ]);
 
   useEffect(() => {
     if (userId) {
-      void load();
+      void load(false);
     }
-  }, [userId]);
+  }, [load, userId]);
 
-  return { data, expenses, settlementFiles, settings, loading, error, reload: load };
+  return {
+    data,
+    expenses,
+    settlementFiles,
+    settings,
+    loading,
+    error,
+    reload: () => load(true),
+  };
 }

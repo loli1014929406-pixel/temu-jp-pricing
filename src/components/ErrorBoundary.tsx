@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { reportAppError } from "../lib/diagnostics";
 
 export type ErrorBoundaryProps = {
   children: ReactNode;
@@ -22,7 +23,10 @@ export class ErrorBoundary extends Component<
   }
 
   override componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error("ErrorBoundary caught an error", error, errorInfo);
+    reportAppError(
+      new Error(`${error.message}\n${errorInfo.componentStack ?? ""}`),
+      "react-error-boundary",
+    );
   }
 
   private handleReload = () => {

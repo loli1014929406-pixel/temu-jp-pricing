@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Pencil, Save, X } from "lucide-react";
+import { Activity, Pencil, Save, Trash2, X } from "lucide-react";
 import {
   fetchOrCreateCurrentAccountProfile,
   formatAccountProfileDisplay,
@@ -10,6 +10,12 @@ import { usePermissions } from "../hooks/use-permissions";
 import type { AccountProfile } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { confirmCancelEdit, confirmSave } from "../utils/confirmations";
+import {
+  clearDiagnostics,
+  getRecentDiagnostics,
+  subscribeDiagnostics,
+  type AppDiagnostic,
+} from "../lib/diagnostics";
 
 export function UserPage() {
   const { label } = usePermissions();
@@ -20,8 +26,11 @@ export function UserPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const [diagnostics, setDiagnostics] = useState<AppDiagnostic[]>(getRecentDiagnostics);
   useAutoDismiss(errorMessage, () => setErrorMessage(""));
   useAutoDismiss(message, () => setMessage(""));
+
+  useEffect(() => subscribeDiagnostics(setDiagnostics), []);
 
   useEffect(() => {
     let active = true;
@@ -159,6 +168,49 @@ export function UserPage() {
           )}
         </div>
       </form>
+
+      <section className="grid gap-4 rounded-lg bg-white p-5 shadow-panel">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="flex items-center gap-2 text-base font-semibold text-slate-900">
+              <Activity size={18} />
+              本次会话诊断
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              仅保存在当前浏览器内存，不会上传账号、订单或客户数据。
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={diagnostics.length === 0}
+            onClick={clearDiagnostics}
+          >
+            <Trash2 size={16} />
+            清空
+          </button>
+        </div>
+
+        {diagnostics.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+            当前会话没有记录到页面异常、请求超时或超过 5 秒的慢操作。
+          </p>
+        ) : (
+          <div className="grid gap-2">
+            {diagnostics.slice(0, 10).map((item) => (
+              <div key={item.id} className="rounded-xl border border-slate-200 p-3 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-semibold text-slate-800">{item.context}</span>
+                  <time className="text-xs text-slate-400">
+                    {new Date(item.createdAt).toLocaleString()}
+                  </time>
+                </div>
+                <p className="mt-1 text-slate-600">{item.message}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
     </section>
   );
 }

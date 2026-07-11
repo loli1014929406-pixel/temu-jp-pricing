@@ -8,7 +8,7 @@ import type {
   PurchasePackageItem,
 } from "../types";
 
-function getReceiptStatus(
+export function getReceiptStatus(
   items: PurchaseOrderItem[],
   packages: PurchasePackage[],
 ): PurchaseOrder["status"] {
@@ -59,6 +59,18 @@ function getItemIdentity(item: Pick<PurchaseOrderItem, "item_name" | "item_spec"
 
 function hasValue(value: string | null | undefined): value is string {
   return typeof value === "string" && value.trim() !== "";
+}
+
+function isMissingPurchaseTransactionRpcError(error: unknown) {
+  if (typeof error !== "object" || error === null) return false;
+  const code = "code" in error ? String(error.code ?? "") : "";
+  const message = "message" in error ? String(error.message ?? "") : "";
+  return (
+    code === "42883" ||
+    code === "PGRST202" ||
+    message.includes("create_purchase_order_atomic") ||
+    message.includes("update_purchase_source_atomic")
+  );
 }
 
 function getPurchaseItemLabel(item: Pick<PurchaseOrderItem, "product_code" | "item_name" | "item_spec">) {
@@ -258,13 +270,42 @@ type CreatePurchaseOrderInput = {
     | "unit_price_rmb"
   >>;
 };
-export async function createPurchaseOrder(input: CreatePurchaseOrderInput) {
-  const { supabase, session } = await requireSession();
+
+function validateCreatePurchaseOrderInput(input: CreatePurchaseOrderInput) {
   const missingLinkedItem = input.items.find((item) => !hasValue(item.item_id));
   if (missingLinkedItem) {
     throw new Error(`采购明细“${missingLinkedItem.item_name}”没有绑定商品配件，不能保存采购单`);
   }
   assertPurchaseItemsHaveSkuInfo(input.items);
+}
+
+type AtomicPurchaseOrderPayload = {
+  order: Omit<PurchaseOrder, "sources" | "items" | "packages">;
+  sources: PurchaseOrderSource[];
+  items: PurchaseOrderItem[];
+};
+
+function normalizeAtomicPurchaseOrder(payload: AtomicPurchaseOrderPayload): PurchaseOrder {
+  return {
+    ...payload.order,
+    items_total_rmb: Number(payload.order.items_total_rmb),
+    total_cost_rmb: Number(payload.order.total_cost_rmb),
+    sources: payload.sources.map((source) => ({
+      ...source,
+      freight_rmb: Number(source.freight_rmb),
+    })),
+    items: payload.items.map((item) => ({
+      ...item,
+      quantity: Number(item.quantity),
+      unit_price_rmb: Number(item.unit_price_rmb),
+      sku_quantity: item.sku_quantity === null ? null : Number(item.sku_quantity),
+    })),
+    packages: [],
+  };
+}
+
+async function createPurchaseOrderLegacy(input: CreatePurchaseOrderInput) {
+  const { supabase, session } = await requireSession();
 
   const itemsTotalRmb = input.items.reduce((sum, item) => sum + item.quantity * item.unit_price_rmb, 0);
   const freightTotalRmb = input.sources.reduce((sum, source) => sum + source.freight_rmb, 0);
@@ -311,7 +352,30 @@ export async function createPurchaseOrder(input: CreatePurchaseOrderInput) {
   }
 }
 
-export async function updatePurchaseSource(sourceId: string, updates: Pick<PurchaseOrderSource, "alibaba_order_no" | "freight_rmb">) {
+export async function createPurchaseOrder(input: CreatePurchaseOrderInput) {
+  validateCreatePurchaseOrderInput(input);
+  const { supabase } = await requireSession();
+  const { data, error } = await withTimeout(
+    supabase.rpc("create_purchase_order_atomic", {
+      p_warehouse_id: input.warehouse_id,
+      p_warehouse_name: input.warehouse_name,
+      p_purchased_at: input.purchased_at,
+      p_notes: input.notes,
+      p_sources: input.sources,
+      p_items: input.items,
+    }),
+    "保存采购单",
+  );
+
+  if (error && isMissingPurchaseTransactionRpcError(error)) {
+    return createPurchaseOrderLegacy(input);
+  }
+  if (error) throw error;
+  if (!data) throw new Error("保存采购单后没有返回结果，请刷新后确认");
+  return normalizeAtomicPurchaseOrder(data as AtomicPurchaseOrderPayload);
+}
+
+async function updatePurchaseSourceLegacy(sourceId: string, updates: Pick<PurchaseOrderSource, "alibaba_order_no" | "freight_rmb">) {
   const { supabase, session } = await requireSession();
   const { data, error } = await withTimeout(
     supabase.from("purchase_order_sources").update(updates).eq("id", sourceId).eq("owner_id", session.user.id).select("id, order_id, purchase_url, alibaba_order_no, freight_rmb").single(),
@@ -326,6 +390,29 @@ export async function updatePurchaseSource(sourceId: string, updates: Pick<Purch
   const totalCost = Number(order.items_total_rmb) + allSources.reduce((sum, item) => sum + Number(item.freight_rmb), 0);
   await supabase.from("purchase_orders").update({ total_cost_rmb: totalCost }).eq("id", source.order_id).eq("owner_id", session.user.id);
   return source;
+}
+
+export async function updatePurchaseSource(
+  sourceId: string,
+  updates: Pick<PurchaseOrderSource, "alibaba_order_no" | "freight_rmb">,
+) {
+  const { supabase } = await requireSession();
+  const { data, error } = await withTimeout(
+    supabase.rpc("update_purchase_source_atomic", {
+      p_source_id: sourceId,
+      p_alibaba_order_no: updates.alibaba_order_no,
+      p_freight_rmb: updates.freight_rmb,
+    }),
+    "更新采购链接信息",
+  );
+
+  if (error && isMissingPurchaseTransactionRpcError(error)) {
+    return updatePurchaseSourceLegacy(sourceId, updates);
+  }
+  if (error) throw error;
+  if (!data) throw new Error("更新采购链接后没有返回结果，请刷新后确认");
+  const source = data as PurchaseOrderSource;
+  return { ...source, freight_rmb: Number(source.freight_rmb) };
 }
 
 export async function updatePurchaseOrderItemSkuInfo(orderItemId: string, skuId: string) {

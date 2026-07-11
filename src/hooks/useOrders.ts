@@ -17,7 +17,7 @@ import {
   fetchWarehouseLogisticsMethods,
   normalizeLogisticsMethodName,
 } from "../lib/logistics-methods";
-import { fetchTemuOrders, fetchTemuOrdersPaginated } from "../lib/orders";
+import { fetchTemuOrders } from "../lib/orders";
 import { fetchSettings } from "../lib/settings";
 import {
   fetchProducts,
@@ -91,7 +91,6 @@ const restoredEditableDraftFields = [
 ] as const satisfies readonly (keyof OrderDraft)[];
 
 type UseOrdersResult = {
-  orders: TemuOrderRecord[];
   allOrders: TemuOrderRecord[];
   warehouses: Warehouse[];
   products: Product[];
@@ -119,18 +118,15 @@ type UseOrdersResult = {
     value: OrderDraft[K],
   ) => void;
   updateDraftFieldsForOrders: (orderIds: string[], values: Partial<OrderDraft>) => void;
-  replaceOrders: (nextOrders: TemuOrderRecord[]) => void;
   removeOrders: (orderIds: string[]) => void;
   mergeOrders: (nextOrders: TemuOrderRecord[]) => void;
   replaceDraftsFromOrders: (nextOrders: TemuOrderRecord[]) => void;
   clearDrafts: (orderIds?: string[]) => void;
   applyWarehouseSkuStockUpdates: (nextStocks: WarehouseSku[]) => void;
-  fetchLatestOrders: () => Promise<TemuOrderRecord[]>;
   fetchLatestProductsAndSkus: () => Promise<{
     products: Product[];
     productSkus: ProductSku[];
   }>;
-  totalRecordCount: number;
 };
 
 function normalizeSkuCode(value: string) {
@@ -390,11 +386,6 @@ function restoreDraftMapFromOrders(
   ) as Record<string, OrderDraft>;
 }
 
-async function loadLatestOrders(options: { page: number; pageSize: number; searchQuery?: string; statusFilter?: string }) {
-  const { data, count } = await fetchTemuOrdersPaginated(options);
-  return { orders: dedupeOrdersByOrderLine(data), count };
-}
-
 async function loadLatestProductsAndSkus() {
   const products = await fetchProducts({ includeNotSelling: true });
   const productSkus = await fetchProductSkusByProductIds(
@@ -404,15 +395,11 @@ async function loadLatestProductsAndSkus() {
   return { products, productSkus };
 }
 
-export type UseOrdersOptions = { page: number; pageSize: number; searchQuery?: string; statusFilter?: string };
-
-export function useOrders(user: User, options: UseOrdersOptions) {
+export function useOrders(user: User) {
   const draftKey = `orders-draft:v1:${user.id}`;
   const restoredDraftRef = useRef(readDraft<OrdersDraftState>(draftKey));
   const restoredDraft = restoredDraftRef.current;
-  const [orders, setOrders] = useState<TemuOrderRecord[]>([]);
   const [allOrders, setAllOrders] = useState<TemuOrderRecord[]>([]);
-  const [totalRecordCount, setTotalRecordCount] = useState(0);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [productItems, setProductItems] = useState<ProductItem[]>([]);
@@ -444,7 +431,6 @@ export function useOrders(user: User, options: UseOrdersOptions) {
       setErrorMessage("");
       try {
         const [
-          { orders: nextOrders, count: nextCount },
           nextAllOrders,
           nextWarehouses,
           nextProducts,
@@ -452,7 +438,6 @@ export function useOrders(user: User, options: UseOrdersOptions) {
           fetchedSettings,
         ] =
           await Promise.all([
-            loadLatestOrders(options),
             fetchTemuOrders().then(dedupeOrdersByOrderLine),
             fetchWarehouses(),
             fetchProducts({ includeNotSelling: true }),
@@ -475,9 +460,7 @@ export function useOrders(user: User, options: UseOrdersOptions) {
 
         if (!active) return;
 
-        setOrders(nextOrders);
         setAllOrders(nextAllOrders);
-        setTotalRecordCount(nextCount);
         setWarehouses(nextWarehouses);
         setProducts(nextProducts);
         setProductItems(nextProductItems);
@@ -513,7 +496,7 @@ export function useOrders(user: User, options: UseOrdersOptions) {
     return () => {
       active = false;
     };
-  }, [draftKey, user.id, options.page, options.pageSize, options.searchQuery, options.statusFilter]);
+  }, [draftKey, user.id]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setCurrentTime(new Date()), 1000);
@@ -592,27 +575,14 @@ export function useOrders(user: User, options: UseOrdersOptions) {
     });
   }
 
-  function replaceOrders(nextOrders: TemuOrderRecord[]) {
-    setOrders(nextOrders);
-    mergeAllOrdersSnapshot(nextOrders);
-    setTotalRecordCount((current) => Math.max(current, nextOrders.length));
-  }
-
   function removeOrders(orderIds: string[]) {
     if (orderIds.length === 0) return;
     const targetIds = new Set(orderIds);
-    setOrders((current) => current.filter((order) => !targetIds.has(order.id)));
     setAllOrders((current) => current.filter((order) => !targetIds.has(order.id)));
-    setTotalRecordCount((current) => Math.max(0, current - targetIds.size));
   }
 
   function mergeOrders(nextOrders: TemuOrderRecord[]) {
     const previousOrdersById = new Map(allOrders.map((order) => [order.id, order]));
-    setOrders((current) =>
-      current.map(
-        (order) => nextOrders.find((nextOrder) => nextOrder.id === order.id) ?? order,
-      ),
-    );
     mergeAllOrdersSnapshot(nextOrders);
     setDrafts((current) => {
       const next = { ...current };
@@ -657,19 +627,12 @@ export function useOrders(user: User, options: UseOrdersOptions) {
     );
   }
 
-  async function fetchLatestOrders() {
-    const { orders } = await loadLatestOrders(options);
-    return orders;
-  }
-
   async function fetchLatestProductsAndSkus() {
     return loadLatestProductsAndSkus();
   }
 
   return {
-    orders,
     allOrders,
-    totalRecordCount,
     warehouses,
     products,
     productItems,
@@ -692,13 +655,11 @@ export function useOrders(user: User, options: UseOrdersOptions) {
     setErrorMessage,
     updateDraftForOrders,
     updateDraftFieldsForOrders,
-    replaceOrders,
     removeOrders,
     mergeOrders,
     replaceDraftsFromOrders,
     clearDrafts,
     applyWarehouseSkuStockUpdates,
-    fetchLatestOrders,
     fetchLatestProductsAndSkus,
   } satisfies UseOrdersResult;
 }

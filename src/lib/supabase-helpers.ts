@@ -1,9 +1,11 @@
 import { getSupabaseClient } from "./supabase";
+import { reportAppError, reportSlowOperation } from "./diagnostics";
 
 export const requestTimeoutMs = 45000;
 
 
 export async function withTimeout<T>(promise: PromiseLike<T>, label: string): Promise<T> {
+  const startedAt = Date.now();
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(
@@ -13,8 +15,15 @@ export async function withTimeout<T>(promise: PromiseLike<T>, label: string): Pr
   });
   try {
     return await Promise.race([promise, timeout]);
+  } catch (error) {
+    if (Date.now() - startedAt >= requestTimeoutMs) {
+      reportAppError(error, `request-timeout:${label}`);
+    }
+    throw error;
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
+    const durationMs = Date.now() - startedAt;
+    if (durationMs >= 5_000) reportSlowOperation(label, durationMs);
   }
 }
 

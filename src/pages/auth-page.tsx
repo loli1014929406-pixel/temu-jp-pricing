@@ -1,4 +1,4 @@
-import { useState, useEffect, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { Navigate } from "react-router-dom";
 import type { User } from "@supabase/supabase-js";
 import { getSupabaseClient, supabaseConfigError } from "../lib/supabase";
@@ -18,17 +18,6 @@ export function AuthPage({ user }: AuthPageProps) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   useAutoDismiss(message, () => setMessage(""));
-
-  useEffect(() => {
-    const autoEmail = import.meta.env.VITE_AUTO_LOGIN_EMAIL;
-    const autoPassword = import.meta.env.VITE_AUTO_LOGIN_PASSWORD;
-    const noAuto = new URLSearchParams(window.location.search).get("no_auto") === "true";
-    if (autoEmail && autoPassword && !user && !busy && !noAuto) {
-      setEmail(autoEmail);
-      setPassword(autoPassword);
-      void authenticate(autoEmail, autoPassword);
-    }
-  }, [user]);
 
   async function authenticate(
     nextEmail: string,

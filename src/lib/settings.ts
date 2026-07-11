@@ -15,6 +15,7 @@ const basePricingSettingsSelectFields =
   "id, owner_id, packaging_cost_rmb, exchange_rate_rmb_per_jpy, temu_shipping_subsidy_jpy, sf_first_weight_kg, sf_first_price_rmb, sf_extra_price_per_kg_rmb, huaian_air_price_per_kg_rmb, ocs_price_per_kg_rmb, osaka_lastmile_jpy, fukuoka_lastmile_jpy, test_ocs_3cm_first_price_rmb, test_ocs_3cm_extra_price_per_100g_rmb, test_ocs_small_parcel_first_price_rmb, test_ocs_small_parcel_extra_price_per_500g_rmb, target_profit_rate, target_post_ad_profit_rate, ocs_tariff_rate";
 
 const pricingSettingsSelectFields = `${basePricingSettingsSelectFields}, first_leg_methods, last_leg_methods`;
+const dynamicLogisticsSettingsStoragePrefix = "pricing-logistics-config:v2";
 
 const logisticsFormulas = [
   "sf",
@@ -97,6 +98,85 @@ function normalizeLogisticsMethodConfigs(
       };
     })
     .filter((method): method is LogisticsMethodConfig => Boolean(method));
+}
+
+function getDynamicLogisticsSettingsStorageKey(userId: string) {
+  return `${dynamicLogisticsSettingsStoragePrefix}:${userId}`;
+}
+
+function canUseLocalStorage() {
+  try {
+    return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
+  } catch {
+    return false;
+  }
+}
+
+function hasOwnField(value: unknown, field: string) {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    Object.prototype.hasOwnProperty.call(value, field)
+  );
+}
+
+function readCachedDynamicLogisticsSettings(userId: string) {
+  if (!canUseLocalStorage()) return {};
+
+  try {
+    const cached = window.localStorage.getItem(getDynamicLogisticsSettingsStorageKey(userId));
+    if (!cached) return {};
+    const parsed = JSON.parse(cached) as Partial<PricingSettings>;
+
+    return {
+      first_leg_methods: normalizeLogisticsMethodConfigs(
+        parsed.first_leg_methods,
+        undefined,
+        "first_leg",
+      ),
+      last_leg_methods: normalizeLogisticsMethodConfigs(
+        parsed.last_leg_methods,
+        undefined,
+        "last_leg",
+      ),
+    };
+  } catch {
+    return {};
+  }
+}
+
+function writeCachedDynamicLogisticsSettings(userId: string, settings: PricingSettings) {
+  if (!canUseLocalStorage()) return;
+
+  window.localStorage.setItem(
+    getDynamicLogisticsSettingsStorageKey(userId),
+    JSON.stringify({
+      first_leg_methods: normalizeLogisticsMethodConfigs(
+        settings.first_leg_methods,
+        defaultSettings.first_leg_methods,
+        "first_leg",
+      ),
+      last_leg_methods: normalizeLogisticsMethodConfigs(
+        settings.last_leg_methods,
+        defaultSettings.last_leg_methods,
+        "last_leg",
+      ),
+    }),
+  );
+}
+
+function applyCachedDynamicLogisticsSettings(userId: string, settings: unknown) {
+  if (hasOwnField(settings, "first_leg_methods") && hasOwnField(settings, "last_leg_methods")) {
+    const normalized = normalizeSettings(settings as Partial<PricingSettings>);
+    writeCachedDynamicLogisticsSettings(userId, normalized);
+    return normalized;
+  }
+
+  const cached = readCachedDynamicLogisticsSettings(userId);
+  return normalizeSettings({
+    ...(settings as Partial<PricingSettings>),
+    ...cached,
+  });
 }
 
 function normalizeSettings(settings: Partial<PricingSettings>): PricingSettings {
@@ -189,7 +269,7 @@ export async function fetchSettings(
   if (error) throw error;
 
   if (data) {
-    return normalizeSettings(data as PricingSettings);
+    return applyCachedDynamicLogisticsSettings(userId, data);
   }
 
   const canCreate =
@@ -197,7 +277,7 @@ export async function fetchSettings(
     getPermissionCapabilities(await fetchCurrentAccountPermission()).canEdit;
 
   if (!canCreate) {
-    return normalizeSettings({ ...defaultSettings, owner_id: userId });
+    return applyCachedDynamicLogisticsSettings(userId, { ...defaultSettings, owner_id: userId });
   }
 
   const insertResult = await supabase
@@ -227,7 +307,7 @@ export async function fetchSettings(
   }
 
   if (insertError) throw insertError;
-  return normalizeSettings(created as PricingSettings);
+  return applyCachedDynamicLogisticsSettings(userId, created);
 }
 
 export async function saveSettings(userId: string, settings: PricingSettings) {
@@ -250,7 +330,10 @@ export async function saveSettings(userId: string, settings: PricingSettings) {
     { onConflict: "owner_id" },
   );
 
-  if (!error) return;
+  if (!error) {
+    writeCachedDynamicLogisticsSettings(userId, settingsToSave);
+    return;
+  }
   if (!isDynamicSettingsColumnError(error)) throw error;
 
   const { first_leg_methods, last_leg_methods, ...baseSettings } = settingsToSave;
@@ -266,4 +349,5 @@ export async function saveSettings(userId: string, settings: PricingSettings) {
   );
 
   if (fallbackError) throw fallbackError;
+  writeCachedDynamicLogisticsSettings(userId, settingsToSave);
 }

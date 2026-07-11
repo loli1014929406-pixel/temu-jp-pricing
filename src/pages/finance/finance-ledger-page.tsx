@@ -51,7 +51,6 @@ export function FinanceLedgerPage({ user }: Props) {
     orders: true,
     purchases: true,
     expenses: true,
-    products: true,
     settlements: true,
   });
 

@@ -1159,10 +1159,18 @@ export async function createProduct(
   }
   if (error) throw error;
 
-  const itemIdsByKey = await insertItems(data!.id, items);
-  await insertSkus(data!.id, skus, itemIdsByKey);
-  await upsertProductWarehouseShippingLimits(data!.id, warehouseShippingLimits);
-  return data as Product;
+  try {
+    const itemIdsByKey = await insertItems(data!.id, items);
+    await insertSkus(data!.id, skus, itemIdsByKey);
+    await upsertProductWarehouseShippingLimits(data!.id, warehouseShippingLimits);
+    return data as Product;
+  } catch (saveError) {
+    await withTimeout(
+      supabase.from("products").delete().eq("id", data!.id),
+      "回滚未完整保存的商品",
+    ).catch(() => undefined);
+    throw saveError;
+  }
 }
 
 export async function updateProduct(

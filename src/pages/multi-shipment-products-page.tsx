@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { BackToParentAction, Badge, PageHeader, StatCard, StandardTable } from "../components/ui";
 import { fetchProducts, getProductRouteKey } from "../lib/products";
+import { fetchProductWarehouseShippingLimitsByProductIds } from "../lib/product-warehouse-shipping-limits";
+import { fetchWarehouses } from "../lib/inventory";
 import { getPaginatedRows } from "./finance/shared";
 import type { Product } from "../types";
 import { getErrorMessage } from "../utils/errors";
@@ -64,7 +66,26 @@ export function MultiShipmentProductsPage({
 
       try {
         const nextProducts = await fetchProducts();
-        if (active) setProducts(nextProducts);
+        const productIds = nextProducts.map((p) => p.id);
+        const [warehouses, shippingLimits] = await Promise.all([
+          fetchWarehouses(),
+          fetchProductWarehouseShippingLimitsByProductIds(productIds),
+        ]);
+
+        const suzhouWarehouse = warehouses.find((w) => /苏州|suzhou/i.test(w.name));
+        const limitsByProductId = shippingLimits.reduce<Record<string, number>>((acc, limit) => {
+          if (suzhouWarehouse && limit.product_id && limit.warehouse_id === suzhouWarehouse.id) {
+            acc[limit.product_id] = limit.max_units_per_parcel;
+          }
+          return acc;
+        }, {});
+
+        const updatedProducts = nextProducts.map((p) => ({
+          ...p,
+          max_units_per_parcel: limitsByProductId[p.id] ?? p.max_units_per_parcel,
+        }));
+
+        if (active) setProducts(updatedProducts);
       } catch (error) {
         if (active) {
           setErrorMessage(getErrorMessage(error, "加载多件测算商品失败"));

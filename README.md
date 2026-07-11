@@ -48,7 +48,7 @@ SUPABASE_SYNC_PASSWORD=
 
 `VITE_ENABLE_SIGNUP=true` 仅在确实需要前台开放注册时配置。`SUPABASE_SERVICE_ROLE_KEY` 只用于本地导出完整数据库快照，不能配置到前端托管平台。
 
-4. 在 Supabase SQL Editor 执行 `supabase/schema.sql`，并按需要执行 `supabase/migrations/` 下的迁移。
+4. 新环境先执行 `supabase/schema.sql`，然后必须按文件名顺序执行 `supabase/migrations/` 下的全部迁移。已经上线的环境只执行尚未应用的迁移；迁移文件是持续演进数据库的唯一来源。
 5. 安装依赖并启动：
 
 ```bash
@@ -180,8 +180,9 @@ Vercel 也可以按同样的构建命令和输出目录部署。
 - `src/utils/`：核价、利润、物流、SKU、表格解析等计算工具。
 - `src/hooks/`：认证、权限、草稿和交互状态。
 - `src/workers/`：Excel 解析 Worker。
-- `supabase/schema.sql`：数据库初始化结构。
-- `supabase/migrations/`：数据库迁移。
+- `supabase/schema.sql`：新环境的基础初始化结构，不代表全部后续变更。
+- `supabase/migrations/`：数据库变更的唯一来源，必须按文件名顺序应用。
+- `supabase/RLS_AUDIT.md`：当前共享数据、个人财务数据和权限策略的审计说明。
 - `scripts/`：数据同步、库存修复和后端上下文生成脚本。
 - `local-data/`：本地快照和导出数据，不提交 git。
 

@@ -72,6 +72,25 @@ export async function fetchProductWarehouseShippingLimits(productId: string) {
   return ((data ?? []) as Partial<ProductWarehouseShippingLimit>[]).map(normalizeLimit);
 }
 
+export async function fetchProductWarehouseShippingLimitsByProductIds(productIds: string[]) {
+  if (productIds.length === 0) return [] as ProductWarehouseShippingLimit[];
+
+  const { supabase } = await requireSession();
+  const { data, error } = await withTimeout(
+    supabase
+      .from("product_warehouse_shipping_limits")
+      .select("id, owner_id, product_id, warehouse_id, max_units_per_parcel, created_at, updated_at")
+      .in("product_id", productIds)
+      .order("created_at", { ascending: true }),
+    "加载3cm最大数",
+  );
+
+  if (error && isMissingLimitsTableError(error)) {
+    return [];
+  }
+  if (error) throw error;
+  return ((data ?? []) as Partial<ProductWarehouseShippingLimit>[]).map(normalizeLimit);
+}
 export async function upsertProductWarehouseShippingLimits(
   productId: string,
   limits: ProductWarehouseShippingLimit[],

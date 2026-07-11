@@ -7,6 +7,10 @@
     {
       "source": "/japanpost-tracking/:path*",
       "destination": "https://trackings.post.japanpost.jp/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ]
 }

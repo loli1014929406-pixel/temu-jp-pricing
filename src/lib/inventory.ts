@@ -503,6 +503,31 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function isMissingInventoryTransactionRpcError(error: unknown) {
+  if (!isRecord(error)) return false;
+  const code = String(error.code ?? "");
+  const message = String(error.message ?? "");
+  return (
+    code === "42883" ||
+    code === "PGRST202" ||
+    message.includes("transfer_warehouse_sku_inventory_atomic") ||
+    message.includes("receive_warehouse_sku_transfer_atomic")
+  );
+}
+
+function parseWarehouseInventoryTransferResult(
+  data: unknown,
+): WarehouseInventoryTransferResult | null {
+  if (!isRecord(data) || !Array.isArray(data.warehouseSkus) || !Array.isArray(data.adjustments)) {
+    return null;
+  }
+
+  return {
+    warehouseSkus: data.warehouseSkus as WarehouseSku[],
+    adjustments: data.adjustments as WarehouseSkuStockAdjustment[],
+  };
+}
+
 function parseWarehouseInventoryTransferMetadataLine(
   value: unknown,
 ): WarehouseInventoryTransferMetadataLine | null {
@@ -706,6 +731,26 @@ export async function transferWarehouseInventory(
   }
 
   const reasonLabel = buildTransferReasonLabel(input, transferLines);
+  const outboundReason = `${transferOutReasonPrefix}${reasonLabel}`;
+  const { data: atomicData, error: atomicError } = await withTimeout(
+    supabase.rpc("transfer_warehouse_sku_inventory_atomic", {
+      p_source_warehouse_id: sourceWarehouseId,
+      p_reason: outboundReason,
+      p_lines: transferLines.map((line) => ({
+        product_id: line.productId,
+        sku_id: line.skuId,
+        quantity: line.quantity,
+      })),
+    }),
+    "执行仓库库存调拨",
+  );
+  if (!atomicError) {
+    const atomicResult = parseWarehouseInventoryTransferResult(atomicData);
+    if (!atomicResult) throw new Error("库存调拨事务没有返回有效结果，请刷新后确认");
+    return atomicResult;
+  }
+  if (!isMissingInventoryTransactionRpcError(atomicError)) throw atomicError;
+
   const updatedSkus: WarehouseSku[] = [];
   const adjustments: WarehouseSkuStockAdjustment[] = [];
 
@@ -738,7 +783,7 @@ export async function transferWarehouseInventory(
             previous_quantity: sourceSku.stock_quantity,
             next_quantity: nextSourceSku.stock_quantity,
             change_quantity: -transferLine.quantity,
-            reason: `${transferOutReasonPrefix}${reasonLabel}`,
+            reason: outboundReason,
             purchase_order_id: null,
             purchase_package_id: null,
           })
@@ -774,6 +819,27 @@ export async function receiveWarehouseTransferInventory(
   const { supabase, session } = await requireSession();
   const skuIds = transferLines.map((line) => line.skuId);
   const inboundReason = `${transferInReasonPrefix}${reasonDetail}`;
+
+  if (transferLines.length > 0) {
+    const { data: atomicData, error: atomicError } = await withTimeout(
+      supabase.rpc("receive_warehouse_sku_transfer_atomic", {
+        p_destination_warehouse_id: destinationWarehouseId,
+        p_reason: inboundReason,
+        p_lines: transferLines.map((line) => ({
+          product_id: line.productId,
+          sku_id: line.skuId,
+          quantity: line.quantity,
+        })),
+      }),
+      "签收仓库调拨库存",
+    );
+    if (!atomicError) {
+      const atomicResult = parseWarehouseInventoryTransferResult(atomicData);
+      if (!atomicResult) throw new Error("调拨签收事务没有返回有效结果，请刷新后确认");
+      return atomicResult;
+    }
+    if (!isMissingInventoryTransactionRpcError(atomicError)) throw atomicError;
+  }
 
   if (transferLines.length > 0) {
     const { error: skuUpsertError } = await withTimeout(

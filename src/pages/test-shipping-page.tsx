@@ -9,6 +9,8 @@ import {
 } from "../lib/products";
 import { fetchProfitCalculationsBySkuIds } from "../lib/profit-calculations";
 import { fetchSettings } from "../lib/settings";
+import { fetchWarehouses } from "../lib/inventory";
+import { fetchProductWarehouseShippingLimitsByProductIds } from "../lib/product-warehouse-shipping-limits";
 import { readDraft } from "../hooks/use-draft-persistence";
 import { useAutoDismiss } from "../hooks/use-auto-dismiss";
 import type { Product, ProfitCalculationInput } from "../types";
@@ -79,14 +81,28 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
 
       try {
         const nextProducts = await fetchProducts();
-        const [items, skus, nextSettings] = await Promise.all([
-          fetchProductItemsByProductIds(nextProducts.map((product) => product.id)),
-          fetchProductSkusByProductIds(nextProducts.map((product) => product.id)),
+        const productIds = nextProducts.map((product) => product.id);
+        const [items, skus, nextSettings, warehouses] = await Promise.all([
+          fetchProductItemsByProductIds(productIds),
+          fetchProductSkusByProductIds(productIds),
           fetchSettings(user.id),
+          fetchWarehouses(),
         ]);
-        const savedCalculations = await fetchProfitCalculationsBySkuIds(
-          skus.flatMap((sku) => (sku.id ? [sku.id] : [])),
-        );
+        const [savedCalculations, shippingLimits] = await Promise.all([
+          fetchProfitCalculationsBySkuIds(
+            skus.flatMap((sku) => (sku.id ? [sku.id] : [])),
+          ),
+          fetchProductWarehouseShippingLimitsByProductIds(productIds),
+        ]);
+
+        const suzhouWarehouse = warehouses.find((w) => /苏州|suzhou/i.test(w.name));
+        const limitsByProductId = shippingLimits.reduce<Record<string, number>>((acc, limit) => {
+          if (suzhouWarehouse && limit.product_id && limit.warehouse_id === suzhouWarehouse.id) {
+            acc[limit.product_id] = limit.max_units_per_parcel;
+          }
+          return acc;
+        }, {});
+
         const savedCalculationBySkuId = Object.fromEntries(
           savedCalculations.map((calculation) => [calculation.sku_id, calculation]),
         );
@@ -106,7 +122,11 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
           {},
         );
         const nextSummaries = Object.fromEntries(
-          nextProducts.map((product) => {
+          nextProducts.map((baseProduct) => {
+            const product = {
+              ...baseProduct,
+              max_units_per_parcel: limitsByProductId[baseProduct.id] ?? baseProduct.max_units_per_parcel,
+            };
             const productTestShipping = calculateTestShipping(product, nextSettings);
             const selectedLogisticsCostRmb =
               productTestShipping.canUseOcsKunshan3cm
