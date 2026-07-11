@@ -162,7 +162,7 @@ function getInventoryErrorMessage(error: unknown, fallback: string) {
         message.includes("public.logistics_methods") ||
         message.includes("public.warehouse_logistics_methods")
       ) {
-        return "仓库发货方式数据库还没有完整初始化，请完整执行 20260613_add_warehouse_logistics_methods.sql 迁移";
+        return "仓库发货方式数据库还没有完整初始化，请完整执行 20260613000000_add_warehouse_logistics_methods.sql 迁移";
       }
       if (
         message.includes("public.warehouses") ||
@@ -180,7 +180,7 @@ function getInventoryErrorMessage(error: unknown, fallback: string) {
     message.includes("public.logistics_methods") ||
     message.includes("public.warehouse_logistics_methods")
   ) {
-    return "仓库发货方式数据库还没有完整初始化，请完整执行 20260613_add_warehouse_logistics_methods.sql 迁移";
+    return "仓库发货方式数据库还没有完整初始化，请完整执行 20260613000000_add_warehouse_logistics_methods.sql 迁移";
   }
   return message.includes("public.warehouses") ||
     message.includes("public.warehouse_skus") ||

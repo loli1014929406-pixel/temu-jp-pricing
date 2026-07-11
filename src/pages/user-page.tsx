@@ -177,7 +177,7 @@ export function UserPage() {
               本次会话诊断
             </h2>
             <p className="mt-1 text-sm text-slate-500">
-              仅保存在当前浏览器内存，不会上传账号、订单或客户数据。
+              浏览器保留最近记录；登录后仅集中上传脱敏错误、慢请求和页面路径，不上传业务表内容或 URL 查询参数。
             </p>
           </div>
           <button
@@ -201,9 +201,10 @@ export function UserPage() {
               <div key={item.id} className="rounded-xl border border-slate-200 p-3 text-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-semibold text-slate-800">{item.context}</span>
-                  <time className="text-xs text-slate-400">
-                    {new Date(item.createdAt).toLocaleString()}
-                  </time>
+                  <div className="flex items-center gap-2 text-xs text-slate-400">
+                    <span>{item.uploadStatus === "uploaded" ? "已集中记录" : "等待同步"}</span>
+                    <time>{new Date(item.createdAt).toLocaleString()}</time>
+                  </div>
                 </div>
                 <p className="mt-1 text-slate-600">{item.message}</p>
               </div>

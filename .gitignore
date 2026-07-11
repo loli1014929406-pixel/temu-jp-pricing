@@ -12,3 +12,6 @@ local-data/
 Thumbs.db
 
 vite.err.log
+test-results/
+playwright-report/
+blob-report/

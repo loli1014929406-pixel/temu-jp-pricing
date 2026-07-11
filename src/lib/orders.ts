@@ -177,58 +177,138 @@ export async function fetchTemuOrders() {
   return (data ?? []).map(normalizeTemuOrder);
 }
 
-export type FetchTemuOrdersPaginatedOptions = {
+export type TemuOrderStageFilter =
+  | "all"
+  | "pending_assignment"
+  | "new_order"
+  | "pending_shipping"
+  | "shipped"
+  | "uploaded_temu"
+  | "completed";
+
+export type TemuOrderSortKey =
+  | "ship_deadline"
+  | "delivery_deadline"
+  | "product"
+  | "logistics_status";
+
+export type TemuOrderStageCounts = Record<TemuOrderStageFilter, number>;
+
+export type FetchTemuOrdersPageOptions = {
   page: number;
   pageSize: number;
   searchQuery?: string;
-  statusFilter?: string;
+  stage?: TemuOrderStageFilter;
+  warehouseId?: string;
+  logisticsMethod?: string;
+  urgentOnly?: boolean;
+  sortKey?: TemuOrderSortKey;
+  sortDirection?: "asc" | "desc";
 };
 
-export async function fetchTemuOrdersPaginated(options: FetchTemuOrdersPaginatedOptions) {
-  const { supabase } = await requireSession();
-  const { page, pageSize, searchQuery, statusFilter } = options;
-  const from = (page - 1) * pageSize;
-  const to = from + pageSize - 1;
+export type TemuOrdersPage = {
+  orders: TemuOrderRecord[];
+  totalCount: number;
+  totalLineCount: number;
+  stageCounts: TemuOrderStageCounts;
+  urgentUnuploadedCount: number;
+};
 
-  const buildRequest = (fields: string) => {
-    let req = supabase
-      .from("temu_orders")
-      .select(fields, { count: "exact" });
-    
-    if (statusFilter) {
-      req = req.eq("order_status", statusFilter);
-    }
-    
-    if (searchQuery) {
-      const escaped = searchQuery.replace(/[%_\\]/g, "\\$&").replace(/"/g, '""');
-      req = req.or(`order_no.ilike."%${escaped}%",sub_order_no.ilike."%${escaped}%",logistics_tracking_no.ilike."%${escaped}%"`);
-    }
+export const emptyTemuOrderStageCounts: TemuOrderStageCounts = {
+  all: 0,
+  pending_assignment: 0,
+  new_order: 0,
+  pending_shipping: 0,
+  shipped: 0,
+  uploaded_temu: 0,
+  completed: 0,
+};
 
-    return req
-      .order("latest_ship_time", { ascending: true })
-      .order("created_at", { ascending: false })
-      .range(from, to);
+export function normalizeTemuOrdersPageOptions(
+  options: FetchTemuOrdersPageOptions,
+): Required<FetchTemuOrdersPageOptions> {
+  return {
+    page: Math.max(1, Math.trunc(options.page || 1)),
+    pageSize: Math.min(100, Math.max(1, Math.trunc(options.pageSize || 20))),
+    searchQuery: options.searchQuery?.trim() ?? "",
+    stage: options.stage ?? "all",
+    warehouseId: options.warehouseId?.trim() ?? "",
+    logisticsMethod: options.logisticsMethod?.trim() ?? "",
+    urgentOnly: options.urgentOnly ?? false,
+    sortKey: options.sortKey ?? "ship_deadline",
+    sortDirection: options.sortDirection ?? "asc",
   };
+}
 
-  const { data, error, count } = await withTimeout(buildRequest(temuOrderSelectFields), "加载订单分页");
+function isMissingTemuOrderPageRpcError(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const maybeError = error as { code?: unknown; message?: unknown };
+  const code = String(maybeError.code ?? "");
+  const message = String(maybeError.message ?? "");
+  return (
+    code === "PGRST202" ||
+    code === "42883" ||
+    message.includes("get_temu_orders_page")
+  );
+}
 
-  if (error && isMissingActualShippingFeeColumnError(error)) {
-    const { data: legacyData, error: legacyError, count: legacyCount } = await withTimeout(
-      buildRequest(temuOrderLegacySelectFields),
-      "加载订单分页",
-    );
-    if (legacyError) throw legacyError;
-    return {
-      data: ((legacyData ?? []) as Partial<TemuOrderRecord>[]).map(normalizeTemuOrder),
-      count: legacyCount ?? 0,
-    };
+export async function fetchTemuOrdersPage(
+  rawOptions: FetchTemuOrdersPageOptions,
+): Promise<TemuOrdersPage> {
+  const { supabase } = await requireSession();
+  const options = normalizeTemuOrdersPageOptions(rawOptions);
+  const { data, error } = await withTimeout(
+    supabase.rpc("get_temu_orders_page", {
+      p_page: options.page,
+      p_page_size: options.pageSize,
+      p_search: options.searchQuery,
+      p_stage: options.stage,
+      p_warehouse_id: options.warehouseId || null,
+      p_logistics_method: options.logisticsMethod,
+      p_urgent_only: options.urgentOnly,
+      p_sort_key: options.sortKey,
+      p_sort_direction: options.sortDirection,
+      p_now: new Date().toISOString(),
+    }),
+    "加载订单分页",
+  );
+
+  if (error) {
+    if (isMissingTemuOrderPageRpcError(error)) {
+      throw new Error(
+        "订单后端分页尚未初始化，请执行 20260711000000_add_temu_order_page_rpc.sql 迁移。",
+      );
+    }
+    throw error;
   }
-  
-  if (error) throw error;
+
+  const response = (Array.isArray(data) ? data[0] : data) as
+    | {
+        orders?: unknown;
+        total_count?: unknown;
+        total_line_count?: unknown;
+        stage_counts?: unknown;
+        urgent_unuploaded_count?: unknown;
+      }
+    | null
+    | undefined;
+  const responseOrders = Array.isArray(response?.orders) ? response.orders : [];
+  const rawStageCounts =
+    response?.stage_counts && typeof response.stage_counts === "object"
+      ? (response.stage_counts as Partial<Record<TemuOrderStageFilter, unknown>>)
+      : {};
 
   return {
-    data: ((data ?? []) as Partial<TemuOrderRecord>[]).map(normalizeTemuOrder),
-    count: count ?? 0,
+    orders: (responseOrders as Partial<TemuOrderRecord>[]).map(normalizeTemuOrder),
+    totalCount: Number(response?.total_count ?? 0),
+    totalLineCount: Number(response?.total_line_count ?? 0),
+    stageCounts: Object.fromEntries(
+      Object.keys(emptyTemuOrderStageCounts).map((stage) => [
+        stage,
+        Number(rawStageCounts[stage as TemuOrderStageFilter] ?? 0),
+      ]),
+    ) as TemuOrderStageCounts,
+    urgentUnuploadedCount: Number(response?.urgent_unuploaded_count ?? 0),
   };
 }
 

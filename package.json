@@ -12,11 +12,15 @@
     "check:inventory": "node scripts/check-inventory-consistency.mjs",
     "check:data-coverage": "node scripts/check-data-coverage.mjs",
     "check:team-scope": "node scripts/check-team-operational-scope.mjs",
+    "check:team-cross-account": "node scripts/check-team-cross-account.mjs",
     "check:migrations": "node scripts/check-migrations.mjs",
     "check:rpcs": "node scripts/check-transaction-rpcs.mjs",
+    "check:order-page-rpc": "node scripts/check-order-page-rpc.mjs",
     "sync:data": "node scripts/sync-codex-data.mjs",
     "sync:backend-context": "node scripts/sync-backend-context.mjs",
     "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
     "lint": "eslint src",
     "convert:diff": "node C:/Users/ning/.gemini/antigravity-ide/scratch/convert_diff.js"
   },
@@ -32,6 +36,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.61.1",
     "@types/node": "^25.9.1",
     "@types/react": "^19.1.4",
     "@types/react-dom": "^19.1.5",

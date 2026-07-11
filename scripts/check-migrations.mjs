@@ -4,7 +4,8 @@ import { fileURLToPath } from "node:url";
 
 const projectDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const migrationsDir = path.join(projectDir, "supabase", "migrations");
-const migrationNamePattern = /^\d{8}_[a-z0-9_]+\.sql$/;
+const migrationNamePattern = /^\d{14}_[a-z0-9_]+\.sql$/;
+const strictMigrationCutoff = "20260710000000_";
 
 const migrationFiles = (await readdir(migrationsDir))
   .filter((file) => file.endsWith(".sql"))
@@ -26,7 +27,7 @@ function escapeRegex(value) {
 
 for (const [fileIndex, file] of migrationFiles.entries()) {
   if (!migrationNamePattern.test(file)) {
-    errors.push(`${file}: migration filename must use YYYYMMDD_snake_case.sql`);
+    errors.push(`${file}: migration filename must use YYYYMMDDHHMMSS_snake_case.sql`);
   }
 
   const sql = sqlByFile[file];
@@ -46,7 +47,7 @@ for (const [fileIndex, file] of migrationFiles.entries()) {
 
     const securityMessage = `${file}: ${functionName} must declare SECURITY INVOKER or SECURITY DEFINER`;
     if (!/security\s+(invoker|definer)/i.test(block)) {
-      (file >= "20260710_" ? errors : warnings).push(securityMessage);
+      (file >= strictMigrationCutoff ? errors : warnings).push(securityMessage);
     }
     const searchPathMessage = `${file}: ${functionName} must pin search_path to public`;
     const laterSearchPathHardening = new RegExp(
@@ -54,10 +55,10 @@ for (const [fileIndex, file] of migrationFiles.entries()) {
       "i",
     ).test(laterSql);
     if (!/set\s+search_path\s*=\s*public/i.test(block) && !laterSearchPathHardening) {
-      (file >= "20260710_" ? errors : warnings).push(searchPathMessage);
+      (file >= strictMigrationCutoff ? errors : warnings).push(searchPathMessage);
     }
     if (
-      file >= "20260710_" &&
+      file >= strictMigrationCutoff &&
       !new RegExp(`revoke\\s+all\\s+on\\s+function\\s+${functionName.replaceAll(".", "\\.")}`, "i").test(sql)
     ) {
       errors.push(`${file}: ${functionName} must revoke default PUBLIC execution`);

@@ -1,14 +1,14 @@
 import type { User } from "@supabase/supabase-js";
-import {
-  FileSpreadsheet,
-  RefreshCw,
-  Upload,
-} from "lucide-react";
 import { OrderBulkActions } from "../components/orders/OrderBulkActions";
 import { OrderDetailPanel } from "../components/orders/OrderDetailPanel";
 import { OrderFilters } from "../components/orders/OrderFilters";
+import {
+  OrderDataHeader,
+  OrderFileActions,
+  OrderPageNotices,
+} from "../components/orders/OrderPageChrome";
 import { ReshipOrderModal } from "../components/orders/ReshipOrderModal";
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { memo, useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
 import { Badge, PageHeader } from "../components/ui";
 import { StandardTable, type StandardTableColumn } from "../components/ui/StandardTable";
 import {
@@ -237,7 +237,6 @@ const japanPostTrackingBaseUrl =
   "https://trackings.post.japanpost.jp/services/srv/search/direct";
 const japanPostTrackingProxyPath = "/japanpost-tracking/services/srv/search/direct";
 const temuUploadWarehouseName = "东京仓";
-const urgentUnuploadedDeadlineMs = 12 * 60 * 60 * 1000;
 
 const temuUploadColumns = [
   "订单号",
@@ -859,25 +858,6 @@ function getTrackingStatusLabel(status: string) {
   );
 }
 
-const trackingStatusSortRanks = [
-  { keyword: "待查询", rank: 0 },
-  { keyword: "暂无轨迹", rank: 1 },
-  { keyword: "伝票番号未登録", rank: 1 },
-  { keyword: "查询失败", rank: 2 },
-  { keyword: "引受", rank: 10 },
-  { keyword: "発送", rank: 20 },
-  { keyword: "通過", rank: 30 },
-  { keyword: "到着", rank: 40 },
-  { keyword: "保管", rank: 45 },
-  { keyword: "ご不在", rank: 50 },
-  { keyword: "持ち出し中", rank: 60 },
-  { keyword: "配達中", rank: 60 },
-  { keyword: "お届け済み", rank: 70 },
-  { keyword: "配達完了", rank: 70 },
-  { keyword: "配達済み", rank: 70 },
-  { keyword: "Delivered", rank: 70 },
-] as const;
-
 const japanPostTrackingStatusKeywords = [
   "お届け済み",
   "配達完了",
@@ -892,23 +872,6 @@ const japanPostTrackingStatusKeywords = [
   "引受",
   "差出人に返送",
 ] as const;
-
-function getComparableTrackingStatus(status: string) {
-  return getTrackingStatusLabel(status) || "待查询";
-}
-
-function getTrackingStatusSortRank(status: string) {
-  const label = getComparableTrackingStatus(status);
-  return trackingStatusSortRanks.find((item) => label.includes(item.keyword))?.rank ?? 80;
-}
-
-function compareTrackingStatus(left: string, right: string) {
-  const leftRank = getTrackingStatusSortRank(left);
-  const rightRank = getTrackingStatusSortRank(right);
-  if (leftRank !== rightRank) return leftRank - rightRank;
-
-  return getComparableTrackingStatus(left).localeCompare(getComparableTrackingStatus(right));
-}
 
 function isJapanPostTrackingStatus(value: string) {
   return japanPostTrackingStatusKeywords.some((status) => value.includes(status));
@@ -1119,28 +1082,6 @@ function getDeliveryDeadlineBadge(order: TemuOrderRecord, now: Date) {
   return actualSignedDate.getTime() <= deadlineDate.getTime()
     ? { label: "期限内签收", tone: "success" as const }
     : { label: "期限外签收", tone: "danger" as const };
-}
-
-function isUrgentUnuploadedOrder(order: TemuOrderRecord, now: Date) {
-  const stage = getOrderStage(order);
-  if (stage === "uploaded_temu" || stage === "completed") return false;
-
-  const deadlineDate = parseOrderDateTime(order.latest_ship_time);
-  if (!deadlineDate) return false;
-
-  const diff = deadlineDate.getTime() - now.getTime();
-  return diff >= 0 && diff <= urgentUnuploadedDeadlineMs;
-}
-
-function getOrderDeadlineTimestamp(value: string) {
-  return parseOrderDateTime(value)?.getTime() ?? null;
-}
-
-function compareOptionalNumber(left: number | null, right: number | null) {
-  if (left === null && right === null) return 0;
-  if (left === null) return 1;
-  if (right === null) return -1;
-  return left - right;
 }
 
 function normalizeRmbAmount(value: number) {
@@ -1589,18 +1530,31 @@ const OrderTableRow = memo(function OrderTableRow({
 
 export function OrdersPage({ user }: OrdersPageProps) {
   const { canEdit, canDelete } = usePermissions();
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const trackingInputRef = useRef<HTMLInputElement | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [activeStage, setActiveStage] = useState<OrderStage>("all");
+  const [warehouseFilter, setWarehouseFilter] = useState("");
+  const [logisticsMethodFilter, setLogisticsMethodFilter] = useState("");
+  const [orderSort, setOrderSort] = useState<OrderSort>(defaultOrderSort);
+  const [showUrgentUnuploadedOnly, setShowUrgentUnuploadedOnly] = useState(false);
 
   useEffect(() => {
     setPage(1);
   }, [pageSize, search]);
-  
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search), 250);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
   const {
     allOrders,
+    totalOrderCount,
+    totalOrderLineCount,
+    stageCounts,
+    urgentUnuploadedCount,
     warehouses,
     products,
     productItems,
@@ -1628,7 +1582,17 @@ export function OrdersPage({ user }: OrdersPageProps) {
     clearDrafts,
     applyWarehouseSkuStockUpdates,
     fetchLatestProductsAndSkus,
-  } = useOrders(user);
+  } = useOrders(user, {
+    page,
+    pageSize,
+    searchQuery: debouncedSearch,
+    stage: activeStage,
+    warehouseId: warehouseFilter,
+    logisticsMethod: logisticsMethodFilter,
+    urgentOnly: showUrgentUnuploadedOnly,
+    sortKey: orderSort.key,
+    sortDirection: orderSort.direction,
+  });
   const mergeOrderDraft = useCallback(
     (order: TemuOrderRecord) => mergeOrderWithDraft(order, drafts),
     [drafts],
@@ -1638,9 +1602,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
       buildOrderDisplayRowsWithDrafts(targetOrders, drafts),
     [drafts],
   );
-  const [activeStage, setActiveStage] = useState<OrderStage>("all");
-  const [warehouseFilter, setWarehouseFilter] = useState("");
-  const [logisticsMethodFilter, setLogisticsMethodFilter] = useState("");
   const [busyKey, setBusyKey] = useState("");
   const [noticeMessage, setNoticeMessage] = useState("");
   const [detailOrder, setDetailOrder] = useState<TemuOrderRecord | null>(null);
@@ -1657,8 +1618,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
     setReshipTargetOrder(null);
     setDetailOrder(null);
   };
-  const [orderSort, setOrderSort] = useState<OrderSort>(defaultOrderSort);
-  const [showUrgentUnuploadedOnly, setShowUrgentUnuploadedOnly] = useState(false);
   useAutoDismiss(noticeMessage, () => setNoticeMessage(""));
 
   const logisticsMethodOptions = useMemo(
@@ -1740,16 +1699,11 @@ export function OrdersPage({ user }: OrdersPageProps) {
     ],
   );
 
-  const urgentUnuploadedOrders = useMemo(
-    () => allOrders.filter((order) => isUrgentUnuploadedOrder(order, currentTime)),
-    [allOrders, currentTime],
-  );
-
   useEffect(() => {
-    if (showUrgentUnuploadedOnly && urgentUnuploadedOrders.length === 0) {
+    if (showUrgentUnuploadedOnly && urgentUnuploadedCount === 0) {
       setShowUrgentUnuploadedOnly(false);
     }
-  }, [showUrgentUnuploadedOnly, urgentUnuploadedOrders.length]);
+  }, [showUrgentUnuploadedOnly, urgentUnuploadedCount]);
 
   useEffect(() => {
     if (warehouseFilter && !warehouses.some((warehouse) => warehouse.id === warehouseFilter)) {
@@ -1763,136 +1717,20 @@ export function OrdersPage({ user }: OrdersPageProps) {
     }
   }, [logisticsMethodFilter, logisticsMethodOptions]);
 
-  const matchesFulfillmentFilters = useCallback((order: TemuOrderRecord) => {
-    const merged = mergeOrderDraft(order);
-    if (warehouseFilter) {
-      const selectedWarehouse = warehouses.find((warehouse) => warehouse.id === warehouseFilter);
-      const selectedWarehouseName = selectedWarehouse?.name.trim().toLowerCase() ?? "";
-      const orderWarehouseName = merged.warehouse_name.trim().toLowerCase();
-      if (
-        merged.warehouse_id !== warehouseFilter &&
-        (!selectedWarehouseName || orderWarehouseName !== selectedWarehouseName)
-      ) {
-        return false;
-      }
-    }
-    if (
-      logisticsMethodFilter &&
-      normalizeLogisticsMethod(merged.logistics_method) !== logisticsMethodFilter
-    ) {
-      return false;
-    }
-    return true;
-  }, [logisticsMethodFilter, mergeOrderDraft, warehouseFilter, warehouses]);
-
-  const filteredOrders = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    const nextOrders = allOrders.filter((order) => {
-      const merged = mergeOrderDraft(order);
-      if (showUrgentUnuploadedOnly && !isUrgentUnuploadedOrder(merged, currentTime)) {
-        return false;
-      }
-      if (activeStage !== "all" && getOrderStage(merged) !== activeStage) return false;
-      if (!matchesFulfillmentFilters(order)) return false;
-      if (!term) return true;
-
-      return [
-        order.order_no,
-        order.sub_order_no,
-        order.order_status,
-        order.sku_code,
-        order.warehouse_name,
-        order.logistics_method,
-        order.logistics_tracking_no,
-        order.logistics_status,
-        order.product_attributes,
-        order.recipient_name,
-        order.recipient_phone,
-        order.email,
-        order.province,
-        order.city,
-        order.district,
-        order.address_line1,
-        order.address_line2,
-        order.postal_code,
-      ].some((value) => String(value ?? "").toLowerCase().includes(term));
-    });
-
-    return [...nextOrders].sort((left, right) => {
-      let comparison: number;
-
-      if (orderSort.key === "ship_deadline") {
-        comparison = compareOptionalNumber(
-          getOrderDeadlineTimestamp(left.latest_ship_time),
-          getOrderDeadlineTimestamp(right.latest_ship_time),
-        );
-      } else if (orderSort.key === "delivery_deadline") {
-        comparison = compareOptionalNumber(
-          getOrderDeadlineTimestamp(left.estimated_delivery_time),
-          getOrderDeadlineTimestamp(right.estimated_delivery_time),
-        );
-      } else if (orderSort.key === "logistics_status") {
-        comparison = compareTrackingStatus(
-          mergeOrderDraft(left).logistics_status,
-          mergeOrderDraft(right).logistics_status,
-        );
-      } else {
-        const leftDeclaration = getOrderDeclaration(left);
-        const rightDeclaration = getOrderDeclaration(right);
-        comparison = (leftDeclaration?.product.product_code || "\uffff").localeCompare(
-          rightDeclaration?.product.product_code || "\uffff",
-        );
-      }
-
-      const directedComparison =
-        orderSort.direction === "asc" ? comparison : -comparison;
-      return directedComparison || left.order_no.localeCompare(right.order_no);
-    });
-  }, [
-    activeStage,
-    allOrders,
-    currentTime,
-    getOrderDeclaration,
-    matchesFulfillmentFilters,
-    mergeOrderDraft,
-    orderSort,
-    search,
-    showUrgentUnuploadedOnly,
-  ]);
+  const filteredOrders = allOrders;
 
   const filteredOrderRows = useMemo(
     () => buildOrderDisplayRows(filteredOrders),
     [buildOrderDisplayRows, filteredOrders],
   );
-  const filteredTotalPages = Math.max(1, Math.ceil(filteredOrderRows.length / pageSize));
-  const paginatedOrderRows = useMemo(() => {
-    const startIndex = (page - 1) * pageSize;
-    return filteredOrderRows.slice(startIndex, startIndex + pageSize);
-  }, [filteredOrderRows, page, pageSize]);
+  const filteredTotalPages = Math.max(1, Math.ceil(totalOrderCount / pageSize));
+  const paginatedOrderRows = filteredOrderRows;
 
   useEffect(() => {
     if (page > filteredTotalPages) {
       setPage(filteredTotalPages);
     }
   }, [filteredTotalPages, page]);
-
-  const stageCounts = useMemo(() => {
-    const counts = Object.fromEntries(
-      stageDefinitions.map((definition) => [definition.key, 0]),
-    ) as Record<OrderStage, number>;
-    const countableOrders = allOrders.filter((order) => matchesFulfillmentFilters(order));
-    const rows = buildOrderDisplayRows(countableOrders);
-
-    counts.all = rows.length;
-    rows.forEach((row) => {
-      counts[getOrderStage(row.primaryOrder)] += 1;
-    });
-    return counts;
-  }, [
-    allOrders,
-    buildOrderDisplayRows,
-    matchesFulfillmentFilters,
-  ]);
 
   const tableColumns = useMemo(
     () =>
@@ -2692,7 +2530,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
       setErrorMessage(getOrdersErrorMessage(error, "导入订单失败"));
     } finally {
       setBusyKey("");
-      if (inputRef.current) inputRef.current.value = "";
     }
   }
 
@@ -2782,7 +2619,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
       setErrorMessage(getOrdersErrorMessage(error, "导入物流单号失败"));
     } finally {
       setBusyKey("");
-      if (trackingInputRef.current) trackingInputRef.current.value = "";
     }
   }
 
@@ -4054,63 +3890,21 @@ export function OrdersPage({ user }: OrdersPageProps) {
       <PageHeader
         title="订单管理"
         description="上传 Temu 导出的订单表，按仓库分配、下载发货表格并跟进签收流程"
-        actions={
-          canEdit ? (
-            <>
-              <input
-                ref={inputRef}
-                type="file"
-                aria-label="选择 Temu 订单文件"
-                accept=".xlsx,.csv,.tsv,.txt"
-                className="hidden"
-                onChange={(event) => void handleFileChange(event.target.files?.[0])}
-              />
-              <input
-                ref={trackingInputRef}
-                type="file"
-                aria-label="选择物流单号文件"
-                accept=".xlsx,.csv,.tsv,.txt"
-                className="hidden"
-                onChange={(event) => void handleTrackingFileChange(event.target.files?.[0])}
-              />
-              <button
-                type="button"
-                disabled={busyKey === "tracking-import"}
-                onClick={() => trackingInputRef.current?.click()}
-                className="btn-secondary"
-              >
-                <Upload size={18} />
-                上传物流单号
-              </button>
-              <button
-                type="button"
-                disabled={busyKey === "import"}
-                onClick={() => inputRef.current?.click()}
-                className="btn-primary"
-              >
-                <Upload size={18} />
-                上传订单表
-              </button>
-            </>
-          ) : null
-        }
+        actions={canEdit ? (
+          <OrderFileActions
+            canEdit={canEdit}
+            busyKey={busyKey}
+            onOrderFile={(file) => void handleFileChange(file)}
+            onTrackingFile={(file) => void handleTrackingFileChange(file)}
+          />
+        ) : null}
       />
 
-      {errorMessage && (
-        <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
-          {errorMessage}
-        </div>
-      )}
-      {noticeMessage && (
-        <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
-          {noticeMessage}
-        </div>
-      )}
-      {draftNotice && (
-        <div className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-700">
-          {draftNotice}
-        </div>
-      )}
+      <OrderPageNotices
+        errorMessage={errorMessage}
+        noticeMessage={noticeMessage}
+        draftNotice={draftNotice}
+      />
 
       <OrderFilters
         activeStage={activeStage}
@@ -4121,7 +3915,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
         warehouseOptions={warehouses}
         logisticsMethodFilter={logisticsMethodFilter}
         logisticsMethodOptions={logisticsMethodOptions}
-        urgentUnuploadedCount={urgentUnuploadedOrders.length}
+        urgentUnuploadedCount={urgentUnuploadedCount}
         showUrgentUnuploadedOnly={showUrgentUnuploadedOnly}
         onSearchChange={setSearch}
         onStageChange={(stage) => {
@@ -4151,40 +3945,27 @@ export function OrdersPage({ user }: OrdersPageProps) {
       />
 
       <section className="surface-card grid gap-4 p-4 min-w-0 w-full overflow-hidden">
-        <div className="grid gap-3 border-b border-slate-100 pb-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
-          <div className="flex min-w-0 flex-wrap items-center gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600">
-              <FileSpreadsheet size={18} />
-            </span>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-base font-semibold text-slate-900">Temu 订单数据</h2>
-                <Badge tone={activeOrderViewTone}>{activeOrderViewLabel}</Badge>
-              </div>
-              <p className="mt-1 text-sm font-medium text-slate-500">
-                当前显示 {paginatedOrderRows.length} 行，共 {filteredOrderRows.length} 行，覆盖 {filteredOrders.length} 个订单
-              </p>
-            </div>
-          </div>
-          {canEdit && isShippingTrackingStage(activeStage) && shippedOrdersWithTrackingInView.length > 0 && (
-            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto xl:justify-end">
-              <button
-                type="button"
-                disabled={busyKey === "tracking-status-refresh" || busyKey === "tracking-status-auto"}
-                onClick={() =>
-                  void queryAndSaveTrackingStatuses(
-                    shippedOrdersWithTrackingInView,
-                    "tracking-status-refresh",
-                  )
-                }
-                className="btn-secondary"
-              >
-                <RefreshCw size={18} />
-                查询物流状态
-              </button>
-            </div>
-          )}
-        </div>
+        <OrderDataHeader
+          activeLabel={activeOrderViewLabel}
+          activeTone={activeOrderViewTone}
+          currentRowCount={paginatedOrderRows.length}
+          totalRowCount={totalOrderCount}
+          totalLineCount={totalOrderLineCount}
+          canRefreshTracking={
+            canEdit &&
+            isShippingTrackingStage(activeStage) &&
+            shippedOrdersWithTrackingInView.length > 0
+          }
+          refreshing={
+            busyKey === "tracking-status-refresh" || busyKey === "tracking-status-auto"
+          }
+          onRefreshTracking={() =>
+            void queryAndSaveTrackingStatuses(
+              shippedOrdersWithTrackingInView,
+              "tracking-status-refresh",
+            )
+          }
+        />
 
         <OrderBulkActions
           activeStage={activeStage}
@@ -4288,7 +4069,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
               page={page}
               pageSize={pageSize}
               totalPages={filteredTotalPages}
-              totalRecordCount={filteredOrderRows.length}
+              totalRecordCount={totalOrderCount}
               onPageChange={setPage}
               onPageSizeChange={setPageSize}
               loading={loading}

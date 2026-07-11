@@ -17,7 +17,12 @@ import {
   fetchWarehouseLogisticsMethods,
   normalizeLogisticsMethodName,
 } from "../lib/logistics-methods";
-import { fetchTemuOrders } from "../lib/orders";
+import {
+  emptyTemuOrderStageCounts,
+  fetchTemuOrdersPage,
+  type FetchTemuOrdersPageOptions,
+  type TemuOrderStageCounts,
+} from "../lib/orders";
 import { fetchSettings } from "../lib/settings";
 import {
   fetchProducts,
@@ -94,6 +99,10 @@ const restoredEditableDraftFields = [
 
 type UseOrdersResult = {
   allOrders: TemuOrderRecord[];
+  totalOrderCount: number;
+  totalOrderLineCount: number;
+  stageCounts: TemuOrderStageCounts;
+  urgentUnuploadedCount: number;
   warehouses: Warehouse[];
   products: Product[];
   productItems: ProductItem[];
@@ -129,6 +138,7 @@ type UseOrdersResult = {
     products: Product[];
     productSkus: ProductSku[];
   }>;
+  reloadOrders: () => void;
 };
 
 function normalizeSkuCode(value: string) {
@@ -276,7 +286,7 @@ export function getOrdersErrorMessage(error: unknown, fallback: string) {
         message.includes("logistics_methods") ||
         message.includes("warehouse_logistics_methods")
       ) {
-        return "仓库发货方式数据库还没有完整初始化，请完整执行 20260613_add_warehouse_logistics_methods.sql 迁移";
+        return "仓库发货方式数据库还没有完整初始化，请完整执行 20260613000000_add_warehouse_logistics_methods.sql 迁移";
       }
       if (message.includes("public.temu_orders")) {
         return "订单管理数据库还没有初始化，请先执行最新的订单表迁移";
@@ -301,7 +311,7 @@ export function getOrdersErrorMessage(error: unknown, fallback: string) {
     message.includes("logistics_methods") ||
     message.includes("warehouse_logistics_methods")
   ) {
-    return "仓库发货方式数据库还没有完整初始化，请完整执行 20260613_add_warehouse_logistics_methods.sql 迁移";
+    return "仓库发货方式数据库还没有完整初始化，请完整执行 20260613000000_add_warehouse_logistics_methods.sql 迁移";
   }
   if (
     message.includes("public.temu_orders") ||
@@ -397,11 +407,18 @@ async function loadLatestProductsAndSkus() {
   return { products, productSkus };
 }
 
-export function useOrders(user: User) {
+export function useOrders(user: User, orderQuery: FetchTemuOrdersPageOptions) {
   const draftKey = `orders-draft:v1:${user.id}`;
   const restoredDraftRef = useRef(readDraft<OrdersDraftState>(draftKey));
   const restoredDraft = restoredDraftRef.current;
+  const knownOrdersByIdRef = useRef(new Map<string, TemuOrderRecord>());
   const [allOrders, setAllOrders] = useState<TemuOrderRecord[]>([]);
+  const [totalOrderCount, setTotalOrderCount] = useState(0);
+  const [totalOrderLineCount, setTotalOrderLineCount] = useState(0);
+  const [stageCounts, setStageCounts] = useState<TemuOrderStageCounts>(
+    emptyTemuOrderStageCounts,
+  );
+  const [urgentUnuploadedCount, setUrgentUnuploadedCount] = useState(0);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [productItems, setProductItems] = useState<ProductItem[]>([]);
@@ -416,31 +433,43 @@ export function useOrders(user: User) {
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
   const [bulkWarehouseId, setBulkWarehouseId] = useState("");
   const [bulkLogisticsMethod, setBulkLogisticsMethod] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [referenceLoading, setReferenceLoading] = useState(true);
+  const [ordersLoading, setOrdersLoading] = useState(true);
+  const [orderRefreshVersion, setOrderRefreshVersion] = useState(0);
   const [errorMessage, setErrorMessage] = useState("");
   const [draftNotice, setDraftNotice] = useState(
     hasOrdersDraft(restoredDraft) ? "已恢复上次未保存的订单编辑草稿。" : "",
   );
   const [currentTime, setCurrentTime] = useState(() => new Date());
+  const {
+    page: orderPage,
+    pageSize: orderPageSize,
+    searchQuery: orderSearchQuery,
+    stage: orderStage,
+    warehouseId: orderWarehouseId,
+    logisticsMethod: orderLogisticsMethod,
+    urgentOnly: orderUrgentOnly,
+    sortKey: orderSortKey,
+    sortDirection: orderSortDirection,
+  } = orderQuery;
   useAutoDismiss(errorMessage, () => setErrorMessage(""));
   useAutoDismiss(draftNotice, () => setDraftNotice(""));
+  const loading = referenceLoading || ordersLoading;
 
   useEffect(() => {
     let active = true;
 
     async function load() {
-      setLoading(true);
+      setReferenceLoading(true);
       setErrorMessage("");
       try {
         const [
-          nextAllOrders,
           nextWarehouses,
           nextProducts,
           nextLogisticsMethods,
           fetchedSettings,
         ] =
           await Promise.all([
-            getCachedAsync(operationalCacheKeys.orders, fetchTemuOrders).then(dedupeOrdersByOrderLine),
             getCachedAsync(operationalCacheKeys.warehouses, fetchWarehouses),
             getCachedAsync(
               operationalCacheKeys.products,
@@ -465,7 +494,6 @@ export function useOrders(user: User) {
 
         if (!active) return;
 
-        setAllOrders(nextAllOrders);
         setWarehouses(nextWarehouses);
         setProducts(nextProducts);
         setProductItems(nextProductItems);
@@ -475,12 +503,10 @@ export function useOrders(user: User) {
         setWarehouseSkus(nextWarehouseSkus);
         setSettings(fetchedSettings);
 
-        const latestDraft = readDraft<OrdersDraftState>(draftKey);
-        setDrafts(restoreDraftMapFromOrders(nextAllOrders, latestDraft?.drafts));
         setBulkWarehouseId("");
         setBulkLogisticsMethod("");
         setSelectedOrderIds([]);
-        if (hasOrdersDraft(latestDraft)) {
+        if (hasOrdersDraft(restoredDraft)) {
           setDraftNotice("已恢复上次未保存的订单编辑草稿。");
         } else {
           setDraftNotice("");
@@ -491,7 +517,7 @@ export function useOrders(user: User) {
         }
       } finally {
         if (active) {
-          setLoading(false);
+          setReferenceLoading(false);
         }
       }
     }
@@ -501,7 +527,71 @@ export function useOrders(user: User) {
     return () => {
       active = false;
     };
-  }, [draftKey, user.id]);
+  }, [draftKey, restoredDraft, user.id]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadOrderPage() {
+      setOrdersLoading(true);
+      setErrorMessage("");
+      try {
+        const nextPage = await fetchTemuOrdersPage({
+          page: orderPage,
+          pageSize: orderPageSize,
+          searchQuery: orderSearchQuery,
+          stage: orderStage,
+          warehouseId: orderWarehouseId,
+          logisticsMethod: orderLogisticsMethod,
+          urgentOnly: orderUrgentOnly,
+          sortKey: orderSortKey,
+          sortDirection: orderSortDirection,
+        });
+        if (!active) return;
+
+        const nextOrders = dedupeOrdersByOrderLine(nextPage.orders);
+        nextOrders.forEach((order) => knownOrdersByIdRef.current.set(order.id, order));
+        setAllOrders(nextOrders);
+        setTotalOrderCount(nextPage.totalCount);
+        setTotalOrderLineCount(nextPage.totalLineCount);
+        setStageCounts(nextPage.stageCounts);
+        setUrgentUnuploadedCount(nextPage.urgentUnuploadedCount);
+        setSelectedOrderIds([]);
+
+        const latestDraft = readDraft<OrdersDraftState>(draftKey);
+        setDrafts((current) => ({
+          ...current,
+          ...restoreDraftMapFromOrders(nextOrders, latestDraft?.drafts),
+        }));
+      } catch (error) {
+        if (active) {
+          setErrorMessage(getOrdersErrorMessage(error, "加载订单失败"));
+        }
+      } finally {
+        if (active) {
+          setOrdersLoading(false);
+        }
+      }
+    }
+
+    void loadOrderPage();
+
+    return () => {
+      active = false;
+    };
+  }, [
+    draftKey,
+    orderLogisticsMethod,
+    orderPage,
+    orderPageSize,
+    orderSearchQuery,
+    orderSortDirection,
+    orderSortKey,
+    orderStage,
+    orderUrgentOnly,
+    orderWarehouseId,
+    orderRefreshVersion,
+  ]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setCurrentTime(new Date()), 1000);
@@ -510,13 +600,13 @@ export function useOrders(user: User) {
 
   const ordersDraftValue = useMemo<OrdersDraftState>(
     () => {
-      const ordersById = new Map(allOrders.map((order) => [order.id, order]));
+      const ordersById = knownOrdersByIdRef.current;
 
       return {
         drafts: Object.fromEntries(
           Object.entries(drafts).filter(([orderId, draft]) => {
             const order = ordersById.get(orderId);
-            return order ? !isSameDraft(draft, toDraft(order)) : false;
+            return order ? !isSameDraft(draft, toDraft(order)) : true;
           }),
         ),
         selectedOrderIds,
@@ -524,7 +614,7 @@ export function useOrders(user: User) {
         bulkLogisticsMethod,
       };
     },
-    [allOrders, bulkLogisticsMethod, bulkWarehouseId, drafts, selectedOrderIds],
+    [bulkLogisticsMethod, bulkWarehouseId, drafts, selectedOrderIds],
   );
 
   useEffect(() => {
@@ -584,10 +674,18 @@ export function useOrders(user: User) {
     if (orderIds.length === 0) return;
     const targetIds = new Set(orderIds);
     setAllOrders((current) => current.filter((order) => !targetIds.has(order.id)));
+    targetIds.forEach((orderId) => knownOrdersByIdRef.current.delete(orderId));
+    setDrafts((current) => {
+      const next = { ...current };
+      targetIds.forEach((orderId) => delete next[orderId]);
+      return next;
+    });
+    setOrderRefreshVersion((current) => current + 1);
   }
 
   function mergeOrders(nextOrders: TemuOrderRecord[]) {
     const previousOrdersById = new Map(allOrders.map((order) => [order.id, order]));
+    nextOrders.forEach((order) => knownOrdersByIdRef.current.set(order.id, order));
     mergeAllOrdersSnapshot(nextOrders);
     setDrafts((current) => {
       const next = { ...current };
@@ -600,6 +698,7 @@ export function useOrders(user: User) {
       });
       return next;
     });
+    setOrderRefreshVersion((current) => current + 1);
   }
 
   function replaceDraftsFromOrders(nextOrders: TemuOrderRecord[]) {
@@ -636,8 +735,16 @@ export function useOrders(user: User) {
     return loadLatestProductsAndSkus();
   }
 
+  function reloadOrders() {
+    setOrderRefreshVersion((current) => current + 1);
+  }
+
   return {
     allOrders,
+    totalOrderCount,
+    totalOrderLineCount,
+    stageCounts,
+    urgentUnuploadedCount,
     warehouses,
     products,
     productItems,
@@ -666,5 +773,6 @@ export function useOrders(user: User) {
     clearDrafts,
     applyWarehouseSkuStockUpdates,
     fetchLatestProductsAndSkus,
+    reloadOrders,
   } satisfies UseOrdersResult;
 }

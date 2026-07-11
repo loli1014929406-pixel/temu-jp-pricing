@@ -11,7 +11,7 @@ async function read(relativePath) {
 const [ordersSource, purchasesSource, migration] = await Promise.all([
   read("src/lib/orders.ts"),
   read("src/lib/purchases.ts"),
-  read("supabase/migrations/20260711_share_team_operational_data.sql"),
+  read("supabase/migrations/20260711000001_share_team_operational_data.sql"),
 ]);
 
 const errors = [];

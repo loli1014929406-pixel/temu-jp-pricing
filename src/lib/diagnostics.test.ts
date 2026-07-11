@@ -4,6 +4,7 @@ import {
   getRecentDiagnostics,
   reportAppError,
   reportSlowOperation,
+  sanitizeDiagnosticText,
   subscribeDiagnostics,
 } from "./diagnostics";
 
@@ -38,5 +39,15 @@ describe("diagnostics", () => {
       durationMs: 5200,
     });
     unsubscribe();
+  });
+
+  it("removes bearer tokens, JWTs, and secret query values", () => {
+    expect(
+      sanitizeDiagnosticText(
+        "Bearer top-secret eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature https://example.com?a=1&token=abc123&password=secret",
+      ),
+    ).toBe(
+      "Bearer [redacted] [token] https://example.com?a=1&token=[redacted]&password=[redacted]",
+    );
   });
 });
