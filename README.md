@@ -65,6 +65,10 @@ npm run dev
 npm run build
 npm run preview
 npm run test
+npm run lint
+npm run check:data-coverage
+npm run check:migrations
+npm run check:rpcs
 npm run sync:data
 npm run sync:backend-context
 npm run recalculate:inventory

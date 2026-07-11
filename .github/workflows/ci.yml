@@ -34,6 +34,9 @@ jobs:
       - name: Check database migrations
         run: npm run check:migrations
 
+      - name: Check database snapshot coverage
+        run: npm run check:data-coverage
+
       - name: Audit production dependencies
         run: npm audit --audit-level=high
 
