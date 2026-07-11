@@ -6,7 +6,7 @@ import { usePermissions } from "../../hooks/use-permissions";
 import { useFinanceData } from "./use-finance-data";
 import { addExpense, addExpensesBulk, updateExpense, deleteExpense } from "../../lib/expenses";
 import { readTabularFileObjects } from "../../lib/excel";
-import { EmptyPanel, getPaginatedRows } from "./shared";
+import { EmptyPanel } from "./shared";
 import { formatCurrency } from "../../utils/pricing";
 import type { FinanceExpense } from "../../types";
 import { confirmAction, confirmCancelEdit, confirmDelete, confirmSave } from "../../utils/confirmations";
@@ -303,7 +303,7 @@ export function FinanceExpensesPage({ user }: Props) {
       }
     };
     void migrateLocalData();
-  }, []);
+  }, [reload]);
 
   const resetForm = () => {
     setFormOpen(false);

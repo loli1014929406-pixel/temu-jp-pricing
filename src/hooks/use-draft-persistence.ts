@@ -91,17 +91,13 @@ export function useDraftPersistence<T>(
 ) {
   const { enabled = true, shouldPersist } = options;
 
-  function persistValue(nextValue: T) {
-    if (shouldPersist && !shouldPersist(nextValue)) {
-      clearDraft(key);
-      return;
-    }
-    writeDraft(key, nextValue);
-  }
-
   useEffect(() => {
     if (enabled) {
-      persistValue(value);
+      if (shouldPersist && !shouldPersist(value)) {
+        clearDraft(key);
+      } else {
+        writeDraft(key, value);
+      }
     }
   }, [enabled, key, value, shouldPersist]);
 }

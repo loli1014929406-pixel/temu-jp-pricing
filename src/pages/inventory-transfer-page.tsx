@@ -1,8 +1,6 @@
 import {
   AlertTriangle,
-  ArrowRight,
   Calendar,
-  Check,
   CheckCircle2,
   ChevronDown,
   ClipboardList,
@@ -19,7 +17,7 @@ import {
   Trash2,
   Truck,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { Link } from "react-router-dom";
 import {
@@ -276,10 +274,10 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
     return codesById;
   }, [productsById, skusByProductId]);
 
-  function getSkuDisplayCode(sku?: ProductSku) {
+  const getSkuDisplayCode = useCallback((sku?: ProductSku) => {
     if (!sku?.id) return "--";
     return skuDisplayCodesById[sku.id] || sku.sku_code || "--";
-  }
+  }, [skuDisplayCodesById]);
 
   const warehousesById = useMemo(
     () => Object.fromEntries(warehouses.map((warehouse) => [warehouse.id, warehouse])),
@@ -327,7 +325,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
     [
       productCodeCollator,
       productsById,
-      skuDisplayCodesById,
+      getSkuDisplayCode,
       skusById,
       warehouseSkusByWarehouseId,
     ],
@@ -516,7 +514,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
       if (byTransferDate !== 0) return byTransferDate;
       return right.createdAt.localeCompare(left.createdAt);
     });
-  }, [warehouseSkuStockAdjustments]);
+  }, [warehouseItemStockAdjustments, warehouseSkuStockAdjustments]);
 
   const inTransitTransferRecordCount = transferRecords.filter(
     (record) => record.status === "in_transit",

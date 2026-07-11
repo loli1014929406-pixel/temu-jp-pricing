@@ -1,4 +1,5 @@
 import { withTimeout, requireSession } from "./supabase-helpers";
+import { fetchAllPages } from "./paginated-fetch";
 import type { TemuOrderRecord } from "../types";
 
 export type TemuOrderImportRow = Pick<
@@ -149,30 +150,32 @@ function normalizeTemuOrder(row: Partial<TemuOrderRecord>): TemuOrderRecord {
 
 export async function fetchTemuOrders() {
   const { supabase, session } = await requireSession();
-  const { data, error } = await withTimeout(
-    supabase
-      .from("temu_orders")
-      .select(temuOrderSelectFields)
-      .eq("owner_id", session.user.id)
-      .order("latest_ship_time", { ascending: true })
-      .order("created_at", { ascending: false }),
-    "加载订单",
-  );
+  const fetchByFields = (fields: string) =>
+    fetchAllPages<Partial<TemuOrderRecord>>(async (from, to) => {
+      const { data, error } = await withTimeout(
+        supabase
+          .from("temu_orders")
+          .select(fields)
+          .eq("owner_id", session.user.id)
+          .order("latest_ship_time", { ascending: true })
+          .order("created_at", { ascending: false })
+          .order("id", { ascending: true })
+          .range(from, to),
+        "加载订单",
+      );
+      return { data: (data ?? []) as Partial<TemuOrderRecord>[], error };
+    });
+
+  const { data, error } = await fetchByFields(temuOrderSelectFields);
   if (error && isMissingActualShippingFeeColumnError(error)) {
-    const { data: legacyData, error: legacyError } = await withTimeout(
-      supabase
-        .from("temu_orders")
-        .select(temuOrderLegacySelectFields)
-        .eq("owner_id", session.user.id)
-        .order("latest_ship_time", { ascending: true })
-        .order("created_at", { ascending: false }),
-      "加载订单",
+    const { data: legacyData, error: legacyError } = await fetchByFields(
+      temuOrderLegacySelectFields,
     );
     if (legacyError) throw legacyError;
-    return ((legacyData ?? []) as Partial<TemuOrderRecord>[]).map(normalizeTemuOrder);
+    return (legacyData ?? []).map(normalizeTemuOrder);
   }
   if (error) throw error;
-  return ((data ?? []) as Partial<TemuOrderRecord>[]).map(normalizeTemuOrder);
+  return (data ?? []).map(normalizeTemuOrder);
 }
 
 export type FetchTemuOrdersPaginatedOptions = {

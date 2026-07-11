@@ -14,7 +14,6 @@ import {
   updateWarehouseSkuStockQuantity,
 } from "../lib/inventory";
 import {
-  createLogisticsMethod,
   fetchLogisticsMethods,
   fetchWarehouseLogisticsMethods,
   normalizeLogisticsMethodName,
@@ -304,7 +303,6 @@ export function InventoryPage({ user }: InventoryPageProps) {
     : "显示全部仓库的 SKU 库存，配件数量由 SKU 库存推导";
 
 
-  const PAGE_SIZE_OPTIONS = [20, 30, 50, 100] as const;
   const [pageSize, setPageSize] = useState<number>(20);
   const [warehousePages, setWarehousePages] = useState<Record<string, number>>({});
   const [warehouseTotals, setWarehouseTotals] = useState<Record<string, number>>({});
@@ -533,33 +531,9 @@ export function InventoryPage({ user }: InventoryPageProps) {
     [warehouseSkus],
   );
 
-  const activeLogisticsMethods = useMemo(
-    () =>
-      logisticsMethods
-        .filter((method) => method.is_active)
-        .sort((left, right) => {
-          if (left.sort_order !== right.sort_order) return left.sort_order - right.sort_order;
-          return left.created_at.localeCompare(right.created_at);
-        }),
-    [logisticsMethods],
-  );
-
   const warehouseLogisticsMethodIdsByWarehouseId = useMemo(
     () => groupWarehouseLogisticsMethodIds(warehouseLogisticsMethods),
     [warehouseLogisticsMethods],
-  );
-
-  const sortedProducts = useMemo(
-    () =>
-      [...products].sort((left, right) => {
-        const byProductCode = productCodeCollator.compare(
-          right.product_code,
-          left.product_code,
-        );
-        if (byProductCode !== 0) return byProductCode;
-        return right.created_at.localeCompare(left.created_at);
-      }),
-    [productCodeCollator, products],
   );
 
   const sortedWarehouseSkusByWarehouseId = useMemo(
@@ -593,37 +567,6 @@ export function InventoryPage({ user }: InventoryPageProps) {
       getSkuDisplayCode,
     ],
   );
-
-  async function handleCreateLogisticsMethod() {
-    if (!canEdit) {
-      setErrorMessage("当前账号没有编辑权限，不能新增发货方式。");
-      return;
-    }
-
-    const name = normalizeLogisticsMethodName(draftLogisticsMethodName);
-    if (!name) return;
-
-    const exists = logisticsMethods.some(
-      (method) => normalizeLogisticsMethodName(method.name).toLowerCase() === name.toLowerCase(),
-    );
-    if (exists) {
-      setErrorMessage(`发货方式“${name}”已存在。`);
-      return;
-    }
-    if (!(await confirmSave(`确认新增发货方式“${name}”吗？`))) return;
-
-    setBusyKey("create-logistics-method");
-    setErrorMessage("");
-    try {
-      const method = await createLogisticsMethod(name);
-      setLogisticsMethods((current) => [...current, method]);
-      setDraftLogisticsMethodName("");
-    } catch (error) {
-      setErrorMessage(getInventoryErrorMessage(error, "新增发货方式失败"));
-    } finally {
-      setBusyKey("");
-    }
-  }
 
   function getWarehouseLogisticsSelectionIssue(
     warehouse: Warehouse,

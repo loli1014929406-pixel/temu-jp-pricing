@@ -2,7 +2,7 @@ import type { User } from "@supabase/supabase-js";
 import { useMemo } from "react";
 import { RefreshCw, TrendingUp, AlertCircle, ArrowRight } from "lucide-react";
 import { Link } from "react-router-dom";
-import { PageHeader, StatCard, Badge, StandardTable } from "../../components/ui";
+import { PageHeader, Badge, StandardTable } from "../../components/ui";
 import { useFinanceData } from "./use-finance-data";
 import {
   EmptyPanel,
@@ -41,7 +41,6 @@ export function FinanceOverviewPage({ user }: Props) {
   const productItemsById = useMemo(() => new Map<string, any>(data.productItems.map((item: any) => [item.id!, item])), [data.productItems]);
   const productsById = useMemo(() => new Map<string, any>(data.products.map((product: any) => [product.id, product])), [data.products]);
   const skuLookup = useMemo(() => buildSkuLookup(data.products, data.productSkus), [data.products, data.productSkus]);
-  const skusById = useMemo(() => new Map(data.productSkus.map((sku: any) => [sku.id!, sku])), [data.productSkus]);
 
   const orderRows = useMemo(() => {
     return data.orders.map((order: any) => {
@@ -100,20 +99,9 @@ export function FinanceOverviewPage({ user }: Props) {
 
   const totalOtherExpenses = useMemo(() => expenses.reduce((sum, e) => sum + e.amount_rmb, 0), [expenses]);
   
-  const inventoryValueRmb = useMemo(() => {
-    return data.warehouseSkus.reduce((sum: any, stock: any) => {
-      const quantity = Math.max(0, Number(stock.stock_quantity || 0));
-      if (quantity <= 0) return sum;
-      const sku = skusById.get(stock.sku_id);
-      if (!sku) return sum;
-      return sum + quantity * roundMoney(getSkuUnitCostRmb(sku, productItemsById));
-    }, 0);
-  }, [data.warehouseSkus, skusById, productItemsById]);
-
   const cashProfit = totals.actualRevenueAmount - totals.purchasePayment - totals.cashOrderShippingFee - totalOtherExpenses;
   const orderProfit = totals.actualRevenueAmount - totals.orderProductCost - totals.orderShippingFee - totalOtherExpenses;
   const cashMarginRate = calculateMarginRate(cashProfit, totals.actualRevenueAmount);
-  const orderMarginRate = calculateMarginRate(orderProfit, totals.actualRevenueAmount);
   
   const pendingReconciliations = useMemo(() => {
     return orderRows.filter((row: any) => getReconciliationIssues(row).length > 0).slice(0, 5);

@@ -10,8 +10,6 @@ import {
   getOrderDate,
   getPurchaseTotalRmb,
   getPaginatedRows,
-  buildSkuLookup,
-  getOrderSku,
   getOrderQuantity,
   roundMoney,
   getResolvedSettlementMetrics

@@ -3,7 +3,6 @@ import type {
   PricingSettings,
   ProfitCalculationInput,
   ProfitCalculationResult,
-  ProfitLogisticsPlanKey,
   SavedProfitCalculation,
 } from "../types";
 import { calculateDynamicMethodCost } from "./shipping-costs";

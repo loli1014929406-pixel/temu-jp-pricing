@@ -8,6 +8,7 @@
  * Data starts at Row 2.
  */
 import { getSupabaseClient } from "./supabase";
+import { fetchAllPages } from "./paginated-fetch";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -201,11 +202,21 @@ function getSettlementStorageErrorMessage(error: { code?: string; message?: stri
 
 export async function loadSettlementFiles(userId: string): Promise<SettlementFile[]> {
   const supabase = getSupabaseClient();
-  const { data: filesData, error: filesError } = await supabase
-    .from("finance_settlement_files")
-    .select("*")
-    .eq("user_id", userId)
-    .order("imported_at", { ascending: false });
+  const { data: filesData, error: filesError } = await fetchAllPages<
+    any,
+    { code?: string; message?: string }
+  >(
+    async (from, to) => {
+      const { data, error } = await supabase
+        .from("finance_settlement_files")
+        .select("*")
+        .eq("user_id", userId)
+        .order("imported_at", { ascending: false })
+        .order("id", { ascending: true })
+        .range(from, to);
+      return { data: data ?? [], error };
+    },
+  );
 
   if (filesError || !filesData) {
     console.error("Failed to load settlement files:", filesError);
@@ -214,10 +225,20 @@ export async function loadSettlementFiles(userId: string): Promise<SettlementFil
 
   // To build the full file structure, we need the records too.
   // Since records can be large, we might fetch them concurrently.
-  const { data: recordsData, error: recordsError } = await supabase
-    .from("finance_settlement_records")
-    .select("*")
-    .eq("user_id", userId);
+  const { data: recordsData, error: recordsError } = await fetchAllPages<
+    any,
+    { code?: string; message?: string }
+  >(
+    async (from, to) => {
+      const { data, error } = await supabase
+        .from("finance_settlement_records")
+        .select("*")
+        .eq("user_id", userId)
+        .order("id", { ascending: true })
+        .range(from, to);
+      return { data: data ?? [], error };
+    },
+  );
 
   if (recordsError || !recordsData) {
     console.error("Failed to load settlement records:", recordsError);

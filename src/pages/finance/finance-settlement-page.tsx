@@ -14,7 +14,6 @@ import {
   estimateOrderShippingBreakdown,
   roundMoney,
   getPaginatedRows,
-  renderPaginationControls,
   getOrderQuantity,
   getSkuUnitCostRmb,
   getResolvedSettlementMetrics,
@@ -156,7 +155,6 @@ export function FinanceSettlementPage({ user }: Props) {
 
   const [matchingOrderId, setMatchingOrderId] = useState<string | null>(null);
   const [matchingSkuId, setMatchingSkuId] = useState("");
-  const [linkingOrderId, setLinkingOrderId] = useState<string | null>(null);
 
   const settlementLookup = useMemo(() => buildSettlementLookup(settlementFiles || []), [settlementFiles]);
   
@@ -177,7 +175,6 @@ export function FinanceSettlementPage({ user }: Props) {
   }, [data.products, data.productSkus]);
 
   const productItemsById = useMemo(() => new Map<string, any>(data.productItems.map((item: any) => [item.id!, item])), [data.productItems]);
-  const productsById = useMemo(() => new Map<string, any>(data.products.map((product: any) => [product.id, product])), [data.products]);
   const skuLookup = useMemo(() => buildSkuLookup(data.products, data.productSkus), [data.products, data.productSkus]);
   
   const orderRows = useMemo(() => {
@@ -531,9 +528,8 @@ export function FinanceSettlementPage({ user }: Props) {
     );
   };
 
-  const handleLinkSkuCode = async (orderId: string, temuSkuCode: string, skuId: string) => {
+  const handleLinkSkuCode = async (temuSkuCode: string, skuId: string) => {
     if (!confirmAction(`确认将 SKU 货号关联为 ${temuSkuCode} 吗？`)) return;
-    setLinkingOrderId(orderId);
     try {
       await updateSkuCode(skuId, temuSkuCode);
       setMatchingOrderId(null);
@@ -541,8 +537,6 @@ export function FinanceSettlementPage({ user }: Props) {
       await reload();
     } catch (err) {
       alert("关联失败: " + getErrorMessage(err, "未知错误"));
-    } finally {
-      setLinkingOrderId(null);
     }
   };
 
@@ -815,7 +809,7 @@ export function FinanceSettlementPage({ user }: Props) {
                                     </optgroup>
                                   ))}
                                 </select>
-                                <button onClick={() => handleLinkSkuCode(row.order.id, row.order.sku_code, matchingSkuId)} disabled={!matchingSkuId} className="rounded bg-accent px-2 py-1 text-white text-xs font-bold disabled:opacity-50">关联</button>
+                                <button onClick={() => handleLinkSkuCode(row.order.sku_code, matchingSkuId)} disabled={!matchingSkuId} className="rounded bg-accent px-2 py-1 text-white text-xs font-bold disabled:opacity-50">关联</button>
                                 <button onClick={() => setMatchingOrderId(null)} className="rounded bg-slate-200 px-2 py-1 text-slate-700 text-xs font-bold">取消</button>
                               </div>
                             ) : (

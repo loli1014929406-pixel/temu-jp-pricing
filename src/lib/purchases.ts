@@ -1,4 +1,5 @@
 import { withTimeout, requireSession } from "./supabase-helpers";
+import { fetchAllPages } from "./paginated-fetch";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   PurchaseOrder,
@@ -207,33 +208,84 @@ async function persistResolvedPurchaseItemIds(
 
 export async function fetchPurchaseOrders() {
   const { supabase, session } = await requireSession();
-  const { data: ordersData, error: ordersError } = await withTimeout(
-    supabase.from("purchase_orders").select("id, order_code, warehouse_id, warehouse_name, purchased_at, items_total_rmb, total_cost_rmb, status").eq("owner_id", session.user.id).order("created_at", { ascending: false }),
-    "加载采购单",
-  );
+  const ownerId = session.user.id;
+  const { data: ordersData, error: ordersError } = await fetchAllPages<
+    Omit<PurchaseOrder, "sources" | "items" | "packages">
+  >(async (from, to) => {
+    const { data, error } = await withTimeout(
+      supabase
+        .from("purchase_orders")
+        .select("id, order_code, warehouse_id, warehouse_name, purchased_at, items_total_rmb, total_cost_rmb, notes, status, received_at")
+        .eq("owner_id", ownerId)
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: true })
+        .range(from, to),
+      "加载采购单",
+    );
+    return {
+      data: (data ?? []) as Omit<PurchaseOrder, "sources" | "items" | "packages">[],
+      error,
+    };
+  });
   if (ordersError) throw ordersError;
-  const orders = ordersData as Omit<PurchaseOrder, "sources" | "items" | "packages">[];
+  const orders = ordersData ?? [];
   if (orders.length === 0) return [] as PurchaseOrder[];
-  const orderIds = orders.map((item) => item.id);
-  const [{ data: sourcesData, error: sourcesError }, { data: itemsData, error: itemsError }, { data: packagesData, error: packagesError }] = await Promise.all([
-    supabase.from("purchase_order_sources").select("id, order_id, purchase_url, alibaba_order_no, freight_rmb").in("order_id", orderIds).eq("owner_id", session.user.id),
-    supabase.from("purchase_order_items").select("id, order_id, source_id, purchase_url, product_code, product_name_cn, item_name, item_spec, quantity, unit_price_rmb, product_id, item_id, sku_id, sku_quantity").in("order_id", orderIds).eq("owner_id", session.user.id),
-    supabase.from("purchase_packages").select("id, order_id, source_id, tracking_no, status").in("order_id", orderIds).eq("owner_id", session.user.id),
+  const [
+    { data: sourcesData, error: sourcesError },
+    { data: itemsData, error: itemsError },
+    { data: packagesData, error: packagesError },
+  ] = await Promise.all([
+    fetchAllPages<PurchaseOrderSource>(async (from, to) => {
+      const { data, error } = await supabase
+        .from("purchase_order_sources")
+        .select("id, order_id, purchase_url, alibaba_order_no, freight_rmb")
+        .eq("owner_id", ownerId)
+        .order("id", { ascending: true })
+        .range(from, to);
+      return { data: (data ?? []) as PurchaseOrderSource[], error };
+    }),
+    fetchAllPages<PurchaseOrderItem>(async (from, to) => {
+      const { data, error } = await supabase
+        .from("purchase_order_items")
+        .select("id, order_id, source_id, purchase_url, product_code, product_name_cn, item_name, item_spec, quantity, unit_price_rmb, product_id, item_id, sku_id, sku_quantity")
+        .eq("owner_id", ownerId)
+        .order("id", { ascending: true })
+        .range(from, to);
+      return { data: (data ?? []) as PurchaseOrderItem[], error };
+    }),
+    fetchAllPages<Omit<PurchasePackage, "items">>(async (from, to) => {
+      const { data, error } = await supabase
+        .from("purchase_packages")
+        .select("id, order_id, source_id, tracking_no, status, received_at")
+        .eq("owner_id", ownerId)
+        .order("id", { ascending: true })
+        .range(from, to);
+      return { data: (data ?? []) as Omit<PurchasePackage, "items">[], error };
+    }),
   ]);
   if (sourcesError) throw sourcesError;
   if (itemsError) throw itemsError;
   if (packagesError) throw packagesError;
-  const packages = packagesData as Omit<PurchasePackage, "items">[];
+  const packages = packagesData ?? [];
   const { data: packageItemsData, error: packageItemsError } = packages.length === 0
     ? { data: [] as PurchasePackageItem[], error: null }
-    : await supabase.from("purchase_package_items").select("package_id, order_item_id, quantity").in("package_id", packages.map((item) => item.id)).eq("owner_id", session.user.id);
+    : await fetchAllPages<PurchasePackageItem>(async (from, to) => {
+        const { data, error } = await supabase
+          .from("purchase_package_items")
+          .select("package_id, order_item_id, quantity")
+          .eq("owner_id", ownerId)
+          .order("package_id", { ascending: true })
+          .order("order_item_id", { ascending: true })
+          .range(from, to);
+        return { data: (data ?? []) as PurchasePackageItem[], error };
+      });
   if (packageItemsError) throw packageItemsError;
   const group = <T extends { order_id: string }>(rows: T[]) =>
     rows.reduce<Record<string, T[]>>((acc, row) => ((acc[row.order_id] ??= []).push(row), acc), {});
-  const packageItemsByPackage = (packageItemsData as PurchasePackageItem[]).reduce<Record<string, PurchasePackageItem[]>>((acc, row) => ((acc[row.package_id] ??= []).push(row), acc), {});
+  const packageItemsByPackage = (packageItemsData ?? []).reduce<Record<string, PurchasePackageItem[]>>((acc, row) => ((acc[row.package_id] ??= []).push(row), acc), {});
   const packagesByOrder = group(packages.map((item) => ({ ...item, items: packageItemsByPackage[item.id] ?? [] })) as PurchasePackage[]);
-  const sourcesByOrder = group(sourcesData as PurchaseOrderSource[]);
-  const itemsByOrder = group(itemsData as PurchaseOrderItem[]);
+  const sourcesByOrder = group(sourcesData ?? []);
+  const itemsByOrder = group(itemsData ?? []);
   return orders.map((order) => {
     const orderItems = itemsByOrder[order.id] ?? [];
     const orderPackages = packagesByOrder[order.id] ?? [];

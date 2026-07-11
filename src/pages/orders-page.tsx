@@ -4,12 +4,11 @@ import {
   RefreshCw,
   Upload,
   X,
-  Sparkles,
 } from "lucide-react";
 import { OrderBulkActions } from "../components/orders/OrderBulkActions";
 import { OrderDetailPanel } from "../components/orders/OrderDetailPanel";
 import { OrderFilters } from "../components/orders/OrderFilters";
-import { memo, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { Badge, PageHeader } from "../components/ui";
 import { StandardTable, type StandardTableColumn } from "../components/ui/StandardTable";
 import {
@@ -46,7 +45,6 @@ import {
 } from "../lib/orders";
 import type {
   Product,
-  ProductItem,
   ProductSku,
   LogisticsMethod,
   TemuOrderRecord,
@@ -56,14 +54,10 @@ import type {
 } from "../types";
 import {
   calculatePurchaseShippingRmb,
-  calculateDynamicMethodCost,
   getThreeCmDimensionIssue,
 } from "../utils/shipping-costs";
-import { formatCurrency } from "../utils/pricing";
 import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../utils/sku-code";
 import { confirmAction, confirmDelete, confirmSave } from "../utils/confirmations";
-import type { PricingSettings } from "../types";
-import { defaultLastLegMethods } from "../lib/defaults";
 import {
   getOrderStage,
   getOrderStageDefinition as getStageDefinition,
@@ -583,6 +577,56 @@ function getOrderExactSkuGroupKey(order: TemuOrderRecord) {
   ].join("\u0000");
 }
 
+function getOrderDisplayGroupKey(order: TemuOrderRecord) {
+  return getOrderNoKey(order.order_no) || order.id;
+}
+
+function mergeOrderWithDraft(
+  order: TemuOrderRecord,
+  drafts: Record<string, OrderDraft>,
+) {
+  return {
+    ...order,
+    ...(drafts[order.id] ?? toDraft(order)),
+  };
+}
+
+function buildOrderDisplayRowsWithDrafts(
+  targetOrders: TemuOrderRecord[],
+  drafts: Record<string, OrderDraft>,
+) {
+  const groups = new Map<string, TemuOrderRecord[]>();
+  targetOrders.forEach((order) => {
+    const key = getOrderDisplayGroupKey(order);
+    groups.set(key, [...(groups.get(key) ?? []), order]);
+  });
+
+  const rows: OrderDisplayRow[] = [];
+  groups.forEach((groupOrders) => {
+    const mergedGroupOrders = groupOrders.map((order) => mergeOrderWithDraft(order, drafts));
+    const sortedGroupOrders = [...mergedGroupOrders].sort((left, right) => {
+      const bySku = getOrderExactSkuGroupKey(left).localeCompare(
+        getOrderExactSkuGroupKey(right),
+      );
+      return bySku || left.sub_order_no.localeCompare(right.sub_order_no);
+    });
+    const primaryOrder = sortedGroupOrders[0];
+    if (!primaryOrder) return;
+
+    rows.push({
+      id: sortedGroupOrders.map((order) => order.id).sort().join("|"),
+      primaryOrder,
+      orders: sortedGroupOrders,
+      quantity: sortedGroupOrders.reduce(
+        (total, order) => total + getOrderFulfillmentQuantity(order),
+        0,
+      ),
+    });
+  });
+
+  return rows;
+}
+
 function getOrderSkuFromLookup(
   order: TemuOrderRecord,
   skuOrderLookup: SkuOrderLookup,
@@ -600,23 +644,6 @@ function getOrderDeclarationFromLookups(
   const sku = getOrderSkuFromLookup(order, skuOrderLookup);
   const product = sku?.product_id ? productsById.get(sku.product_id) ?? null : null;
   return sku && product ? { sku, product } : null;
-}
-
-function getOrderDisplayRowSalesSpec(rowOrders: TemuOrderRecord[]) {
-  const specGroups = new Map<string, { label: string; quantity: number }>();
-  rowOrders.forEach((order) => {
-    const label = order.product_attributes.trim() || "--";
-    const key = getOrderExactSkuGroupKey(order) || label;
-    const current = specGroups.get(key);
-    specGroups.set(key, {
-      label: current?.label ?? label,
-      quantity: (current?.quantity ?? 0) + getOrderFulfillmentQuantity(order),
-    });
-  });
-
-  return Array.from(specGroups.values())
-    .map((item) => (item.quantity > 1 ? `${item.label} ×${item.quantity}` : item.label))
-    .join(" / ");
 }
 
 function getOrderDisplayRowDeclarationGroups(
@@ -656,20 +683,6 @@ function getOrderDisplayRowSkuSummary(
     rowOrders.length;
 
   return `${skuCount} 个 SKU 共${rowQuantity} 件`;
-}
-
-function getOrderDisplayRowProductCodeSummary(
-  declarationGroups: OrderDeclarationGroup[],
-) {
-  const productCodes = Array.from(
-    new Set(
-      declarationGroups
-        .map((group) => group.declaration.product.product_code.trim())
-        .filter(Boolean),
-    ),
-  );
-
-  return productCodes.length > 0 ? productCodes.join(" / ") : "";
 }
 
 function SkuImageThumb({ product, sku }: { product: Product; sku: ProductSku }) {
@@ -1136,10 +1149,6 @@ function normalizeRmbAmount(value: number) {
   return Math.max(0, Number(value.toFixed(2)));
 }
 
-function formatRmbAmount(value: number) {
-  return `¥${normalizeRmbAmount(value).toFixed(2)}`;
-}
-
 type OrderTableRowProps = {
   activeStage: OrderStage;
   canEdit: boolean;
@@ -1157,13 +1166,11 @@ type OrderTableRowProps = {
   primaryDraft: OrderDraft | undefined;
   productsById: ProductsById;
   rowId: string;
-  rowOrderIds: string[];
   rowOrderIdsKey: string;
   selectedOrderIdSet: Set<string>;
   skuOrderLookup: SkuOrderLookup;
   warehouseLogisticsMethods: WarehouseLogisticsMethod[];
   warehouses: Warehouse[];
-  settings: PricingSettings | null;
 };
 
 const OrderTableRow = memo(function OrderTableRow({
@@ -1179,22 +1186,25 @@ const OrderTableRow = memo(function OrderTableRow({
   primaryDraft,
   productsById,
   rowId,
-  rowOrderIds,
   rowOrderIdsKey,
   selectedOrderIdSet,
   skuOrderLookup,
   warehouseLogisticsMethods,
   warehouses,
-  settings,
 }: OrderTableRowProps) {
   const [attrCellExpanded, setAttrCellExpanded] = useState(false);
+
+  const rowOrderIds = useMemo(
+    () => rowOrderIdsKey.split("|").filter(Boolean),
+    [rowOrderIdsKey],
+  );
 
   const rowOrders = useMemo(
     () =>
       rowOrderIds
         .map((orderId) => ordersById.get(orderId))
         .filter((order): order is TemuOrderRecord => Boolean(order)),
-    [ordersById, rowOrderIdsKey],
+    [ordersById, rowOrderIds],
   );
 
   const primaryOrder = rowOrders[0] ?? null;
@@ -1279,7 +1289,7 @@ const OrderTableRow = memo(function OrderTableRow({
   );
   const rowSelected = useMemo(
     () => rowOrderIds.every((orderId) => selectedOrderIdSet.has(orderId)),
-    [rowOrderIdsKey, selectedOrderIdSet],
+    [rowOrderIds, selectedOrderIdSet],
   );
   const skuSummary = useMemo(
     () => getOrderDisplayRowSkuSummary(rowOrders, rowQuantity, declarationGroups),
@@ -1920,6 +1930,15 @@ export function OrdersPage({ user }: OrdersPageProps) {
     applyWarehouseSkuStockUpdates,
     fetchLatestProductsAndSkus,
   } = useOrders(user);
+  const mergeOrderDraft = useCallback(
+    (order: TemuOrderRecord) => mergeOrderWithDraft(order, drafts),
+    [drafts],
+  );
+  const buildOrderDisplayRows = useCallback(
+    (targetOrders: TemuOrderRecord[]) =>
+      buildOrderDisplayRowsWithDrafts(targetOrders, drafts),
+    [drafts],
+  );
   const [activeStage, setActiveStage] = useState<OrderStage>("all");
   const [warehouseFilter, setWarehouseFilter] = useState("");
   const [logisticsMethodFilter, setLogisticsMethodFilter] = useState("");
@@ -1941,8 +1960,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
   };
   const [orderSort, setOrderSort] = useState<OrderSort>(defaultOrderSort);
   const [showUrgentUnuploadedOnly, setShowUrgentUnuploadedOnly] = useState(false);
-  const autoQueriedTrackingNosRef = useRef<Set<string>>(new Set());
-  const autoCompletedDeliveredOrderIdsRef = useRef<Set<string>>(new Set());
   useAutoDismiss(noticeMessage, () => setNoticeMessage(""));
 
   const logisticsMethodOptions = useMemo(
@@ -1962,7 +1979,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
             .filter(Boolean),
         ]),
       ),
-    [allOrders, drafts, logisticsMethods],
+    [allOrders, logisticsMethods, mergeOrderDraft],
   );
 
   const skuOrderLookup = useMemo(
@@ -1978,6 +1995,12 @@ export function OrdersPage({ user }: OrdersPageProps) {
   const productsById = useMemo(
     () => new Map(products.map((product) => [product.id, product])),
     [products],
+  );
+
+  const getOrderDeclaration = useCallback(
+    (order: TemuOrderRecord) =>
+      getOrderDeclarationFromLookups(order, productsById, skuOrderLookup),
+    [productsById, skuOrderLookup],
   );
 
   const productItemsById = useMemo(
@@ -2041,7 +2064,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
     }
   }, [logisticsMethodFilter, logisticsMethodOptions]);
 
-  function matchesFulfillmentFilters(order: TemuOrderRecord) {
+  const matchesFulfillmentFilters = useCallback((order: TemuOrderRecord) => {
     const merged = mergeOrderDraft(order);
     if (warehouseFilter) {
       const selectedWarehouse = warehouses.find((warehouse) => warehouse.id === warehouseFilter);
@@ -2061,7 +2084,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
       return false;
     }
     return true;
-  }
+  }, [logisticsMethodFilter, mergeOrderDraft, warehouseFilter, warehouses]);
 
   const filteredOrders = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -2097,7 +2120,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
     });
 
     return [...nextOrders].sort((left, right) => {
-      let comparison = 0;
+      let comparison: number;
 
       if (orderSort.key === "ship_deadline") {
         comparison = compareOptionalNumber(
@@ -2128,22 +2151,19 @@ export function OrdersPage({ user }: OrdersPageProps) {
     });
   }, [
     activeStage,
-    currentTime,
-    drafts,
     allOrders,
-    logisticsMethodFilter,
+    currentTime,
+    getOrderDeclaration,
+    matchesFulfillmentFilters,
+    mergeOrderDraft,
     orderSort,
-    productsById,
     search,
     showUrgentUnuploadedOnly,
-    skuOrderLookup,
-    warehouseFilter,
-    warehouses,
   ]);
 
   const filteredOrderRows = useMemo(
     () => buildOrderDisplayRows(filteredOrders),
-    [drafts, filteredOrders, productsById, skuOrderLookup],
+    [buildOrderDisplayRows, filteredOrders],
   );
   const filteredTotalPages = Math.max(1, Math.ceil(filteredOrderRows.length / pageSize));
   const paginatedOrderRows = useMemo(() => {
@@ -2170,13 +2190,9 @@ export function OrdersPage({ user }: OrdersPageProps) {
     });
     return counts;
   }, [
-    drafts,
     allOrders,
-    logisticsMethodFilter,
-    productsById,
-    skuOrderLookup,
-    warehouseFilter,
-    warehouses,
+    buildOrderDisplayRows,
+    matchesFulfillmentFilters,
   ]);
 
   const tableColumns = useMemo(
@@ -2202,12 +2218,12 @@ export function OrdersPage({ user }: OrdersPageProps) {
 
   const newOrdersInView = useMemo(
     () => filteredOrders.filter((order) => getOrderStage(mergeOrderDraft(order)) === "new_order"),
-    [drafts, filteredOrders],
+    [filteredOrders, mergeOrderDraft],
   );
 
   const pendingShippingOrdersInView = useMemo(
     () => filteredOrders.filter((order) => getOrderStage(mergeOrderDraft(order)) === "pending_shipping"),
-    [drafts, filteredOrders],
+    [filteredOrders, mergeOrderDraft],
   );
 
   const selectedOrderIdSet = useMemo(
@@ -2230,16 +2246,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
       filteredOrders.filter(
         (order) => selectedOrderIdSet.has(order.id) && getOrderStage(mergeOrderDraft(order)) === "shipped",
       ),
-    [drafts, filteredOrders, selectedOrderIdSet],
-  );
-
-  const selectedUploadedTemuOrdersInView = useMemo(
-    () =>
-      filteredOrders.filter(
-        (order) =>
-          selectedOrderIdSet.has(order.id) && getOrderStage(mergeOrderDraft(order)) === "uploaded_temu",
-      ),
-    [drafts, filteredOrders, selectedOrderIdSet],
+    [filteredOrders, mergeOrderDraft, selectedOrderIdSet],
   );
 
   const selectedCompletableOrdersInView = useMemo(
@@ -2248,7 +2255,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
         (order) =>
           selectedOrderIdSet.has(order.id) && getOrderStage(mergeOrderDraft(order)) === "uploaded_temu",
       ),
-    [drafts, filteredOrders, selectedOrderIdSet],
+    [filteredOrders, mergeOrderDraft, selectedOrderIdSet],
   );
 
   const selectedOrdersInView = useMemo(
@@ -2260,7 +2267,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
       filteredOrders.filter(
         (order) => selectedOrderIdSet.has(order.id) && getOrderStage(mergeOrderDraft(order)) === "completed",
       ),
-    [drafts, filteredOrders, selectedOrderIdSet],
+    [filteredOrders, mergeOrderDraft, selectedOrderIdSet],
   );
 
   const selectedOrderRowsInView = useMemo(
@@ -2308,7 +2315,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
         (order) =>
           isShippingTrackingStage(getOrderStage(mergeOrderDraft(order))) && order.logistics_tracking_no.trim(),
       ),
-    [drafts, filteredOrders],
+    [filteredOrders, mergeOrderDraft],
   );
   const allFilteredSelected =
     paginatedOrderRows.length > 0 &&
@@ -2323,13 +2330,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
   useEffect(() => {
     if (!canEdit || loading || busyKey) return;
   }, [allOrders, busyKey, canEdit, loading]);
-
-  function mergeOrderDraft(order: TemuOrderRecord) {
-    return {
-      ...order,
-      ...(drafts[order.id] ?? toDraft(order)),
-    };
-  }
 
   function getOrderWarehouseLogisticsIssue(order: Pick<TemuOrderRecord, "warehouse_id" | "warehouse_name" | "order_no">) {
     if (!order.warehouse_id) return "";
@@ -2431,7 +2431,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
 
   function formatJapanPostDateTime(value: string) {
     const match = value.match(
-      /(\d{4})[\/年](\d{1,2})[\/月](\d{1,2})日?\s+(\d{1,2}):(\d{2})/,
+      /(\d{4})[/年](\d{1,2})[/月](\d{1,2})日?\s+(\d{1,2}):(\d{2})/,
     );
     if (!match) return "";
 
@@ -2606,53 +2606,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
     }
 
     return updates;
-  }
-
-  async function completeDeliveredOrders(
-    targetOrders: TemuOrderRecord[],
-    busyName: string,
-    showNotice = false,
-  ) {
-    if (targetOrders.length === 0) return;
-
-    setBusyKey(busyName);
-    if (showNotice) {
-      setErrorMessage("");
-      setNoticeMessage("");
-    }
-
-    try {
-      const saveEntries = targetOrders.map((order) => {
-        const updates = buildTrackingStatusUpdates(order, {
-          status: order.logistics_status,
-        });
-        return { order, updates, nextOrder: { ...order, ...updates } };
-      });
-      const { nextOrders, inventoryChanges, failures } =
-        await saveOrderEntriesWithInventory(saveEntries);
-      if (nextOrders.length === 0 && failures.length > 0) {
-        throw failures[0].error;
-      }
-      updateOrdersState(nextOrders);
-      if (showNotice) {
-        setNoticeMessage(
-          [
-            `已自动完成 ${nextOrders.length} 条配達完了订单`,
-            inventoryChanges.length > 0
-              ? `扣减 ${inventoryChanges.length} 项 SKU 库存`
-              : "",
-            failures.length > 0 ? `${failures.length} 条更新失败` : "",
-          ].filter(Boolean).join("，"),
-        );
-      }
-    } catch (error) {
-      targetOrders.forEach((order) => {
-        autoCompletedDeliveredOrderIdsRef.current.delete(order.id);
-      });
-      setErrorMessage(getOrdersErrorMessage(error, "自动完成订单失败"));
-    } finally {
-      setBusyKey("");
-    }
   }
 
   function getTrackingMatchScore(order: TemuOrderRecord, record: TrackingImportRecord) {
@@ -2857,14 +2810,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
       ["面单打印时间", merged.label_printed_at],
       ["完整地址", getFullAddress(merged)],
     ] as const;
-  }
-
-  function toggleOrderSelection(orderId: string, checked: boolean) {
-    setSelectedOrderIds((current) =>
-      checked
-        ? Array.from(new Set([...current, orderId]))
-        : current.filter((id) => id !== orderId),
-    );
   }
 
   function toggleOrderRowSelection(rowIds: string[], checked: boolean) {
@@ -3313,6 +3258,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
                 rollbackError,
                 "库存回滚失败",
               )}`,
+              { cause: rollbackError },
             );
           }
         } else if (shouldReleaseInventory && entryReleaseChanges.length > 0) {
@@ -3324,6 +3270,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
                 rollbackError,
                 "库存回滚失败",
               )}`,
+              { cause: rollbackError },
             );
           }
         }
@@ -3512,10 +3459,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
     }
   }
 
-  async function handleSaveActualShipTime(order: TemuOrderRecord) {
-    await handleSaveActualShipTimeForOrders([order]);
-  }
-
   async function handleSaveActualShipTimeForOrders(targetOrders: TemuOrderRecord[]) {
     if (!canEdit) return;
 
@@ -3606,6 +3549,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
                   rollbackError,
                   "库存回滚失败",
                 )}`,
+                { cause: rollbackError },
               );
             }
           }
@@ -3902,12 +3846,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
     return Number(Math.max(5, purchaseTotalUsd).toFixed(2));
   }
 
-  function getOrderDeclaration(order: TemuOrderRecord) {
-    const sku = getOrderSku(order);
-    const product = sku?.product_id ? productsById.get(sku.product_id) ?? null : null;
-    return sku && product ? { sku, product } : null;
-  }
-
   function validateOrdersReadyForFulfillment(targetOrders: TemuOrderRecord[], requireLogistics = true) {
     const mergedOrders = targetOrders.map((order) => mergeOrderDraft(order));
     const missingWarehouse = mergedOrders.find(
@@ -3941,131 +3879,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
     if (missingMaterial) return `订单 ${missingMaterial.order_no} 对应商品还没有填写英文材质。`;
 
     return "";
-  }
-
-  function getOrderFulfillmentQuantity(order: TemuOrderRecord) {
-    return Math.max(1, Math.trunc(order.fulfillment_quantity || 0));
-  }
-
-  function getOrderExactSkuGroupKey(order: TemuOrderRecord) {
-    return [
-      normalizeSkuCode(order.sku_code),
-      normalizeSalesSpec(order.product_attributes),
-    ].join("\u0000");
-  }
-
-  function getOrderDisplayGroupKey(order: TemuOrderRecord) {
-    return getOrderNoKey(order.order_no) || order.id;
-  }
-
-  function createOrderDisplayRow(rowOrders: TemuOrderRecord[]): OrderDisplayRow | null {
-    const mergedOrders = rowOrders.map((order) => mergeOrderDraft(order));
-    const primaryOrder = mergedOrders[0];
-    if (!primaryOrder) return null;
-
-    return {
-      id: mergedOrders.map((order) => order.id).sort().join("|"),
-      primaryOrder,
-      orders: mergedOrders,
-      quantity: mergedOrders.reduce(
-        (total, order) => total + getOrderFulfillmentQuantity(order),
-        0,
-      ),
-    };
-  }
-
-  function buildOrderDisplayRows(targetOrders: TemuOrderRecord[]) {
-    const groups = new Map<string, TemuOrderRecord[]>();
-    targetOrders.forEach((order) => {
-      const key = getOrderDisplayGroupKey(order);
-      groups.set(key, [...(groups.get(key) ?? []), order]);
-    });
-
-    const rows: OrderDisplayRow[] = [];
-    groups.forEach((groupOrders) => {
-      const mergedGroupOrders = groupOrders.map((order) => mergeOrderDraft(order));
-      const sortedGroupOrders = [...mergedGroupOrders].sort((left, right) => {
-        const bySku = getOrderExactSkuGroupKey(left).localeCompare(
-          getOrderExactSkuGroupKey(right),
-        );
-        return bySku || left.sub_order_no.localeCompare(right.sub_order_no);
-      });
-      const row = createOrderDisplayRow(sortedGroupOrders);
-      if (row) rows.push(row);
-    });
-
-    return rows;
-  }
-
-  function getOrderDisplayRowSalesSpec(row: OrderDisplayRow) {
-    const specGroups = new Map<string, { label: string; quantity: number }>();
-    row.orders.forEach((order) => {
-      const label = order.product_attributes.trim() || "--";
-      const key = getOrderExactSkuGroupKey(order) || label;
-      const current = specGroups.get(key);
-      specGroups.set(key, {
-        label: current?.label ?? label,
-        quantity: (current?.quantity ?? 0) + getOrderFulfillmentQuantity(order),
-      });
-    });
-
-    return Array.from(specGroups.values())
-      .map((item) => (item.quantity > 1 ? `${item.label} ×${item.quantity}` : item.label))
-      .join(" / ");
-  }
-
-  function getOrderDisplayRowDeclarationGroups(row: OrderDisplayRow) {
-    const groups = new Map<
-      string,
-      {
-        declaration: { sku: ProductSku; product: Product };
-        quantity: number;
-      }
-    >();
-
-    row.orders.forEach((order) => {
-      const declaration = getOrderDeclaration(order);
-      if (!declaration) return;
-
-      const key = declaration.sku.id || getOrderExactSkuGroupKey(order);
-      const current = groups.get(key);
-      groups.set(key, {
-        declaration: current?.declaration ?? declaration,
-        quantity: (current?.quantity ?? 0) + getOrderFulfillmentQuantity(order),
-      });
-    });
-
-    return Array.from(groups.values());
-  }
-
-  function getOrderDisplayRowSkuSummary(
-    row: OrderDisplayRow,
-    declarationGroups: ReturnType<typeof getOrderDisplayRowDeclarationGroups>,
-  ) {
-    const skuCount =
-      declarationGroups.length ||
-      new Set(
-        row.orders
-          .map((order) => getOrderExactSkuGroupKey(order))
-          .filter(Boolean),
-      ).size ||
-      row.orders.length;
-
-    return `${skuCount} 个 SKU 共${row.quantity} 件`;
-  }
-
-  function getOrderDisplayRowProductCodeSummary(
-    declarationGroups: ReturnType<typeof getOrderDisplayRowDeclarationGroups>,
-  ) {
-    const productCodes = Array.from(
-      new Set(
-        declarationGroups
-          .map((group) => group.declaration.product.product_code.trim())
-          .filter(Boolean),
-      ),
-    );
-
-    return productCodes.length > 0 ? productCodes.join(" / ") : "";
   }
 
   function buildOrderStockDeductions(targetOrders: TemuOrderRecord[]) {
@@ -4835,13 +4648,11 @@ export function OrdersPage({ user }: OrdersPageProps) {
                       primaryDraft={drafts[orderRow.primaryOrder.id]}
                       productsById={productsById}
                       rowId={orderRow.id}
-                      rowOrderIds={orderRow.orders.map((item) => item.id)}
                       rowOrderIdsKey={orderRow.orders.map((item) => item.id).join("|")}
                       selectedOrderIdSet={selectedOrderIdSet}
                       skuOrderLookup={skuOrderLookup}
                       warehouseLogisticsMethods={warehouseLogisticsMethods}
                       warehouses={warehouses}
-                      settings={settings}
                     />
                   ))}
                 </tbody>

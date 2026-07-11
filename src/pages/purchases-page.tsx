@@ -19,7 +19,6 @@ import {
   deletePurchaseOrder,
   fetchPurchaseOrders,
   receivePurchasePackage,
-  receiveRemainingPurchaseOrder,
   updatePurchaseOrderItemSkuInfo,
   updatePurchasePackageTrackingNo,
   updatePurchaseSource,
@@ -51,12 +50,6 @@ type PurchaseSkuReceiptSummary = {
   receivedQuantity: number;
   amountRmb: number;
   inferred: boolean;
-};
-type PurchaseMissingSkuSummary = {
-  key: string;
-  label: string;
-  quantity: number;
-  receivedQuantity: number;
 };
 type ReceiveSkuRow = {
   key: string;
@@ -1330,50 +1323,6 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
       ),
     );
     setReceiveConfirmOrder(order);
-  }
-
-  async function handleReceiveRemainingOrder(order: PurchaseOrder, skipConfirm = false) {
-    if (!canEdit) {
-      setErrorMessage("当前账号没有编辑权限，不能签收入库。");
-      return;
-    }
-
-    if (
-      !skipConfirm &&
-      !(await confirmAction(
-        `确认将采购管理单“${order.order_code}”剩余未签收明细全部签收，并增加 SKU 库存吗？`,
-      ))
-    ) {
-      return;
-    }
-
-    setBusyKey(`receive-order-${order.id}`);
-    setErrorMessage("");
-    setNoticeMessage("");
-    try {
-      const result = await receiveRemainingPurchaseOrder(order);
-      const count = result.inventory.reduce(
-        (sum, entry) => sum + entry.changeQuantity,
-        0,
-      );
-      setOrders((current) =>
-        current.map((item) =>
-          item.id === order.id
-            ? {
-              ...item,
-              ...result.order,
-              items: item.items,
-              packages: [...item.packages, ...result.packages],
-            }
-            : item,
-        ),
-      );
-      setNoticeMessage(count > 0 ? `已签收剩余明细并增加 SKU 库存 ${count} 件` : "已将采购管理单标记为已签收");
-    } catch (error) {
-      setErrorMessage(getErrorMessage(error, "签收剩余明细失败"));
-    } finally {
-      setBusyKey("");
-    }
   }
 
   async function handleReceiveCustomOrder(order: PurchaseOrder) {

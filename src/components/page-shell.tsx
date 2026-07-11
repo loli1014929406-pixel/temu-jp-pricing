@@ -72,18 +72,6 @@ function getCanonicalNavPath(pathname: string) {
   return pathname;
 }
 
-const navItemsFlat = navSections.flatMap((section) => section.items) as { to: string; label: string; icon: any }[];
-
-function getActiveModule(pathname: string) {
-  const canonicalPathname = getCanonicalNavPath(pathname);
-  return (
-    [...navItemsFlat]
-      .sort((left, right) => right.to.length - left.to.length)
-      .find((item) => canonicalPathname === item.to || canonicalPathname.startsWith(`${item.to}/`)) ??
-    navItemsFlat[0]
-  );
-}
-
 function isNavItemActive(pathname: string, itemTo: string, isActive: boolean) {
   const canonicalPathname = getCanonicalNavPath(pathname);
   if (itemTo === "/inventory") {
@@ -103,8 +91,6 @@ export function PageShell() {
   const { label } = usePermissions();
   const location = useLocation();
   const [profile, setProfile] = useState<AccountProfile | null>(null);
-  const activeModule = getActiveModule(location.pathname);
-
   async function handleSignOut() {
     await getSupabaseClient().auth.signOut();
   }

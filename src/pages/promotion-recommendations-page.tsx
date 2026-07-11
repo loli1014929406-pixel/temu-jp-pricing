@@ -381,7 +381,7 @@ function buildRecommendation({
 
   const currentTrafficDiscount = traffic.value ?? 0;
   let couponValue: number | null = null;
-  let couponReason = "";
+  let couponReason: string;
 
   if (!featureToggles.coupon) {
     couponReason = "优惠券未计入本行测算";

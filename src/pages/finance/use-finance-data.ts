@@ -229,6 +229,8 @@ export function useFinanceData(userId: string, options: FetchOptions) {
     userId,
   ]);
 
+  const reload = useCallback(() => load(true), [load]);
+
   useEffect(() => {
     if (userId) {
       void load(false);
@@ -242,6 +244,6 @@ export function useFinanceData(userId: string, options: FetchOptions) {
     settings,
     loading,
     error,
-    reload: () => load(true),
+    reload,
   };
 }

@@ -753,7 +753,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
 
   const sortedProducts = useMemo(() => {
     return [...filteredProducts].sort((first, second) => {
-      let result = 0;
+      let result: number;
 
       if (sortState.key === "productCode") {
         result = first.product_code.localeCompare(second.product_code, "zh-Hans-CN", {
