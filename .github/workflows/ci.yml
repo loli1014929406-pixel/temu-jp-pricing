@@ -37,6 +37,9 @@ jobs:
       - name: Check database snapshot coverage
         run: npm run check:data-coverage
 
+      - name: Check team operational data scope
+        run: npm run check:team-scope
+
       - name: Audit production dependencies
         run: npm audit --audit-level=high
 

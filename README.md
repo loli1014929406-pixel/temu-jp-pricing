@@ -108,6 +108,10 @@ npm run recalculate:inventory
 
 前端只使用 `anon key`。商品、订单、采购、库存、财务和参数数据由 Supabase 保存，RLS 通过 `account_permissions` 控制操作权限。
 
+- 商品、订单、采购、仓库、物流和库存属于同一运营团队，所有已授权账号共享可见。
+- 新增运营记录保留创建账号，但不能转移 `owner_id`；编辑和删除仍按账号权限控制。
+- 财务费用、结算文件、账号资料和个人参数继续按账号隔离。
+
 - `admin`：所有权限，可以新增、编辑、删除。
 - `editor`：可以新增和编辑，不能删除。
 - `viewer`：只读查看。
@@ -157,6 +161,7 @@ npm run sync:backend-context
 
 - `local-data/calculation-rules.json`
 - `local-data/backend-context.json`
+- `local-data/supabase-migrations.json`
 
 随后复制到：
 

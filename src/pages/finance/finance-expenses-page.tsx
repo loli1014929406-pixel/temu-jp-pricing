@@ -11,6 +11,7 @@ import { formatCurrency } from "../../utils/pricing";
 import type { FinanceExpense } from "../../types";
 import { confirmAction, confirmCancelEdit, confirmDelete, confirmSave } from "../../utils/confirmations";
 import { getErrorMessage } from "../../utils/errors";
+import { notifyError, notifySuccess, notifyWarning } from "../../lib/notifications";
 
 type Props = {
   user: User;
@@ -292,7 +293,7 @@ export function FinanceExpensesPage({ user }: Props) {
             }
             await addExpensesBulk(toInsert);
             localStorage.removeItem("codex_finance_other_expenses");
-            alert(`成功将 ${parsed.length} 条本地缓存的费用记录迁移至云端数据库！`);
+            notifySuccess(`成功将 ${parsed.length} 条本地缓存的费用记录迁移至云端数据库！`);
             await reload();
           } else {
             localStorage.removeItem("codex_finance_other_expenses");
@@ -332,7 +333,7 @@ export function FinanceExpensesPage({ user }: Props) {
     e.preventDefault();
     const amount = Number(expenseAmount);
     if (Number.isNaN(amount) || amount <= 0) {
-      alert("请输入有效的费用金额");
+      notifyWarning("请输入有效的费用金额");
       return;
     }
     if (!confirmSave()) return;
@@ -356,7 +357,7 @@ export function FinanceExpensesPage({ user }: Props) {
       resetForm();
       await reload();
     } catch (err: any) {
-      alert("保存失败: " + err.message);
+      notifyError("保存失败: " + err.message);
     }
   };
 
@@ -366,7 +367,7 @@ export function FinanceExpensesPage({ user }: Props) {
       await deleteExpense(id);
       await reload();
     } catch (err: any) {
-      alert("删除失败: " + err.message);
+      notifyError("删除失败: " + err.message);
     }
   };
 
@@ -374,7 +375,7 @@ export function FinanceExpensesPage({ user }: Props) {
     const file = event.target.files?.[0];
     if (!file) return;
     if (!canEdit) {
-      alert("当前账号没有编辑权限，不能导入广告费。");
+      notifyWarning("当前账号没有编辑权限，不能导入广告费。");
       event.target.value = "";
       return;
     }
@@ -413,7 +414,7 @@ export function FinanceExpensesPage({ user }: Props) {
       });
       setAdImportActions(defaultActions);
     } catch (err) {
-      alert("解析失败: " + getErrorMessage(err, "请确认上传的是广告费支付明细表格"));
+      notifyError("解析失败: " + getErrorMessage(err, "请确认上传的是广告费支付明细表格"));
     } finally {
       setAdImporting(false);
       event.target.value = "";
@@ -441,7 +442,7 @@ export function FinanceExpensesPage({ user }: Props) {
     });
 
     if (toInsert.length === 0 && toOverwrite.length === 0) {
-      alert("没有需要导入的广告费记录");
+      notifyWarning("没有需要导入的广告费记录");
       return;
     }
 
@@ -472,9 +473,9 @@ export function FinanceExpensesPage({ user }: Props) {
       setAdImportActions({});
       setPage(1);
       await reload();
-      alert(`广告费导入完成：新增 ${toInsert.length} 条，覆盖 ${toOverwrite.length} 条，跳过 ${skippedCount} 条。`);
+      notifySuccess(`广告费导入完成：新增 ${toInsert.length} 条，覆盖 ${toOverwrite.length} 条，跳过 ${skippedCount} 条。`);
     } catch (err) {
-      alert("导入失败: " + getErrorMessage(err, "未知错误"));
+      notifyError("导入失败: " + getErrorMessage(err, "未知错误"));
     } finally {
       setAdImporting(false);
     }
@@ -695,6 +696,7 @@ export function FinanceExpensesPage({ user }: Props) {
             <input
               ref={adPaymentFileInputRef}
               type="file"
+              aria-label="选择广告费支付明细文件"
               accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
               onChange={(event) => void handleAdPaymentFileChange(event)}
               className="hidden"

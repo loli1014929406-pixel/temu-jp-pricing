@@ -277,7 +277,7 @@ export function ProductsPage({ user }: ProductsPageProps) {
   }
 
   return (
-    <section className="grid gap-5">
+    <section className="grid min-w-0 gap-5">
       <PageHeader
         title="商品管理"
         description="管理商品尺寸、重量与申报材质"
@@ -304,6 +304,7 @@ export function ProductsPage({ user }: ProductsPageProps) {
                 上传 Excel
               </button>
               <input
+                aria-label="选择商品 Excel 文件"
                 ref={fileInputRef}
                 type="file"
                 accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -333,6 +334,7 @@ export function ProductsPage({ user }: ProductsPageProps) {
       <div className="surface-card p-4 grid gap-4 sm:grid-cols-[1fr_180px] items-center">
         <div className="relative">
           <input
+            aria-label="搜索商品"
             type="text"
             placeholder="搜索商品编号、名称或材质..."
             value={searchQuery}
@@ -342,6 +344,7 @@ export function ProductsPage({ user }: ProductsPageProps) {
         </div>
         <div>
           <select
+            aria-label="商品售卖状态"
             value={sellingFilter}
             onChange={(e) => setSellingFilter(e.target.value as ProductSellingFilter)}
             className="w-full h-10 rounded-xl border border-line bg-white px-3 text-sm outline-none transition focus:border-accent focus:ring-4 focus:ring-accent/10 text-slate-750 font-medium"
@@ -515,7 +518,7 @@ export function ProductsPage({ user }: ProductsPageProps) {
         )}
       </div>
 
-      <div className="hidden md:block">
+      <div className="hidden min-w-0 md:block">
         <StandardTable
           page={page}
           pageSize={pageSize}

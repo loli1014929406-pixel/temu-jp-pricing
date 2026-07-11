@@ -161,7 +161,6 @@ async function resolvePackageItems(
 
 async function persistResolvedPurchaseItemIds(
   supabase: SupabaseClient,
-  ownerId: string,
   resolvedItems: ResolvedPackageItem[],
 ) {
   const updates = resolvedItems.filter(
@@ -175,7 +174,6 @@ async function persistResolvedPurchaseItemIds(
         .from("purchase_order_items")
         .update({ item_id: orderItem.item_id })
         .eq("id", orderItem.id)
-        .eq("owner_id", ownerId)
         .is("item_id", null)
         .select("id")
         .maybeSingle(),
@@ -193,8 +191,7 @@ async function persistResolvedPurchaseItemIds(
   const { data: existingRows, error: existingError } = await supabase
     .from("purchase_order_items")
     .select("id, item_id")
-    .in("id", missedIds)
-    .eq("owner_id", ownerId);
+    .in("id", missedIds);
   if (existingError) throw existingError;
 
   const existingById = Object.fromEntries(
@@ -207,8 +204,7 @@ async function persistResolvedPurchaseItemIds(
 }
 
 export async function fetchPurchaseOrders() {
-  const { supabase, session } = await requireSession();
-  const ownerId = session.user.id;
+  const { supabase } = await requireSession();
   const { data: ordersData, error: ordersError } = await fetchAllPages<
     Omit<PurchaseOrder, "sources" | "items" | "packages">
   >(async (from, to) => {
@@ -216,7 +212,6 @@ export async function fetchPurchaseOrders() {
       supabase
         .from("purchase_orders")
         .select("id, order_code, warehouse_id, warehouse_name, purchased_at, items_total_rmb, total_cost_rmb, notes, status, received_at")
-        .eq("owner_id", ownerId)
         .order("created_at", { ascending: false })
         .order("id", { ascending: true })
         .range(from, to),
@@ -239,7 +234,6 @@ export async function fetchPurchaseOrders() {
       const { data, error } = await supabase
         .from("purchase_order_sources")
         .select("id, order_id, purchase_url, alibaba_order_no, freight_rmb")
-        .eq("owner_id", ownerId)
         .order("id", { ascending: true })
         .range(from, to);
       return { data: (data ?? []) as PurchaseOrderSource[], error };
@@ -248,7 +242,6 @@ export async function fetchPurchaseOrders() {
       const { data, error } = await supabase
         .from("purchase_order_items")
         .select("id, order_id, source_id, purchase_url, product_code, product_name_cn, item_name, item_spec, quantity, unit_price_rmb, product_id, item_id, sku_id, sku_quantity")
-        .eq("owner_id", ownerId)
         .order("id", { ascending: true })
         .range(from, to);
       return { data: (data ?? []) as PurchaseOrderItem[], error };
@@ -257,7 +250,6 @@ export async function fetchPurchaseOrders() {
       const { data, error } = await supabase
         .from("purchase_packages")
         .select("id, order_id, source_id, tracking_no, status, received_at")
-        .eq("owner_id", ownerId)
         .order("id", { ascending: true })
         .range(from, to);
       return { data: (data ?? []) as Omit<PurchasePackage, "items">[], error };
@@ -273,7 +265,6 @@ export async function fetchPurchaseOrders() {
         const { data, error } = await supabase
           .from("purchase_package_items")
           .select("package_id, order_item_id, quantity")
-          .eq("owner_id", ownerId)
           .order("package_id", { ascending: true })
           .order("order_item_id", { ascending: true })
           .range(from, to);
@@ -399,7 +390,7 @@ async function createPurchaseOrderLegacy(input: CreatePurchaseOrderInput) {
     if (itemError) throw itemError;
     return { ...order, sources, items: itemData as PurchaseOrderItem[], packages: [] as PurchasePackage[] };
   } catch (error) {
-    await supabase.from("purchase_orders").delete().eq("id", order.id).eq("owner_id", session.user.id);
+    await supabase.from("purchase_orders").delete().eq("id", order.id);
     throw error;
   }
 }
@@ -428,19 +419,19 @@ export async function createPurchaseOrder(input: CreatePurchaseOrderInput) {
 }
 
 async function updatePurchaseSourceLegacy(sourceId: string, updates: Pick<PurchaseOrderSource, "alibaba_order_no" | "freight_rmb">) {
-  const { supabase, session } = await requireSession();
+  const { supabase } = await requireSession();
   const { data, error } = await withTimeout(
-    supabase.from("purchase_order_sources").update(updates).eq("id", sourceId).eq("owner_id", session.user.id).select("id, order_id, purchase_url, alibaba_order_no, freight_rmb").single(),
+    supabase.from("purchase_order_sources").update(updates).eq("id", sourceId).select("id, order_id, purchase_url, alibaba_order_no, freight_rmb").single(),
     "更新采购链接信息",
   );
   if (error) throw error;
   const source = data as PurchaseOrderSource;
-  const { data: allSources, error: sourceError } = await supabase.from("purchase_order_sources").select("freight_rmb").eq("order_id", source.order_id).eq("owner_id", session.user.id);
+  const { data: allSources, error: sourceError } = await supabase.from("purchase_order_sources").select("freight_rmb").eq("order_id", source.order_id);
   if (sourceError) throw sourceError;
-  const { data: order, error: orderError } = await supabase.from("purchase_orders").select("items_total_rmb").eq("id", source.order_id).eq("owner_id", session.user.id).single();
+  const { data: order, error: orderError } = await supabase.from("purchase_orders").select("items_total_rmb").eq("id", source.order_id).single();
   if (orderError) throw orderError;
   const totalCost = Number(order.items_total_rmb) + allSources.reduce((sum, item) => sum + Number(item.freight_rmb), 0);
-  await supabase.from("purchase_orders").update({ total_cost_rmb: totalCost }).eq("id", source.order_id).eq("owner_id", session.user.id);
+  await supabase.from("purchase_orders").update({ total_cost_rmb: totalCost }).eq("id", source.order_id);
   return source;
 }
 
@@ -468,7 +459,7 @@ export async function updatePurchaseSource(
 }
 
 export async function updatePurchaseOrderItemSkuInfo(orderItemId: string, skuId: string) {
-  const { supabase, session } = await requireSession();
+  const { supabase } = await requireSession();
   const normalizedSkuId = skuId.trim();
   if (!normalizedSkuId) throw new Error("请选择 SKU 后再保存");
 
@@ -477,7 +468,6 @@ export async function updatePurchaseOrderItemSkuInfo(orderItemId: string, skuId:
       .from("purchase_order_items")
       .select("id, order_id, source_id, purchase_url, product_code, product_name_cn, item_name, item_spec, quantity, unit_price_rmb, product_id, item_id, sku_id, sku_quantity")
       .eq("id", orderItemId)
-      .eq("owner_id", session.user.id)
       .maybeSingle(),
     "读取采购明细",
   );
@@ -492,7 +482,6 @@ export async function updatePurchaseOrderItemSkuInfo(orderItemId: string, skuId:
     .from("purchase_orders")
     .select("id, status")
     .eq("id", targetItem.order_id)
-    .eq("owner_id", session.user.id)
     .maybeSingle();
   if (orderError) throw orderError;
   if (!orderData) throw new Error("采购管理单不存在，请刷新后重试");
@@ -525,8 +514,7 @@ export async function updatePurchaseOrderItemSkuInfo(orderItemId: string, skuId:
     .select("id, order_id, source_id, purchase_url, product_code, product_name_cn, item_name, item_spec, quantity, unit_price_rmb, product_id, item_id, sku_id, sku_quantity")
     .eq("order_id", targetItem.order_id)
     .eq("source_id", targetItem.source_id)
-    .eq("product_id", targetItem.product_id)
-    .eq("owner_id", session.user.id);
+    .eq("product_id", targetItem.product_id);
   if (orderItemError) throw orderItemError;
 
   const productOrderItems = (orderItemData ?? []) as PurchaseOrderItem[];
@@ -592,7 +580,6 @@ export async function updatePurchaseOrderItemSkuInfo(orderItemId: string, skuId:
     .from("purchase_packages")
     .select("id")
     .eq("order_id", targetItem.order_id)
-    .eq("owner_id", session.user.id)
     .eq("status", "received");
   if (receivedPackageError) throw receivedPackageError;
   const receivedPackageIds = (receivedPackageData ?? []).map((pkg) => pkg.id);
@@ -602,8 +589,7 @@ export async function updatePurchaseOrderItemSkuInfo(orderItemId: string, skuId:
       .from("purchase_package_items")
       .select("order_item_id, quantity")
       .in("package_id", receivedPackageIds)
-      .in("order_item_id", touchedItemIds)
-      .eq("owner_id", session.user.id);
+      .in("order_item_id", touchedItemIds);
     if (receivedItemError) throw receivedItemError;
     const hasReceivedTouchedItem = (receivedItemData ?? []).some(
       (item) => Math.trunc(Number(item.quantity) || 0) > 0,
@@ -623,7 +609,6 @@ export async function updatePurchaseOrderItemSkuInfo(orderItemId: string, skuId:
           sku_quantity: expectedSkuQuantity,
         })
         .eq("id", item.id)
-        .eq("owner_id", session.user.id)
         .select("id, order_id, source_id, purchase_url, product_code, product_name_cn, item_name, item_spec, quantity, unit_price_rmb, product_id, item_id, sku_id, sku_quantity")
         .single(),
     ),
@@ -636,7 +621,6 @@ export async function updatePurchaseOrderItemSkuInfo(orderItemId: string, skuId:
 
 async function loadPurchaseOrderForDeletion(
   supabase: SupabaseClient,
-  ownerId: string,
   orderId: string,
 ) {
   const { data: orderData, error: orderError } = await withTimeout(
@@ -644,7 +628,6 @@ async function loadPurchaseOrderForDeletion(
       .from("purchase_orders")
       .select("id, warehouse_id, order_code")
       .eq("id", orderId)
-      .eq("owner_id", ownerId)
       .maybeSingle(),
     "读取采购单",
   );
@@ -657,13 +640,11 @@ async function loadPurchaseOrderForDeletion(
       supabase
         .from("purchase_order_items")
         .select("id, order_id, product_id, item_id, item_name, item_spec, sku_id, sku_quantity")
-        .eq("order_id", order.id)
-        .eq("owner_id", ownerId),
+        .eq("order_id", order.id),
       supabase
         .from("purchase_packages")
         .select("id, status")
-        .eq("order_id", order.id)
-        .eq("owner_id", ownerId),
+        .eq("order_id", order.id),
     ]);
   if (itemError) throw itemError;
   if (packageError) throw packageError;
@@ -674,8 +655,7 @@ async function loadPurchaseOrderForDeletion(
     : await supabase
       .from("purchase_package_items")
       .select("package_id, order_item_id, quantity")
-      .in("package_id", packages.map((item) => item.id))
-      .eq("owner_id", ownerId);
+      .in("package_id", packages.map((item) => item.id));
   if (packageItemError) throw packageItemError;
 
   const packageItemsByPackage = (packageItemData as PurchasePackageItem[]).reduce<
@@ -718,13 +698,13 @@ async function reverseReceivedPurchaseInventory(order: PurchaseOrder) {
 }
 
 export async function deletePurchaseOrder(orderId: string) {
-  const { supabase, session } = await requireSession();
-  const order = await loadPurchaseOrderForDeletion(supabase, session.user.id, orderId);
+  const { supabase } = await requireSession();
+  const order = await loadPurchaseOrderForDeletion(supabase, orderId);
   if (!order) return;
   await reverseReceivedPurchaseInventory(order);
 
   const { error } = await withTimeout(
-    supabase.from("purchase_orders").delete().eq("id", orderId).eq("owner_id", session.user.id),
+    supabase.from("purchase_orders").delete().eq("id", orderId),
     "删除采购单",
   );
   if (error) throw error;
@@ -760,13 +740,12 @@ export async function createPurchasePackage(orderId: string, sourceId: string, t
 }
 
 export async function updatePurchasePackageTrackingNo(packageId: string, trackingNo: string) {
-  const { supabase, session } = await requireSession();
+  const { supabase } = await requireSession();
   const { data, error } = await withTimeout(
     supabase
       .from("purchase_packages")
       .update({ tracking_no: trackingNo })
       .eq("id", packageId)
-      .eq("owner_id", session.user.id)
       .eq("status", "pending")
       .select("tracking_no")
       .single(),
@@ -777,13 +756,12 @@ export async function updatePurchasePackageTrackingNo(packageId: string, trackin
 }
 
 export async function deletePurchasePackage(packageId: string) {
-  const { supabase, session } = await requireSession();
+  const { supabase } = await requireSession();
   const { error } = await withTimeout(
     supabase
       .from("purchase_packages")
       .delete()
       .eq("id", packageId)
-      .eq("owner_id", session.user.id)
       .eq("status", "pending"),
     "删除快递包裹",
   );
@@ -848,12 +826,12 @@ async function preparePurchasePackageForSkuReceipt(
   order: PurchaseOrder,
   pkg: PurchasePackage,
 ) {
-  const { supabase, session } = await requireSession();
+  const { supabase } = await requireSession();
   const resolvedItems = await resolvePackageItems(order, pkg);
   if (pkg.items.length > 0 && resolvedItems.length !== pkg.items.length) {
     throw new Error("包裹内有配件无法匹配到商品配件库，请检查采购明细后再入库");
   }
-  await persistResolvedPurchaseItemIds(supabase, session.user.id, resolvedItems);
+  await persistResolvedPurchaseItemIds(supabase, resolvedItems);
   assertPackageItemsHaveSkuInfo(order.items, pkg.items);
 }
 
@@ -943,7 +921,6 @@ export async function receivePurchasePackage(order: PurchaseOrder, pkg: Purchase
     .from("purchase_packages")
     .select("id, source_id, tracking_no, status")
     .eq("id", pkg.id)
-    .eq("owner_id", session.user.id)
     .maybeSingle();
   if (packageLoadError) throw packageLoadError;
   const persistedPackage = (persistedPackageData as Omit<PurchasePackage, "items"> | null);
@@ -960,7 +937,7 @@ export async function receivePurchasePackage(order: PurchaseOrder, pkg: Purchase
   let packageData = activePackage;
   let inventory: PurchaseSkuInventoryChange[] = [];
   if (shouldReceivePackage) {
-    const { data: updatedPackageData, error: packageError } = await supabase.from("purchase_packages").update({ status: "received", received_at: receivedAt }).eq("id", packageToReceive.id).eq("owner_id", session.user.id).eq("status", "pending").select("id, source_id, tracking_no, status").maybeSingle();
+    const { data: updatedPackageData, error: packageError } = await supabase.from("purchase_packages").update({ status: "received", received_at: receivedAt }).eq("id", packageToReceive.id).eq("status", "pending").select("id, source_id, tracking_no, status").maybeSingle();
     if (packageError) throw packageError;
     if (!updatedPackageData) {
       throw new Error("快递包裹状态已变化，请刷新页面后查看");
@@ -970,8 +947,7 @@ export async function receivePurchasePackage(order: PurchaseOrder, pkg: Purchase
   const { data: allPackageData, error: allPackageError } = await supabase
     .from("purchase_packages")
     .select("id, status")
-    .eq("order_id", order.id)
-    .eq("owner_id", session.user.id);
+    .eq("order_id", order.id);
   if (allPackageError) throw allPackageError;
   const allPackageRows = allPackageData as Omit<PurchasePackage, "items">[];
   const { data: allPackageItemData, error: allPackageItemError } = allPackageRows.length === 0
@@ -979,8 +955,7 @@ export async function receivePurchasePackage(order: PurchaseOrder, pkg: Purchase
     : await supabase
       .from("purchase_package_items")
       .select("package_id, order_item_id, quantity")
-      .in("package_id", allPackageRows.map((item) => item.id))
-      .eq("owner_id", session.user.id);
+      .in("package_id", allPackageRows.map((item) => item.id));
   if (allPackageItemError) throw allPackageItemError;
   const packageItemsByPackage = (allPackageItemData as PurchasePackageItem[]).reduce<Record<string, PurchasePackageItem[]>>((acc, row) => ((acc[row.package_id] ??= []).push(row), acc), {});
   const allPackages = allPackageRows.map((item) => ({ ...item, items: packageItemsByPackage[item.id] ?? [] })) as PurchasePackage[];
@@ -996,7 +971,7 @@ export async function receivePurchasePackage(order: PurchaseOrder, pkg: Purchase
     );
   }
   const status = getReceiptStatus(order.items, allPackages);
-  const { data: orderData, error: orderError } = await supabase.from("purchase_orders").update({ status, received_at: status === "received" ? receivedAt : null }).eq("id", order.id).eq("owner_id", session.user.id).select("status").single();
+  const { data: orderData, error: orderError } = await supabase.from("purchase_orders").update({ status, received_at: status === "received" ? receivedAt : null }).eq("id", order.id).select("status").single();
   if (orderError) throw orderError;
   return { order: orderData as Omit<PurchaseOrder, "sources" | "items" | "packages">, package: { ...(packageData as Omit<PurchasePackage, "items">), items: packageItemsByPackage[packageData.id] ?? packageToReceive.items }, inventory };
 }
@@ -1030,7 +1005,6 @@ export async function receiveRemainingPurchaseOrder(order: PurchaseOrder) {
       .from("purchase_orders")
       .update({ status: "received", received_at: receivedAt })
       .eq("id", order.id)
-      .eq("owner_id", session.user.id)
       .select("status")
       .single();
     if (orderError) throw orderError;
@@ -1072,7 +1046,6 @@ export async function receiveRemainingPurchaseOrder(order: PurchaseOrder) {
       .from("purchase_packages")
       .update({ status: "received", received_at: receivedAt })
       .eq("id", pkg.id)
-      .eq("owner_id", session.user.id)
       .eq("status", "pending")
       .select("id, source_id, tracking_no, status")
       .single();
@@ -1099,7 +1072,6 @@ export async function receiveRemainingPurchaseOrder(order: PurchaseOrder) {
     .from("purchase_orders")
     .update({ status, received_at: status === "received" ? receivedAt : null })
     .eq("id", order.id)
-    .eq("owner_id", session.user.id)
     .select("status")
     .single();
   if (orderError) throw orderError;

@@ -11,6 +11,7 @@
     "recalculate:inventory": "node scripts/recalculate-inventory-from-source.mjs",
     "check:inventory": "node scripts/check-inventory-consistency.mjs",
     "check:data-coverage": "node scripts/check-data-coverage.mjs",
+    "check:team-scope": "node scripts/check-team-operational-scope.mjs",
     "check:migrations": "node scripts/check-migrations.mjs",
     "check:rpcs": "node scripts/check-transaction-rpcs.mjs",
     "sync:data": "node scripts/sync-codex-data.mjs",

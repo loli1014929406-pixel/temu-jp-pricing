@@ -1,18 +1,14 @@
 import type { Session, User } from "@supabase/supabase-js";
 import { useEffect, useState } from "react";
 import { getSupabaseClient, supabaseConfigError } from "../lib/supabase";
+import { reportAppError } from "../lib/diagnostics";
 
 export function useAuth() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
   function updateSession(nextSession: Session | null) {
-    setSession((currentSession) => {
-      if (currentSession?.user.id === nextSession?.user.id) {
-        return currentSession;
-      }
-      return nextSession;
-    });
+    setSession(nextSession);
     setLoading(false);
   }
 
@@ -24,8 +20,11 @@ export function useAuth() {
 
     const supabase = getSupabaseClient();
 
-    void supabase.auth.getSession().then(({ data }) => {
-      updateSession(data.session);
+    void supabase.auth.getSession().then(({ data, error }) => {
+      if (error) {
+        reportAppError(error, "auth:get-session");
+      }
+      updateSession(error ? null : data.session);
     });
 
     const {

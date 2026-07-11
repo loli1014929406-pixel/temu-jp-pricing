@@ -49,6 +49,7 @@ import { usePermissions } from "../hooks/use-permissions";
 import { getErrorMessage } from "../utils/errors";
 import { confirmAction } from "../utils/confirmations";
 import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../utils/sku-code";
+import { notifySuccess } from "../lib/notifications";
 
 type InventoryTransferPageProps = {
   user: User;
@@ -808,6 +809,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
               <div className="w-full">
                 <div className="text-xs font-semibold text-slate-400">调出仓库 (源仓)</div>
                 <select
+                  aria-label="调出仓库"
                   value={transferSourceWarehouseId}
                   onChange={(event) => handleTransferSourceWarehouseChange(event.target.value)}
                   disabled={!canEdit || loading}
@@ -841,6 +843,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
               <div className="w-full">
                 <div className="text-xs font-semibold text-slate-400">调入仓库 (目的仓)</div>
                 <select
+                  aria-label="调入仓库"
                   value={transferDestinationWarehouseId}
                   onChange={(event) => setTransferDestinationWarehouseId(event.target.value)}
                   disabled={!canEdit || loading}
@@ -1353,7 +1356,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
                               type="button"
                               onClick={() => {
                                 void navigator.clipboard.writeText(record.trackingNo);
-                                alert("已复制快递单号：" + record.trackingNo);
+                                notifySuccess("已复制快递单号：" + record.trackingNo);
                               }}
                               className="text-slate-400 hover:text-slate-700 transition"
                               title="复制单号"

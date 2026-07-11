@@ -9,6 +9,7 @@
  */
 import { getSupabaseClient } from "./supabase";
 import { fetchAllPages } from "./paginated-fetch";
+import { withTimeout } from "./supabase-helpers";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -59,6 +60,37 @@ export type SettlementSummary = {
   totalQuantity: number;
   recordCount: number;
   fileCount: number;
+};
+
+type SettlementFileRow = {
+  id: string;
+  file_name: string;
+  date_range_start: string;
+  date_range_end: string;
+  imported_at: string;
+  total_sales_revenue: number | string;
+  total_freight_revenue: number | string;
+  record_count: number;
+};
+
+type SettlementRecordRow = {
+  id: string;
+  file_id: string;
+  po_number: string;
+  sku_id: string;
+  sku_name: string;
+  sku_code: string;
+  quantity: number;
+  declared_price: number | string;
+  is_promotion_price: boolean;
+  currency: string;
+  sales_revenue: number | string;
+  sales_discount_deducted: number | string;
+  sales_reversal: number | string;
+  freight_revenue: number | string;
+  freight_discount_deducted: number | string;
+  freight_reversal: number | string;
+  total_revenue: number | string;
 };
 
 // ── Parsing ────────────────────────────────────────────────────────────────────
@@ -202,43 +234,45 @@ function getSettlementStorageErrorMessage(error: { code?: string; message?: stri
 
 export async function loadSettlementFiles(userId: string): Promise<SettlementFile[]> {
   const supabase = getSupabaseClient();
-  const { data: filesData, error: filesError } = await fetchAllPages<
-    any,
-    { code?: string; message?: string }
-  >(
-    async (from, to) => {
-      const { data, error } = await supabase
-        .from("finance_settlement_files")
-        .select("*")
-        .eq("user_id", userId)
-        .order("imported_at", { ascending: false })
-        .order("id", { ascending: true })
-        .range(from, to);
-      return { data: data ?? [], error };
-    },
-  );
+  const [filesResult, recordsResult] = await Promise.all([
+    fetchAllPages<SettlementFileRow, { code?: string; message?: string }>(
+      async (from, to) => {
+        const { data, error } = await withTimeout(
+          supabase
+            .from("finance_settlement_files")
+            .select("id, file_name, date_range_start, date_range_end, imported_at, total_sales_revenue, total_freight_revenue, record_count")
+            .eq("user_id", userId)
+            .order("imported_at", { ascending: false })
+            .order("id", { ascending: true })
+            .range(from, to),
+          "加载结算文件",
+        );
+        return { data: (data ?? []) as SettlementFileRow[], error };
+      },
+    ),
+    fetchAllPages<SettlementRecordRow, { code?: string; message?: string }>(
+      async (from, to) => {
+        const { data, error } = await withTimeout(
+          supabase
+            .from("finance_settlement_records")
+            .select("id, file_id, po_number, sku_id, sku_name, sku_code, quantity, declared_price, is_promotion_price, currency, sales_revenue, sales_discount_deducted, sales_reversal, freight_revenue, freight_discount_deducted, freight_reversal, total_revenue")
+            .eq("user_id", userId)
+            .order("id", { ascending: true })
+            .range(from, to),
+          "加载结算明细",
+        );
+        return { data: (data ?? []) as SettlementRecordRow[], error };
+      },
+    ),
+  ]);
+  const { data: filesData, error: filesError } = filesResult;
 
   if (filesError || !filesData) {
     console.error("Failed to load settlement files:", filesError);
     throw new Error(getSettlementStorageErrorMessage(filesError, "加载结算文件"));
   }
 
-  // To build the full file structure, we need the records too.
-  // Since records can be large, we might fetch them concurrently.
-  const { data: recordsData, error: recordsError } = await fetchAllPages<
-    any,
-    { code?: string; message?: string }
-  >(
-    async (from, to) => {
-      const { data, error } = await supabase
-        .from("finance_settlement_records")
-        .select("*")
-        .eq("user_id", userId)
-        .order("id", { ascending: true })
-        .range(from, to);
-      return { data: data ?? [], error };
-    },
-  );
+  const { data: recordsData, error: recordsError } = recordsResult;
 
   if (recordsError || !recordsData) {
     console.error("Failed to load settlement records:", recordsError);
@@ -270,7 +304,7 @@ export async function loadSettlementFiles(userId: string): Promise<SettlementFil
     recordsByFile.set(r.file_id, list);
   }
 
-  return filesData.map((f: any) => {
+  return filesData.map((f) => {
     const records = recordsByFile.get(f.id) ?? [];
     return {
       id: f.id,

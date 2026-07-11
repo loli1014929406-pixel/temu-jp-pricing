@@ -22,6 +22,7 @@ import type {
 } from "../../types";
 import type { SettlementFile } from "../../lib/settlement";
 import type { FinanceData } from "./shared";
+import { operationalCacheKeys } from "../../lib/operational-cache";
 
 type FetchOptions = {
   orders?: boolean;
@@ -80,14 +81,14 @@ export function useFinanceData(userId: string, options: FetchOptions) {
 
        if (ordersEnabled) {
          promises.push(
-           getCachedAsync(`finance:${userId}:orders`, fetchTemuOrders, { force }),
+           getCachedAsync(operationalCacheKeys.orders, fetchTemuOrders, { force }),
          );
          keys.push("orders");
        }
 
        if (purchasesEnabled) {
          promises.push(
-           getCachedAsync(`finance:${userId}:purchases`, fetchPurchaseOrders, { force }),
+           getCachedAsync(operationalCacheKeys.purchases, fetchPurchaseOrders, { force }),
          );
          keys.push("purchases");
        }
@@ -95,7 +96,7 @@ export function useFinanceData(userId: string, options: FetchOptions) {
        if (productsEnabled) {
          promises.push(
            getCachedAsync(
-             `finance:${userId}:products`,
+             operationalCacheKeys.products,
              () => fetchProducts({ includeNotSelling: true }),
              { force },
            ),
@@ -105,7 +106,7 @@ export function useFinanceData(userId: string, options: FetchOptions) {
 
        if (inventoryEnabled || logisticsEnabled) {
          promises.push(
-           getCachedAsync(`finance:${userId}:warehouses`, fetchWarehouses, { force }),
+           getCachedAsync(operationalCacheKeys.warehouses, fetchWarehouses, { force }),
          );
          keys.push("warehouses");
        }
@@ -113,7 +114,7 @@ export function useFinanceData(userId: string, options: FetchOptions) {
        if (logisticsEnabled) {
          promises.push(
            getCachedAsync(
-             `finance:${userId}:logistics-methods`,
+             operationalCacheKeys.logisticsMethods,
              fetchLogisticsMethods,
              { force },
            ),
@@ -159,7 +160,7 @@ export function useFinanceData(userId: string, options: FetchOptions) {
          const productIds = products.map((p) => p.id);
          const productDetailKey = productIds.slice().sort().join(",");
          const [items, skus] = await getCachedAsync(
-           `finance:${userId}:product-details:${productDetailKey}`,
+           `operational:product-details:${productDetailKey}`,
            () => Promise.all([
              fetchProductItemsByProductIds(productIds),
              fetchProductSkusByProductIds(productIds),
@@ -174,14 +175,14 @@ export function useFinanceData(userId: string, options: FetchOptions) {
         const warehouseIds = warehouses.map((w) => w.id);
          if (inventoryEnabled) {
            warehouseSkus = await getCachedAsync(
-             `finance:${userId}:warehouse-skus:${warehouseIds.slice().sort().join(",")}`,
+             `operational:warehouse-skus:${warehouseIds.slice().sort().join(",")}`,
              () => fetchWarehouseSkus(warehouseIds),
              { force },
            );
          }
          if (logisticsEnabled) {
            warehouseLogisticsMethods = await getCachedAsync(
-             `finance:${userId}:warehouse-logistics:${warehouseIds.slice().sort().join(",")}`,
+             `operational:warehouse-logistics:${warehouseIds.slice().sort().join(",")}`,
              () => fetchWarehouseLogisticsMethods(warehouseIds),
              { force },
            );

@@ -1,16 +1,23 @@
 import { getSupabaseClient } from "./supabase";
 import { fetchAllPages } from "./paginated-fetch";
 import type { FinanceExpense } from "../types";
+import { withTimeout } from "./supabase-helpers";
+
+const financeExpenseFields =
+  "id, user_id, expense_date, category, amount_rmb, remark, created_at, updated_at";
 
 export async function fetchExpenses(): Promise<FinanceExpense[]> {
   const supabase = getSupabaseClient();
   const { data, error } = await fetchAllPages<FinanceExpense>(async (from, to) => {
-    const { data: page, error: pageError } = await supabase
-      .from("finance_expenses")
-      .select("*")
-      .order("expense_date", { ascending: false })
-      .order("id", { ascending: true })
-      .range(from, to);
+    const { data: page, error: pageError } = await withTimeout(
+      supabase
+        .from("finance_expenses")
+        .select(financeExpenseFields)
+        .order("expense_date", { ascending: false })
+        .order("id", { ascending: true })
+        .range(from, to),
+      "加载费用记录",
+    );
     return { data: (page ?? []) as FinanceExpense[], error: pageError };
   });
 

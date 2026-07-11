@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
-import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -11,6 +11,8 @@ const snapshotFile = path.join(localDataDir, "codex-supabase-data.json");
 const rulesFile = path.join(localDataDir, "calculation-rules.json");
 const backendContextFile = path.join(localDataDir, "backend-context.json");
 const schemaFile = path.join(projectDir, "supabase", "schema.sql");
+const migrationsDir = path.join(projectDir, "supabase", "migrations");
+const migrationsBundleFile = path.join(localDataDir, "supabase-migrations.json");
 const backendDir = process.env.TEMU_BACKEND_PROJECT_DIR
   ? path.resolve(process.env.TEMU_BACKEND_PROJECT_DIR)
   : path.resolve(projectDir, "..", "temu_japan_semi_managed_backend");
@@ -136,13 +138,38 @@ async function buildCalculationRules(snapshot) {
   };
 }
 
+async function buildMigrationsBundle() {
+  const migrationNames = (await readdir(migrationsDir))
+    .filter((name) => name.endsWith(".sql"))
+    .sort();
+  const migrations = await Promise.all(
+    migrationNames.map(async (name) => {
+      const content = await readFile(path.join(migrationsDir, name), "utf8");
+      return {
+        file_name: name,
+        sha256: sha256(content),
+        content,
+      };
+    }),
+  );
+  return {
+    schema_version: 1,
+    exported_at: new Date().toISOString(),
+    latest_migration: migrationNames.at(-1) ?? null,
+    migration_count: migrations.length,
+    migrations,
+  };
+}
+
 async function main() {
   await mkdir(localDataDir, { recursive: true });
   await runNodeScript("scripts/sync-codex-data.mjs");
 
   const snapshot = JSON.parse(await readFile(snapshotFile, "utf8"));
   const calculationRules = await buildCalculationRules(snapshot);
+  const migrationsBundle = await buildMigrationsBundle();
   await writeFile(rulesFile, `${JSON.stringify(calculationRules, null, 2)}\n`, "utf8");
+  await writeFile(migrationsBundleFile, `${JSON.stringify(migrationsBundle, null, 2)}\n`, "utf8");
 
   const backendContext = {
     schema_version: 1,
@@ -159,6 +186,7 @@ async function main() {
       database_snapshot: "data/codex-supabase-data.json",
       calculation_rules: "data/calculation-rules.json",
       supabase_schema: "data/supabase-schema.sql",
+      supabase_migrations: "data/supabase-migrations.json",
     },
     snapshot_summary: snapshot.summary,
     auth_mode: snapshot.auth_mode,
@@ -171,9 +199,10 @@ async function main() {
   await copyFile(rulesFile, path.join(backendDataDir, "calculation-rules.json"));
   await copyFile(backendContextFile, path.join(backendDataDir, "backend-context.json"));
   await copyFile(schemaFile, path.join(backendDataDir, "supabase-schema.sql"));
+  await copyFile(migrationsBundleFile, path.join(backendDataDir, "supabase-migrations.json"));
 
   console.log(`已写入后端数据目录：${backendDataDir}`);
-  console.log("后端可读取：backend-context.json、codex-supabase-data.json、calculation-rules.json、supabase-schema.sql");
+  console.log("后端可读取：backend-context.json、codex-supabase-data.json、calculation-rules.json、supabase-schema.sql、supabase-migrations.json");
 }
 
 await main();

@@ -225,6 +225,7 @@ export function FinanceProfitPage({ user }: Props) {
         {period.mode === "month" && (
           <input
             type="month"
+            aria-label="利润月份"
             value={period.label}
             onChange={(e) => {
               const month = e.target.value;
@@ -238,6 +239,7 @@ export function FinanceProfitPage({ user }: Props) {
           <div className="flex items-center gap-2">
             <input
               type="date"
+              aria-label="利润开始日期"
               value={period.start}
               onChange={(e) => setPeriod({ ...period, start: e.target.value })}
               className="h-8 rounded-md border border-line bg-white px-3 text-xs outline-none focus:border-accent focus:ring-1 focus:ring-accent"
@@ -245,6 +247,7 @@ export function FinanceProfitPage({ user }: Props) {
             <span className="text-slate-400">-</span>
             <input
               type="date"
+              aria-label="利润结束日期"
               value={period.end}
               onChange={(e) => setPeriod({ ...period, end: e.target.value })}
               className="h-8 rounded-md border border-line bg-white px-3 text-xs outline-none focus:border-accent focus:ring-1 focus:ring-accent"

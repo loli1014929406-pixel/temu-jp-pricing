@@ -37,6 +37,8 @@ import type {
 } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { isSameDraft, readDraft, useDraftPersistence } from "./use-draft-persistence";
+import { getCachedAsync } from "../lib/async-cache";
+import { operationalCacheKeys } from "../lib/operational-cache";
 
 export type OrderDraft = Pick<
   TemuOrderRecord,
@@ -438,10 +440,13 @@ export function useOrders(user: User) {
           fetchedSettings,
         ] =
           await Promise.all([
-            fetchTemuOrders().then(dedupeOrdersByOrderLine),
-            fetchWarehouses(),
-            fetchProducts({ includeNotSelling: true }),
-            fetchLogisticsMethods(),
+            getCachedAsync(operationalCacheKeys.orders, fetchTemuOrders).then(dedupeOrdersByOrderLine),
+            getCachedAsync(operationalCacheKeys.warehouses, fetchWarehouses),
+            getCachedAsync(
+              operationalCacheKeys.products,
+              () => fetchProducts({ includeNotSelling: true }),
+            ),
+            getCachedAsync(operationalCacheKeys.logisticsMethods, fetchLogisticsMethods),
             fetchSettings(user.id).catch(() => null),
           ]);
         const productIds = nextProducts.map((product) => product.id);

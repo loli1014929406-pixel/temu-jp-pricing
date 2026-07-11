@@ -565,6 +565,7 @@ export function renderPaginationControls(
           <div className="flex items-center gap-2">
             <span>每页展示:</span>
             <select
+              aria-label="每页展示数量"
               value={pageSize}
               onChange={(e) => setPageSize(Number(e.target.value))}
               className="h-7 rounded border border-line bg-white px-1 text-xs font-semibold outline-none focus:border-accent"
@@ -585,6 +586,7 @@ export function renderPaginationControls(
         </span>
         <div className="flex items-center gap-1.5">
           <button
+            type="button"
             onClick={() => setPage((p) => p - 1)}
             disabled={page <= 1}
             className="btn-secondary h-7 px-2.5 text-xs"
@@ -592,6 +594,7 @@ export function renderPaginationControls(
             上一页
           </button>
           <button
+            type="button"
             onClick={() => setPage((p) => p + 1)}
             disabled={page >= totalPages}
             className="btn-secondary h-7 px-2.5 text-xs"

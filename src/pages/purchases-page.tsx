@@ -39,6 +39,16 @@ import type {
 } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { confirmAction, confirmDelete, confirmSave } from "../utils/confirmations";
+import { getCachedAsync } from "../lib/async-cache";
+import { operationalCacheKeys } from "../lib/operational-cache";
+
+function fetchCachedPurchaseOrders(force = false) {
+  return getCachedAsync(
+    operationalCacheKeys.purchases,
+    fetchPurchaseOrders,
+    { force },
+  );
+}
 
 type PurchasesPageProps = { user: User; view: "create" | "records" };
 type DraftItem = { id: string; itemId: string; quantity: string; unitPriceRmb: string };
@@ -630,9 +640,9 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
       setLoading(true);
       try {
         const [nextWarehouses, nextProducts, nextOrders] = await Promise.all([
-          fetchWarehouses(),
+          getCachedAsync(operationalCacheKeys.warehouses, fetchWarehouses),
           fetchProducts(),
-          fetchPurchaseOrders(),
+          fetchCachedPurchaseOrders(),
         ]);
         const [nextItems, nextSkus] = await Promise.all([
           fetchProductItemsByProductIds(nextProducts.map((item) => item.id)),
@@ -1393,7 +1403,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
         await receivePurchasePackage(order, pkg);
       }
       setReceiveConfirmOrder(null);
-      const nextOrders = await fetchPurchaseOrders();
+      const nextOrders = await fetchCachedPurchaseOrders(true);
       setOrders(nextOrders);
       setNoticeMessage("签收成功");
     } catch (error) {
@@ -1807,6 +1817,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
               <div className="relative w-full">
                 <Search size={16} className="absolute left-3 top-3 text-slate-400" />
                 <input
+                  aria-label="搜索采购记录"
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                   placeholder="搜索采购单 / 1688 订单 / 商品"
@@ -2587,6 +2598,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                   <div className="flex items-center gap-3">
                     <span>共 {totalRecordCount} 条记录</span>
                     <select
+                      aria-label="采购记录每页显示数量"
                       value={pageSize}
                       onChange={(e) => {
                         setPageSize(Number(e.target.value));
@@ -2603,6 +2615,8 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                   <div className="flex items-center gap-2">
                     <span className="mr-2 font-medium">第 {currentPage} / {totalPages || 1} 页</span>
                     <button
+                      type="button"
+                      aria-label="采购记录上一页"
                       onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
                       disabled={currentPage <= 1}
                       className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-line bg-white text-slate-600 transition hover:bg-slate-50 hover:text-accent disabled:opacity-50"
@@ -2610,6 +2624,8 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
                       <ChevronLeft size={16} />
                     </button>
                     <button
+                      type="button"
+                      aria-label="采购记录下一页"
                       onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
                       disabled={currentPage >= totalPages}
                       className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-line bg-white text-slate-600 transition hover:bg-slate-50 hover:text-accent disabled:opacity-50"

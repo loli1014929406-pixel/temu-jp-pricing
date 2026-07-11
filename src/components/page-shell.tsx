@@ -17,8 +17,8 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
+import type { User } from "@supabase/supabase-js";
 import { getSupabaseClient } from "../lib/supabase";
-import { useAuth } from "../hooks/use-auth";
 import { usePermissions } from "../hooks/use-permissions";
 import {
   fetchOrCreateCurrentAccountProfile,
@@ -86,8 +86,11 @@ function isNavItemActive(pathname: string, itemTo: string, isActive: boolean) {
   return canonicalPathname === itemTo || canonicalPathname.startsWith(`${itemTo}/`) || isActive;
 }
 
-export function PageShell() {
-  const { user } = useAuth();
+type PageShellProps = {
+  user: User | null;
+};
+
+export function PageShell({ user }: PageShellProps) {
   const { label } = usePermissions();
   const location = useLocation();
   const [profile, setProfile] = useState<AccountProfile | null>(null);

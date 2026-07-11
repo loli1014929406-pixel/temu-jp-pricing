@@ -20,6 +20,14 @@
 - Legacy `anon` table grants for expenses and settlement tables are revoked. Existing RLS already blocked anonymous rows, but the grants were unnecessary.
 - No existing shared-data RLS policy or finance ownership rule was changed.
 
+## Team operational sharing applied on 2026-07-11
+
+- `temu_orders` and all purchase-management tables are readable by every permitted team account.
+- Editors can update shared operational rows and admins retain delete authority.
+- New operational rows keep the creating account in `owner_id`; a trigger prevents later ownership changes.
+- Team-wide Temu order-line uniqueness prevents duplicate imports from different accounts.
+- Finance expenses, settlement files, settlement records, account profiles, and per-user settings remain owner-isolated.
+
 ## Guardrails for future policy changes
 
 - Keep team-shared operational reads unless the account model changes.

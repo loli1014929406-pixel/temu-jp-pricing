@@ -3,11 +3,11 @@ import {
   FileSpreadsheet,
   RefreshCw,
   Upload,
-  X,
 } from "lucide-react";
 import { OrderBulkActions } from "../components/orders/OrderBulkActions";
 import { OrderDetailPanel } from "../components/orders/OrderDetailPanel";
 import { OrderFilters } from "../components/orders/OrderFilters";
+import { ReshipOrderModal } from "../components/orders/ReshipOrderModal";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { Badge, PageHeader } from "../components/ui";
 import { StandardTable, type StandardTableColumn } from "../components/ui/StandardTable";
@@ -40,7 +40,6 @@ import {
   deleteTemuOrder,
   importTemuOrders,
   updateTemuOrder,
-  createReshipmentOrder,
   type TemuOrderImportRow,
 } from "../lib/orders";
 import type {
@@ -1587,306 +1586,6 @@ const OrderTableRow = memo(function OrderTableRow({
     </tr>
   );
 });
-
-type ReshipOrderModalProps = {
-  originalOrder: TemuOrderRecord;
-  relatedOrders: TemuOrderRecord[];
-  productSkus: ProductSku[];
-  products: Product[];
-  onClose: () => void;
-  onSuccess: (newOrders: TemuOrderRecord[]) => void;
-  setErrorMessage: (msg: string) => void;
-};
-
-function ReshipOrderModal({
-  originalOrder,
-  relatedOrders,
-  productSkus,
-  products,
-  onClose,
-  onSuccess,
-  setErrorMessage,
-}: ReshipOrderModalProps) {
-  const [suffix, setSuffix] = useState("");
-  const [items, setItems] = useState<Array<{
-    skuCode: string;
-    productAttributes: string;
-    quantity: number;
-    isOriginal: boolean;
-    checked: boolean;
-  }>>(() => {
-    return relatedOrders.map(o => ({
-      skuCode: o.sku_code,
-      productAttributes: o.product_attributes,
-      quantity: o.fulfillment_quantity,
-      isOriginal: true,
-      checked: true,
-    }));
-  });
-
-  const [searchQuery, setSearchQuery] = useState("");
-  const [showSkuDropdown, setShowSkuDropdown] = useState(false);
-
-  const productsMap = useMemo(() => new Map(products.map(p => [p.id, p])), [products]);
-
-  const filteredSkus = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    if (!query) return [];
-    return productSkus.filter(sku => {
-      const prod = productsMap.get(sku.product_id ?? "");
-      const prodName = prod?.product_name_cn?.toLowerCase() || "";
-      const skuCode = sku.sku_code.toLowerCase();
-      return skuCode.includes(query) || prodName.includes(query);
-    }).slice(0, 10);
-  }, [searchQuery, productSkus, productsMap]);
-
-  const handleAddSku = (sku: ProductSku) => {
-    const prod = productsMap.get(sku.product_id ?? "");
-    const prodName = prod?.product_name_cn || "";
-    const spec = formatSkuSalesSpec(sku) || "默认规格";
-    const attr = `${prodName} ${spec}`.trim();
-    
-    if (items.some(item => item.skuCode === sku.sku_code)) {
-      alert("该 SKU 已经在列表中了！");
-      return;
-    }
-
-    setItems(prev => [
-      ...prev,
-      {
-        skuCode: sku.sku_code,
-        productAttributes: attr,
-        quantity: 1,
-        isOriginal: false,
-        checked: true,
-      }
-    ]);
-    setSearchQuery("");
-    setShowSkuDropdown(false);
-  };
-
-  const handleRemoveItem = (index: number) => {
-    setItems(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const handleFieldChange = (index: number, field: "quantity" | "productAttributes" | "checked", value: any) => {
-    setItems(prev => prev.map((item, i) => {
-      if (i === index) {
-        return { ...item, [field]: value };
-      }
-      return item;
-    }));
-  };
-
-  const [isSaving, setIsSaving] = useState(false);
-
-  const handleSubmit = async () => {
-    const cleanSuffix = suffix.trim().replace(/^-+/, "");
-    if (!cleanSuffix) {
-      alert("请输入有效的补发单号后缀");
-      return;
-    }
-    const selectedItems = items.filter(item => item.checked);
-    if (selectedItems.length === 0) {
-      alert("请至少选择或添加一项补发商品");
-      return;
-    }
-    
-    if (selectedItems.some(item => item.quantity <= 0 || !Number.isInteger(item.quantity))) {
-      alert("请输入有效的补发数量（正整数）");
-      return;
-    }
-
-    setIsSaving(true);
-    try {
-      const data = await createReshipmentOrder(relatedOrders, cleanSuffix, selectedItems.map(item => ({
-        skuCode: item.skuCode,
-        productAttributes: item.productAttributes,
-        quantity: item.quantity,
-      })));
-      onSuccess(data);
-    } catch (err: any) {
-      setErrorMessage(err.message || "创建补发订单失败");
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/40 p-4" role="dialog" aria-modal="true">
-      <div className="max-h-[90vh] w-full max-w-2xl flex flex-col bg-white rounded-2xl shadow-xl overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
-          <h2 className="text-lg font-bold text-slate-900">创建补发订单</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition">
-            <X size={20} />
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-5">
-          {/* Info Banner */}
-          <div className="rounded-xl bg-slate-50 border border-slate-100 p-4 space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="font-semibold text-slate-500">原订单号</span>
-              <span className="font-mono font-medium text-slate-800">{originalOrder.order_no}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="font-semibold text-slate-500">收件人</span>
-              <span className="font-medium text-slate-800">{originalOrder.recipient_name}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="font-semibold text-slate-500">收件地址</span>
-              <span className="font-medium text-slate-800 text-right truncate max-w-[20rem]" title={originalOrder.province + originalOrder.city + originalOrder.district + originalOrder.address_line1}>
-                {originalOrder.province} {originalOrder.city} {originalOrder.district} {originalOrder.address_line1}
-              </span>
-            </div>
-          </div>
-
-          {/* Suffix Input */}
-          <div className="space-y-2">
-            <label className="text-sm font-bold text-slate-700 block">补发订单号后缀</label>
-            <div className="flex items-center rounded-xl border border-line bg-slate-50 overflow-hidden focus-within:border-accent focus-within:ring-4 focus-within:ring-accent/10 transition">
-              <span className="pl-4 pr-1 text-sm font-mono text-slate-400 shrink-0 select-none">
-                {originalOrder.order_no}-
-              </span>
-              <input
-                value={suffix}
-                onChange={e => setSuffix(e.target.value.replace(/[^a-zA-Z0-9-]/g, ""))}
-                placeholder="例如: reship1, bufa"
-                className="h-11 w-full bg-transparent px-2 text-sm outline-none font-mono text-slate-800"
-              />
-            </div>
-            <p className="text-xs text-slate-400 font-medium">后缀只能包含英文字母、数字和横杠，自动拼接在原订单号后</p>
-          </div>
-
-          {/* SKU Items List */}
-          <div className="space-y-3">
-            <label className="text-sm font-bold text-slate-700 block">选择或增加补发商品 (SKU)</label>
-            
-            <div className="border border-slate-100 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-[220px] overflow-y-auto">
-              {items.map((item, index) => (
-                <div key={item.skuCode + "-" + index} className={`flex items-center gap-3 p-3 text-xs ${item.checked ? "bg-accentSoft/10" : "bg-white"}`}>
-                  <input
-                    type="checkbox"
-                    checked={item.checked}
-                    onChange={e => handleFieldChange(index, "checked", e.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300 text-sky-700 focus:ring-sky-500"
-                  />
-                  <div className="flex-1 min-w-0 space-y-1">
-                    <div className="flex justify-between font-mono font-medium text-slate-800">
-                      <span className="truncate">{item.skuCode}</span>
-                      {!item.isOriginal && (
-                        <span className="rounded bg-sky-50 text-sky-700 px-1 text-[10px] font-sans scale-90 origin-right">手动增加</span>
-                      )}
-                    </div>
-                    <input
-                      value={item.productAttributes}
-                      onChange={e => handleFieldChange(index, "productAttributes", e.target.value)}
-                      placeholder="商品属性/销售规格"
-                      className="h-8 w-full border border-line rounded-lg px-2 text-xs bg-white/70 outline-none focus:border-accent text-slate-600 font-medium"
-                    />
-                  </div>
-                  <div className="w-16 shrink-0">
-                    <input
-                      type="number"
-                      min={1}
-                      value={item.quantity}
-                      onChange={e => handleFieldChange(index, "quantity", Math.max(1, parseInt(e.target.value) || 1))}
-                      className="h-8 w-full border border-line rounded-lg px-2 text-center outline-none focus:border-accent"
-                    />
-                  </div>
-                  {!item.isOriginal && (
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveItem(index)}
-                      className="text-slate-400 hover:text-rose-600 p-1 transition"
-                    >
-                      <X size={16} />
-                    </button>
-                  )}
-                </div>
-              ))}
-              {items.length === 0 && (
-                <div className="p-6 text-center text-slate-400 text-xs font-medium">请至少添加一项商品</div>
-              )}
-            </div>
-
-            {/* Add Other SKU Row */}
-            <div className="relative">
-              <div className="flex gap-2">
-                <input
-                  value={searchQuery}
-                  onChange={e => {
-                    setSearchQuery(e.target.value);
-                    setShowSkuDropdown(true);
-                  }}
-                  onFocus={() => setShowSkuDropdown(true)}
-                  placeholder="搜索并添加其他商品 SKU 号/商品名"
-                  className="h-10 flex-1 border border-line rounded-xl px-3 text-xs outline-none focus:border-accent"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowSkuDropdown(!showSkuDropdown)}
-                  className="btn-secondary h-10 px-3 text-xs shrink-0"
-                >
-                  {showSkuDropdown ? "隐藏" : "显示全部"}
-                </button>
-              </div>
-
-              {/* SKU Autocomplete Dropdown */}
-              {showSkuDropdown && (
-                <div className="absolute z-50 left-0 right-0 mt-1 max-h-[180px] overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-lg divide-y divide-slate-100">
-                  {(searchQuery.trim() === "" ? productSkus.slice(0, 50) : filteredSkus).map(sku => {
-                    const prod = productsMap.get(sku.product_id ?? "");
-                    const prodName = prod?.product_name_cn || "未知商品";
-                    return (
-                      <button
-                        key={sku.id}
-                        type="button"
-                        onClick={() => handleAddSku(sku)}
-                        className="w-full text-left px-4 py-2 hover:bg-slate-50 transition text-xs flex justify-between gap-3 items-center"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="font-semibold text-slate-800 truncate font-mono">{sku.sku_code}</p>
-                          <p className="text-slate-500 truncate">{prodName} ({formatSkuSalesSpec(sku)})</p>
-                        </div>
-                        <span className="text-[10px] text-slate-400 font-mono shrink-0">点击选择</span>
-                      </button>
-                    );
-                  })}
-                  {(searchQuery.trim() !== "" && filteredSkus.length === 0) && (
-                    <div className="p-4 text-center text-slate-400 text-xs font-medium">未找到匹配的 SKU</div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-3 border-t border-slate-100 px-6 py-4 bg-slate-50">
-          <button
-            type="button"
-            onClick={onClose}
-            className="btn-secondary h-10 px-4 text-xs font-semibold"
-          >
-            取消
-          </button>
-          <button
-            type="button"
-            disabled={isSaving}
-            onClick={handleSubmit}
-            className="btn-primary h-10 px-5 text-xs font-semibold inline-flex items-center gap-1.5"
-          >
-            {isSaving && <div className="h-3 w-3 animate-spin rounded-full border border-white border-r-transparent" />}
-            确认创建
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 export function OrdersPage({ user }: OrdersPageProps) {
   const { canEdit, canDelete } = usePermissions();
@@ -4361,6 +4060,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
               <input
                 ref={inputRef}
                 type="file"
+                aria-label="选择 Temu 订单文件"
                 accept=".xlsx,.csv,.tsv,.txt"
                 className="hidden"
                 onChange={(event) => void handleFileChange(event.target.files?.[0])}
@@ -4368,6 +4068,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
               <input
                 ref={trackingInputRef}
                 type="file"
+                aria-label="选择物流单号文件"
                 accept=".xlsx,.csv,.tsv,.txt"
                 className="hidden"
                 onChange={(event) => void handleTrackingFileChange(event.target.files?.[0])}

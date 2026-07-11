@@ -4,6 +4,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PageShell } from "./components/page-shell";
 import { ProtectedRoute } from "./components/protected-route";
 import { DataTableCellFullText } from "./components/ui/DataTableCellFullText";
+import { NotificationCenter } from "./components/ui/notification-center";
 import { useAuth } from "./hooks/use-auth";
 import { PermissionGate, PermissionProvider } from "./hooks/use-permissions";
 import { AuthPage } from "./pages/auth-page";
@@ -48,6 +49,7 @@ export default function App() {
   return (
     <ErrorBoundary>
       <DataTableCellFullText />
+      <NotificationCenter />
       <Suspense
         fallback={
           <div className="flex h-screen items-center justify-center">
@@ -64,7 +66,7 @@ export default function App() {
           element={
             <ProtectedRoute user={user} loading={loading}>
               <PermissionProvider user={user}>
-                <PageShell />
+                <PageShell user={user} />
               </PermissionProvider>
             </ProtectedRoute>
           }

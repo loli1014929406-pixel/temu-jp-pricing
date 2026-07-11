@@ -20,6 +20,7 @@ import {
   getOrderDate,
   getDateKey,
   getCurrentMonthInputValue,
+  type FinanceOrderRow,
 } from "./shared";
 import { 
   parseSettlementData, 
@@ -33,6 +34,7 @@ import { updateSkuCode } from "../../lib/products";
 import { updateTemuOrder } from "../../lib/orders";
 import { getWarehouseLogisticsMethodNames, normalizeLogisticsMethodName } from "../../lib/logistics-methods";
 import { confirmAction, confirmDelete, confirmSave } from "../../utils/confirmations";
+import { notifyError, notifySuccess, notifyWarning } from "../../lib/notifications";
 
 type Props = {
   user: User;
@@ -93,7 +95,7 @@ function normalizeDatePart(value: string) {
   return getDateKey(value);
 }
 
-function getIncomeOrderDate(row: { order: any }) {
+function getIncomeOrderDate(row: Pick<FinanceOrderRow, "order">) {
   return normalizeDatePart(getOrderDate(row.order));
 }
 
@@ -154,26 +156,34 @@ export function FinanceSettlementPage({ user }: Props) {
   // SKU Selection options
   const groupedSkuOptions = useMemo(() => {
     const skusByProduct = new Map<string, Array<{ id: string; label: string }>>();
-    data.productSkus.forEach((sku: any) => {
+    data.productSkus.forEach((sku) => {
       if (!sku.product_id) return;
       const list = skusByProduct.get(sku.product_id) ?? [];
       const entries = Object.entries(sku.attributes).map(([n, v]) => `${n}:${v}`).join("/");
       list.push({ id: sku.id!, label: `${sku.sku_code || "无货号"} (${entries || "无规格"})` });
       skusByProduct.set(sku.product_id, list);
     });
-    return data.products.map((product: any) => {
+    return data.products.map((product) => {
       const list = skusByProduct.get(product.id) ?? [];
       return { product, list };
-    }).filter((item: any) => item.list.length > 0);
+    }).filter((item) => item.list.length > 0);
   }, [data.products, data.productSkus]);
 
-  const productItemsById = useMemo(() => new Map<string, any>(data.productItems.map((item: any) => [item.id!, item])), [data.productItems]);
+  const productItemsById = useMemo(
+    () =>
+      new Map(
+        data.productItems.flatMap((item) =>
+          item.id ? [[item.id, item] as const] : [],
+        ),
+      ),
+    [data.productItems],
+  );
   const skuLookup = useMemo(() => buildSkuLookup(data.products, data.productSkus), [data.products, data.productSkus]);
   
-  const orderRows = useMemo(() => {
-    return data.orders.map((order: any) => {
+  const orderRows = useMemo<FinanceOrderRow[]>(() => {
+    return data.orders.map((order) => {
       const sku = getOrderSku(order, skuLookup);
-      const product = sku?.product_id ? data.products.find((p: any) => p.id === sku.product_id) ?? null : null;
+      const product = sku?.product_id ? data.products.find((item) => item.id === sku.product_id) ?? null : null;
       const quantity = getOrderQuantity(order);
       
       const shipping = estimateOrderShippingBreakdown({
@@ -227,7 +237,7 @@ export function FinanceSettlementPage({ user }: Props) {
   // Reconciliation data
   const displayOrders = useMemo(() => {
     if (showAllOrders) return orderRows;
-    return orderRows.filter((row: any) => getReconciliationIssues(row as any).length > 0);
+    return orderRows.filter((row) => getReconciliationIssues(row).length > 0);
   }, [orderRows, showAllOrders]);
 
   const reconPaginated = getPaginatedRows("finance-recon", displayOrders, reconPage, reconPageSize);
@@ -235,19 +245,19 @@ export function FinanceSettlementPage({ user }: Props) {
   // Income data
   const filteredOrderRows = useMemo(() => {
     let result = orderRows;
-    if (orderStatusFilter === "unsettled") result = result.filter((r: any) => !r.isSettled);
-    else if (orderStatusFilter === "settled") result = result.filter((r: any) => r.isSettled);
+    if (orderStatusFilter === "unsettled") result = result.filter((row) => !row.isSettled);
+    else if (orderStatusFilter === "settled") result = result.filter((row) => row.isSettled);
     else if (orderStatusFilter === "settlement-overdue") {
-      result = result.filter((r: any) => getReconciliationIssues(r as any).includes("settlement-overdue"));
+      result = result.filter((row) => getReconciliationIssues(row).includes("settlement-overdue"));
     }
-    else if (orderStatusFilter === "missing-shipping") result = result.filter((r: any) => r.shippingFeeSource === "missing");
-    else if (orderStatusFilter === "unmatched") result = result.filter((r: any) => !r.matched);
+    else if (orderStatusFilter === "missing-shipping") result = result.filter((row) => row.shippingFeeSource === "missing");
+    else if (orderStatusFilter === "unmatched") result = result.filter((row) => !row.matched);
 
     if (incomeDateFilterMode === "month" && incomeMonth) {
-      result = result.filter((r: any) => getIncomeOrderDate(r).startsWith(incomeMonth));
+      result = result.filter((row) => getIncomeOrderDate(row).startsWith(incomeMonth));
     } else if (incomeDateFilterMode === "custom") {
-      result = result.filter((r: any) => {
-        const orderDate = getIncomeOrderDate(r);
+      result = result.filter((row) => {
+        const orderDate = getIncomeOrderDate(row);
         if (!orderDate) return false;
         if (incomeStartDate && orderDate < incomeStartDate) return false;
         if (incomeEndDate && orderDate > incomeEndDate) return false;
@@ -257,15 +267,15 @@ export function FinanceSettlementPage({ user }: Props) {
 
     if (orderSearch.trim()) {
       const q = orderSearch.toLowerCase();
-      result = result.filter((r: any) => {
+      result = result.filter((row) => {
         const str = [
-          r.order.order_no, r.order.sub_order_no, r.order.sku_code, r.order.product_attributes,
-          r.order.logistics_tracking_no, r.product?.product_code, r.product?.product_name_cn
+          row.order.order_no, row.order.sub_order_no, row.order.sku_code, row.order.product_attributes,
+          row.order.logistics_tracking_no, row.product?.product_code, row.product?.product_name_cn
         ].join(" ").toLowerCase();
         return str.includes(q);
       });
     }
-    return result.sort((a: any, b: any) => {
+    return [...result].sort((a, b) => {
       const leftDate = getIncomeOrderDate(a);
       const rightDate = getIncomeOrderDate(b);
       return rightDate.localeCompare(leftDate);
@@ -276,7 +286,7 @@ export function FinanceSettlementPage({ user }: Props) {
 
   const incomeSummary = useMemo(() => {
     return filteredOrderRows.reduce(
-      (summary, row: any) => {
+      (summary, row) => {
         const rowProfit = row.isSettled ? roundMoney(row.actualRevenueRmb - row.billAmountRmb) : 0;
         return {
           orderCount: summary.orderCount + 1,
@@ -328,7 +338,7 @@ export function FinanceSettlementPage({ user }: Props) {
       return next;
     };
 
-    filteredOrderRows.forEach((row: any) => {
+    filteredOrderRows.forEach((row) => {
       const method = getShippingMethodDisplay(row.order.logistics_method);
       const methodRow = getRow(method);
       methodRow.orderCount += 1;
@@ -374,11 +384,11 @@ export function FinanceSettlementPage({ user }: Props) {
       const records = parseSettlementData(sheet.data);
       if (records.length === 0) throw new Error("未解析到有效结算数据");
       
-      const result = await addSettlementFile(user.id, file.name, records as any);
+      const result = await addSettlementFile(user.id, file.name, records);
       if (result.importedRecordCount === 0) {
-        alert(`没有新增结算记录。\n解析 ${result.parsedRecordCount} 条，已有数据跳过 ${result.skippedRecordCount} 条。`);
+        notifyWarning(`没有新增结算记录。\n解析 ${result.parsedRecordCount} 条，已有数据跳过 ${result.skippedRecordCount} 条。`);
       } else {
-        alert(
+        notifySuccess(
           `成功导入 ${result.importedRecordCount} 条结算记录！\n` +
           `已有数据跳过 ${result.skippedRecordCount} 条。\n` +
           `总回款（销售回款+销售冲回+运费回款+运费冲回）：${formatCurrency(result.totalRevenue)}`,
@@ -386,7 +396,7 @@ export function FinanceSettlementPage({ user }: Props) {
       }
       await reload();
     } catch (err) {
-      alert("导入失败: " + getErrorMessage(err, "请确保选择的是 SettledParentFlow 导出文件"));
+      notifyError("导入失败: " + getErrorMessage(err, "请确保选择的是 SettledParentFlow 导出文件"));
     } finally {
       setImporting(false);
       e.target.value = "";
@@ -399,13 +409,16 @@ export function FinanceSettlementPage({ user }: Props) {
        await deleteSettlementFile(id);
        await reload();
     } catch (err) {
-       alert("删除失败: " + getErrorMessage(err, "未知错误"));
+       notifyError("删除失败: " + getErrorMessage(err, "未知错误"));
     }
   };
 
   const handleSaveShippingFee = async (orderId: string, feeStr: string) => {
     const fee = Number(feeStr);
-    if (Number.isNaN(fee) || fee < 0) return alert("金额无效");
+    if (Number.isNaN(fee) || fee < 0) {
+      notifyWarning("金额无效");
+      return;
+    }
     if (!confirmSave()) return;
     setSavingOrderId(orderId);
     try {
@@ -413,13 +426,13 @@ export function FinanceSettlementPage({ user }: Props) {
       setEditingOrderId(null);
       await reload();
     } catch (err) {
-      alert("更新失败: " + getErrorMessage(err, "未知错误"));
+      notifyError("更新失败: " + getErrorMessage(err, "未知错误"));
     } finally {
       setSavingOrderId(null);
     }
   };
 
-  const getOrderLogisticsOptions = (row: any) => {
+  const getOrderLogisticsOptions = (row: FinanceOrderRow) => {
     const warehouseId = row.order.warehouse_id ?? "";
     const options = warehouseId
       ? getWarehouseLogisticsMethodNames(
@@ -432,14 +445,17 @@ export function FinanceSettlementPage({ user }: Props) {
     return current && !options.includes(current) ? [...options, current] : options;
   };
 
-  const startEditingLogisticsMethod = (row: any) => {
+  const startEditingLogisticsMethod = (row: FinanceOrderRow) => {
     setEditingLogisticsOrderId(row.order.id);
     setEditingLogisticsValue(normalizeLogisticsMethodName(row.order.logistics_method || ""));
   };
 
   const handleSaveLogisticsMethod = async (orderId: string, methodValue: string) => {
     const logisticsMethod = normalizeLogisticsMethodName(methodValue);
-    if (!logisticsMethod) return alert("请选择发货方式");
+    if (!logisticsMethod) {
+      notifyWarning("请选择发货方式");
+      return;
+    }
     if (!confirmSave()) return;
     setSavingLogisticsOrderId(orderId);
     try {
@@ -447,13 +463,13 @@ export function FinanceSettlementPage({ user }: Props) {
       setEditingLogisticsOrderId(null);
       await reload();
     } catch (err) {
-      alert("更新发货方式失败: " + getErrorMessage(err, "未知错误"));
+      notifyError("更新发货方式失败: " + getErrorMessage(err, "未知错误"));
     } finally {
       setSavingLogisticsOrderId(null);
     }
   };
 
-  const renderLogisticsMethodCell = (row: any) => {
+  const renderLogisticsMethodCell = (row: FinanceOrderRow) => {
     const options = getOrderLogisticsOptions(row);
     const current = normalizeLogisticsMethodName(row.order.logistics_method || "");
     const isEditing = editingLogisticsOrderId === row.order.id;
@@ -526,10 +542,10 @@ export function FinanceSettlementPage({ user }: Props) {
     try {
       await updateSkuCode(skuId, temuSkuCode);
       setMatchingOrderId(null);
-      alert(`已成功将 SKU 货号关联为: ${temuSkuCode}`);
+      notifySuccess(`已成功将 SKU 货号关联为: ${temuSkuCode}`);
       await reload();
     } catch (err) {
-      alert("关联失败: " + getErrorMessage(err, "未知错误"));
+      notifyError("关联失败: " + getErrorMessage(err, "未知错误"));
     }
   };
 
@@ -567,9 +583,9 @@ export function FinanceSettlementPage({ user }: Props) {
           }`}
         >
           对账排查
-          {orderRows.filter((r: any) => getReconciliationIssues(r).length > 0).length > 0 && (
+          {orderRows.filter((row) => getReconciliationIssues(row).length > 0).length > 0 && (
             <span className="flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-[9px] font-bold text-white">
-              {orderRows.filter((r: any) => getReconciliationIssues(r).length > 0).length > 99 ? '99+' : orderRows.filter((r: any) => getReconciliationIssues(r).length > 0).length}
+              {orderRows.filter((row) => getReconciliationIssues(row).length > 0).length > 99 ? '99+' : orderRows.filter((row) => getReconciliationIssues(row).length > 0).length}
             </span>
           )}
         </button>
@@ -700,9 +716,9 @@ export function FinanceSettlementPage({ user }: Props) {
                     </tr>
                   </thead>
                   <tbody>
-                    {reconPaginated.rows.map((row: any) => {
-                      const issueTypes = getReconciliationIssues(row as any);
-                      const accountingStatus = getAccountingStatus(row as any);
+                    {reconPaginated.rows.map((row) => {
+                      const issueTypes = getReconciliationIssues(row);
+                      const accountingStatus = getAccountingStatus(row);
                       return (
                         <tr key={row.order.id} className="hover:bg-slate-50/50">
                         <td
@@ -794,9 +810,9 @@ export function FinanceSettlementPage({ user }: Props) {
                               <div className="flex items-center gap-1.5 justify-center">
                                 <select value={matchingSkuId} onChange={(e) => setMatchingSkuId(e.target.value)} className="h-8 w-44 rounded border border-line bg-white px-2 text-xs font-semibold">
                                   <option value="">选择系统 SKU</option>
-                                  {groupedSkuOptions.map((group: any) => (
+                                  {groupedSkuOptions.map((group) => (
                                     <optgroup key={group.product.id} label={`${group.product.product_code} · ${group.product.product_name_cn}`}>
-                                      {group.list.map((item: any) => (
+                                      {group.list.map((item) => (
                                         <option key={item.id} value={item.id}>{item.label}</option>
                                       ))}
                                     </optgroup>
@@ -1014,8 +1030,8 @@ export function FinanceSettlementPage({ user }: Props) {
                     </tr>
                   </thead>
                   <tbody>
-                    {incomePaginated.rows.map((row: any, index: number) => {
-                      const accountingStatus = getAccountingStatus(row as any);
+                    {incomePaginated.rows.map((row, index) => {
+                      const accountingStatus = getAccountingStatus(row);
                       return (
                         <tr key={row.order.id} className="hover:bg-slate-50/50">
                           <td className="number-cell text-slate-400 font-mono text-xs px-3 py-2">

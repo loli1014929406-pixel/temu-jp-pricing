@@ -48,8 +48,8 @@ export function StandardTable({
   const tableLayout = layout ?? (columns && columns.length > 0 ? "fixed" : "auto");
 
   return (
-    <div className="table-card flex flex-col bg-panel">
-      <div className="overflow-x-auto">
+    <div className="table-card min-w-0 flex flex-col bg-panel">
+      <div className="min-w-0 overflow-x-auto">
         <table className={`data-table ${tableLayout === "fixed" ? "is-fixed-table" : ""} ${minWidth} ${tableClassName}`}>
           {columns && columns.length > 0 && (
             <colgroup>
@@ -91,6 +91,7 @@ export function StandardTable({
           <div className="flex items-center gap-3">
             <span>共 {totalRecordCount} 条记录</span>
             <select
+              aria-label="每页显示数量"
               value={pageSize}
               onChange={(e) => onPageSizeChange(Number(e.target.value))}
               disabled={loading}
@@ -105,6 +106,8 @@ export function StandardTable({
           <div className="flex items-center gap-2">
             <span className="mr-2 font-medium">第 {page} / {totalPages || 1} 页</span>
             <button
+              type="button"
+              aria-label="上一页"
               onClick={() => onPageChange(page - 1)}
               disabled={page <= 1 || loading}
               className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-line bg-white text-slate-600 transition hover:bg-slate-50 hover:text-accent disabled:opacity-50 disabled:hover:bg-white disabled:hover:text-slate-600"
@@ -112,6 +115,8 @@ export function StandardTable({
               <ChevronLeft size={16} />
             </button>
             <button
+              type="button"
+              aria-label="下一页"
               onClick={() => onPageChange(page + 1)}
               disabled={page >= totalPages || loading}
               className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-line bg-white text-slate-600 transition hover:bg-slate-50 hover:text-accent disabled:opacity-50 disabled:hover:bg-white disabled:hover:text-slate-600"

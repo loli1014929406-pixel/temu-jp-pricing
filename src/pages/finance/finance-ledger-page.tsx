@@ -200,6 +200,7 @@ export function FinanceLedgerPage({ user }: Props) {
       <div className="surface-card p-5">
         <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 pb-4 mb-4">
           <select
+            aria-label="流水月份"
             value={cashflowMonth}
             onChange={(e) => { setCashflowMonth(e.target.value); setPage(1); }}
             className="h-9 rounded-lg border border-line bg-white px-3 text-xs font-semibold outline-none focus:border-accent focus:ring-1 focus:ring-accent"

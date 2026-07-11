@@ -149,14 +149,13 @@ function normalizeTemuOrder(row: Partial<TemuOrderRecord>): TemuOrderRecord {
 }
 
 export async function fetchTemuOrders() {
-  const { supabase, session } = await requireSession();
+  const { supabase } = await requireSession();
   const fetchByFields = (fields: string) =>
     fetchAllPages<Partial<TemuOrderRecord>>(async (from, to) => {
       const { data, error } = await withTimeout(
         supabase
           .from("temu_orders")
           .select(fields)
-          .eq("owner_id", session.user.id)
           .order("latest_ship_time", { ascending: true })
           .order("created_at", { ascending: false })
           .order("id", { ascending: true })
@@ -186,7 +185,7 @@ export type FetchTemuOrdersPaginatedOptions = {
 };
 
 export async function fetchTemuOrdersPaginated(options: FetchTemuOrdersPaginatedOptions) {
-  const { supabase, session } = await requireSession();
+  const { supabase } = await requireSession();
   const { page, pageSize, searchQuery, statusFilter } = options;
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
@@ -194,8 +193,7 @@ export async function fetchTemuOrdersPaginated(options: FetchTemuOrdersPaginated
   const buildRequest = (fields: string) => {
     let req = supabase
       .from("temu_orders")
-      .select(fields, { count: "exact" })
-      .eq("owner_id", session.user.id);
+      .select(fields, { count: "exact" });
     
     if (statusFilter) {
       req = req.eq("order_status", statusFilter);
@@ -248,7 +246,6 @@ export async function importTemuOrders(rows: TemuOrderImportRow[]) {
         supabase
           .from("temu_orders")
           .select("order_no, sub_order_no, sku_code, product_attributes")
-          .eq("owner_id", session.user.id)
           .order("id", { ascending: true })
           .range(from, to),
         "检查已有订单",
@@ -312,7 +309,7 @@ export async function importTemuOrders(rows: TemuOrderImportRow[]) {
     supabase
       .from("temu_orders")
       .upsert(payload, {
-        onConflict: "owner_id,order_no,sub_order_no",
+        onConflict: "order_no,sub_order_no",
         ignoreDuplicates: true,
       })
       .select(temuOrderSelectFields),
@@ -325,7 +322,7 @@ export async function importTemuOrders(rows: TemuOrderImportRow[]) {
         supabase
           .from("temu_orders")
           .upsert(payload, {
-            onConflict: "owner_id,order_no,sub_order_no",
+            onConflict: "order_no,sub_order_no",
             ignoreDuplicates: true,
           })
           .select(temuOrderLegacySelectFields),
@@ -343,7 +340,7 @@ export async function importTemuOrders(rows: TemuOrderImportRow[]) {
         supabase
           .from("temu_orders")
           .upsert(legacyPayload, {
-            onConflict: "owner_id,order_no,sub_order_no",
+            onConflict: "order_no,sub_order_no",
             ignoreDuplicates: true,
           })
           .select(temuOrderLegacySelectFields),
@@ -375,7 +372,7 @@ export async function updateTemuOrder(
     >
   >,
 ) {
-  const { supabase, session } = await requireSession();
+  const { supabase } = await requireSession();
   const normalizedUpdates = {
     ...updates,
     logistics_method:
@@ -388,7 +385,6 @@ export async function updateTemuOrder(
       .from("temu_orders")
       .update(normalizedUpdates)
       .eq("id", orderId)
-      .eq("owner_id", session.user.id)
       .select(temuOrderSelectFields)
       .single(),
     "更新订单",
@@ -402,7 +398,6 @@ export async function updateTemuOrder(
         .from("temu_orders")
         .update(normalizedUpdates)
         .eq("id", orderId)
-        .eq("owner_id", session.user.id)
         .select(temuOrderLegacySelectFields)
         .single(),
       "更新订单",
@@ -415,9 +410,9 @@ export async function updateTemuOrder(
 }
 
 export async function deleteTemuOrder(orderId: string) {
-  const { supabase, session } = await requireSession();
+  const { supabase } = await requireSession();
   const { error } = await withTimeout(
-    supabase.from("temu_orders").delete().eq("id", orderId).eq("owner_id", session.user.id),
+    supabase.from("temu_orders").delete().eq("id", orderId),
     "删除订单",
   );
   if (error) throw error;

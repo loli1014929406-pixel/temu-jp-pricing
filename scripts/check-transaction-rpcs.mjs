@@ -56,6 +56,15 @@ const checks = [
     },
   },
   {
+    name: "create_purchase_package",
+    args: {
+      p_order_id: null,
+      p_source_id: null,
+      p_tracking_no: "",
+      p_items: [],
+    },
+  },
+  {
     name: "update_purchase_source_atomic",
     args: {
       p_source_id: null,

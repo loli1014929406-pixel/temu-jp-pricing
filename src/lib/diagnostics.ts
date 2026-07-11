@@ -8,9 +8,31 @@ export type AppDiagnostic = {
 };
 
 const maxDiagnostics = 50;
-const diagnostics: AppDiagnostic[] = [];
+const diagnosticsStorageKey = "temu-jp:diagnostics:v1";
+
+function loadStoredDiagnostics(): AppDiagnostic[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const value = window.sessionStorage.getItem(diagnosticsStorageKey);
+    const parsed = value ? JSON.parse(value) : [];
+    return Array.isArray(parsed) ? parsed.slice(-maxDiagnostics) : [];
+  } catch {
+    return [];
+  }
+}
+
+const diagnostics: AppDiagnostic[] = loadStoredDiagnostics();
 const listeners = new Set<(items: AppDiagnostic[]) => void>();
-let nextDiagnosticId = 1;
+let nextDiagnosticId = Math.max(0, ...diagnostics.map((item) => item.id)) + 1;
+
+function persistDiagnostics() {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(diagnosticsStorageKey, JSON.stringify(diagnostics));
+  } catch {
+    // Diagnostics must never interrupt the business workflow.
+  }
+}
 
 function sanitizeDiagnosticText(value: unknown) {
   const text = value instanceof Error ? value.message : String(value ?? "");
@@ -32,6 +54,7 @@ function appendDiagnostic(
   });
   nextDiagnosticId += 1;
   if (diagnostics.length > maxDiagnostics) diagnostics.splice(0, diagnostics.length - maxDiagnostics);
+  persistDiagnostics();
   const snapshot = getRecentDiagnostics();
   listeners.forEach((listener) => listener(snapshot));
 }
@@ -56,6 +79,7 @@ export function getRecentDiagnostics() {
 
 export function clearDiagnostics() {
   diagnostics.length = 0;
+  persistDiagnostics();
   listeners.forEach((listener) => listener([]));
 }
 
