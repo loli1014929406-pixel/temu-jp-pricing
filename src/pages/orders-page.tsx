@@ -2305,7 +2305,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
   const selectedInViewCount = selectedOrderRowsInView.length;
   const hasSelectedCompletedOrders = selectedCompletedOrdersInView.length > 0;
   const selectedSingleOrderInView =
-    selectedOrderLineInViewCount === 1 ? selectedOrdersInView[0] : null;
+    selectedOrderRowsInView.length === 1 ? selectedOrderRowsInView[0].primaryOrder : null;
   const canManageSelectedShippedOrders =
     selectedShippedOrdersInView.length > 0 &&
     (activeStage === "shipped" || showUrgentUnuploadedOnly);
