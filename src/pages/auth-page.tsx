@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Navigate } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import type { User } from "@supabase/supabase-js";
 import { getSupabaseClient, supabaseConfigError } from "../lib/supabase";
 import { Field, TextInput } from "../components/form-controls";
@@ -121,6 +121,11 @@ export function AuthPage({ user }: AuthPageProps) {
                 onChange={(event) => setPassword(event.target.value)}
               />
             </Field>
+            <div className="text-right">
+              <Link className="text-sm font-semibold text-accent hover:underline" to="/forgot-password">
+                忘记密码？
+              </Link>
+            </div>
             {message && <p className="text-sm text-warning font-semibold">{message}</p>}
             <button
               type="submit"

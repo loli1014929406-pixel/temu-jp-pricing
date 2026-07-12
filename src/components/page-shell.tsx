@@ -14,6 +14,7 @@ import {
   WalletCards,
   ListOrdered,
   Settings,
+  Activity,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
@@ -91,7 +92,7 @@ type PageShellProps = {
 };
 
 export function PageShell({ user }: PageShellProps) {
-  const { label } = usePermissions();
+  const { label, canDelete } = usePermissions();
   const location = useLocation();
   const [profile, setProfile] = useState<AccountProfile | null>(null);
   async function handleSignOut() {
@@ -165,6 +166,7 @@ export function PageShell({ user }: PageShellProps) {
               })}
             </div>
           ))}
+          {canDelete && <div className="erp-side-section"><p className="erp-side-section-title">管理员</p><NavLink to="/admin/diagnostics" className={({isActive}) => `erp-side-nav-item ${isActive ? "erp-side-nav-item-active" : ""}`}><Activity size={16}/><span>集中诊断</span></NavLink></div>}
         </nav>
 
         {/* User Identity Profile Card at Sidebar Bottom */}

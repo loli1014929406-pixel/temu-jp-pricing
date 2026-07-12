@@ -8,6 +8,8 @@ import { NotificationCenter } from "./components/ui/notification-center";
 import { useAuth } from "./hooks/use-auth";
 import { PermissionGate, PermissionProvider } from "./hooks/use-permissions";
 import { AuthPage } from "./pages/auth-page";
+import { ForgotPasswordPage } from "./pages/forgot-password-page";
+import { ResetPasswordPage } from "./pages/reset-password-page";
 const DeclarationPricesPage = lazy(() => import('./pages/declaration-prices-page').then(module => ({ default: module.DeclarationPricesPage })));
 const FinanceOverviewPage = lazy(() => import('./pages/finance/finance-overview-page').then(module => ({ default: module.FinanceOverviewPage })));
 const FinanceLedgerPage = lazy(() => import('./pages/finance/finance-ledger-page').then(module => ({ default: module.FinanceLedgerPage })));
@@ -30,6 +32,7 @@ const PurchasesPage = lazy(() => import('./pages/purchases-page').then(module =>
 const SettingsPage = lazy(() => import('./pages/settings-page').then(module => ({ default: module.SettingsPage })));
 const TestShippingPage = lazy(() => import('./pages/test-shipping-page').then(module => ({ default: module.TestShippingPage })));
 const UserPage = lazy(() => import('./pages/user-page').then(module => ({ default: module.UserPage })));
+const AdminDiagnosticsPage = lazy(() => import('./pages/admin-diagnostics-page').then(module => ({ default: module.AdminDiagnosticsPage })));
 
 function NotFoundPage() {
   return (
@@ -62,6 +65,8 @@ export default function App() {
       >
         <Routes>
         <Route path="/login" element={<AuthPage user={user} />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route
           element={
             <ProtectedRoute user={user} loading={loading}>
@@ -195,6 +200,7 @@ export default function App() {
             element={user ? <ProfitCalculationPage user={user} /> : null}
           />
           <Route path="/parameter-settings" element={user ? <SettingsPage user={user} /> : null} />
+          <Route path="/admin/diagnostics" element={user ? <AdminDiagnosticsPage /> : null} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Routes>

@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/yamato-tracking/:path*",
-      "destination": "https://toi.kuronekoyamato.co.jp/:path*"
+      "destination": "/api/yamato-tracking"
     },
     {
       "source": "/japanpost-tracking/:path*",

@@ -312,6 +312,41 @@ export async function fetchTemuOrdersPage(
   };
 }
 
+export type FetchFinanceOrdersPageOptions = {
+  page: number;
+  pageSize: number;
+  search?: string;
+  dateStart?: string;
+  dateEnd?: string;
+  settlementStatus?: "all" | "settled" | "unsettled";
+};
+
+export async function fetchFinanceOrdersPage(
+  options: FetchFinanceOrdersPageOptions,
+): Promise<{ orders: TemuOrderRecord[]; totalCount: number }> {
+  const { supabase } = await requireSession();
+  const { data, error } = await withTimeout(
+    supabase.rpc("get_finance_orders_page", {
+      p_page: Math.max(1, Math.trunc(options.page || 1)),
+      p_page_size: Math.min(100, Math.max(1, Math.trunc(options.pageSize || 50))),
+      p_search: options.search?.trim() ?? "",
+      p_date_start: options.dateStart || null,
+      p_date_end: options.dateEnd || null,
+      p_settlement_status: options.settlementStatus ?? "all",
+    }),
+    "加载财务订单分页",
+  );
+  if (error) throw error;
+  const payload = (Array.isArray(data) ? data[0] : data) as
+    | { orders?: unknown; total_count?: unknown }
+    | null;
+  const orders = Array.isArray(payload?.orders) ? payload.orders : [];
+  return {
+    orders: (orders as Partial<TemuOrderRecord>[]).map(normalizeTemuOrder),
+    totalCount: Number(payload?.total_count ?? 0),
+  };
+}
+
 export async function importTemuOrders(rows: TemuOrderImportRow[]) {
   const { supabase, session } = await requireSession();
   if (rows.length === 0) return [] as TemuOrderRecord[];

@@ -93,6 +93,15 @@ type SettlementRecordRow = {
   total_revenue: number | string;
 };
 
+type SettlementPoSummaryRow = {
+  file_id: string;
+  po_number: string;
+  quantity: number;
+  sales_revenue: number | string;
+  freight_revenue: number | string;
+  record_count: number;
+};
+
 // ── Parsing ────────────────────────────────────────────────────────────────────
 
 function num(value: unknown): number {
@@ -234,6 +243,58 @@ function getSettlementStorageErrorMessage(error: { code?: string; message?: stri
 
 export async function loadSettlementFiles(userId: string): Promise<SettlementFile[]> {
   const supabase = getSupabaseClient();
+  const { data: summaryData, error: summaryError } = await withTimeout(
+    supabase.rpc("get_finance_settlement_summary"),
+    "加载结算汇总",
+  );
+
+  if (!summaryError) {
+    const payload = (Array.isArray(summaryData) ? summaryData[0] : summaryData) as
+      | { files?: unknown; po_records?: unknown }
+      | null;
+    const filesData = (Array.isArray(payload?.files) ? payload.files : []) as SettlementFileRow[];
+    const poRecords = (Array.isArray(payload?.po_records) ? payload.po_records : []) as SettlementPoSummaryRow[];
+    const recordsByFile = new Map<string, SettlementRecord[]>();
+    for (const row of poRecords) {
+      const record: SettlementRecord = {
+        poNumber: row.po_number,
+        skuId: "",
+        skuName: "",
+        skuCode: "",
+        quantity: Number(row.quantity ?? 0),
+        declaredPrice: 0,
+        isPromotionPrice: false,
+        currency: "CNY",
+        salesRevenue: Number(row.sales_revenue ?? 0),
+        salesDiscountDeducted: 0,
+        salesReversal: 0,
+        freightRevenue: Number(row.freight_revenue ?? 0),
+        freightDiscountDeducted: 0,
+        freightReversal: 0,
+        totalRevenue: roundMoney(Number(row.sales_revenue ?? 0) + Number(row.freight_revenue ?? 0)),
+      };
+      recordsByFile.set(row.file_id, [...(recordsByFile.get(row.file_id) ?? []), record]);
+    }
+    return filesData.map((file) => ({
+      id: file.id,
+      fileName: file.file_name,
+      dateRangeStart: file.date_range_start,
+      dateRangeEnd: file.date_range_end,
+      importedAt: file.imported_at,
+      totalSalesRevenue: Number(file.total_sales_revenue),
+      totalFreightRevenue: Number(file.total_freight_revenue),
+      totalRevenue: roundMoney(Number(file.total_sales_revenue) + Number(file.total_freight_revenue)),
+      recordCount: file.record_count,
+      records: recordsByFile.get(file.id) ?? [],
+    }));
+  }
+
+  const summaryCode = String((summaryError as { code?: unknown } | null)?.code ?? "");
+  if (summaryCode !== "PGRST202" && summaryCode !== "42883") {
+    throw new Error(getSettlementStorageErrorMessage(summaryError, "加载结算汇总"));
+  }
+
+  // Compatibility fallback until the read-only summary migration is deployed.
   const [filesResult, recordsResult] = await Promise.all([
     fetchAllPages<SettlementFileRow, { code?: string; message?: string }>(
       async (from, to) => {
@@ -319,6 +380,52 @@ export async function loadSettlementFiles(userId: string): Promise<SettlementFil
       records,
     };
   });
+}
+
+export async function loadSettlementRecordsPage(options: {
+  fileId?: string;
+  page?: number;
+  pageSize?: number;
+  search?: string;
+}): Promise<{ records: SettlementRecord[]; totalCount: number }> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await withTimeout(
+    supabase.rpc("get_finance_settlement_records_page", {
+      p_file_id: options.fileId || null,
+      p_page: Math.max(1, Math.trunc(options.page ?? 1)),
+      p_page_size: Math.min(100, Math.max(1, Math.trunc(options.pageSize ?? 50))),
+      p_search: options.search?.trim() ?? "",
+    }),
+    "加载结算明细分页",
+  );
+  if (error) throw new Error(getSettlementStorageErrorMessage(error, "加载结算明细"));
+  const payload = (Array.isArray(data) ? data[0] : data) as
+    | { records?: unknown; total_count?: unknown }
+    | null;
+  const rows = (Array.isArray(payload?.records) ? payload.records : []) as SettlementRecordRow[];
+  return {
+    records: rows.map((row) => ({
+      poNumber: row.po_number,
+      skuId: row.sku_id,
+      skuName: row.sku_name,
+      skuCode: row.sku_code,
+      quantity: row.quantity,
+      declaredPrice: Number(row.declared_price),
+      isPromotionPrice: row.is_promotion_price,
+      currency: row.currency,
+      salesRevenue: Number(row.sales_revenue),
+      salesDiscountDeducted: Number(row.sales_discount_deducted),
+      salesReversal: Number(row.sales_reversal),
+      freightRevenue: Number(row.freight_revenue),
+      freightDiscountDeducted: Number(row.freight_discount_deducted),
+      freightReversal: Number(row.freight_reversal),
+      totalRevenue: roundMoney(
+        Number(row.sales_revenue) + Number(row.sales_reversal) +
+        Number(row.freight_revenue) + Number(row.freight_reversal),
+      ),
+    })),
+    totalCount: Number(payload?.total_count ?? 0),
+  };
 }
 
 export async function deleteSettlementFile(fileId: string): Promise<void> {
