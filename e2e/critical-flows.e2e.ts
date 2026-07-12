@@ -63,4 +63,13 @@ test("已登录账号可以完成关键业务只读回归", async ({ page }) => 
 
   await page.goto("/finance/settlement");
   await expect(page.getByRole("heading", { name: "结算与对账", exact: true })).toBeVisible();
+  await page.waitForLoadState("networkidle");
+  await expect(page.getByText(/加载财务订单失败|加载财务订单分页与汇总失败/)).toHaveCount(0);
+  await page.getByRole("button", { name: "收入明细", exact: true }).click();
+  await expect(page.getByText(/筛选后共 \d+ 单/)).toBeVisible();
+
+  await page.goto("/finance/ledger");
+  await expect(page.getByRole("heading", { name: "收支流水", exact: true })).toBeVisible();
+  await page.waitForLoadState("networkidle");
+  await expect(page.getByText(/加载收支流水失败/)).toHaveCount(0);
 });

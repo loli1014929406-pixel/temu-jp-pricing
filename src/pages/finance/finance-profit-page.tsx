@@ -28,6 +28,7 @@ import {
   getMonthEnd,
   getTodayInputValue
 } from "./shared";
+import { useFinanceAnalysis } from "./use-finance-analysis";
 import { buildSettlementLookup } from "../../lib/settlement";
 
 type Props = {
@@ -145,17 +146,11 @@ function getShippingMethodLabel(value: unknown) {
 }
 
 export function FinanceProfitPage({ user }: Props) {
-  const { data, expenses, settlementFiles, settings, loading, error, reload } = useFinanceData(user.id, {
-    orders: true,
+  const { data, expenses, settlementFiles, settings, loading: baseLoading, error: baseError, reload: reloadBase } = useFinanceData(user.id, {
     purchases: true,
-    products: true,
     expenses: true,
-    settlements: true,
-    logistics: true,
   });
-
   const settlementLookup = useMemo(() => buildSettlementLookup(settlementFiles || []), [settlementFiles]);
-
   const productItemsById = useMemo(() => new Map<string, any>(data.productItems.map((item: any) => [item.id!, item])), [data.productItems]);
   const productsById = useMemo(() => new Map<string, any>(data.products.map((product: any) => [product.id, product])), [data.products]);
   const skuLookup = useMemo(() => buildSkuLookup(data.products, data.productSkus), [data.products, data.productSkus]);
@@ -262,8 +257,18 @@ export function FinanceProfitPage({ user }: Props) {
     );
   };
 
+  const analysis = useFinanceAnalysis({
+    page: 1,
+    pageSize: 1,
+    dateStart: period.mode === "all" ? "" : period.start,
+    dateEnd: period.mode === "all" ? "" : period.end,
+  });
+  const loading = baseLoading || analysis.loading;
+  const error = baseError || analysis.error;
+  const reload = async () => { await Promise.all([reloadBase(), analysis.reload()]); };
+
   // Monthly Profit Logic
-  const monthlyRows = useMemo(() => {
+  const legacyMonthlyRows = useMemo(() => {
     const monthlyData = new Map<
       string,
       {
@@ -364,7 +369,7 @@ export function FinanceProfitPage({ user }: Props) {
     period,
   ]);
 
-  const shippingMethodRows = useMemo<ShippingMethodRow[]>(() => {
+  const legacyShippingMethodRows = useMemo<ShippingMethodRow[]>(() => {
     const shippingData = new Map<string, ShippingMethodRow>();
 
     const getShippingObj = (method: string) => {
@@ -444,6 +449,55 @@ export function FinanceProfitPage({ user }: Props) {
     period,
   ]);
 
+  void legacyMonthlyRows;
+  void legacyShippingMethodRows;
+
+  const monthlyRows = useMemo(() => {
+    const rows = new Map<string, any>();
+    const ensure = (month: string) => {
+      if (!rows.has(month)) rows.set(month, { month, settledIncome: 0, estimatedIncome: 0, purchase: 0, productCost: 0, shipping: 0, cashShipping: 0, otherExpense: 0 });
+      return rows.get(month)!;
+    };
+    analysis.monthly.forEach((raw) => {
+      const row = ensure(String(raw.month));
+      row.settledIncome = Number(raw.actual_revenue ?? 0);
+      row.estimatedIncome = Number(raw.estimated_income ?? 0);
+      row.productCost = Number(raw.product_cost ?? 0);
+      row.shipping = Number(raw.shipping ?? 0);
+      row.cashShipping = Number(raw.cash_shipping ?? 0);
+    });
+    data.purchases.forEach((purchase) => {
+      const date = formatDate(purchase.purchased_at);
+      if (period.mode !== "all" && !isDateInPeriod(date, period)) return;
+      ensure(getMonthKey(date)).purchase += getPurchaseTotalRmb(purchase);
+    });
+    expenses.forEach((expense) => {
+      if (period.mode !== "all" && !isDateInPeriod(expense.expense_date, period)) return;
+      ensure(getMonthKey(expense.expense_date)).otherExpense += expense.amount_rmb;
+    });
+    return Array.from(rows.values()).sort((a, b) => b.month.localeCompare(a.month)).map((row) => ({
+      ...row,
+      settledIncome: roundMoney(row.settledIncome), estimatedIncome: roundMoney(row.estimatedIncome),
+      purchase: roundMoney(row.purchase), productCost: roundMoney(row.productCost), shipping: roundMoney(row.shipping),
+      cashShipping: roundMoney(row.cashShipping), otherExpense: roundMoney(row.otherExpense),
+      cashProfit: roundMoney(row.settledIncome - row.purchase - row.cashShipping - row.otherExpense),
+      orderProfit: roundMoney(row.estimatedIncome - row.productCost - row.shipping - row.otherExpense),
+    }));
+  }, [analysis.monthly, data.purchases, expenses, period]);
+
+  const shippingMethodRows = useMemo<ShippingMethodRow[]>(() => analysis.shippingMethods.map((raw) => {
+    const orderCount = Number(raw.order_count ?? 0);
+    const quantity = Number(raw.quantity ?? 0);
+    const totalShipping = Number(raw.total_shipping ?? 0);
+    return {
+      method: String(raw.method ?? "未填写发货方式"), orderCount, quantity,
+      actualShipping: Number(raw.actual_shipping ?? 0), estimatedShipping: Number(raw.estimated_shipping ?? 0),
+      totalShipping, missingShippingCount: Number(raw.missing_shipping_count ?? 0),
+      averagePerOrder: orderCount > 0 ? roundMoney(totalShipping / orderCount) : 0,
+      averagePerItem: quantity > 0 ? roundMoney(totalShipping / quantity) : 0,
+    };
+  }), [analysis.shippingMethods]);
+
   const shippingMethodSummary = useMemo(() => {
     return shippingMethodRows.reduce(
       (summary, row) => ({
@@ -472,7 +526,7 @@ export function FinanceProfitPage({ user }: Props) {
   const [productSortField, setProductSortField] = useState<"orderCount" | "quantity" | "productCost" | "shipping" | "actualRevenue" | "profit" | "margin">("profit");
   const [productSortOrder, setProductSortOrder] = useState<"asc" | "desc">("desc");
 
-  const productRows = useMemo(() => {
+  const legacyProductRows = useMemo(() => {
     const productData = new Map<
       string,
       {
@@ -549,6 +603,21 @@ export function FinanceProfitPage({ user }: Props) {
     settlementLookup,
     period,
   ]);
+
+  void legacyProductRows;
+  const productRows = useMemo(() => analysis.products.map((raw) => {
+    const actualRevenue = Number(raw.actual_revenue ?? 0);
+    const productCost = Number(raw.product_cost ?? 0);
+    const shipping = Number(raw.shipping ?? 0);
+    const profit = actualRevenue - productCost - shipping;
+    return {
+      productCode: String(raw.product_code || "未知商品"),
+      productName: String(raw.product_name || "未匹配商品"),
+      orderCount: Number(raw.order_count ?? 0), quantity: Number(raw.quantity ?? 0),
+      productCost, shipping, actualRevenue, profit,
+      margin: calculateMarginRate(profit, actualRevenue),
+    };
+  }), [analysis.products]);
 
   const filteredProductRows = useMemo(() => {
     let result = productRows;

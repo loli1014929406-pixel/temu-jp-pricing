@@ -6,96 +6,37 @@ import { PageHeader, Badge, StandardTable } from "../../components/ui";
 import { useFinanceData } from "./use-finance-data";
 import {
   EmptyPanel,
-  getReconciliationIssues,
   getAccountingStatus,
-  calculateFinanceTotals,
   formatCurrency,
   calculateMarginRate,
-  getOrderSku,
-  getOrderQuantity,
-  getSkuUnitCostRmb,
-  estimateOrderShippingBreakdown,
-  roundMoney,
-  buildSkuLookup,
-  getResolvedSettlementMetrics,
+  getPurchaseTotalRmb,
 } from "./shared";
-import { buildSettlementLookup } from "../../lib/settlement";
+import { useFinanceAnalysis } from "./use-finance-analysis";
 
 type Props = {
   user: User;
 };
 
 export function FinanceOverviewPage({ user }: Props) {
-  const { data, expenses, settlementFiles, settings, loading, error, reload } = useFinanceData(user.id, {
-    orders: true,
+  const { data, expenses, loading: baseLoading, error: baseError, reload: reloadBase } = useFinanceData(user.id, {
     purchases: true,
-    products: true,
-    inventory: true,
     expenses: true,
-    settlements: true,
-    logistics: true,
   });
-
-  const settlementLookup = useMemo(() => buildSettlementLookup(settlementFiles), [settlementFiles]);
-
-  const productItemsById = useMemo(() => new Map<string, any>(data.productItems.map((item: any) => [item.id!, item])), [data.productItems]);
-  const productsById = useMemo(() => new Map<string, any>(data.products.map((product: any) => [product.id, product])), [data.products]);
-  const skuLookup = useMemo(() => buildSkuLookup(data.products, data.productSkus), [data.products, data.productSkus]);
-
-  const orderRows = useMemo(() => {
-    return data.orders.map((order: any) => {
-      const sku = getOrderSku(order, skuLookup);
-      const product = sku?.product_id ? productsById.get(sku.product_id) ?? null : null;
-      const quantity = getOrderQuantity(order);
-      const unitCost = sku ? getSkuUnitCostRmb(sku, productItemsById) : 0;
-      const productCostRmb = roundMoney(unitCost * quantity);
-      const shipping = estimateOrderShippingBreakdown({
-        order,
-        product,
-        settings,
-        logisticsMethods: data.logisticsMethods,
-        warehouseLogisticsMethods: data.warehouseLogisticsMethods,
-      });
-      
-      const { actualSalesRevenueRmb, actualFreightRevenueRmb, isSettled } = getResolvedSettlementMetrics(order, quantity, settlementLookup);
-
-      const actualRevenueRmb = roundMoney(actualSalesRevenueRmb + actualFreightRevenueRmb);
-
-      return {
-        order,
-        sku,
-        product,
-        quantity,
-        productCostRmb,
-        shippingFeeRmb: shipping.shippingFeeRmb,
-        firstLegShippingRmb: shipping.firstLegShippingRmb,
-        lastLegShippingRmb: shipping.lastLegShippingRmb,
-        cashShippingFeeRmb: shipping.cashShippingFeeRmb,
-        estimatedShippingRmb: shipping.estimatedShippingRmb,
-        shippingFeeSource: shipping.shippingFeeSource,
-        isShippingFeeEstimated: shipping.isShippingFeeEstimated,
-        warehouseLogisticsIssue: shipping.warehouseLogisticsIssue,
-        billAmountRmb: roundMoney(productCostRmb + shipping.shippingFeeRmb),
-        actualSalesRevenueRmb,
-        actualFreightRevenueRmb,
-        actualRevenueRmb,
-        isSettled,
-        matched: Boolean(sku && product),
-        matchLabel: sku && product ? "已匹配" : "待匹配",
-      };
-    });
-  }, [
-    data.orders,
-    data.logisticsMethods,
-    data.warehouseLogisticsMethods,
-    productItemsById,
-    productsById,
-    skuLookup,
-    settings,
-    settlementLookup,
-  ]);
-
-  const totals = useMemo(() => calculateFinanceTotals(orderRows, data.purchases), [orderRows, data.purchases]);
+  const analysis = useFinanceAnalysis({ page: 1, pageSize: 1 });
+  const issues = useFinanceAnalysis({ page: 1, pageSize: 5, issue: "reconciliation" });
+  const orderRows = issues.rows;
+  const purchasePayment = useMemo(() => data.purchases.reduce((sum, row) => sum + getPurchaseTotalRmb(row), 0), [data.purchases]);
+  const totals = {
+    estimatedBillAmount: analysis.summary.bill,
+    actualRevenueAmount: analysis.summary.actualRevenue,
+    orderShippingFee: analysis.summary.shipping,
+    cashOrderShippingFee: analysis.summary.cashShipping,
+    orderProductCost: analysis.summary.productCost,
+    purchasePayment,
+    missingShippingFeeCount: analysis.summary.missingShippingAttentionCount,
+    unmatchedCount: analysis.summary.unmatchedCount,
+    unsettledCount: analysis.summary.unsettledCount,
+  };
 
   const totalOtherExpenses = useMemo(() => expenses.reduce((sum, e) => sum + e.amount_rmb, 0), [expenses]);
   
@@ -103,9 +44,10 @@ export function FinanceOverviewPage({ user }: Props) {
   const orderProfit = totals.actualRevenueAmount - totals.orderProductCost - totals.orderShippingFee - totalOtherExpenses;
   const cashMarginRate = calculateMarginRate(cashProfit, totals.actualRevenueAmount);
   
-  const pendingReconciliations = useMemo(() => {
-    return orderRows.filter((row: any) => getReconciliationIssues(row).length > 0).slice(0, 5);
-  }, [orderRows]);
+  const pendingReconciliations = orderRows;
+  const loading = baseLoading || analysis.loading || issues.loading;
+  const error = baseError || analysis.error || issues.error;
+  const reload = async () => { await Promise.all([reloadBase(), analysis.reload(), issues.reload()]); };
 
   return (
     <section className="flex flex-col gap-6 p-4 sm:p-6">
@@ -183,10 +125,10 @@ export function FinanceOverviewPage({ user }: Props) {
                    <div className="text-sm font-bold text-slate-500 group-hover:text-accent transition-colors flex items-center gap-1">
                      结算进度 <ArrowRight size={14} className="opacity-0 group-hover:opacity-100 transition-opacity" />
                    </div>
-                   <div className="text-sm font-bold text-slate-800 tabular-nums">{orderRows.length - totals.unsettledCount} / {orderRows.length} 笔</div>
+                   <div className="text-sm font-bold text-slate-800 tabular-nums">{analysis.summary.settledCount} / {analysis.summary.orderCount} 笔</div>
                 </div>
                 <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden mb-2">
-                  <div className="h-full bg-accent rounded-full transition-all" style={{ width: `${orderRows.length > 0 ? ((orderRows.length - totals.unsettledCount) / orderRows.length) * 100 : 0}%` }} />
+                  <div className="h-full bg-accent rounded-full transition-all" style={{ width: `${analysis.summary.orderCount > 0 ? (analysis.summary.settledCount / analysis.summary.orderCount) * 100 : 0}%` }} />
                 </div>
                 <p className="text-xs text-slate-400 font-medium">待回款估算 <span className="text-accent font-bold">{formatCurrency(totals.estimatedBillAmount - totals.actualRevenueAmount)}</span></p>
               </Link>

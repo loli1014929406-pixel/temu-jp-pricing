@@ -49,7 +49,7 @@ export function StandardTable({
 
   return (
     <div className="table-card min-w-0 flex flex-col bg-panel">
-      <div className="min-w-0 overflow-x-auto">
+      <div className="min-w-0 overflow-x-auto" tabIndex={0} aria-label="可横向滚动的数据表格">
         <table className={`data-table ${tableLayout === "fixed" ? "is-fixed-table" : ""} ${minWidth} ${tableClassName}`}>
           {columns && columns.length > 0 && (
             <colgroup>

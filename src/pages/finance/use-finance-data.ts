@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchTemuOrders } from "../../lib/orders";
 import { fetchPurchaseOrders } from "../../lib/purchases";
 import { fetchProducts, fetchProductItemsByProductIds, fetchProductSkusByProductIds } from "../../lib/products";
 import { fetchWarehouses, fetchWarehouseSkus } from "../../lib/inventory";
@@ -25,7 +24,6 @@ import type { FinanceData } from "./shared";
 import { operationalCacheKeys } from "../../lib/operational-cache";
 
 type FetchOptions = {
-  orders?: boolean;
   purchases?: boolean;
   products?: boolean;
   inventory?: boolean;
@@ -35,7 +33,6 @@ type FetchOptions = {
 };
 
 export function useFinanceData(userId: string, options: FetchOptions) {
-  const ordersEnabled = Boolean(options.orders);
   const purchasesEnabled = Boolean(options.purchases);
   const productsEnabled = Boolean(options.products);
   const inventoryEnabled = Boolean(options.inventory);
@@ -68,7 +65,7 @@ export function useFinanceData(userId: string, options: FetchOptions) {
       const keys: string[] = [];
       let optionalError = "";
 
-       if (ordersEnabled || productsEnabled || inventoryEnabled) {
+       if (productsEnabled || inventoryEnabled || logisticsEnabled) {
           promises.push(
             getCachedAsync(
               `finance:${userId}:settings`,
@@ -77,13 +74,6 @@ export function useFinanceData(userId: string, options: FetchOptions) {
             ).catch(() => null),
           );
           keys.push("settings");
-       }
-
-       if (ordersEnabled) {
-         promises.push(
-           getCachedAsync(operationalCacheKeys.orders, fetchTemuOrders, { force }),
-         );
-         keys.push("orders");
        }
 
        if (purchasesEnabled) {
@@ -190,7 +180,7 @@ export function useFinanceData(userId: string, options: FetchOptions) {
       }
 
       setData({
-        orders: (resultMap.orders as FinanceData["orders"] | undefined) ?? [],
+        orders: [],
         purchases: (resultMap.purchases as FinanceData["purchases"] | undefined) ?? [],
         products,
         productItems,
@@ -223,7 +213,6 @@ export function useFinanceData(userId: string, options: FetchOptions) {
     expensesEnabled,
     inventoryEnabled,
     logisticsEnabled,
-    ordersEnabled,
     productsEnabled,
     purchasesEnabled,
     settlementsEnabled,

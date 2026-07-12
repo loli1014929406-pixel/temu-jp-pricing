@@ -9,14 +9,7 @@ import {
   getReconciliationIssues,
   getAccountingStatus,
   formatCurrency,
-  buildSkuLookup,
-  getOrderSku,
-  estimateOrderShippingBreakdown,
   roundMoney,
-  getPaginatedRows,
-  getOrderQuantity,
-  getSkuUnitCostRmb,
-  getResolvedSettlementMetrics,
   type FinanceOrderRow,
 } from "./shared";
 import { 
@@ -25,7 +18,6 @@ import {
   addSettlementFile, 
   formatImportedAt,
 } from "../../lib/settlement";
-import { buildSettlementLookup } from "../../lib/settlement";
 import { getErrorMessage } from "../../utils/errors";
 import { updateSkuCode } from "../../lib/products";
 import { updateTemuOrder } from "../../lib/orders";
@@ -44,15 +36,13 @@ import {
   settlementIncomeColumns,
   getReconciliationIssueLabel,
   getCurrentMonthValue,
-  getIncomeOrderDate,
-  getShippingMethodDisplay,
 } from "./finance-settlement-helpers";
+import { useFinanceAnalysis } from "./use-finance-analysis";
 
 
 export function FinanceSettlementPage({ user }: Props) {
   const { canEdit } = usePermissions();
-  const { data, settlementFiles, settings, loading, error, reload } = useFinanceData(user.id, {
-    orders: true,
+  const { data, settlementFiles, loading: baseLoading, error: baseError, reload: reloadBase } = useFinanceData(user.id, {
     products: true,
     settlements: true,
     logistics: true,
@@ -96,8 +86,6 @@ export function FinanceSettlementPage({ user }: Props) {
   const [matchingOrderId, setMatchingOrderId] = useState<string | null>(null);
   const [matchingSkuId, setMatchingSkuId] = useState("");
 
-  const settlementLookup = useMemo(() => buildSettlementLookup(settlementFiles || []), [settlementFiles]);
-  
   // SKU Selection options
   const groupedSkuOptions = useMemo(() => {
     const skusByProduct = new Map<string, Array<{ id: string; label: string }>>();
@@ -114,202 +102,40 @@ export function FinanceSettlementPage({ user }: Props) {
     }).filter((item) => item.list.length > 0);
   }, [data.products, data.productSkus]);
 
-  const productItemsById = useMemo(
-    () =>
-      new Map(
-        data.productItems.flatMap((item) =>
-          item.id ? [[item.id, item] as const] : [],
-        ),
-      ),
-    [data.productItems],
-  );
-  const skuLookup = useMemo(() => buildSkuLookup(data.products, data.productSkus), [data.products, data.productSkus]);
-  
-  const orderRows = useMemo<FinanceOrderRow[]>(() => {
-    return data.orders.map((order) => {
-      const sku = getOrderSku(order, skuLookup);
-      const product = sku?.product_id ? data.products.find((item) => item.id === sku.product_id) ?? null : null;
-      const quantity = getOrderQuantity(order);
-      
-      const shipping = estimateOrderShippingBreakdown({
-        order,
-        product,
-        settings,
-        logisticsMethods: data.logisticsMethods,
-        warehouseLogisticsMethods: data.warehouseLogisticsMethods,
-      });
-      
-      const unitCost = sku ? getSkuUnitCostRmb(sku, productItemsById) : 0;
-      const productCostRmb = roundMoney(unitCost * quantity);
-
-      const { actualSalesRevenueRmb, actualFreightRevenueRmb, isSettled, matchType } = getResolvedSettlementMetrics(order, quantity, settlementLookup);
-      const actualRevenueRmb = roundMoney(actualSalesRevenueRmb + actualFreightRevenueRmb);
-
-      return {
-        order,
-        sku,
-        product,
-        quantity,
-        productCostRmb,
-        shippingFeeRmb: shipping.shippingFeeRmb,
-        firstLegShippingRmb: shipping.firstLegShippingRmb,
-        lastLegShippingRmb: shipping.lastLegShippingRmb,
-        cashShippingFeeRmb: shipping.cashShippingFeeRmb,
-        estimatedShippingRmb: shipping.estimatedShippingRmb,
-        shippingFeeSource: shipping.shippingFeeSource,
-        isShippingFeeEstimated: shipping.isShippingFeeEstimated,
-        warehouseLogisticsIssue: shipping.warehouseLogisticsIssue,
-        billAmountRmb: roundMoney(productCostRmb + shipping.shippingFeeRmb),
-        actualSalesRevenueRmb,
-        actualFreightRevenueRmb,
-        actualRevenueRmb,
-        isSettled,
-        matched: Boolean(sku && product),
-        matchLabel: matchType === "po" ? "PO单号" : matchType === "sku_avg" ? "SKU均值" : "",
-      };
-    });
-  }, [
-    data.orders,
-    data.logisticsMethods,
-    data.warehouseLogisticsMethods,
-    skuLookup,
-    data.products,
-    settings,
-    productItemsById,
-    settlementLookup,
-  ]);
-
-  // Reconciliation data
-  const displayOrders = useMemo(() => {
-    if (showAllOrders) return orderRows;
-    return orderRows.filter((row) => getReconciliationIssues(row).length > 0);
-  }, [orderRows, showAllOrders]);
-
-  const reconPaginated = getPaginatedRows("finance-recon", displayOrders, reconPage, reconPageSize);
-
-  // Income data
-  const filteredOrderRows = useMemo(() => {
-    let result = orderRows;
-    if (orderStatusFilter === "unsettled") result = result.filter((row) => !row.isSettled);
-    else if (orderStatusFilter === "settled") result = result.filter((row) => row.isSettled);
-    else if (orderStatusFilter === "settlement-overdue") {
-      result = result.filter((row) => getReconciliationIssues(row).includes("settlement-overdue"));
-    }
-    else if (orderStatusFilter === "missing-shipping") result = result.filter((row) => row.shippingFeeSource === "missing");
-    else if (orderStatusFilter === "unmatched") result = result.filter((row) => !row.matched);
-
-    if (incomeDateFilterMode === "month" && incomeMonth) {
-      result = result.filter((row) => getIncomeOrderDate(row).startsWith(incomeMonth));
-    } else if (incomeDateFilterMode === "custom") {
-      result = result.filter((row) => {
-        const orderDate = getIncomeOrderDate(row);
-        if (!orderDate) return false;
-        if (incomeStartDate && orderDate < incomeStartDate) return false;
-        if (incomeEndDate && orderDate > incomeEndDate) return false;
-        return true;
-      });
-    }
-
-    if (orderSearch.trim()) {
-      const q = orderSearch.toLowerCase();
-      result = result.filter((row) => {
-        const str = [
-          row.order.order_no, row.order.sub_order_no, row.order.sku_code, row.order.product_attributes,
-          row.order.logistics_tracking_no, row.product?.product_code, row.product?.product_name_cn
-        ].join(" ").toLowerCase();
-        return str.includes(q);
-      });
-    }
-    return [...result].sort((a, b) => {
-      const leftDate = getIncomeOrderDate(a);
-      const rightDate = getIncomeOrderDate(b);
-      return rightDate.localeCompare(leftDate);
-    });
-  }, [incomeDateFilterMode, incomeEndDate, incomeMonth, incomeStartDate, orderRows, orderSearch, orderStatusFilter]);
-
-  const incomePaginated = getPaginatedRows("finance-income", filteredOrderRows, incomePage, incomePageSize);
-
-  const incomeSummary = useMemo(() => {
-    return filteredOrderRows.reduce(
-      (summary, row) => {
-        const rowProfit = row.isSettled ? roundMoney(row.actualRevenueRmb - row.billAmountRmb) : 0;
-        return {
-          orderCount: summary.orderCount + 1,
-          quantity: roundMoney(summary.quantity + row.quantity),
-          productCost: roundMoney(summary.productCost + row.productCostRmb),
-          firstLegShipping: roundMoney(summary.firstLegShipping + row.firstLegShippingRmb),
-          lastLegShipping: roundMoney(summary.lastLegShipping + row.lastLegShippingRmb),
-          shipping: roundMoney(summary.shipping + row.shippingFeeRmb),
-          bill: roundMoney(summary.bill + row.billAmountRmb),
-          actualRevenue: roundMoney(summary.actualRevenue + row.actualRevenueRmb),
-          profit: roundMoney(summary.profit + rowProfit),
-          settledCount: summary.settledCount + (row.isSettled ? 1 : 0),
-          missingShippingCount: summary.missingShippingCount + (row.shippingFeeSource === "missing" ? 1 : 0),
-        };
-      },
-      {
-        orderCount: 0,
-        quantity: 0,
-        productCost: 0,
-        firstLegShipping: 0,
-        lastLegShipping: 0,
-        shipping: 0,
-        bill: 0,
-        actualRevenue: 0,
-        profit: 0,
-        settledCount: 0,
-        missingShippingCount: 0,
-      },
-    );
-  }, [filteredOrderRows]);
-
-  const incomeShippingMethodRows = useMemo<IncomeShippingMethodRow[]>(() => {
-    const rowsByMethod = new Map<string, IncomeShippingMethodRow>();
-
-    const getRow = (method: string) => {
-      const existing = rowsByMethod.get(method);
-      if (existing) return existing;
-      const next: IncomeShippingMethodRow = {
-        method,
-        orderCount: 0,
-        quantity: 0,
-        actualShipping: 0,
-        estimatedShipping: 0,
-        totalShipping: 0,
-        missingShippingCount: 0,
-        averagePerOrder: 0,
-      };
-      rowsByMethod.set(method, next);
-      return next;
-    };
-
-    filteredOrderRows.forEach((row) => {
-      const method = getShippingMethodDisplay(row.order.logistics_method);
-      const methodRow = getRow(method);
-      methodRow.orderCount += 1;
-      methodRow.quantity = roundMoney(methodRow.quantity + row.quantity);
-
-      if (row.shippingFeeSource === "actual") {
-        methodRow.actualShipping = roundMoney(methodRow.actualShipping + row.lastLegShippingRmb);
-        methodRow.estimatedShipping = roundMoney(methodRow.estimatedShipping + row.firstLegShippingRmb);
-        methodRow.totalShipping = roundMoney(methodRow.totalShipping + row.shippingFeeRmb);
-      } else if (row.shippingFeeSource === "estimated") {
-        methodRow.estimatedShipping = roundMoney(methodRow.estimatedShipping + row.shippingFeeRmb);
-        methodRow.totalShipping = roundMoney(methodRow.totalShipping + row.shippingFeeRmb);
-      } else {
-        methodRow.estimatedShipping = roundMoney(methodRow.estimatedShipping + row.firstLegShippingRmb);
-        methodRow.totalShipping = roundMoney(methodRow.totalShipping + row.firstLegShippingRmb);
-        methodRow.missingShippingCount += 1;
-      }
-    });
-
-    return Array.from(rowsByMethod.values())
-      .map((row) => ({
-        ...row,
-        averagePerOrder: row.orderCount > 0 ? roundMoney(row.totalShipping / row.orderCount) : 0,
-      }))
-      .sort((left, right) => right.totalShipping - left.totalShipping || right.orderCount - left.orderCount);
-  }, [filteredOrderRows]);
+  const incomeDateStart = incomeDateFilterMode === "month" && incomeMonth
+    ? `${incomeMonth}-01`
+    : incomeDateFilterMode === "custom" ? incomeStartDate : "";
+  const incomeDateEnd = incomeDateFilterMode === "month" && incomeMonth
+    ? new Date(Date.UTC(Number(incomeMonth.slice(0, 4)), Number(incomeMonth.slice(5, 7)), 0)).toISOString().slice(0, 10)
+    : incomeDateFilterMode === "custom" ? incomeEndDate : "";
+  const incomeStatus = orderStatusFilter === "settled" || orderStatusFilter === "unsettled" ? orderStatusFilter : "all";
+  const incomeIssue = orderStatusFilter === "settlement-overdue" || orderStatusFilter === "missing-shipping" || orderStatusFilter === "unmatched"
+    ? orderStatusFilter : "all";
+  const reconAnalysis = useFinanceAnalysis({
+    page: reconPage, pageSize: reconPageSize,
+    issue: showAllOrders ? "all" : "reconciliation",
+  });
+  const issueCountAnalysis = useFinanceAnalysis({ page: 1, pageSize: 1, issue: "reconciliation" });
+  const incomeAnalysis = useFinanceAnalysis({
+    page: incomePage, pageSize: incomePageSize, search: orderSearch,
+    dateStart: incomeDateStart, dateEnd: incomeDateEnd,
+    status: incomeStatus, issue: incomeIssue,
+  });
+  const displayOrders = reconAnalysis.rows;
+  const filteredOrderRows = incomeAnalysis.rows;
+  const reconPaginated = { page: reconPage, rows: displayOrders, total: reconAnalysis.totalCount, totalPages: Math.max(1, Math.ceil(reconAnalysis.totalCount / reconPageSize)) };
+  const incomePaginated = { page: incomePage, rows: filteredOrderRows, total: incomeAnalysis.totalCount, totalPages: Math.max(1, Math.ceil(incomeAnalysis.totalCount / incomePageSize)) };
+  const incomeSummary = incomeAnalysis.summary;
+  const incomeShippingMethodRows = incomeAnalysis.shippingMethods.map((row) => ({
+    method: String(row.method ?? "未填写发货方式"),
+    orderCount: Number(row.order_count ?? 0), quantity: Number(row.quantity ?? 0),
+    actualShipping: Number(row.actual_shipping ?? 0), estimatedShipping: Number(row.estimated_shipping ?? 0),
+    totalShipping: Number(row.total_shipping ?? 0), missingShippingCount: Number(row.missing_shipping_count ?? 0),
+    averagePerOrder: Number(row.order_count ?? 0) > 0 ? roundMoney(Number(row.total_shipping ?? 0) / Number(row.order_count)) : 0,
+  })) as IncomeShippingMethodRow[];
+  const loading = baseLoading || reconAnalysis.loading || incomeAnalysis.loading || issueCountAnalysis.loading;
+  const error = baseError || reconAnalysis.error || incomeAnalysis.error || issueCountAnalysis.error;
+  const reload = async () => { await Promise.all([reloadBase(), reconAnalysis.reload(), incomeAnalysis.reload(), issueCountAnalysis.reload()]); };
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -528,9 +354,9 @@ export function FinanceSettlementPage({ user }: Props) {
           }`}
         >
           对账排查
-          {orderRows.filter((row) => getReconciliationIssues(row).length > 0).length > 0 && (
+          {issueCountAnalysis.totalCount > 0 && (
             <span className="flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-[9px] font-bold text-white">
-              {orderRows.filter((row) => getReconciliationIssues(row).length > 0).length > 99 ? '99+' : orderRows.filter((row) => getReconciliationIssues(row).length > 0).length}
+              {issueCountAnalysis.totalCount > 99 ? '99+' : issueCountAnalysis.totalCount}
             </span>
           )}
         </button>
@@ -620,7 +446,7 @@ export function FinanceSettlementPage({ user }: Props) {
                 <h3 className="text-sm font-bold text-slate-800">异常订单排查</h3>
                 {!showAllOrders && (
                   <span className="rounded-full bg-rose-50 px-2.5 py-0.5 text-xs font-bold text-rose-600">
-                    共 {displayOrders.length} 项待处理
+                    共 {reconAnalysis.totalCount} 项待处理
                   </span>
                 )}
               </div>
@@ -852,11 +678,11 @@ export function FinanceSettlementPage({ user }: Props) {
                 )}
               </div>
               <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500">
-                筛选后共 {filteredOrderRows.length} 单
+                筛选后共 {incomeAnalysis.totalCount} 单
               </span>
             </div>
 
-            {loading && orderRows.length === 0 ? (
+            {loading && filteredOrderRows.length === 0 ? (
               <EmptyPanel label="加载中..." />
             ) : filteredOrderRows.length === 0 ? (
               <EmptyPanel label="未找到匹配的订单记录" />

@@ -1,20 +1,13 @@
 import type { User } from "@supabase/supabase-js";
-import { useState, useMemo, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { PageHeader, Badge, StandardTable, TableCellPreview } from "../../components/ui";
-import { useFinanceData } from "./use-finance-data";
 import {
   EmptyPanel,
   formatCurrency,
-  formatDate,
-  getOrderDate,
-  getPurchaseTotalRmb,
-  getPaginatedRows,
-  getOrderQuantity,
-  roundMoney,
-  getResolvedSettlementMetrics
 } from "./shared";
-import { buildSettlementLookup } from "../../lib/settlement";
+import { fetchFinanceLedgerPage, type FinanceLedgerRow } from "../../lib/finance-queries";
+import { getErrorMessage } from "../../utils/errors";
 
 type Props = {
   user: User;
@@ -29,118 +22,52 @@ const ledgerTableColumns = [
   { key: "remark", width: "24rem" },
 ] as const;
 
-type LedgerRow = {
-  date: string;
-  type: string;
-  direction: "收入" | "支出";
-  subject: string;
-  amountRmb: number;
-  remark: string;
-};
-
-function formatExpenseRemarkForLedger(remark: string | null | undefined) {
-  const text = String(remark ?? "").trim();
-  if (text.startsWith("广告费支付")) return "广告费支付";
-  return text;
-}
-
 export function FinanceLedgerPage({ user }: Props) {
-  const { data, expenses, settlementFiles, loading, error, reload } = useFinanceData(user.id, {
-    orders: true,
-    purchases: true,
-    expenses: true,
-    settlements: true,
-  });
-
-  const settlementLookup = useMemo(() => buildSettlementLookup(settlementFiles || []), [settlementFiles]);
-  
   const [activeTab, setActiveTab] = useState<"all" | "订单回款" | "采购付款" | "其他费用">("all");
   const [cashflowMonth, setCashflowMonth] = useState<string>("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const [rows, setRows] = useState<FinanceLedgerRow[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [totalIncome, setTotalIncome] = useState(0);
+  const [totalExpense, setTotalExpense] = useState(0);
+  const [uniqueMonths, setUniqueMonths] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     setPage(1);
   }, [pageSize, cashflowMonth, activeTab]);
 
-  const ledgerRows = useMemo<LedgerRow[]>(() => {
-    // 1. Order Income
-    const orderLedgerRows = data.orders.map((order) => {
-      const quantity = getOrderQuantity(order);
-      const { actualSalesRevenueRmb, actualFreightRevenueRmb } = getResolvedSettlementMetrics(order, quantity, settlementLookup);
-      
-      return {
-        order,
-        actualRevenueRmb: roundMoney(actualSalesRevenueRmb + actualFreightRevenueRmb),
-        actualSalesRevenueRmb,
-        actualFreightRevenueRmb
-      };
-    })
-    .filter((row) => row.actualRevenueRmb > 0)
-    .map((row) => ({
-      date: formatDate(getOrderDate(row.order)),
-      type: "订单回款",
-      direction: "收入" as const,
-      subject: row.order.order_no,
-      amountRmb: row.actualRevenueRmb,
-      remark: `销售回款 ${formatCurrency(row.actualSalesRevenueRmb)} / 运费回款 ${formatCurrency(row.actualFreightRevenueRmb)}`,
-    }));
+  const load = useCallback(async () => {
+    if (!user.id) return;
+    setLoading(true);
+    setError("");
+    try {
+      const result = await fetchFinanceLedgerPage({
+        page,
+        pageSize,
+        type: activeTab,
+        month: cashflowMonth,
+      });
+      setRows(result.rows);
+      setTotalCount(result.totalCount);
+      setTotalIncome(result.totalIncome);
+      setTotalExpense(result.totalExpense);
+      setUniqueMonths(result.months);
+    } catch (err) {
+      setError(getErrorMessage(err, "加载收支流水失败"));
+    } finally {
+      setLoading(false);
+    }
+  }, [activeTab, cashflowMonth, page, pageSize, user.id]);
 
-    // 2. Purchase Payments
-    const purchaseLedgerRows = data.purchases.map((purchase) => ({
-      date: formatDate(purchase.purchased_at),
-      type: "采购付款",
-      direction: "支出" as const,
-      subject: purchase.order_code,
-      amountRmb: -getPurchaseTotalRmb(purchase),
-      remark: purchase.warehouse_name,
-    }));
+  useEffect(() => {
+    void load();
+  }, [load]);
 
-    // 3. Other Expenses
-    const categoryLabels: Record<string, string> = {
-      ad: "广告推广",
-      customs: "关税头程",
-      packaging: "包装耗材",
-      platform_commission: "平台佣金",
-      refund_loss: "退款损失",
-      other: "其他杂费",
-    };
-    const otherExpensesLedgerRows = expenses.map((expense) => ({
-      date: expense.expense_date,
-      type: "其他费用",
-      direction: "支出" as const,
-      subject: categoryLabels[expense.category] || expense.category,
-      amountRmb: -expense.amount_rmb,
-      remark: formatExpenseRemarkForLedger(expense.remark),
-    }));
-
-    return [...orderLedgerRows, ...purchaseLedgerRows, ...otherExpensesLedgerRows].sort((left, right) =>
-      right.date.localeCompare(left.date),
-    );
-  }, [data.orders, data.purchases, expenses, settlementLookup]);
-
-  const uniqueMonths = useMemo(() => {
-    const months = new Set<string>();
-    ledgerRows.forEach((r) => {
-      if (r.date && r.date !== "--") {
-        months.add(r.date.slice(0, 7));
-      }
-    });
-    return Array.from(months).sort((a, b) => b.localeCompare(a));
-  }, [ledgerRows]);
-
-  const filteredLedgerRows = useMemo(() => {
-    return ledgerRows.filter((row) => {
-      if (activeTab !== "all" && row.type !== activeTab) return false;
-      if (cashflowMonth !== "all" && !row.date.startsWith(cashflowMonth)) return false;
-      return true;
-    });
-  }, [ledgerRows, activeTab, cashflowMonth]);
-
-  const paginated = getPaginatedRows("finance-cashflow", filteredLedgerRows, page, pageSize);
-
-  const totalIncome = useMemo(() => filteredLedgerRows.filter(r => r.direction === "收入").reduce((sum, r) => sum + r.amountRmb, 0), [filteredLedgerRows]);
-  const totalExpense = useMemo(() => filteredLedgerRows.filter(r => r.direction === "支出").reduce((sum, r) => sum + Math.abs(r.amountRmb), 0), [filteredLedgerRows]);
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const reload = load;
 
   return (
     <section className="flex flex-col gap-6 p-4 sm:p-6">
@@ -213,22 +140,22 @@ export function FinanceLedgerPage({ user }: Props) {
 
           <div className="ml-auto flex gap-2">
             <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500">
-              共 {filteredLedgerRows.length} 条记录
+              共 {totalCount} 条记录
             </span>
           </div>
         </div>
 
-        {loading && ledgerRows.length === 0 ? (
+        {loading && rows.length === 0 ? (
           <EmptyPanel label="加载中..." />
-        ) : ledgerRows.length === 0 ? (
+        ) : rows.length === 0 ? (
           <EmptyPanel label="暂无收支流水数据" />
         ) : (
           <>
             <StandardTable
-              page={paginated.page}
+              page={page}
               pageSize={pageSize}
-              totalPages={paginated.totalPages}
-              totalRecordCount={paginated.total}
+              totalPages={totalPages}
+              totalRecordCount={totalCount}
               onPageChange={setPage}
               onPageSizeChange={setPageSize}
               columns={ledgerTableColumns}
@@ -246,8 +173,8 @@ export function FinanceLedgerPage({ user }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {paginated.rows.map((row, index) => (
-                  <tr key={`${row.date}-${row.subject}-${index}`} className="hover:bg-slate-50/50">
+                {rows.map((row) => (
+                  <tr key={row.stableId} className="hover:bg-slate-50/50">
                     <td className="text-slate-500 font-mono">{row.date}</td>
                     <td className="font-semibold text-slate-700">{row.type}</td>
                     <td>

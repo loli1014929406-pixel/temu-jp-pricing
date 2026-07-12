@@ -179,7 +179,7 @@ export function PageShell({ user }: PageShellProps) {
               <p className="truncate text-xs font-bold text-slate-800" title={profileDisplay}>
                 {profileDisplay}
               </p>
-              <p className="truncate text-[10px] font-semibold text-slate-400">
+              <p className="truncate text-[10px] font-semibold text-slate-600">
                 {label}
               </p>
             </div>
