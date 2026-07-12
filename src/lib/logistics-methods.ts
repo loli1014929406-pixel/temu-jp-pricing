@@ -4,6 +4,7 @@ import type {
   WarehouseLogisticsMethod,
 } from "../types";
 import { requireSession, withTimeout } from "./supabase-helpers";
+import { invalidateLogisticsReferenceCache } from "./operational-cache";
 
 const logisticsMethodSelect =
   "id, owner_id, name, is_active, sort_order, created_at, updated_at";
@@ -69,7 +70,9 @@ export async function createLogisticsMethod(name: string) {
   );
 
   if (error) throw error;
-  return data as LogisticsMethod;
+  const method = data as LogisticsMethod;
+  invalidateLogisticsReferenceCache();
+  return method;
 }
 
 export async function updateLogisticsMethod(
@@ -98,7 +101,9 @@ export async function updateLogisticsMethod(
   );
 
   if (error) throw error;
-  return data as LogisticsMethod;
+  const method = data as LogisticsMethod;
+  invalidateLogisticsReferenceCache();
+  return method;
 }
 
 function findLogisticsMethodForConfig(
@@ -234,7 +239,10 @@ export async function replaceWarehouseLogisticsMethods(
   );
 
   if (deleteError) throw deleteError;
-  if (methodIds.length === 0) return [] as WarehouseLogisticsMethod[];
+  if (methodIds.length === 0) {
+    invalidateLogisticsReferenceCache();
+    return [] as WarehouseLogisticsMethod[];
+  }
 
   const { data, error } = await withTimeout(
     supabase
@@ -252,7 +260,9 @@ export async function replaceWarehouseLogisticsMethods(
   );
 
   if (error) throw error;
-  return data as WarehouseLogisticsMethod[];
+  const links = data as WarehouseLogisticsMethod[];
+  invalidateLogisticsReferenceCache();
+  return links;
 }
 
 export function getWarehouseLogisticsMethodNames(

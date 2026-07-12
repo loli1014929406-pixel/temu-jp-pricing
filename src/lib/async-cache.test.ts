@@ -36,4 +36,30 @@ describe("getCachedAsync", () => {
     await expect(getCachedAsync("orders", loader)).resolves.toBe("ok");
     expect(loader).toHaveBeenCalledTimes(2);
   });
+
+  it("invalidates only matching cache prefixes", async () => {
+    const productsLoader = vi.fn(async () => "products");
+    const warehousesLoader = vi.fn(async () => "warehouses");
+
+    await getCachedAsync("operational:products", productsLoader);
+    await getCachedAsync("operational:warehouses", warehousesLoader);
+    invalidateAsyncCache("operational:products");
+    await getCachedAsync("operational:products", productsLoader);
+    await getCachedAsync("operational:warehouses", warehousesLoader);
+
+    expect(productsLoader).toHaveBeenCalledTimes(2);
+    expect(warehousesLoader).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not fail business writes when browser storage is unavailable", () => {
+    vi.stubGlobal("window", {
+      addEventListener: vi.fn(),
+      get localStorage() {
+        throw new Error("storage unavailable");
+      },
+    });
+
+    expect(() => invalidateAsyncCache("operational:products")).not.toThrow();
+    vi.unstubAllGlobals();
+  });
 });

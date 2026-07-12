@@ -11,12 +11,24 @@ const CACHE_VERSION = 1;
 const DEFAULT_TTL_MS = 5 * 60_000;
 const STORAGE_PREFIX = "temu-jp:operational-cache:";
 const persistentKeyPatterns = [
-  /^operational:products$/,
+  /^operational:products(?::selling)?$/,
   /^operational:product-details:/,
+  /^operational:product-skus:/,
   /^operational:warehouses$/,
   /^operational:logistics-methods$/,
   /^operational:warehouse-logistics:/,
 ];
+let storageListenerInstalled = false;
+
+function ensureStorageListener() {
+  if (storageListenerInstalled || typeof window === "undefined") return;
+  window.addEventListener("storage", (event) => {
+    if (!event.key?.startsWith(`${STORAGE_PREFIX}v${CACHE_VERSION}:`)) return;
+    const logicalKey = event.key.slice(`${STORAGE_PREFIX}v${CACHE_VERSION}:`.length);
+    cache.delete(logicalKey);
+  });
+  storageListenerInstalled = true;
+}
 
 function canPersist(key: string) {
   return persistentKeyPatterns.some((pattern) => pattern.test(key));
@@ -67,6 +79,7 @@ function startLoad<T>(key: string, loader: () => Promise<T>, ttlMs: number) {
 }
 
 export function getCachedAsync<T>(key: string, loader: () => Promise<T>, options: AsyncCacheOptions = {}): Promise<T> {
+  ensureStorageListener();
   const now = Date.now();
   const ttlMs = options.ttlMs ?? DEFAULT_TTL_MS;
   const current = cache.get(key);
@@ -89,14 +102,19 @@ export function getCachedAsync<T>(key: string, loader: () => Promise<T>, options
 }
 
 export function invalidateAsyncCache(prefix?: string) {
+  ensureStorageListener();
   if (!prefix) cache.clear();
   else for (const key of cache.keys()) if (key.startsWith(prefix)) cache.delete(key);
 
   if (typeof window === "undefined") return;
-  for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
-    const key = window.localStorage.key(index);
-    if (!key?.startsWith(`${STORAGE_PREFIX}v${CACHE_VERSION}:`)) continue;
-    const logicalKey = key.slice(`${STORAGE_PREFIX}v${CACHE_VERSION}:`.length);
-    if (!prefix || logicalKey.startsWith(prefix)) window.localStorage.removeItem(key);
+  try {
+    for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
+      const key = window.localStorage.key(index);
+      if (!key?.startsWith(`${STORAGE_PREFIX}v${CACHE_VERSION}:`)) continue;
+      const logicalKey = key.slice(`${STORAGE_PREFIX}v${CACHE_VERSION}:`.length);
+      if (!prefix || logicalKey.startsWith(prefix)) window.localStorage.removeItem(key);
+    }
+  } catch {
+    // Cache invalidation must not turn a successful business write into a UI error.
   }
 }

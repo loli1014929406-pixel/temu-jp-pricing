@@ -16,7 +16,7 @@ import {
   emptyProductDraft,
 } from "../lib/defaults";
 import { createProduct } from "../lib/products";
-import { fetchWarehouses } from "../lib/inventory";
+import { loadCachedWarehouses } from "../lib/cached-warehouses";
 import { buildWarehouseShippingLimits } from "../lib/product-warehouse-shipping-limits";
 import type {
   ProductDraft,
@@ -150,7 +150,7 @@ export function ProductCreatePage({ user }: ProductCreatePageProps) {
 
     async function loadWarehouses() {
       try {
-        const nextWarehouses = await fetchWarehouses();
+        const nextWarehouses = await loadCachedWarehouses();
         if (!active) return;
         setWarehouses(nextWarehouses);
         setWarehouseShippingLimits((current) =>

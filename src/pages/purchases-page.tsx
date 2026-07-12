@@ -11,7 +11,6 @@ import {
 } from "../hooks/use-draft-persistence";
 import { useAutoDismiss } from "../hooks/use-auto-dismiss";
 import { usePermissions } from "../hooks/use-permissions";
-import { fetchWarehouses } from "../lib/inventory";
 import {
   createPurchaseOrder,
   createPurchasePackage,
@@ -23,11 +22,6 @@ import {
   updatePurchasePackageTrackingNo,
   updatePurchaseSource,
 } from "../lib/purchases";
-import {
-  fetchProductItemsByProductIds,
-  fetchProducts,
-  fetchProductSkusByProductIds,
-} from "../lib/products";
 import type {
   Product,
   ProductItem,
@@ -41,6 +35,11 @@ import { getErrorMessage } from "../utils/errors";
 import { confirmAction, confirmDelete, confirmSave } from "../utils/confirmations";
 import { getCachedAsync } from "../lib/async-cache";
 import { operationalCacheKeys } from "../lib/operational-cache";
+import {
+  loadCachedProductDetails,
+  loadCachedProducts,
+} from "../lib/cached-products";
+import { loadCachedWarehouses } from "../lib/cached-warehouses";
 
 function fetchCachedPurchaseOrders(force = false) {
   return getCachedAsync(
@@ -136,14 +135,13 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
       setLoading(true);
       try {
         const [nextWarehouses, nextProducts, nextOrders] = await Promise.all([
-          getCachedAsync(operationalCacheKeys.warehouses, fetchWarehouses),
-          fetchProducts(),
+          loadCachedWarehouses(),
+          loadCachedProducts(),
           fetchCachedPurchaseOrders(),
         ]);
-        const [nextItems, nextSkus] = await Promise.all([
-          fetchProductItemsByProductIds(nextProducts.map((item) => item.id)),
-          fetchProductSkusByProductIds(nextProducts.map((item) => item.id)),
-        ]);
+        const [nextItems, nextSkus] = await loadCachedProductDetails(
+          nextProducts.map((item) => item.id),
+        );
         if (!active) return;
         setWarehouses(nextWarehouses);
         setProducts(nextProducts);

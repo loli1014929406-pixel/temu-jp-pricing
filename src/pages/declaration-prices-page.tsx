@@ -2,11 +2,9 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import type { User } from "@supabase/supabase-js";
 import {
-  fetchProductItemsByProductIds,
-  fetchProductSkusByProductIds,
-  fetchProducts,
   getProductRoutePath,
 } from "../lib/products";
+import { loadCachedProductDetails, loadCachedProducts } from "../lib/cached-products";
 import { fetchSettings } from "../lib/settings";
 import type { PricingResult, Product } from "../types";
 import { getErrorMessage } from "../utils/errors";
@@ -61,10 +59,9 @@ export function DeclarationPricesPage({ user }: DeclarationPricesPageProps) {
       setErrorMessage("");
 
       try {
-        const nextProducts = await fetchProducts();
-        const [items, skus, settings] = await Promise.all([
-          fetchProductItemsByProductIds(nextProducts.map((product) => product.id)),
-          fetchProductSkusByProductIds(nextProducts.map((product) => product.id)),
+        const nextProducts = await loadCachedProducts();
+        const [[items, skus], settings] = await Promise.all([
+          loadCachedProductDetails(nextProducts.map((product) => product.id)),
           fetchSettings(user.id),
         ]);
         const itemsById = Object.fromEntries(

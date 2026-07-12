@@ -3,11 +3,9 @@ import { ArrowDown, ArrowUp, ArrowUpDown, Calculator, Download, Megaphone, Save 
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  fetchProductItemsByProductIds,
-  fetchProductSkusByProductIds,
-  fetchProducts,
   getProductRoutePath,
 } from "../lib/products";
+import { loadCachedProductDetails, loadCachedProducts } from "../lib/cached-products";
 import { fetchTemuOrders } from "../lib/orders";
 import { fetchProfitCalculationsBySkuIds, saveProfitCalculation } from "../lib/profit-calculations";
 import { fetchSettings } from "../lib/settings";
@@ -461,10 +459,9 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
       setErrorMessage("");
 
       try {
-        const nextProducts = await fetchProducts();
-        const [items, skus, settings, orders] = await Promise.all([
-          fetchProductItemsByProductIds(nextProducts.map((product) => product.id)),
-          fetchProductSkusByProductIds(nextProducts.map((product) => product.id)),
+        const nextProducts = await loadCachedProducts();
+        const [[items, skus], settings, orders] = await Promise.all([
+          loadCachedProductDetails(nextProducts.map((product) => product.id)),
           fetchSettings(user.id),
           fetchTemuOrders(),
         ]);

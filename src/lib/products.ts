@@ -14,6 +14,7 @@ import type {
 import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../utils/sku-code";
 import { upsertProductWarehouseShippingLimits } from "./product-warehouse-shipping-limits";
 import { withTimeout } from "./supabase-helpers";
+import { invalidateProductReferenceCache } from "./operational-cache";
 
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -340,7 +341,9 @@ export async function updateProductSellingStatus(productId: string, isSelling: b
     throw new Error(getMissingProductSellingColumnMessage());
   }
   if (error) throw error;
-  return normalizeProductRow(data as Partial<Product>);
+  const product = normalizeProductRow(data as Partial<Product>);
+  invalidateProductReferenceCache();
+  return product;
 }
 
 export function getProductRouteKey(product: Pick<Product, "id" | "product_code">) {
@@ -1163,6 +1166,7 @@ export async function createProduct(
     const itemIdsByKey = await insertItems(data!.id, items);
     await insertSkus(data!.id, skus, itemIdsByKey);
     await upsertProductWarehouseShippingLimits(data!.id, warehouseShippingLimits);
+    invalidateProductReferenceCache();
     return data as Product;
   } catch (saveError) {
     await withTimeout(
@@ -1243,6 +1247,7 @@ export async function updateProduct(
 
   if (productStructureUnchanged) {
     await upsertProductWarehouseShippingLimits(productId, warehouseShippingLimits);
+    invalidateProductReferenceCache();
     return;
   }
 
@@ -1314,6 +1319,7 @@ export async function updateProduct(
   }
 
   await upsertProductWarehouseShippingLimits(productId, warehouseShippingLimits);
+  invalidateProductReferenceCache();
 }
 
 export async function deleteProduct(productId: string) {
@@ -1326,6 +1332,7 @@ export async function deleteProduct(productId: string) {
     "删除商品",
   );
   if (error) throw error;
+  invalidateProductReferenceCache();
 }
 
 export async function exportProductsData(

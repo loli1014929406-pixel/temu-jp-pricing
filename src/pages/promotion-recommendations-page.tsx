@@ -2,11 +2,7 @@ import type { User } from "@supabase/supabase-js";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Badge, BackToParentAction, PageHeader, StatCard } from "../components/ui";
 import { StandardTable } from "../components/ui/StandardTable";
-import {
-  fetchProductItemsByProductIds,
-  fetchProductSkusByProductIds,
-  fetchProducts,
-} from "../lib/products";
+import { loadCachedProductDetails, loadCachedProducts } from "../lib/cached-products";
 import { fetchProfitCalculationsBySkuIds } from "../lib/profit-calculations";
 import { fetchSettings } from "../lib/settings";
 import { useAutoDismiss } from "../hooks/use-auto-dismiss";
@@ -731,13 +727,12 @@ export function PromotionRecommendationsPage({
 
       try {
         const [products, settings] = await Promise.all([
-          fetchProducts(),
+          loadCachedProducts(),
           fetchSettings(user.id),
         ]);
-        const [items, skus] = await Promise.all([
-          fetchProductItemsByProductIds(products.map((product) => product.id)),
-          fetchProductSkusByProductIds(products.map((product) => product.id)),
-        ]);
+        const [items, skus] = await loadCachedProductDetails(
+          products.map((product) => product.id),
+        );
         const savedCalculations = await fetchProfitCalculationsBySkuIds(
           skus.flatMap((sku) => (sku.id ? [sku.id] : [])),
         );

@@ -1,5 +1,6 @@
 import { withTimeout, requireSession } from "./supabase-helpers";
 import { fetchAllPages } from "./paginated-fetch";
+import { invalidateWarehouseReferenceCache } from "./operational-cache";
 import type {
   Product,
   ProductItem,
@@ -67,7 +68,9 @@ export async function createWarehouse(name: string) {
   );
 
   if (error) throw error;
-  return data as Warehouse;
+  const warehouse = data as Warehouse;
+  invalidateWarehouseReferenceCache();
+  return warehouse;
 }
 
 export async function updateWarehouse(
@@ -86,7 +89,9 @@ export async function updateWarehouse(
   );
 
   if (error) throw error;
-  return data as Warehouse;
+  const warehouse = data as Warehouse;
+  invalidateWarehouseReferenceCache();
+  return warehouse;
 }
 
 export async function deleteWarehouse(warehouseId: string) {
@@ -100,6 +105,7 @@ export async function deleteWarehouse(warehouseId: string) {
   );
 
   if (error) throw error;
+  invalidateWarehouseReferenceCache();
 }
 
 export async function fetchWarehouseSkuCounts(warehouseIds: string[]) {

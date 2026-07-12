@@ -8,6 +8,7 @@ import type {
   PurchasePackage,
   PurchasePackageItem,
 } from "../types";
+import { invalidatePurchaseReferenceCache } from "./operational-cache";
 
 export function getReceiptStatus(
   items: PurchaseOrderItem[],
@@ -411,11 +412,15 @@ export async function createPurchaseOrder(input: CreatePurchaseOrderInput) {
   );
 
   if (error && isMissingPurchaseTransactionRpcError(error)) {
-    return createPurchaseOrderLegacy(input);
+    const order = await createPurchaseOrderLegacy(input);
+    invalidatePurchaseReferenceCache();
+    return order;
   }
   if (error) throw error;
   if (!data) throw new Error("保存采购单后没有返回结果，请刷新后确认");
-  return normalizeAtomicPurchaseOrder(data as AtomicPurchaseOrderPayload);
+  const order = normalizeAtomicPurchaseOrder(data as AtomicPurchaseOrderPayload);
+  invalidatePurchaseReferenceCache();
+  return order;
 }
 
 async function updatePurchaseSourceLegacy(sourceId: string, updates: Pick<PurchaseOrderSource, "alibaba_order_no" | "freight_rmb">) {
@@ -450,11 +455,14 @@ export async function updatePurchaseSource(
   );
 
   if (error && isMissingPurchaseTransactionRpcError(error)) {
-    return updatePurchaseSourceLegacy(sourceId, updates);
+    const source = await updatePurchaseSourceLegacy(sourceId, updates);
+    invalidatePurchaseReferenceCache();
+    return source;
   }
   if (error) throw error;
   if (!data) throw new Error("更新采购链接后没有返回结果，请刷新后确认");
   const source = data as PurchaseOrderSource;
+  invalidatePurchaseReferenceCache();
   return { ...source, freight_rmb: Number(source.freight_rmb) };
 }
 
@@ -616,7 +624,9 @@ export async function updatePurchaseOrderItemSkuInfo(orderItemId: string, skuId:
   const failedUpdate = results.find((result) => result.error);
   if (failedUpdate?.error) throw failedUpdate.error;
 
-  return results.map((result) => result.data as PurchaseOrderItem);
+  const items = results.map((result) => result.data as PurchaseOrderItem);
+  invalidatePurchaseReferenceCache();
+  return items;
 }
 
 async function loadPurchaseOrderForDeletion(
@@ -708,6 +718,7 @@ export async function deletePurchaseOrder(orderId: string) {
     "删除采购单",
   );
   if (error) throw error;
+  invalidatePurchaseReferenceCache();
 }
 
 export async function createPurchasePackage(orderId: string, sourceId: string, trackingNo: string, items: Array<{ order_item_id: string; quantity: number }>) {
@@ -727,7 +738,7 @@ export async function createPurchasePackage(orderId: string, sourceId: string, t
     throw new Error("保存快递包裹失败：数据库没有返回包裹记录");
   }
 
-  return {
+  const pkg = {
     ...packageRow,
     items: items.map((item) => ({
       id: crypto.randomUUID(),
@@ -737,6 +748,8 @@ export async function createPurchasePackage(orderId: string, sourceId: string, t
       ...item,
     })) as PurchasePackageItem[],
   };
+  invalidatePurchaseReferenceCache();
+  return pkg;
 }
 
 export async function updatePurchasePackageTrackingNo(packageId: string, trackingNo: string) {
@@ -752,7 +765,9 @@ export async function updatePurchasePackageTrackingNo(packageId: string, trackin
     "更新快递单号",
   );
   if (error) throw error;
-  return data as Omit<PurchasePackage, "items">;
+  const pkg = data as Omit<PurchasePackage, "items">;
+  invalidatePurchaseReferenceCache();
+  return pkg;
 }
 
 export async function deletePurchasePackage(packageId: string) {
@@ -766,6 +781,7 @@ export async function deletePurchasePackage(packageId: string) {
     "删除快递包裹",
   );
   if (error) throw error;
+  invalidatePurchaseReferenceCache();
 }
 
 async function restoreMissingPurchasePackage(order: PurchaseOrder, pkg: PurchasePackage) {
@@ -973,7 +989,9 @@ export async function receivePurchasePackage(order: PurchaseOrder, pkg: Purchase
   const status = getReceiptStatus(order.items, allPackages);
   const { data: orderData, error: orderError } = await supabase.from("purchase_orders").update({ status, received_at: status === "received" ? receivedAt : null }).eq("id", order.id).select("status").single();
   if (orderError) throw orderError;
-  return { order: orderData as Omit<PurchaseOrder, "sources" | "items" | "packages">, package: { ...(packageData as Omit<PurchasePackage, "items">), items: packageItemsByPackage[packageData.id] ?? packageToReceive.items }, inventory };
+  const result = { order: orderData as Omit<PurchaseOrder, "sources" | "items" | "packages">, package: { ...(packageData as Omit<PurchasePackage, "items">), items: packageItemsByPackage[packageData.id] ?? packageToReceive.items }, inventory };
+  invalidatePurchaseReferenceCache();
+  return result;
 }
 
 function getRemainingPackageItems(order: PurchaseOrder) {
@@ -1008,11 +1026,13 @@ export async function receiveRemainingPurchaseOrder(order: PurchaseOrder) {
       .select("status")
       .single();
     if (orderError) throw orderError;
-    return {
+    const result = {
       order: orderData as Omit<PurchaseOrder, "sources" | "items" | "packages">,
       packages: [] as PurchasePackage[],
       inventory: [] as PurchaseSkuInventoryChange[],
     };
+    invalidatePurchaseReferenceCache();
+    return result;
   }
   assertPurchaseItemsHaveSkuInfo(remainingItems, "剩余采购明细");
 
@@ -1076,11 +1096,13 @@ export async function receiveRemainingPurchaseOrder(order: PurchaseOrder) {
     .single();
   if (orderError) throw orderError;
 
-  return {
+  const result = {
     order: orderData as Omit<PurchaseOrder, "sources" | "items" | "packages">,
     packages: receivedPackages,
     inventory,
   };
+  invalidatePurchaseReferenceCache();
+  return result;
 }
 
 function getSkuQtyReceived(

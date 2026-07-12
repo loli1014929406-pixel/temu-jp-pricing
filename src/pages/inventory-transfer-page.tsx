@@ -24,16 +24,11 @@ import {
   fetchWarehouseItemStockAdjustments,
   fetchWarehouseSkuStockAdjustments,
   fetchWarehouseSkus,
-  fetchWarehouses,
   getWarehouseTransferReasonInfo,
   parseWarehouseTransferReasonDetail,
   receiveWarehouseTransferInventory,
   transferWarehouseInventory,
 } from "../lib/inventory";
-import {
-  fetchProductSkusByProductIds,
-  fetchProducts,
-} from "../lib/products";
 import type {
   Product,
   ProductSku,
@@ -50,6 +45,11 @@ import { getErrorMessage } from "../utils/errors";
 import { confirmAction } from "../utils/confirmations";
 import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../utils/sku-code";
 import { notifySuccess } from "../lib/notifications";
+import {
+  loadCachedProducts,
+  loadCachedProductSkus,
+} from "../lib/cached-products";
+import { loadCachedWarehouses } from "../lib/cached-warehouses";
 
 type InventoryTransferPageProps = {
   user: User;
@@ -185,8 +185,8 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
 
       try {
         const [nextProducts, nextWarehouses] = await Promise.all([
-          fetchProducts(),
-          fetchWarehouses(),
+          loadCachedProducts(),
+          loadCachedWarehouses(),
         ]);
         const warehouseIds = nextWarehouses.map((warehouse) => warehouse.id);
         const [
@@ -195,7 +195,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
           nextWarehouseSkuStockAdjustments,
           nextWarehouseItemStockAdjustments,
         ] = await Promise.all([
-          fetchProductSkusByProductIds(nextProducts.map((product) => product.id)),
+          loadCachedProductSkus(nextProducts.map((product) => product.id)),
           fetchWarehouseSkus(warehouseIds),
           fetchWarehouseSkuStockAdjustments(warehouseIds),
           fetchWarehouseItemStockAdjustments(warehouseIds),

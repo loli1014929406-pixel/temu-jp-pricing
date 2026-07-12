@@ -2,14 +2,10 @@ import { useEffect, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { Link } from "react-router-dom";
 import {
-  fetchProductItemsByProductIds,
-  fetchProductSkusByProductIds,
-  fetchProducts,
   getProductRouteKey,
 } from "../lib/products";
 import { fetchProfitCalculationsBySkuIds } from "../lib/profit-calculations";
 import { fetchSettings } from "../lib/settings";
-import { fetchWarehouses } from "../lib/inventory";
 import { fetchProductWarehouseShippingLimitsByProductIds } from "../lib/product-warehouse-shipping-limits";
 import { readDraft } from "../hooks/use-draft-persistence";
 import { useAutoDismiss } from "../hooks/use-auto-dismiss";
@@ -24,6 +20,11 @@ import {
 import { calculateTestShipping } from "../utils/test-shipping";
 import { Badge, PageHeader } from "../components/ui";
 import { StandardTable } from "../components/ui/StandardTable";
+import {
+  loadCachedProductDetails,
+  loadCachedProducts,
+} from "../lib/cached-products";
+import { loadCachedWarehouses } from "../lib/cached-warehouses";
 
 type TestShippingPageProps = {
   user: User;
@@ -80,13 +81,12 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
       setErrorMessage("");
 
       try {
-        const nextProducts = await fetchProducts();
+        const nextProducts = await loadCachedProducts();
         const productIds = nextProducts.map((product) => product.id);
-        const [items, skus, nextSettings, warehouses] = await Promise.all([
-          fetchProductItemsByProductIds(productIds),
-          fetchProductSkusByProductIds(productIds),
+        const [[items, skus], nextSettings, warehouses] = await Promise.all([
+          loadCachedProductDetails(productIds),
           fetchSettings(user.id),
-          fetchWarehouses(),
+          loadCachedWarehouses(),
         ]);
         const [savedCalculations, shippingLimits] = await Promise.all([
           fetchProfitCalculationsBySkuIds(

@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchPurchaseOrders } from "../../lib/purchases";
-import { fetchProducts, fetchProductItemsByProductIds, fetchProductSkusByProductIds } from "../../lib/products";
-import { fetchWarehouses, fetchWarehouseSkus } from "../../lib/inventory";
-import { fetchLogisticsMethods, fetchWarehouseLogisticsMethods } from "../../lib/logistics-methods";
+import { fetchWarehouseSkus } from "../../lib/inventory";
 import { fetchSettings } from "../../lib/settings";
 import { fetchExpenses } from "../../lib/expenses";
 import { useAutoDismiss } from "../../hooks/use-auto-dismiss";
@@ -22,6 +20,15 @@ import type {
 import type { SettlementFile } from "../../lib/settlement";
 import type { FinanceData } from "./shared";
 import { operationalCacheKeys } from "../../lib/operational-cache";
+import {
+  loadCachedProductDetails,
+  loadCachedProducts,
+} from "../../lib/cached-products";
+import { loadCachedWarehouses } from "../../lib/cached-warehouses";
+import {
+  loadCachedLogisticsMethods,
+  loadCachedWarehouseLogisticsMethods,
+} from "../../lib/cached-logistics";
 
 type FetchOptions = {
   purchases?: boolean;
@@ -84,31 +91,17 @@ export function useFinanceData(userId: string, options: FetchOptions) {
        }
 
        if (productsEnabled) {
-         promises.push(
-           getCachedAsync(
-             operationalCacheKeys.products,
-             () => fetchProducts({ includeNotSelling: true }),
-             { force },
-           ),
-         );
+           promises.push(loadCachedProducts({ includeNotSelling: true, force }));
          keys.push("products");
        }
 
        if (inventoryEnabled || logisticsEnabled) {
-         promises.push(
-           getCachedAsync(operationalCacheKeys.warehouses, fetchWarehouses, { force }),
-         );
+           promises.push(loadCachedWarehouses({ force }));
          keys.push("warehouses");
        }
 
        if (logisticsEnabled) {
-         promises.push(
-           getCachedAsync(
-             operationalCacheKeys.logisticsMethods,
-             fetchLogisticsMethods,
-             { force },
-           ),
-         );
+           promises.push(loadCachedLogisticsMethods({ force }));
          keys.push("logisticsMethods");
        }
 
@@ -148,15 +141,7 @@ export function useFinanceData(userId: string, options: FetchOptions) {
 
        if (products.length > 0) {
          const productIds = products.map((p) => p.id);
-         const productDetailKey = productIds.slice().sort().join(",");
-         const [items, skus] = await getCachedAsync(
-           `operational:product-details:${productDetailKey}`,
-           () => Promise.all([
-             fetchProductItemsByProductIds(productIds),
-             fetchProductSkusByProductIds(productIds),
-           ]),
-           { force },
-         );
+         const [items, skus] = await loadCachedProductDetails(productIds, { force });
          productItems = items;
         productSkus = skus;
       }
@@ -171,9 +156,8 @@ export function useFinanceData(userId: string, options: FetchOptions) {
            );
          }
          if (logisticsEnabled) {
-           warehouseLogisticsMethods = await getCachedAsync(
-             `operational:warehouse-logistics:${warehouseIds.slice().sort().join(",")}`,
-             () => fetchWarehouseLogisticsMethods(warehouseIds),
+           warehouseLogisticsMethods = await loadCachedWarehouseLogisticsMethods(
+             warehouseIds,
              { force },
            );
         }

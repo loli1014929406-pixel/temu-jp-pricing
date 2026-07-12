@@ -8,17 +8,11 @@ import {
   deleteWarehouse,
   fetchWarehouseInventoryPage,
   fetchWarehouseSkuCounts,
-  fetchWarehouses,
   removeWarehouseProduct,
   updateWarehouse,
   updateWarehouseSkuStockQuantity,
 } from "../lib/inventory";
-import {
-  fetchLogisticsMethods,
-  fetchWarehouseLogisticsMethods,
-  normalizeLogisticsMethodName,
-  replaceWarehouseLogisticsMethods,
-} from "../lib/logistics-methods";
+import { normalizeLogisticsMethodName, replaceWarehouseLogisticsMethods } from "../lib/logistics-methods";
 import {
   fetchProductsByIds,
   fetchProductItemsByProductIds,
@@ -49,6 +43,11 @@ import {
   resolveFirstLegMethods,
   resolveLastLegMethods,
 } from "../lib/defaults";
+import {
+  loadCachedLogisticsMethods,
+  loadCachedWarehouseLogisticsMethods,
+} from "../lib/cached-logistics";
+import { loadCachedWarehouses } from "../lib/cached-warehouses";
 
 type InventoryPageProps = {
   user: User;
@@ -198,10 +197,10 @@ export function InventoryPage({ user }: InventoryPageProps) {
       setErrorMessage("");
       try {
         const [nextWarehouses, nextLogisticsMethods] = await Promise.all([
-          fetchWarehouses(),
-          fetchLogisticsMethods(),
+          loadCachedWarehouses(),
+          loadCachedLogisticsMethods(),
         ]);
-        const nextWarehouseLogisticsMethods = await fetchWarehouseLogisticsMethods(
+        const nextWarehouseLogisticsMethods = await loadCachedWarehouseLogisticsMethods(
           nextWarehouses.map((warehouse) => warehouse.id)
         );
 

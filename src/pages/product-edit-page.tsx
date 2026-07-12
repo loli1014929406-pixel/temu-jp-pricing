@@ -8,7 +8,7 @@ import {
   fetchProductSkus,
   updateProduct,
 } from "../lib/products";
-import { fetchWarehouses } from "../lib/inventory";
+import { loadCachedWarehouses } from "../lib/cached-warehouses";
 import {
   buildWarehouseShippingLimits,
   fetchProductWarehouseShippingLimits,
@@ -283,7 +283,7 @@ export function ProductEditPage() {
         const [nextItems, nextSkus, nextWarehouses, nextWarehouseShippingLimits] = await Promise.all([
           fetchProductItems(nextProduct.id),
           fetchProductSkus(nextProduct.id),
-          fetchWarehouses(),
+          loadCachedWarehouses(),
           fetchProductWarehouseShippingLimits(nextProduct.id),
         ]);
         const {

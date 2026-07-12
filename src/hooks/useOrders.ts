@@ -7,14 +7,9 @@ import {
   type Dispatch,
   type SetStateAction,
 } from "react";
-import {
-  fetchWarehouses,
-  fetchWarehouseSkus,
-} from "../lib/inventory";
+import { fetchWarehouseSkus } from "../lib/inventory";
 import { useAutoDismiss } from "./use-auto-dismiss";
 import {
-  fetchLogisticsMethods,
-  fetchWarehouseLogisticsMethods,
   normalizeLogisticsMethodName,
 } from "../lib/logistics-methods";
 import {
@@ -24,11 +19,6 @@ import {
   type TemuOrderStageCounts,
 } from "../lib/orders";
 import { fetchSettings } from "../lib/settings";
-import {
-  fetchProducts,
-  fetchProductItemsByProductIds,
-  fetchProductSkusByProductIds,
-} from "../lib/products";
 import type {
   Product,
   ProductItem,
@@ -42,8 +32,16 @@ import type {
 } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { isSameDraft, readDraft, useDraftPersistence } from "./use-draft-persistence";
-import { getCachedAsync } from "../lib/async-cache";
-import { operationalCacheKeys } from "../lib/operational-cache";
+import {
+  loadCachedProductDetails,
+  loadCachedProducts,
+  loadCachedProductSkus,
+} from "../lib/cached-products";
+import { loadCachedWarehouses } from "../lib/cached-warehouses";
+import {
+  loadCachedLogisticsMethods,
+  loadCachedWarehouseLogisticsMethods,
+} from "../lib/cached-logistics";
 
 export type OrderDraft = Pick<
   TemuOrderRecord,
@@ -399,8 +397,8 @@ function restoreDraftMapFromOrders(
 }
 
 async function loadLatestProductsAndSkus() {
-  const products = await fetchProducts({ includeNotSelling: true });
-  const productSkus = await fetchProductSkusByProductIds(
+  const products = await loadCachedProducts({ includeNotSelling: true });
+  const productSkus = await loadCachedProductSkus(
     products.map((product) => product.id),
   );
 
@@ -470,26 +468,21 @@ export function useOrders(user: User, orderQuery: FetchTemuOrdersPageOptions) {
           fetchedSettings,
         ] =
           await Promise.all([
-            getCachedAsync(operationalCacheKeys.warehouses, fetchWarehouses),
-            getCachedAsync(
-              operationalCacheKeys.products,
-              () => fetchProducts({ includeNotSelling: true }),
-            ),
-            getCachedAsync(operationalCacheKeys.logisticsMethods, fetchLogisticsMethods),
+            loadCachedWarehouses(),
+            loadCachedProducts({ includeNotSelling: true }),
+            loadCachedLogisticsMethods(),
             fetchSettings(user.id).catch(() => null),
           ]);
         const productIds = nextProducts.map((product) => product.id);
         const warehouseIds = nextWarehouses.map((warehouse) => warehouse.id);
         const [
-          nextProductItems,
-          nextProductSkus,
+          [nextProductItems, nextProductSkus],
           nextWarehouseSkus,
           nextWarehouseLogisticsMethods,
         ] = await Promise.all([
-          fetchProductItemsByProductIds(productIds),
-          fetchProductSkusByProductIds(productIds),
+          loadCachedProductDetails(productIds),
           fetchWarehouseSkus(warehouseIds),
-          fetchWarehouseLogisticsMethods(warehouseIds),
+          loadCachedWarehouseLogisticsMethods(warehouseIds),
         ]);
 
         if (!active) return;
