@@ -15,18 +15,22 @@ const emptySummary: FinanceAnalysisSummary = {
   missingShippingAttentionCount: 0,
 };
 
-export function useFinanceAnalysis(options: Parameters<typeof fetchFinanceOrderAnalysis>[0]) {
+export function useFinanceAnalysis(
+  options: Parameters<typeof fetchFinanceOrderAnalysis>[0],
+  enabled = true,
+) {
   const [rows, setRows] = useState<FinanceOrderRow[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [summary, setSummary] = useState(emptySummary);
   const [monthly, setMonthly] = useState<FinanceAggregateRow[]>([]);
   const [products, setProducts] = useState<FinanceAggregateRow[]>([]);
   const [shippingMethods, setShippingMethods] = useState<FinanceAggregateRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState("");
   const key = JSON.stringify(options);
 
   const load = useCallback(async () => {
+    if (!enabled) return;
     setLoading(true);
     setError("");
     try {
@@ -43,8 +47,11 @@ export function useFinanceAnalysis(options: Parameters<typeof fetchFinanceOrderA
       setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [enabled, key]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (enabled) void load();
+    else setLoading(false);
+  }, [enabled, load]);
   return { rows, totalCount, summary, monthly, products, shippingMethods, loading, error, reload: load };
 }

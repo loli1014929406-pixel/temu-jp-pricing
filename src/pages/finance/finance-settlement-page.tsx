@@ -114,13 +114,13 @@ export function FinanceSettlementPage({ user }: Props) {
   const reconAnalysis = useFinanceAnalysis({
     page: reconPage, pageSize: reconPageSize,
     issue: showAllOrders ? "all" : "reconciliation",
-  });
+  }, activeTab === "recon");
   const issueCountAnalysis = useFinanceAnalysis({ page: 1, pageSize: 1, issue: "reconciliation" });
   const incomeAnalysis = useFinanceAnalysis({
     page: incomePage, pageSize: incomePageSize, search: orderSearch,
     dateStart: incomeDateStart, dateEnd: incomeDateEnd,
     status: incomeStatus, issue: incomeIssue,
-  });
+  }, activeTab === "income");
   const displayOrders = reconAnalysis.rows;
   const filteredOrderRows = incomeAnalysis.rows;
   const reconPaginated = { page: reconPage, rows: displayOrders, total: reconAnalysis.totalCount, totalPages: Math.max(1, Math.ceil(reconAnalysis.totalCount / reconPageSize)) };
