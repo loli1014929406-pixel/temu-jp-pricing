@@ -171,15 +171,40 @@ npm run sync:backend-context
 
 ## 部署
 
-Cloudflare Pages:
+### Cloudflare Workers
 
-- Build command: `npm run build`
-- Output directory: `dist`
-- 环境变量：
-  - `VITE_SUPABASE_URL`
-  - `VITE_SUPABASE_ANON_KEY`
+本项目使用一个 Cloudflare Worker 同时提供 `dist` 静态资源、SPA 回退路由，以及 Yamato、日本邮政物流查询代理。普通 Cloudflare Workers 只能作为“尽量改善中国大陆访问”的方案，不保证稳定或可用；前端仍会从浏览器直接连接 Supabase，Supabase 的网络可达性也会影响登录和业务数据。
 
-Vercel 也可以按同样的构建命令和输出目录部署。
+当前 Custom Domain：`https://temu.zxiaobai1234.us.ci`
+
+首次部署：
+
+1. 保证本地 `.env` 已配置 `VITE_SUPABASE_URL` 和 `VITE_SUPABASE_ANON_KEY`，它们会在构建时写入前端产物。
+2. 登录 Cloudflare，并把物流代理所需变量保存为 Worker secrets：
+
+```bash
+npx wrangler login
+npx wrangler secret put SUPABASE_URL
+npx wrangler secret put SUPABASE_ANON_KEY
+```
+
+3. 构建并部署：
+
+```bash
+npm run cloudflare:deploy
+```
+
+本地联调时，复制 `.dev.vars.example` 为 `.dev.vars` 并填入相同的两个服务端变量，然后执行：
+
+```bash
+npm run cloudflare:dev
+```
+
+Cloudflare 配置位于 `wrangler.jsonc`，Worker 入口位于 `cloudflare/worker.ts`。`.dev.vars`、`.env` 和其他密钥文件不能提交到 Git。
+
+### Vercel
+
+现有 Vercel 部署配置继续保留，可作为备用入口。Vercel 使用 `npm run build`，输出目录为 `dist`，并需要 `VITE_SUPABASE_URL`、`VITE_SUPABASE_ANON_KEY`、`SUPABASE_URL` 和 `SUPABASE_ANON_KEY`。
 
 ## 目录说明
 

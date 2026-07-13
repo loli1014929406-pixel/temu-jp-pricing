@@ -3,6 +3,9 @@ node_modules/
 .env.local
 .env.development
 .env.production
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
 .next/
 dist/
 build/
