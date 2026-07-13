@@ -7,7 +7,7 @@ type PersistedEntry = { version: number; expiresAt: number; value: unknown };
 type AsyncCacheOptions = { force?: boolean; ttlMs?: number };
 
 const cache = new Map<string, AsyncCacheEntry>();
-const CACHE_VERSION = 1;
+const CACHE_VERSION = 2;
 const DEFAULT_TTL_MS = 5 * 60_000;
 const STORAGE_PREFIX = "temu-jp:operational-cache:";
 const persistentKeyPatterns = [
@@ -19,12 +19,33 @@ const persistentKeyPatterns = [
   /^operational:warehouse-logistics:/,
 ];
 let storageListenerInstalled = false;
+let cacheScope = "signed-out";
+
+function storageScopePrefix() {
+  return `${STORAGE_PREFIX}v${CACHE_VERSION}:${encodeURIComponent(cacheScope)}:`;
+}
+
+export function setAsyncCacheScope(scope: string | null | undefined) {
+  const nextScope = scope?.trim() || "signed-out";
+  if (nextScope === cacheScope) return;
+  cache.clear();
+  cacheScope = nextScope;
+  if (typeof window === "undefined") return;
+  try {
+    for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
+      const key = window.localStorage.key(index);
+      if (key?.startsWith(`${STORAGE_PREFIX}v1:`)) window.localStorage.removeItem(key);
+    }
+  } catch {
+    // Legacy cache cleanup is best effort.
+  }
+}
 
 function ensureStorageListener() {
   if (storageListenerInstalled || typeof window === "undefined") return;
   window.addEventListener("storage", (event) => {
-    if (!event.key?.startsWith(`${STORAGE_PREFIX}v${CACHE_VERSION}:`)) return;
-    const logicalKey = event.key.slice(`${STORAGE_PREFIX}v${CACHE_VERSION}:`.length);
+    if (!event.key?.startsWith(storageScopePrefix())) return;
+    const logicalKey = event.key.slice(storageScopePrefix().length);
     cache.delete(logicalKey);
   });
   storageListenerInstalled = true;
@@ -35,7 +56,7 @@ function canPersist(key: string) {
 }
 
 function storageKey(key: string) {
-  return `${STORAGE_PREFIX}v${CACHE_VERSION}:${key}`;
+  return `${storageScopePrefix()}${key}`;
 }
 
 function readPersistent<T>(key: string): PersistedEntry | null {
@@ -110,8 +131,8 @@ export function invalidateAsyncCache(prefix?: string) {
   try {
     for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
       const key = window.localStorage.key(index);
-      if (!key?.startsWith(`${STORAGE_PREFIX}v${CACHE_VERSION}:`)) continue;
-      const logicalKey = key.slice(`${STORAGE_PREFIX}v${CACHE_VERSION}:`.length);
+      if (!key?.startsWith(storageScopePrefix())) continue;
+      const logicalKey = key.slice(storageScopePrefix().length);
       if (!prefix || logicalKey.startsWith(prefix)) window.localStorage.removeItem(key);
     }
   } catch {

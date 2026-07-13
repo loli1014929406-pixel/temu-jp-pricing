@@ -20,6 +20,12 @@
 - Legacy `anon` table grants for expenses and settlement tables are revoked. Existing RLS already blocked anonymous rows, but the grants were unnecessary.
 - No existing shared-data RLS policy or finance ownership rule was changed.
 
+## Hardening applied on 2026-07-13
+
+- Permission bootstrap now fails closed: an empty `account_permissions` table no longer promotes every authenticated account to administrator.
+- The first administrator must be inserted explicitly with Supabase administrative credentials.
+- Purchase receipt and settlement import writes use transaction RPCs so status, inventory, adjustment, file, and detail rows cannot be partially committed.
+
 ## Team operational sharing applied on 2026-07-11
 
 - `temu_orders` and all purchase-management tables are readable by every permitted team account.

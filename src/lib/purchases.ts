@@ -71,7 +71,8 @@ function isMissingPurchaseTransactionRpcError(error: unknown) {
     code === "42883" ||
     code === "PGRST202" ||
     message.includes("create_purchase_order_atomic") ||
-    message.includes("update_purchase_source_atomic")
+    message.includes("update_purchase_source_atomic") ||
+    message.includes("receive_purchase_package_atomic")
   );
 }
 
@@ -931,7 +932,7 @@ function getSkuQtyDiff(
 }
 
 export async function receivePurchasePackage(order: PurchaseOrder, pkg: PurchasePackage) {
-  const { supabase, session } = await requireSession();
+  const { supabase } = await requireSession();
   let packageToReceive = pkg;
   const { data: persistedPackageData, error: packageLoadError } = await supabase
     .from("purchase_packages")
@@ -949,17 +950,15 @@ export async function receivePurchasePackage(order: PurchaseOrder, pkg: Purchase
     await preparePurchasePackageForSkuReceipt(order, packageToReceive);
   }
 
-  const receivedAt = new Date().toISOString();
-  let packageData = activePackage;
-  let inventory: PurchaseSkuInventoryChange[] = [];
-  if (shouldReceivePackage) {
-    const { data: updatedPackageData, error: packageError } = await supabase.from("purchase_packages").update({ status: "received", received_at: receivedAt }).eq("id", packageToReceive.id).eq("status", "pending").select("id, source_id, tracking_no, status").maybeSingle();
-    if (packageError) throw packageError;
-    if (!updatedPackageData) {
-      throw new Error("快递包裹状态已变化，请刷新页面后查看");
-    }
-    packageData = updatedPackageData as Omit<PurchasePackage, "items">;
+  if (!shouldReceivePackage) {
+    return {
+      order: { id: order.id, status: order.status } as Omit<PurchaseOrder, "sources" | "items" | "packages">,
+      package: { ...activePackage, items: packageToReceive.items },
+      inventory: [] as PurchaseSkuInventoryChange[],
+    };
   }
+
+  const receivedAt = new Date().toISOString();
   const { data: allPackageData, error: allPackageError } = await supabase
     .from("purchase_packages")
     .select("id, status")
@@ -975,21 +974,40 @@ export async function receivePurchasePackage(order: PurchaseOrder, pkg: Purchase
   if (allPackageItemError) throw allPackageItemError;
   const packageItemsByPackage = (allPackageItemData as PurchasePackageItem[]).reduce<Record<string, PurchasePackageItem[]>>((acc, row) => ((acc[row.package_id] ??= []).push(row), acc), {});
   const allPackages = allPackageRows.map((item) => ({ ...item, items: packageItemsByPackage[item.id] ?? [] })) as PurchasePackage[];
-  const skuQtyBefore = getSkuQtyReceived(order.items, order.packages);
-  const skuQtyAfter = getSkuQtyReceived(order.items, allPackages);
-  if (shouldReceivePackage) {
-    inventory = await applyWarehouseSkuQuantityChanges(
-      supabase,
-      session.user.id,
-      order.warehouse_id,
-      order.items,
-      getSkuQtyDiff(skuQtyBefore, skuQtyAfter),
-    );
+  const skuQtyBefore = getSkuQtyReceived(order.items, allPackages);
+  const packagesAfter = allPackages.map((item) =>
+    item.id === activePackage.id ? { ...item, status: "received" as const } : item,
+  );
+  const skuQtyAfter = getSkuQtyReceived(order.items, packagesAfter);
+  const skuChanges = Object.entries(getSkuQtyDiff(skuQtyBefore, skuQtyAfter))
+    .map(([sku_id, quantity]) => ({ sku_id, quantity }))
+    .filter((item) => item.quantity > 0);
+
+  const { data, error } = await withTimeout(
+    supabase.rpc("receive_purchase_package_atomic", {
+      p_package_id: activePackage.id,
+      p_received_at: receivedAt,
+      p_sku_changes: skuChanges,
+    }),
+    "签收采购包裹",
+  );
+  if (error && isMissingPurchaseTransactionRpcError(error)) {
+    throw new Error("采购签收事务尚未初始化，请先执行 20260713000000_fix_audit_consistency_and_security.sql 迁移。");
   }
-  const status = getReceiptStatus(order.items, allPackages);
-  const { data: orderData, error: orderError } = await supabase.from("purchase_orders").update({ status, received_at: status === "received" ? receivedAt : null }).eq("id", order.id).select("status").single();
-  if (orderError) throw orderError;
-  const result = { order: orderData as Omit<PurchaseOrder, "sources" | "items" | "packages">, package: { ...(packageData as Omit<PurchasePackage, "items">), items: packageItemsByPackage[packageData.id] ?? packageToReceive.items }, inventory };
+  if (error) throw error;
+  const payload = data as {
+    order: Omit<PurchaseOrder, "sources" | "items" | "packages">;
+    package: Omit<PurchasePackage, "items">;
+    inventory: PurchaseSkuInventoryChange[];
+  };
+  const result = {
+    order: payload.order,
+    package: {
+      ...payload.package,
+      items: packageItemsByPackage[activePackage.id] ?? packageToReceive.items,
+    },
+    inventory: payload.inventory ?? [],
+  };
   invalidatePurchaseReferenceCache();
   return result;
 }
@@ -1015,7 +1033,7 @@ function getRemainingPackageItems(order: PurchaseOrder) {
 export async function receiveRemainingPurchaseOrder(order: PurchaseOrder) {
   if (order.status === "received") throw new Error("该采购管理单已经签收");
 
-  const { supabase, session } = await requireSession();
+  const { supabase } = await requireSession();
   const remainingItems = getRemainingPackageItems(order);
   const receivedAt = new Date().toISOString();
   if (remainingItems.length === 0) {
@@ -1051,6 +1069,8 @@ export async function receiveRemainingPurchaseOrder(order: PurchaseOrder) {
   }
 
   const receivedPackages: PurchasePackage[] = [];
+  const inventory: PurchaseSkuInventoryChange[] = [];
+  let receivedOrder: Omit<PurchaseOrder, "sources" | "items" | "packages"> | null = null;
   for (const [index, [sourceId, items]] of sourceEntries.entries()) {
     const pkg = await createPurchasePackage(
       order.id,
@@ -1061,43 +1081,14 @@ export async function receiveRemainingPurchaseOrder(order: PurchaseOrder) {
         quantity: item.quantity,
       })),
     );
-    await preparePurchasePackageForSkuReceipt(order, pkg);
-    const { data: packageData, error: packageError } = await supabase
-      .from("purchase_packages")
-      .update({ status: "received", received_at: receivedAt })
-      .eq("id", pkg.id)
-      .eq("status", "pending")
-      .select("id, source_id, tracking_no, status")
-      .single();
-    if (packageError) throw packageError;
-
-    receivedPackages.push({
-      ...(packageData as Omit<PurchasePackage, "items">),
-      items: pkg.items,
-    });
+    const result = await receivePurchasePackage(order, pkg);
+    receivedOrder = result.order;
+    inventory.push(...result.inventory);
+    receivedPackages.push(result.package);
   }
 
-  const nextPackages = [...order.packages, ...receivedPackages];
-  const skuQtyBefore = getSkuQtyReceived(order.items, order.packages);
-  const skuQtyAfter = getSkuQtyReceived(order.items, nextPackages);
-  const inventory = await applyWarehouseSkuQuantityChanges(
-    supabase,
-    session.user.id,
-    order.warehouse_id,
-    order.items,
-    getSkuQtyDiff(skuQtyBefore, skuQtyAfter),
-  );
-  const status = getReceiptStatus(order.items, nextPackages);
-  const { data: orderData, error: orderError } = await supabase
-    .from("purchase_orders")
-    .update({ status, received_at: status === "received" ? receivedAt : null })
-    .eq("id", order.id)
-    .select("status")
-    .single();
-  if (orderError) throw orderError;
-
   const result = {
-    order: orderData as Omit<PurchaseOrder, "sources" | "items" | "packages">,
+    order: receivedOrder ?? ({ id: order.id, status: order.status, received_at: receivedAt } as Omit<PurchaseOrder, "sources" | "items" | "packages">),
     packages: receivedPackages,
     inventory,
   };

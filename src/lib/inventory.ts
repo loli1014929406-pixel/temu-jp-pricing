@@ -209,21 +209,23 @@ export async function fetchWarehouseSkuStockAdjustmentsForSkus(
   if (uniqueSkuIds.length === 0) return [] as WarehouseSkuStockAdjustment[];
 
   const { supabase } = await requireSession();
-  const { data, error } = await withTimeout(
-    retryInventoryRequest(() =>
+  const results = await withTimeout(
+    Promise.all(uniqueSkuIds.map((skuId) => retryInventoryRequest(() =>
       supabase
         .from("warehouse_sku_stock_adjustments")
         .select("id, warehouse_id, sku_id, previous_quantity, next_quantity, change_quantity, reason, created_at")
         .eq("warehouse_id", warehouseId)
-        .in("sku_id", uniqueSkuIds)
+        .eq("sku_id", skuId)
         .order("created_at", { ascending: false })
-        .limit(uniqueSkuIds.length * 20),
-    ),
+        .limit(20),
+    ))),
     "加载SKU编辑记录",
   );
-
-  if (error) throw error;
-  return data as WarehouseSkuStockAdjustment[];
+  const failed = results.find((result) => result.error);
+  if (failed?.error) throw failed.error;
+  return results
+    .flatMap((result) => (result.data ?? []) as WarehouseSkuStockAdjustment[])
+    .sort((left, right) => right.created_at.localeCompare(left.created_at));
 }
 
 export async function fetchWarehouseInventoryPage(

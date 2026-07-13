@@ -1023,10 +1023,7 @@ as 'select coalesce(
       lower(coalesce(auth.jwt() ->> ''email'', ''''))
     limit 1
   ),
-  case
-    when exists (select 1 from public.account_permissions) then ''viewer''
-    else ''admin''
-  end
+  ''viewer''
 )';
 
 create or replace function public.current_account_can_edit()
@@ -1479,7 +1476,6 @@ security definer
 set search_path = public
 as 'select case
   when auth.uid() is null then false
-  when not exists (select 1 from public.account_permissions) then true
   else exists (
     select 1
     from public.account_permissions

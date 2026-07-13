@@ -35,6 +35,7 @@ import {
   isLogisticsMethodAllowedForWarehouse as isConfiguredLogisticsMethodAllowedForWarehouse,
 } from "../lib/logistics-methods";
 import { getWarehouseLogisticsConfigStatus } from "../lib/warehouse-logistics";
+import { getSupabaseClient } from "../lib/supabase";
 import {
   deleteTemuOrder,
   importTemuOrders,
@@ -674,6 +675,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
   }
 
   async function fetchYamatoTrackingStatus(trackingNo: string) {
+    const { data: { session } } = await getSupabaseClient().auth.getSession();
+    if (!session?.access_token) throw new Error("登录状态已失效，请重新登录");
     const body = new URLSearchParams({
       number01: trackingNo.trim(),
       category: "0",
@@ -684,6 +687,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+          Authorization: `Bearer ${session.access_token}`,
         },
         body,
         cache: "no-store",

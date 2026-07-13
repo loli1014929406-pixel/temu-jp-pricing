@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getCachedAsync, invalidateAsyncCache } from "./async-cache";
+import { getCachedAsync, invalidateAsyncCache, setAsyncCacheScope } from "./async-cache";
 
 afterEach(() => {
   invalidateAsyncCache();
+  setAsyncCacheScope(null);
   vi.useRealTimers();
 });
 
@@ -60,6 +61,29 @@ describe("getCachedAsync", () => {
     });
 
     expect(() => invalidateAsyncCache("operational:products")).not.toThrow();
+    vi.unstubAllGlobals();
+  });
+
+  it("isolates persistent operational data by authenticated account", async () => {
+    const values = new Map<string, string>();
+    const localStorage = {
+      get length() { return values.size; },
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+      key: (index: number) => Array.from(values.keys())[index] ?? null,
+    };
+    vi.stubGlobal("window", { addEventListener: vi.fn(), localStorage });
+
+    setAsyncCacheScope("account-a");
+    await expect(getCachedAsync("operational:products", async () => "a")).resolves.toBe("a");
+    setAsyncCacheScope("account-b");
+    await expect(getCachedAsync("operational:products", async () => "b")).resolves.toBe("b");
+    setAsyncCacheScope("account-a");
+    const accountALoader = vi.fn(async () => "wrong-account");
+    await expect(getCachedAsync("operational:products", accountALoader)).resolves.toBe("a");
+    expect(accountALoader).not.toHaveBeenCalled();
+
     vi.unstubAllGlobals();
   });
 });

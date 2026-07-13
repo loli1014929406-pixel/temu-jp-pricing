@@ -9,7 +9,6 @@ import type {
   ProductSkuItemLink,
   ProductWarehouseShippingLimit,
   ProductTransferRecord,
-  SavedProfitCalculation,
 } from "../types";
 import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../utils/sku-code";
 import { upsertProductWarehouseShippingLimits } from "./product-warehouse-shipping-limits";
@@ -35,8 +34,6 @@ async function requireSession() {
 
   return { supabase, session };
 }
-
-type SupabaseSessionClient = Awaited<ReturnType<typeof requireSession>>["supabase"];
 
 function normalizeProductDraft(product: ProductDraft): ProductDraft {
   const productNameCn = product.product_name_cn.trim();
@@ -644,12 +641,6 @@ function getComparableText(value: unknown) {
   return String(value ?? "");
 }
 
-function getComparableAttributes(attributes: Record<string, string>) {
-  return Object.fromEntries(
-    Object.entries(attributes ?? {}).sort(([left], [right]) => left.localeCompare(right)),
-  );
-}
-
 function getComparableItem(item: ProductItem) {
   return {
     item_name: getComparableText(item.item_name),
@@ -665,65 +656,6 @@ function getComparableItem(item: ProductItem) {
     ),
     purchase_url: getComparableText(item.purchase_url),
   };
-}
-
-function getComparableSkuLinks(links: Array<ProductSkuItemLink | ProductSkuDraftLink>) {
-  return links
-    .map((link) => ({
-      item_key: "item_key" in link ? link.item_key : link.item_id,
-      quantity: getComparableNumber(link.quantity),
-    }))
-    .sort((left, right) => left.item_key.localeCompare(right.item_key));
-}
-
-function getComparableSku(
-  sku: ProductSku | ProductSkuDraft,
-  skuCode: string,
-) {
-  return {
-    sku_code: getComparableText(skuCode),
-    temu_image_url: getComparableText(sku.temu_image_url),
-    attributes: getComparableAttributes(sku.attributes),
-    notes: getComparableText(sku.notes),
-    component_links: getComparableSkuLinks(sku.component_links),
-  };
-}
-
-function areProductItemsUnchanged(existingItems: ProductItem[], draftItems: ProductItem[]) {
-  if (existingItems.length !== draftItems.length) return false;
-
-  return existingItems.every((existingItem, index) => {
-    const draftItem = draftItems[index];
-    if (!existingItem.id || !draftItem?.id || existingItem.id !== draftItem.id) return false;
-    return (
-      JSON.stringify(getComparableItem(existingItem)) ===
-      JSON.stringify(getComparableItem(draftItem))
-    );
-  });
-}
-
-function areProductSkusUnchanged(
-  existingSkus: ProductSku[],
-  draftSkus: ProductSkuDraft[],
-  productCode: string,
-) {
-  if (existingSkus.length !== draftSkus.length) return false;
-
-  return existingSkus.every((existingSku, index) => {
-    const draftSku = draftSkus[index];
-    if (!existingSku.id || !draftSku?.id || existingSku.id !== draftSku.id) return false;
-
-    const existingSkuCode =
-      isLegacyDefaultSkuCode(existingSku.sku_code) &&
-      draftSku.sku_code === buildDefaultSkuCode(productCode, index)
-        ? draftSku.sku_code
-        : existingSku.sku_code;
-
-    return (
-      JSON.stringify(getComparableSku(existingSku, existingSkuCode)) ===
-      JSON.stringify(getComparableSku(draftSku, draftSku.sku_code))
-    );
-  });
 }
 
 function getProductItemPayload(item: ProductItem) {
@@ -839,266 +771,10 @@ function getReservedSkuDeleteMessage() {
   return "这个商品的部分 SKU 已经被订单库存预约引用，不能删除或重建 SKU。请保留原 SKU 后修改字段，或先释放相关订单的库存预约。";
 }
 
-async function syncProductItems(
-  supabase: SupabaseSessionClient,
-  productId: string,
-  existingItems: ProductItem[],
-  draftItems: ProductItem[],
-) {
-  const itemIdsByKey = new Map<string, string>();
-  const usedExistingItemIds = new Set<string>();
-  const existingItemIdsByComparableKey = new Map<string, string[]>();
-
-  for (const item of existingItems) {
-    if (!item.id) continue;
-    itemIdsByKey.set(item.id, item.id);
-    addMapValue(existingItemIdsByComparableKey, getComparableItemKey(item), item.id);
-  }
-
-  for (const [index, draftItem] of draftItems.entries()) {
-    const draftItemKey = getDraftItemKey(draftItem, index);
-    const existingItemId = getExistingItemIdForDraft(
-      draftItem,
-      index,
-      existingItems,
-      existingItemIdsByComparableKey,
-      usedExistingItemIds,
-    );
-
-    if (existingItemId) {
-      const { error } = await withTimeout(
-        supabase
-          .from("product_items")
-          .update(getProductItemPayload(draftItem))
-          .eq("id", existingItemId)
-          .eq("product_id", productId),
-        "更新配件库",
-      );
-      if (error) throw error;
-      usedExistingItemIds.add(existingItemId);
-      itemIdsByKey.set(draftItemKey, existingItemId);
-      if (draftItem.id) itemIdsByKey.set(draftItem.id, existingItemId);
-      continue;
-    }
-
-    const { data, error } = await withTimeout(
-      supabase
-        .from("product_items")
-        .insert({
-          ...getProductItemPayload(draftItem),
-          product_id: productId,
-        })
-        .select("id")
-        .single<{ id: string }>(),
-      "新增配件库",
-    );
-    if (error) throw error;
-    if (!data?.id) throw new Error("新增配件失败，未返回保存结果。");
-    itemIdsByKey.set(draftItemKey, data.id);
-    if (draftItem.id) itemIdsByKey.set(draftItem.id, data.id);
-  }
-
-  const removedItemIds = existingItems.flatMap((item) =>
-    item.id && !usedExistingItemIds.has(item.id) ? [item.id] : [],
-  );
-  if (removedItemIds.length > 0) {
-    const { error } = await withTimeout(
-      supabase.from("product_items").delete().in("id", removedItemIds).eq("product_id", productId),
-      "删除已移除配件",
-    );
-    if (error) throw error;
-  }
-
-  return itemIdsByKey;
-}
-
 function resolveSkuLinkItemId(link: ProductSkuDraftLink, itemIdsByKey: Map<string, string>) {
   const mappedId = itemIdsByKey.get(link.item_key);
   if (mappedId) return mappedId;
   return uuidPattern.test(link.item_key) ? link.item_key : "";
-}
-
-async function syncSkuLinks(
-  supabase: SupabaseSessionClient,
-  skuId: string,
-  links: ProductSkuDraftLink[],
-  itemIdsByKey: Map<string, string>,
-) {
-  const { error: deleteLinkError } = await withTimeout(
-    supabase.from("product_sku_items").delete().eq("sku_id", skuId),
-    "清理 SKU 配件映射",
-  );
-  if (deleteLinkError) throw deleteLinkError;
-
-  const linkRows = links
-    .map((link) => ({
-      sku_id: skuId,
-      item_id: resolveSkuLinkItemId(link, itemIdsByKey),
-      quantity: Math.max(1, Math.trunc(Number(link.quantity) || 1)),
-    }))
-    .filter((link) => Boolean(link.item_id));
-
-  if (linkRows.length !== links.length) {
-    throw new Error("保存 SKU 配件映射失败，存在无法识别的配件。请刷新后重试。");
-  }
-
-  if (linkRows.length === 0) return;
-
-  const { error: insertLinkError } = await withTimeout(
-    supabase.from("product_sku_items").insert(linkRows),
-    "保存 SKU 配件映射",
-  );
-  if (insertLinkError) throw insertLinkError;
-}
-
-async function updateProductSkuRow(
-  supabase: SupabaseSessionClient,
-  productId: string,
-  skuId: string,
-  sku: ProductSkuDraft,
-) {
-  const skuPayload = getProductSkuPayload(sku);
-  const skuResult = await withTimeout(
-    supabase
-      .from("product_skus")
-      .update(skuPayload)
-      .eq("id", skuId)
-      .eq("product_id", productId)
-      .select("id, product_id, owner_id, sku_code, temu_image_url, attributes, notes")
-      .single(),
-    "更新 SKU",
-  );
-  let data = skuResult.data as Partial<ProductSku> | null;
-  let error = skuResult.error;
-
-  if (error && isMissingTemuImageColumnError(error) && !skuPayload.temu_image_url) {
-    const legacySkuResult = await withTimeout(
-      supabase
-        .from("product_skus")
-        .update(withoutSkuTemuImageUrl(skuPayload))
-        .eq("id", skuId)
-        .eq("product_id", productId)
-        .select("id, product_id, owner_id, sku_code, attributes, notes")
-        .single(),
-      "更新 SKU",
-    );
-    data = legacySkuResult.data as Partial<ProductSku> | null;
-    error = legacySkuResult.error;
-  }
-  if (error && isMissingTemuImageColumnError(error)) {
-    throw new Error("商品 SKU 数据库还没有新增 Temu 图片链接字段，请先执行最新商品迁移。");
-  }
-  if (error) throw error;
-  if (!data) throw new Error("更新 SKU 失败，未返回保存结果。");
-
-  return {
-    ...normalizeSkuRow(data as Omit<ProductSku, "component_links">),
-    component_links: [],
-  };
-}
-
-async function insertProductSkuRow(
-  supabase: SupabaseSessionClient,
-  productId: string,
-  sku: ProductSkuDraft,
-  itemIdsByKey: Map<string, string>,
-) {
-  const skuPayload = getProductSkuPayload(sku);
-  const skuResult = await withTimeout(
-    supabase
-      .from("product_skus")
-      .insert({
-        ...skuPayload,
-        product_id: productId,
-      })
-      .select("id, product_id, owner_id, sku_code, temu_image_url, attributes, notes")
-      .single(),
-    "保存 SKU",
-  );
-  let data = skuResult.data as Partial<ProductSku> | null;
-  let error = skuResult.error;
-
-  if (error && isMissingTemuImageColumnError(error) && !skuPayload.temu_image_url) {
-    const legacySkuResult = await withTimeout(
-      supabase
-        .from("product_skus")
-        .insert({
-          ...withoutSkuTemuImageUrl(skuPayload),
-          product_id: productId,
-        })
-        .select("id, product_id, owner_id, sku_code, attributes, notes")
-        .single(),
-      "保存 SKU",
-    );
-    data = legacySkuResult.data as Partial<ProductSku> | null;
-    error = legacySkuResult.error;
-  }
-  if (error && isMissingTemuImageColumnError(error)) {
-    throw new Error("商品 SKU 数据库还没有新增 Temu 图片链接字段，请先执行最新商品迁移。");
-  }
-  if (error) throw error;
-  if (!data) throw new Error("保存 SKU 失败，未返回保存结果。");
-
-  await syncSkuLinks(supabase, String(data.id), sku.component_links, itemIdsByKey);
-
-  return {
-    ...normalizeSkuRow(data as Omit<ProductSku, "component_links">),
-    component_links: [],
-  };
-}
-
-async function syncProductSkus(
-  supabase: SupabaseSessionClient,
-  productId: string,
-  productCode: string,
-  existingSkus: ProductSku[],
-  draftSkus: ProductSkuDraft[],
-  itemIdsByKey: Map<string, string>,
-) {
-  const usedExistingSkuIds = new Set<string>();
-  const existingSkuIdsByIdentity = new Map<string, string[]>();
-  const createdSkus: ProductSku[] = [];
-
-  existingSkus.forEach((sku, index) => {
-    if (!sku.id) return;
-    addSkuIdentityMatchKeys(existingSkuIdsByIdentity, sku, sku.id, productCode, index);
-  });
-
-  for (const [index, draftSku] of draftSkus.entries()) {
-    const existingSkuId = getExistingSkuIdForDraft(
-      draftSku,
-      index,
-      existingSkus,
-      existingSkuIdsByIdentity,
-      usedExistingSkuIds,
-    );
-
-    if (existingSkuId) {
-      await updateProductSkuRow(supabase, productId, existingSkuId, draftSku);
-      await syncSkuLinks(supabase, existingSkuId, draftSku.component_links, itemIdsByKey);
-      usedExistingSkuIds.add(existingSkuId);
-      continue;
-    }
-
-    const createdSku = await insertProductSkuRow(supabase, productId, draftSku, itemIdsByKey);
-    createdSkus.push(createdSku);
-  }
-
-  const removedSkuIds = existingSkus.flatMap((sku) =>
-    sku.id && !usedExistingSkuIds.has(sku.id) ? [sku.id] : [],
-  );
-  if (removedSkuIds.length > 0) {
-    const { error } = await withTimeout(
-      supabase.from("product_skus").delete().in("id", removedSkuIds).eq("product_id", productId),
-      "删除已移除 SKU",
-    );
-    if (error && isWarehouseSkuReservationConstraintError(error)) {
-      throw new Error(getReservedSkuDeleteMessage());
-    }
-    if (error) throw error;
-  }
-
-  return { createdSkus };
 }
 
 export async function createProduct(
@@ -1192,133 +868,75 @@ export async function updateProduct(
     fetchProductItems(productId),
     fetchProductSkus(productId),
   ]);
+  const usedItemIds = new Set<string>();
+  const itemIdsByKey = new Map<string, string>();
+  const existingItemIdsByComparableKey = new Map<string, string[]>();
+  existingItems.forEach((item) => {
+    if (item.id) addMapValue(existingItemIdsByComparableKey, getComparableItemKey(item), item.id);
+  });
+  const itemRows = items.map((item, index) => {
+    const id = getExistingItemIdForDraft(
+      item,
+      index,
+      existingItems,
+      existingItemIdsByComparableKey,
+      usedItemIds,
+    ) ?? crypto.randomUUID();
+    usedItemIds.add(id);
+    itemIdsByKey.set(getDraftItemKey(item, index), id);
+    if (item.id) itemIdsByKey.set(item.id, id);
+    return { id, ...getProductItemPayload(item) };
+  });
 
-  let error: unknown = null;
-  let omitParcelCapacity = false;
-  let omitSellingStatus = false;
-
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const result = await withTimeout(
-      supabase
-        .from("products")
-        .update(
-          getCompatibleProductPayload(normalizedProduct, {
-            omitParcelCapacity,
-            omitSellingStatus,
-          }),
-        )
-        .eq("id", productId),
-      "更新商品",
-    );
-    error = result.error;
-
-    if (
-      error &&
-      isMissingProductParcelCapacityColumnError(error) &&
-      normalizedProduct.max_units_per_parcel === 1 &&
-      !omitParcelCapacity
-    ) {
-      omitParcelCapacity = true;
-      continue;
-    }
-    if (
-      error &&
-      isMissingProductSellingColumnError(error) &&
-      normalizedProduct.is_selling &&
-      !omitSellingStatus
-    ) {
-      omitSellingStatus = true;
-      continue;
-    }
-
-    break;
-  }
-  if (error && isMissingProductParcelCapacityColumnError(error)) {
-    throw new Error(getMissingProductParcelCapacityColumnMessage());
-  }
-  if (error && isMissingProductSellingColumnError(error)) {
-    throw new Error(getMissingProductSellingColumnMessage());
-  }
-  if (error) throw error;
-
-  const productStructureUnchanged =
-    areProductItemsUnchanged(existingItems, items) &&
-    areProductSkusUnchanged(existingSkus, skus, normalizedProduct.product_code);
-
-  if (productStructureUnchanged) {
-    await upsertProductWarehouseShippingLimits(productId, warehouseShippingLimits);
-    invalidateProductReferenceCache();
-    return;
-  }
-
-  const existingCalculationsByIdentity = new Map<string, SavedProfitCalculation>();
-  const existingCalculationRows = await Promise.all(
-    existingSkus.flatMap((sku) =>
-      sku.id
-        ? [
-            supabase
-              .from("profit_calculations")
-              .select("temu_price_rmb, traffic_discount_rate, activity_discount_rate, coupon_discount_rate")
-              .eq("sku_id", sku.id)
-              .maybeSingle(),
-          ]
-        : [],
-    ),
-  );
-
+  const usedSkuIds = new Set<string>();
+  const existingSkuIdsByIdentity = new Map<string, string[]>();
   existingSkus.forEach((sku, index) => {
-    const calculation = existingCalculationRows[index]?.data as SavedProfitCalculation | null;
-    if (calculation) {
-      existingCalculationsByIdentity.set(getSkuIdentity(sku), calculation);
-      if (isLegacyDefaultSkuCode(sku.sku_code)) {
-        existingCalculationsByIdentity.set(
-          getSkuIdentity({
-            ...sku,
-            sku_code: buildDefaultSkuCode(normalizedProduct.product_code, index),
-          }),
-          calculation,
-        );
-      }
-    }
-  });
-
-  const itemIdsByKey = await syncProductItems(supabase, productId, existingItems, items);
-  const { createdSkus } = await syncProductSkus(
-    supabase,
-    productId,
-    normalizedProduct.product_code,
-    existingSkus,
-    skus,
-    itemIdsByKey,
-  );
-
-  const calculationsToRestore = createdSkus.flatMap((sku) => {
-    if (!sku.id) return [];
-    const previous = existingCalculationsByIdentity.get(getSkuIdentity(sku));
-    return previous
-      ? [
-          {
-            product_id: productId,
-            sku_id: sku.id,
-            temu_price_rmb: previous.temu_price_rmb,
-            traffic_discount_rate: previous.traffic_discount_rate,
-            activity_discount_rate: previous.activity_discount_rate,
-            coupon_discount_rate: previous.coupon_discount_rate ?? 0,
-            result_json: {},
-          },
-        ]
-      : [];
-  });
-
-  if (calculationsToRestore.length > 0) {
-    const { error: restoreCalculationError } = await withTimeout(
-      supabase.from("profit_calculations").insert(calculationsToRestore),
-      "恢复利润测算输入",
+    if (sku.id) addSkuIdentityMatchKeys(
+      existingSkuIdsByIdentity,
+      sku,
+      sku.id,
+      normalizedProduct.product_code,
+      index,
     );
-    if (restoreCalculationError) throw restoreCalculationError;
-  }
+  });
+  const skuRows = skus.map((sku, index) => {
+    const id = getExistingSkuIdForDraft(
+      sku,
+      index,
+      existingSkus,
+      existingSkuIdsByIdentity,
+      usedSkuIds,
+    ) ?? crypto.randomUUID();
+    usedSkuIds.add(id);
+    const links = sku.component_links.map((link) => {
+      const itemId = resolveSkuLinkItemId(link, itemIdsByKey);
+      if (!itemId) throw new Error("保存 SKU 配件映射失败，存在无法识别的配件。请刷新后重试。");
+      return { item_id: itemId, quantity: Math.max(1, Math.trunc(Number(link.quantity) || 1)) };
+    });
+    return { id, ...getProductSkuPayload(sku), links };
+  });
 
-  await upsertProductWarehouseShippingLimits(productId, warehouseShippingLimits);
+  const { error } = await withTimeout(
+    supabase.rpc("update_product_structure_atomic", {
+      p_product_id: productId,
+      p_product: normalizedProduct,
+      p_items: itemRows,
+      p_skus: skuRows,
+      p_limits: warehouseShippingLimits.map((limit) => ({
+        warehouse_id: limit.warehouse_id,
+        max_units_per_parcel: Math.max(1, Math.trunc(Number(limit.max_units_per_parcel) || 1)),
+      })),
+    }),
+    "事务保存商品结构",
+  );
+  if (error) {
+    const message = getUnknownErrorMessage(error);
+    if (String((error as { code?: unknown }).code ?? "") === "PGRST202" || message.includes("update_product_structure_atomic")) {
+      throw new Error("商品结构事务尚未初始化，请先执行 20260713000000_fix_audit_consistency_and_security.sql 迁移。");
+    }
+    if (isWarehouseSkuReservationConstraintError(error)) throw new Error(getReservedSkuDeleteMessage());
+    throw error;
+  }
   invalidateProductReferenceCache();
 }
 

@@ -495,33 +495,7 @@ export async function addSettlementFile(
     };
   }
 
-  // Insert file
-  const { data: fileData, error: fileError } = await supabase
-    .from("finance_settlement_files")
-    .insert({
-      user_id: userId,
-      file_name: fileName,
-      date_range_start: importedAt.slice(0, 10).replace(/-/g, ""),
-      date_range_end: importedAt.slice(0, 10).replace(/-/g, ""),
-      total_sales_revenue: totalSalesRevenue,
-      total_freight_revenue: totalFreightRevenue,
-      total_revenue: totalRevenue,
-      record_count: recordsToInsert.length,
-      imported_at: importedAt,
-    })
-    .select()
-    .single();
-
-  if (fileError) throw new Error(getSettlementStorageErrorMessage(fileError, "保存文件信息"));
-
-  const fileId = fileData.id;
-
-  // Insert records in batches of 500
-  const BATCH_SIZE = 500;
-  for (let i = 0; i < recordsToInsert.length; i += BATCH_SIZE) {
-    const batch = recordsToInsert.slice(i, i + BATCH_SIZE).map((r) => ({
-      user_id: userId,
-      file_id: fileId,
+  const recordPayload = recordsToInsert.map((r) => ({
       po_number: r.poNumber,
       sku_id: r.skuId,
       sku_name: r.skuName,
@@ -537,25 +511,39 @@ export async function addSettlementFile(
       freight_discount_deducted: r.freightDiscountDeducted,
       freight_reversal: r.freightReversal,
       total_revenue: r.totalRevenue,
-    }));
-    
-    const { error: batchError } = await supabase.from("finance_settlement_records").insert(batch);
-    if (batchError) {
-      await deleteSettlementFile(fileId);
-      throw new Error(getSettlementStorageErrorMessage(batchError, "保存文件数据"));
+  }));
+  const { data: fileData, error: importError } = await supabase.rpc(
+    "import_finance_settlement_atomic",
+    {
+      p_file_name: fileName,
+      p_imported_at: importedAt,
+      p_total_sales_revenue: totalSalesRevenue,
+      p_total_freight_revenue: totalFreightRevenue,
+      p_total_revenue: totalRevenue,
+      p_records: recordPayload,
+    },
+  );
+  if (importError) {
+    const message = String(importError.message ?? "");
+    if (importError.code === "PGRST202" || importError.code === "42883" || message.includes("import_finance_settlement_atomic")) {
+      throw new Error("结算导入事务尚未初始化，请先执行 20260713000000_fix_audit_consistency_and_security.sql 迁移。");
     }
+    throw new Error(getSettlementStorageErrorMessage(importError, "保存结算文件"));
   }
+  if (!fileData || typeof fileData !== "object") throw new Error("保存结算文件后没有返回结果");
+  const storedFile = fileData as Record<string, unknown>;
+  const fileId = String(storedFile.id ?? "");
 
   const file: SettlementFile = {
     id: fileId,
-    fileName: fileData.file_name,
-    dateRangeStart: fileData.date_range_start,
-    dateRangeEnd: fileData.date_range_end,
-    importedAt: fileData.imported_at,
-    totalSalesRevenue: Number(fileData.total_sales_revenue),
-    totalFreightRevenue: Number(fileData.total_freight_revenue),
+    fileName: String(storedFile.file_name ?? fileName),
+    dateRangeStart: String(storedFile.date_range_start ?? ""),
+    dateRangeEnd: String(storedFile.date_range_end ?? ""),
+    importedAt: String(storedFile.imported_at ?? importedAt),
+    totalSalesRevenue: Number(storedFile.total_sales_revenue ?? totalSalesRevenue),
+    totalFreightRevenue: Number(storedFile.total_freight_revenue ?? totalFreightRevenue),
     totalRevenue,
-    recordCount: fileData.record_count,
+    recordCount: Number(storedFile.record_count ?? recordsToInsert.length),
     records: recordsToInsert,
   };
 

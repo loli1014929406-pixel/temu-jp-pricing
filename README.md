@@ -127,7 +127,7 @@ on conflict (email)
 do update set permission_level = excluded.permission_level;
 ```
 
-`account_permissions` 为空时，当前登录账号会按 `admin` 处理，方便初始化第一位管理员；只要表里已有任意权限记录，未配置账号会按 `viewer` 处理。
+`account_permissions` 采用失败关闭策略：表为空或登录邮箱未配置时，账号只能得到前端 `viewer` 状态，后端共享业务数据访问会被拒绝。第一位管理员必须由 Supabase Dashboard、SQL Editor 或其他受控的管理员凭据显式写入，不能依赖普通登录账号自动提权。
 
 ## 本地数据快照
 

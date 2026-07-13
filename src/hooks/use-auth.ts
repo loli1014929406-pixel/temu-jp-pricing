@@ -2,12 +2,14 @@ import type { Session, User } from "@supabase/supabase-js";
 import { useEffect, useState } from "react";
 import { getSupabaseClient, supabaseConfigError } from "../lib/supabase";
 import { reportAppError } from "../lib/diagnostics";
+import { setAsyncCacheScope } from "../lib/async-cache";
 
 export function useAuth() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
   function updateSession(nextSession: Session | null) {
+    setAsyncCacheScope(nextSession?.user.id);
     setSession(nextSession);
     setLoading(false);
   }

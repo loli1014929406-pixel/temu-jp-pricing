@@ -21,6 +21,7 @@ import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import type { User } from "@supabase/supabase-js";
 import { getSupabaseClient } from "../lib/supabase";
 import { usePermissions } from "../hooks/use-permissions";
+import { invalidateAsyncCache, setAsyncCacheScope } from "../lib/async-cache";
 import {
   fetchOrCreateCurrentAccountProfile,
   formatAccountProfileDisplay,
@@ -96,7 +97,9 @@ export function PageShell({ user }: PageShellProps) {
   const location = useLocation();
   const [profile, setProfile] = useState<AccountProfile | null>(null);
   async function handleSignOut() {
+    invalidateAsyncCache();
     await getSupabaseClient().auth.signOut();
+    setAsyncCacheScope(null);
   }
 
   useEffect(() => {
