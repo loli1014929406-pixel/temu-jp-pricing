@@ -11,6 +11,8 @@ export type AppDiagnostic = {
   rowCount?: number;
   retryCount?: number;
   traceId?: string;
+  path: string;
+  appVersion: string;
   createdAt: string;
   uploadStatus: "pending" | "uploaded";
 };
@@ -23,6 +25,33 @@ export type DiagnosticMetadata = Pick<
 const maxDiagnostics = 50;
 const diagnosticsStorageKey = "temu-jp:diagnostics:v1";
 
+function getDiagnosticPath() {
+  return typeof window === "undefined" ? "" : window.location.pathname.slice(0, 200);
+}
+
+function createTraceId() {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function getAppVersion() {
+  return String(
+    typeof __APP_VERSION__ === "string" ? __APP_VERSION__ : import.meta.env.VITE_APP_VERSION ?? "dev",
+  ).slice(0, 50);
+}
+
+let tracedPath = getDiagnosticPath();
+let pageTraceId = createTraceId();
+
+function getPageTraceId(path: string) {
+  if (path !== tracedPath) {
+    tracedPath = path;
+    pageTraceId = createTraceId();
+  }
+  return pageTraceId;
+}
+
 function loadStoredDiagnostics(): AppDiagnostic[] {
   if (typeof window === "undefined") return [];
   try {
@@ -31,6 +60,8 @@ function loadStoredDiagnostics(): AppDiagnostic[] {
     return Array.isArray(parsed)
       ? parsed.slice(-maxDiagnostics).map((item) => ({
           ...item,
+          path: typeof item.path === "string" ? item.path : "",
+          appVersion: typeof item.appVersion === "string" ? item.appVersion : "legacy",
           uploadStatus: item.uploadStatus === "uploaded" ? "uploaded" : "pending",
         }))
       : [];
@@ -45,9 +76,6 @@ let nextDiagnosticId = Math.max(0, ...diagnostics.map((item) => item.id)) + 1;
 let uploadTimer: ReturnType<typeof setTimeout> | undefined;
 let uploadInFlight: Promise<void> | null = null;
 let centralDiagnosticsUnavailable = false;
-const pageTraceId = typeof crypto !== "undefined" && "randomUUID" in crypto
-  ? crypto.randomUUID()
-  : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 function persistDiagnostics() {
   if (typeof window === "undefined") return;
@@ -72,10 +100,6 @@ export function sanitizeDiagnosticText(value: unknown) {
 
 function sanitizeDiagnosticContext(value: unknown) {
   return sanitizeDiagnosticText(value).replace(/[\r\n]+/g, " ").slice(0, 120);
-}
-
-function getDiagnosticPath() {
-  return typeof window === "undefined" ? "" : window.location.pathname.slice(0, 200);
 }
 
 function scheduleCentralUpload() {
@@ -107,13 +131,13 @@ export async function flushCentralDiagnostics() {
           context: sanitizeDiagnosticContext(item.context),
           message: sanitizeDiagnosticText(item.message),
           duration_ms: item.durationMs ?? null,
-          path: getDiagnosticPath(),
-          app_version: String(import.meta.env.VITE_APP_VERSION ?? "web").slice(0, 50),
+          path: item.path,
+          app_version: item.appVersion,
           request_kind: sanitizeDiagnosticContext(item.requestKind ?? ""),
           cache_status: sanitizeDiagnosticContext(item.cacheStatus ?? ""),
           row_count: item.rowCount ?? null,
           retry_count: item.retryCount ?? 0,
-          trace_id: sanitizeDiagnosticContext(item.traceId ?? pageTraceId),
+          trace_id: sanitizeDiagnosticContext(item.traceId ?? ""),
         }));
       let { error } = await supabase.from("app_diagnostics").insert(extendedRows);
       if (error?.code === "PGRST204" || error?.code === "42703") {
@@ -155,13 +179,17 @@ export async function flushCentralDiagnostics() {
 }
 
 function appendDiagnostic(
-  diagnostic: Omit<AppDiagnostic, "id" | "createdAt" | "message" | "uploadStatus"> & {
+  diagnostic: Omit<AppDiagnostic, "id" | "path" | "appVersion" | "createdAt" | "message" | "uploadStatus"> & {
     message: unknown;
   },
 ) {
+  const path = getDiagnosticPath();
   diagnostics.push({
     ...diagnostic,
     id: nextDiagnosticId,
+    path,
+    appVersion: getAppVersion(),
+    traceId: diagnostic.traceId || getPageTraceId(path),
     message: sanitizeDiagnosticText(diagnostic.message),
     createdAt: new Date().toISOString(),
     uploadStatus: "pending",
@@ -286,11 +314,13 @@ export function installGlobalDiagnostics() {
   const handleLoad = () => {
     const navigation = performance.getEntriesByType("navigation")[0];
     if (navigation) {
+      const durationMs = Math.round(navigation.duration || performance.now());
+      if (durationMs <= 0) return;
       appendDiagnostic({
         type: "navigation",
         context: "initial-navigation",
-        message: `首屏加载耗时 ${Math.round(navigation.duration)}ms`,
-        durationMs: Math.round(navigation.duration),
+        message: `首屏加载耗时 ${durationMs}ms`,
+        durationMs,
         requestKind: "browser",
       });
     }

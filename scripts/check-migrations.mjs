@@ -12,6 +12,7 @@ const migrationFiles = (await readdir(migrationsDir))
   .sort();
 const errors = [];
 const warnings = [];
+const activeIndexes = new Map();
 const sqlByFile = Object.fromEntries(
   await Promise.all(
     migrationFiles.map(async (file) => [
@@ -25,12 +26,30 @@ function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function normalizeIndexName(value) {
+  return value.toLowerCase().replaceAll('"', '').split('.').at(-1);
+}
+
 for (const [fileIndex, file] of migrationFiles.entries()) {
   if (!migrationNamePattern.test(file)) {
     errors.push(`${file}: migration filename must use YYYYMMDDHHMMSS_snake_case.sql`);
   }
 
   const sql = sqlByFile[file];
+
+  for (const match of sql.matchAll(/drop\s+index\s+(?:if\s+exists\s+)?([^\s;]+)/gi)) {
+    activeIndexes.delete(normalizeIndexName(match[1]));
+  }
+  for (const match of sql.matchAll(
+    /create\s+(unique\s+)?index\s+(?:if\s+not\s+exists\s+)?([^\s;]+)\s+([\s\S]*?);/gi,
+  )) {
+    const name = normalizeIndexName(match[2]);
+    const definition = `${match[1] ? "unique " : ""}${match[3]}`
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase();
+    activeIndexes.set(name, { definition, file });
+  }
   const laterSql = migrationFiles
     .slice(fileIndex + 1)
     .map((laterFile) => sqlByFile[laterFile])
@@ -78,6 +97,20 @@ for (const [fileIndex, file] of migrationFiles.entries()) {
       warnings.push(`${file}: grants ${tableName} access to anon without a later revoke`);
     }
   });
+}
+
+const indexesByDefinition = new Map();
+for (const [name, index] of activeIndexes) {
+  const group = indexesByDefinition.get(index.definition) ?? [];
+  group.push({ name, file: index.file });
+  indexesByDefinition.set(index.definition, group);
+}
+for (const indexes of indexesByDefinition.values()) {
+  if (indexes.length < 2) continue;
+  const message = `duplicate index definitions: ${indexes
+    .map((index) => `${index.name} (${index.file})`)
+    .join(", ")}`;
+  errors.push(message);
 }
 
 if (warnings.length > 0) {

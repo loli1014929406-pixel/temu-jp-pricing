@@ -8,6 +8,16 @@ function normalizeModuleId(id: string) {
 
 export default defineConfig({
   plugins: [react()],
+  define: {
+    __APP_VERSION__: JSON.stringify(
+      process.env.VITE_APP_VERSION ||
+      process.env.GITHUB_SHA ||
+      process.env.VERCEL_GIT_COMMIT_SHA ||
+      process.env.CF_PAGES_COMMIT_SHA ||
+      process.env.npm_package_version ||
+      "dev",
+    ),
+  },
   build: {
     chunkSizeWarningLimit: 800,
     rollupOptions: {

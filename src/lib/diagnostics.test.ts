@@ -11,6 +11,7 @@ import {
 afterEach(() => {
   clearDiagnostics();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("diagnostics", () => {
@@ -49,5 +50,22 @@ describe("diagnostics", () => {
     ).toBe(
       "Bearer [redacted] [token] https://example.com?a=1&token=[redacted]&password=[redacted]",
     );
+  });
+
+  it("captures the event path and rotates the trace when the route changes", () => {
+    const location = { pathname: "/orders" };
+    vi.stubGlobal("window", {
+      location,
+      sessionStorage: { setItem: vi.fn() },
+    });
+
+    reportSlowOperation("load-orders", 1200);
+    location.pathname = "/inventory";
+    reportSlowOperation("load-inventory", 900);
+
+    const [inventoryEvent, orderEvent] = getRecentDiagnostics();
+    expect(orderEvent).toMatchObject({ path: "/orders", appVersion: expect.any(String) });
+    expect(inventoryEvent).toMatchObject({ path: "/inventory", appVersion: expect.any(String) });
+    expect(inventoryEvent?.traceId).not.toBe(orderEvent?.traceId);
   });
 });
