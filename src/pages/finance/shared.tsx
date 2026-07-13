@@ -521,8 +521,8 @@ export function FinanceTable({
   tableClassName?: string;
 }) {
   return (
-    <div className="table-card shadow-none">
-      <div className="overflow-x-auto">
+    <div className="table-card min-w-0 w-full shadow-none">
+      <div className="min-w-0 max-w-full overflow-x-auto">
         <table className={`data-table ${minWidth} ${tableClassName}`}>{children}</table>
       </div>
     </div>

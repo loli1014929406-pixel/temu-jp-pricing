@@ -23,6 +23,7 @@ type OrderFiltersProps = {
   logisticsMethodOptions: string[];
   urgentUnuploadedCount: number;
   showUrgentUnuploadedOnly: boolean;
+  loading?: boolean;
   onSearchChange: (value: string) => void;
   onStageChange: (stage: OrderStage) => void;
   onWarehouseFilterChange: (warehouseId: string) => void;
@@ -41,6 +42,7 @@ export function OrderFilters({
   logisticsMethodOptions,
   urgentUnuploadedCount,
   showUrgentUnuploadedOnly,
+  loading = false,
   onSearchChange,
   onStageChange,
   onWarehouseFilterChange,
@@ -106,7 +108,7 @@ export function OrderFilters({
                           : "bg-white text-slate-500 ring-1 ring-slate-200"
                       }`}
                     >
-                      {stageCounts[stage.key] ?? 0}
+                      {loading ? "--" : (stageCounts[stage.key] ?? 0)}
                     </span>
                   </button>
                 );

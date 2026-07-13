@@ -1434,6 +1434,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                           columns={inventoryTableColumns}
                           layout="fixed"
                           minWidth="min-w-[980px]"
+                          tableClassName="inventory-stock-table"
                         >
                           <thead>
                             <tr>

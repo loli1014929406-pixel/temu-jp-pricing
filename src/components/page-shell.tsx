@@ -6,6 +6,7 @@ import {
   ClipboardList,
   FileCheck,
   LogOut,
+  Menu,
   PackageSearch,
   Receipt,
   ShoppingCart,
@@ -15,6 +16,7 @@ import {
   ListOrdered,
   Settings,
   Activity,
+  X,
 } from "lucide-react";
 import { Suspense, useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
@@ -96,6 +98,7 @@ export function PageShell({ user }: PageShellProps) {
   const { label, canDelete } = usePermissions();
   const location = useLocation();
   const [profile, setProfile] = useState<AccountProfile | null>(null);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   async function handleSignOut() {
     invalidateAsyncCache();
     await getSupabaseClient().auth.signOut();
@@ -130,73 +133,142 @@ export function PageShell({ user }: PageShellProps) {
     };
   }, [user?.id]);
 
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [location.pathname]);
+
   const profileDisplay = formatAccountProfileDisplay(profile);
   const avatarText =
     profile?.username?.trim().slice(0, 2).toUpperCase() ||
     profile?.user_code?.trim().slice(0, 2).toUpperCase() ||
     "U";
 
+  const navigation = (
+    <>
+      {navSections.map((section) => (
+        <div key={section.title} className="erp-side-section">
+          <p className="erp-side-section-title">{section.title}</p>
+          {section.items.map((item) => {
+            const Icon = item.icon;
+            return (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={({ isActive }) =>
+                  `erp-side-nav-item ${
+                    isNavItemActive(location.pathname, item.to, isActive)
+                      ? "erp-side-nav-item-active"
+                      : ""
+                  }`
+                }
+              >
+                <Icon size={16} />
+                <span>{item.label}</span>
+              </NavLink>
+            );
+          })}
+        </div>
+      ))}
+      {canDelete && (
+        <div className="erp-side-section">
+          <p className="erp-side-section-title">管理员</p>
+          <NavLink
+            to="/admin/diagnostics"
+            className={({ isActive }) =>
+              `erp-side-nav-item ${isActive ? "erp-side-nav-item-active" : ""}`
+            }
+          >
+            <Activity size={16} />
+            <span>集中诊断</span>
+          </NavLink>
+        </div>
+      )}
+    </>
+  );
+
+  const profileCard = (
+    <div className="flex items-center justify-between gap-2.5 border-t border-slate-100 p-4">
+      <Link to="/user" className="flex min-w-0 flex-1 items-center gap-2.5 hover:no-underline">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-accentSoft bg-gradient-to-tr from-violet-100 to-indigo-100 text-xs font-bold text-accentDeep shadow-sm">
+          {avatarText}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-xs font-bold text-slate-800" title={profileDisplay}>
+            {profileDisplay}
+          </p>
+          <p className="truncate text-[10px] font-semibold text-slate-600">{label}</p>
+        </div>
+      </Link>
+      <button
+        type="button"
+        aria-label="退出"
+        onClick={() => void handleSignOut()}
+        className="flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-slate-400 transition-all duration-200 hover:border-rose-100 hover:bg-rose-50 hover:text-rose-600 active:scale-95"
+        title="退出登录"
+      >
+        <LogOut size={16} />
+      </button>
+    </div>
+  );
+
   return (
     <div className="erp-shell min-h-screen bg-white text-slate-900">
-      <aside className="erp-sidebar">
+      <header className="fixed inset-x-0 top-0 z-50 flex h-16 items-center justify-between border-b border-slate-100 bg-white/95 px-4 backdrop-blur-md lg:hidden">
+        <NavLink to="/orders" className="flex min-w-0 items-center gap-2.5">
+          <span className="erp-brand-mark">JP</span>
+          <span className="truncate text-sm font-extrabold text-slate-900">Temu JP 运营</span>
+        </NavLink>
+        <div className="flex items-center gap-2">
+          <Link
+            to="/user"
+            aria-label="用户资料"
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-accentSoft bg-gradient-to-tr from-violet-100 to-indigo-100 text-xs font-bold text-accentDeep"
+          >
+            {avatarText}
+          </Link>
+          <button
+            type="button"
+            aria-label={mobileNavOpen ? "关闭主导航" : "打开主导航"}
+            aria-controls="mobile-main-navigation"
+            aria-expanded={mobileNavOpen}
+            onClick={() => setMobileNavOpen((open) => !open)}
+            className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm"
+          >
+            {mobileNavOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
+        </div>
+      </header>
+
+      {mobileNavOpen && (
+        <div className="fixed inset-x-0 bottom-0 top-16 z-50 lg:hidden">
+          <button
+            type="button"
+            aria-label="关闭主导航"
+            onClick={() => setMobileNavOpen(false)}
+            className="absolute inset-0 bg-slate-950/35 backdrop-blur-[1px]"
+          />
+          <aside
+            id="mobile-main-navigation"
+            className="absolute bottom-0 right-0 top-0 flex w-[min(86vw,320px)] flex-col bg-white shadow-2xl"
+          >
+            <nav className="erp-side-nav" aria-label="移动端主导航">
+              {navigation}
+            </nav>
+            {profileCard}
+          </aside>
+        </div>
+      )}
+
+      <aside className="erp-sidebar hidden lg:flex">
         <NavLink to="/orders" className="erp-sidebar-brand">
           <span className="erp-brand-mark">JP</span>
           <span className="font-extrabold text-slate-900">Temu JP 运营</span>
         </NavLink>
 
-        <nav className="erp-side-nav" aria-label="主导航">
-          {navSections.map((section) => (
-            <div key={section.title} className="erp-side-section">
-              <p className="erp-side-section-title">{section.title}</p>
-              {section.items.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    className={({ isActive }) =>
-                      `erp-side-nav-item ${
-                        isNavItemActive(location.pathname, item.to, isActive)
-                          ? "erp-side-nav-item-active"
-                          : ""
-                      }`
-                    }
-                  >
-                    <Icon size={16} />
-                    <span>{item.label}</span>
-                  </NavLink>
-                );
-              })}
-            </div>
-          ))}
-          {canDelete && <div className="erp-side-section"><p className="erp-side-section-title">管理员</p><NavLink to="/admin/diagnostics" className={({isActive}) => `erp-side-nav-item ${isActive ? "erp-side-nav-item-active" : ""}`}><Activity size={16}/><span>集中诊断</span></NavLink></div>}
-        </nav>
+        <nav className="erp-side-nav" aria-label="主导航">{navigation}</nav>
 
         {/* User Identity Profile Card at Sidebar Bottom */}
-        <div className="erp-sidebar-profile border-t border-slate-100 p-4 hidden lg:flex items-center justify-between gap-2.5">
-          <Link to="/user" className="flex min-w-0 flex-1 items-center gap-2.5 hover:no-underline">
-            <div className="h-9 w-9 shrink-0 rounded-full bg-gradient-to-tr from-violet-100 to-indigo-100 text-accentDeep flex items-center justify-center font-bold text-xs border border-accentSoft shadow-sm">
-              {avatarText}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-xs font-bold text-slate-800" title={profileDisplay}>
-                {profileDisplay}
-              </p>
-              <p className="truncate text-[10px] font-semibold text-slate-600">
-                {label}
-              </p>
-            </div>
-          </Link>
-          <button
-            type="button"
-            aria-label="退出"
-            onClick={() => void handleSignOut()}
-            className="h-8 w-8 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center transition-all duration-200 border border-transparent hover:border-rose-100 active:scale-95"
-            title="退出登录"
-          >
-            <LogOut size={16} />
-          </button>
-        </div>
+        <div className="erp-sidebar-profile">{profileCard}</div>
       </aside>
 
       <div className="erp-workspace">

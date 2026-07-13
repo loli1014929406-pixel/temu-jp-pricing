@@ -10,7 +10,7 @@ type PageHeaderProps = {
 
 export function PageHeader({ title, description, actions }: PageHeaderProps) {
   return (
-    <div className="sticky top-0 z-20 px-4 lg:px-6 pt-4 lg:pt-6 pb-4 mb-4 lg:mb-6 bg-slate-50/90 backdrop-blur-md border-b border-slate-200/60 shadow-sm flex flex-wrap items-start justify-between gap-4">
+    <div className="sticky top-16 z-20 px-4 lg:top-0 lg:px-6 pt-4 lg:pt-6 pb-4 mb-4 lg:mb-6 bg-slate-50/90 backdrop-blur-md border-b border-slate-200/60 shadow-sm flex flex-wrap items-start justify-between gap-4">
       <div>
         <h1 className="page-title">{title}</h1>
         {description && <p className="page-description">{description}</p>}

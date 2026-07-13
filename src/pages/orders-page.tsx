@@ -2537,6 +2537,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
         logisticsMethodOptions={logisticsMethodOptions}
         urgentUnuploadedCount={urgentUnuploadedCount}
         showUrgentUnuploadedOnly={showUrgentUnuploadedOnly}
+        loading={loading}
         onSearchChange={setSearch}
         onStageChange={(stage) => {
           setActiveStage(stage as OrderStage);
@@ -2685,6 +2686,74 @@ export function OrdersPage({ user }: OrdersPageProps) {
           </div>
         ) : (
           <div className="shadow-none min-w-0 w-full overflow-hidden">
+            <div className="grid gap-3 md:hidden">
+              <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-semibold text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={allFilteredSelected}
+                  disabled={paginatedOrderRows.length === 0}
+                  onChange={(event) => toggleFilteredSelection(event.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300 text-sky-700 focus:ring-sky-500"
+                />
+                选择当前页全部订单
+              </label>
+              {paginatedOrderRows.map((orderRow) => {
+                const order = orderRow.primaryOrder;
+                const rowOrderIds = orderRow.orders.map((item) => item.id);
+                const selected = rowOrderIds.every((id) => selectedOrderIdSet.has(id));
+                const stage = getStageDefinition(getOrderStage(order));
+                const latestShipTime = parseOrderDateTime(order.latest_ship_time);
+                return (
+                  <article key={orderRow.id} className="mobile-summary-card">
+                    <div className="flex items-start gap-3">
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={(event) => toggleOrderRowSelection(rowOrderIds, event.target.checked)}
+                        aria-label={`选择订单 ${order.order_no}`}
+                        className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-sky-700 focus:ring-sky-500"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <h3 className="break-all text-sm font-bold text-slate-900">{order.order_no}</h3>
+                          <span className="shrink-0 rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">{stage.label}</span>
+                        </div>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {orderRow.orders.length} 个明细 / {orderRow.quantity} 件
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mobile-summary-grid">
+                      <div className="mobile-summary-cell">
+                        <span className="block text-[11px] text-slate-400">SKU</span>
+                        <span className="mt-0.5 block break-all text-slate-700">{order.sku_code || "--"}</span>
+                      </div>
+                      <div className="mobile-summary-cell">
+                        <span className="block text-[11px] text-slate-400">仓库 / 发货方式</span>
+                        <span className="mt-0.5 block text-slate-700">{order.warehouse_name || "未分配"} / {order.logistics_method || "--"}</span>
+                      </div>
+                      <div className="mobile-summary-cell col-span-2">
+                        <span className="block text-[11px] text-slate-400">收货人 / 最晚发货</span>
+                        <span className="mt-0.5 block text-slate-700">{order.recipient_name || "--"} / {latestShipTime ? formatLocalDateTime(latestShipTime) : "--"}</span>
+                      </div>
+                    </div>
+                    <div className="mobile-summary-actions">
+                      <button type="button" className="btn-secondary h-9" onClick={() => setDetailOrder(order)}>
+                        查看详情
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+              <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                <span>第 {page} / {filteredTotalPages} 页</span>
+                <div className="flex gap-2">
+                  <button type="button" className="btn-secondary h-8 px-3" disabled={page <= 1} onClick={() => setPage((current) => current - 1)}>上一页</button>
+                  <button type="button" className="btn-secondary h-8 px-3" disabled={page >= filteredTotalPages} onClick={() => setPage((current) => current + 1)}>下一页</button>
+                </div>
+              </div>
+            </div>
+            <div className="hidden md:block">
             <OrderCountdownProvider>
               <StandardTable
               page={page}
@@ -2760,6 +2829,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
                 </tbody>
               </StandardTable>
             </OrderCountdownProvider>
+            </div>
           </div>
         )}
       </section>

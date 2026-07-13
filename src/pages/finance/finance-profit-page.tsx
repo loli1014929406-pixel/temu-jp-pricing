@@ -659,9 +659,9 @@ export function FinanceProfitPage({ user }: Props) {
     const latestOrderMargin = calculateMarginRate(latest.orderProfit, latest.estimatedIncome);
 
     return (
-      <div className="rounded-lg border border-line bg-white p-5 shadow-sm">
+      <div className="min-w-0 rounded-lg border border-line bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
+          <div className="min-w-0">
             <h4 className="flex items-center gap-1.5 text-sm font-bold text-slate-800">
               <TrendingUp size={16} className="text-accent" />
               <span>{title}</span>
@@ -695,7 +695,7 @@ export function FinanceProfitPage({ user }: Props) {
           </div>
         </div>
 
-        <div className="relative mt-4 w-full overflow-x-auto">
+        <div className="relative mt-4 min-w-0 max-w-full overflow-x-auto">
           <svg viewBox={`0 0 ${width} ${height}`} className="h-[330px] min-w-[680px] w-full">
             {ticks.map((val) => {
               const y = yForValue(val);
@@ -780,9 +780,9 @@ ${primaryCostLabel}: ${formatCurrency(primaryCost)}
     const maxShipping = Math.max(...topRows.map((row) => row.totalShipping), 1);
 
     return (
-      <section className="rounded-lg border border-line bg-white p-5 shadow-sm">
+      <section className="min-w-0 rounded-lg border border-line bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
+          <div className="min-w-0">
             <h4 className="flex items-center gap-1.5 text-sm font-bold text-slate-800">
               <Truck size={16} className="text-accent" />
               <span>发货方式运费分析</span>
@@ -818,7 +818,7 @@ ${primaryCostLabel}: ${formatCurrency(primaryCost)}
           </div>
         </div>
 
-        <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(320px,0.85fr)_minmax(560px,1.15fr)]">
+        <div className="mt-5 grid min-w-0 gap-5 xl:grid-cols-[minmax(320px,0.85fr)_minmax(560px,1.15fr)]">
           <div className="min-w-0">
             <div className="mb-3 flex items-center justify-between text-xs font-bold text-slate-500">
               <span>运费占比 Top {topRows.length}</span>
@@ -946,11 +946,11 @@ ${primaryCostLabel}: ${formatCurrency(primaryCost)}
           ) : monthlyRows.length === 0 ? (
             <EmptyPanel label="该时间段内暂无月度利润利润表数据" />
           ) : (
-            <div className="grid gap-5">
+            <div className="grid min-w-0 gap-5">
               <MonthlyProfitChart />
               <ShippingMethodAnalysis />
 
-              <section className="grid gap-4">
+              <section className="grid min-w-0 gap-4">
                 <h3 className="text-sm font-bold text-slate-800">月度实际利润与订单利润表</h3>
                 <StandardTable 
                   minWidth="min-w-[1160px]"
