@@ -13,6 +13,8 @@ const migrationFiles = (await readdir(migrationsDir))
 const errors = [];
 const warnings = [];
 const activeIndexes = new Map();
+const pinnedSearchPathPattern =
+  /set\s+search_path\s*=\s*(?![^;\r\n]*\$user)[a-z_][\w$]*(?:\s*,\s*[a-z_][\w$]*)*/i;
 const sqlByFile = Object.fromEntries(
   await Promise.all(
     migrationFiles.map(async (file) => [
@@ -68,12 +70,12 @@ for (const [fileIndex, file] of migrationFiles.entries()) {
     if (!/security\s+(invoker|definer)/i.test(block)) {
       (file >= strictMigrationCutoff ? errors : warnings).push(securityMessage);
     }
-    const searchPathMessage = `${file}: ${functionName} must pin search_path to public`;
+    const searchPathMessage = `${file}: ${functionName} must pin search_path to explicit schemas`;
     const laterSearchPathHardening = new RegExp(
-      `alter\\s+function\\s+${escapeRegex(functionName)}\\s*\\([^;]*\\)\\s+set\\s+search_path\\s*=\\s*public`,
+      `alter\\s+function\\s+${escapeRegex(functionName)}\\s*\\([^;]*\\)\\s+set\\s+search_path\\s*=\\s*(?![^;\\r\\n]*\\$user)[a-z_][\\w$]*(?:\\s*,\\s*[a-z_][\\w$]*)*`,
       "i",
     ).test(laterSql);
-    if (!/set\s+search_path\s*=\s*public/i.test(block) && !laterSearchPathHardening) {
+    if (!pinnedSearchPathPattern.test(block) && !laterSearchPathHardening) {
       (file >= strictMigrationCutoff ? errors : warnings).push(searchPathMessage);
     }
     if (
