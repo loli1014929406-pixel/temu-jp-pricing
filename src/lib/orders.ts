@@ -271,6 +271,7 @@ export async function fetchTemuOrdersPage(
       p_now: new Date().toISOString(),
     }),
     "加载订单分页",
+    { requestKind: "rpc" },
   );
 
   if (error) {
@@ -335,6 +336,7 @@ export async function fetchFinanceOrdersPage(
       p_settlement_status: options.settlementStatus ?? "all",
     }),
     "加载财务订单分页",
+    { requestKind: "rpc" },
   );
   if (error) throw error;
   const payload = (Array.isArray(data) ? data[0] : data) as

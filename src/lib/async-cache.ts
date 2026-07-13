@@ -1,3 +1,5 @@
+import { reportSlowOperation } from "./diagnostics";
+
 type AsyncCacheEntry = {
   expiresAt: number;
   promise: Promise<unknown>;
@@ -84,8 +86,14 @@ function writePersistent(key: string, value: unknown, expiresAt: number) {
   }
 }
 
-function startLoad<T>(key: string, loader: () => Promise<T>, ttlMs: number) {
+function startLoad<T>(
+  key: string,
+  loader: () => Promise<T>,
+  ttlMs: number,
+  cacheStatus: "miss" | "revalidate",
+) {
   const expiresAt = Date.now() + ttlMs;
+  const startedAt = Date.now();
   const promise = loader()
     .then((value) => {
       writePersistent(key, value, expiresAt);
@@ -94,6 +102,15 @@ function startLoad<T>(key: string, loader: () => Promise<T>, ttlMs: number) {
     .catch((error) => {
       if (cache.get(key)?.promise === promise) cache.delete(key);
       throw error;
+    })
+    .finally(() => {
+      const durationMs = Date.now() - startedAt;
+      if (durationMs >= 5_000) {
+        reportSlowOperation(`缓存加载:${key}`, durationMs, {
+          requestKind: "cache",
+          cacheStatus,
+        });
+      }
     });
   cache.set(key, { expiresAt, promise });
   return promise;
@@ -114,12 +131,12 @@ export function getCachedAsync<T>(key: string, loader: () => Promise<T>, options
         cache.set(key, { expiresAt: persisted.expiresAt, promise: staleValue });
       } else {
         // Stale-while-revalidate: render cached base data immediately and refresh in background.
-        void startLoad(key, loader, ttlMs).catch(() => undefined);
+        void startLoad(key, loader, ttlMs, "revalidate").catch(() => undefined);
       }
       return staleValue;
     }
   }
-  return startLoad(key, loader, ttlMs);
+  return startLoad(key, loader, ttlMs, "miss");
 }
 
 export function invalidateAsyncCache(prefix?: string) {

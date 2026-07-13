@@ -1,6 +1,6 @@
 import { CheckCircle2, Plus, Search, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { Field, TextArea, TextInput } from "../components/form-controls";
 import { Badge, PageHeader } from "../components/ui";
@@ -16,11 +16,13 @@ import {
   createPurchasePackage,
   deletePurchasePackage,
   deletePurchaseOrder,
-  fetchPurchaseOrders,
+  emptyPurchaseOrdersPageSummary,
+  fetchPurchaseOrdersPage,
   receivePurchasePackage,
   updatePurchaseOrderItemSkuInfo,
   updatePurchasePackageTrackingNo,
   updatePurchaseSource,
+  type PurchaseOrdersPageSummary,
 } from "../lib/purchases";
 import type {
   Product,
@@ -33,21 +35,11 @@ import type {
 } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { confirmAction, confirmDelete, confirmSave } from "../utils/confirmations";
-import { getCachedAsync } from "../lib/async-cache";
-import { operationalCacheKeys } from "../lib/operational-cache";
 import {
   loadCachedProductDetails,
   loadCachedProducts,
 } from "../lib/cached-products";
 import { loadCachedWarehouses } from "../lib/cached-warehouses";
-
-function fetchCachedPurchaseOrders(force = false) {
-  return getCachedAsync(
-    operationalCacheKeys.purchases,
-    fetchPurchaseOrders,
-    { force },
-  );
-}
 
 type PurchasesPageProps = { user: User; view: "create" | "records" };
 import {
@@ -85,6 +77,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
   const recordsDraftKey = `purchase-records-draft:v1:${user.id}`;
   const restoredCreateDraftRef = useRef(readDraft<PurchaseCreateDraft>(createDraftKey));
   const restoredRecordsDraftRef = useRef(readDraft<PurchaseRecordsDraft>(recordsDraftKey));
+  const purchasePageRequestIdRef = useRef(0);
   const restoredCreateDraft = restoredCreateDraftRef.current;
   const restoredRecordsDraft = restoredRecordsDraftRef.current;
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
@@ -92,6 +85,10 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
   const [items, setItems] = useState<ProductItem[]>([]);
   const [skus, setSkus] = useState<ProductSku[]>([]);
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
+  const [totalRecordCount, setTotalRecordCount] = useState(0);
+  const [recordStats, setRecordStats] = useState<PurchaseOrdersPageSummary>(
+    emptyPurchaseOrdersPageSummary,
+  );
   const [warehouseId, setWarehouseId] = useState(restoredCreateDraft?.warehouseId ?? "");
   const [purchasedAt, setPurchasedAt] = useState(restoredCreateDraft?.purchasedAt ?? localDate());
   const [notes, setNotes] = useState(restoredCreateDraft?.notes ?? "");
@@ -99,6 +96,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
     restoredCreateDraft?.draftProducts ?? [createDraftProduct()],
   );
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [packageTrackingDrafts, setPackageTrackingDrafts] = useState<Record<string, string>>(
     restoredRecordsDraft?.packageTrackingDrafts ?? {},
   );
@@ -114,9 +112,16 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
 
   useEffect(() => {
     setCurrentPage(1);
+  }, [search, pageSize]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search), 250);
+    return () => window.clearTimeout(timer);
   }, [search]);
 
-  const [loading, setLoading] = useState(true);
+  const [referenceLoading, setReferenceLoading] = useState(true);
+  const [recordsLoading, setRecordsLoading] = useState(view === "records");
+  const loading = referenceLoading || recordsLoading;
   const [busyKey, setBusyKey] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [noticeMessage, setNoticeMessage] = useState("");
@@ -131,13 +136,12 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
 
   useEffect(() => {
     let active = true;
-    async function load() {
-      setLoading(true);
+    async function loadReferences() {
+      setReferenceLoading(true);
       try {
-        const [nextWarehouses, nextProducts, nextOrders] = await Promise.all([
+        const [nextWarehouses, nextProducts] = await Promise.all([
           loadCachedWarehouses(),
           loadCachedProducts(),
-          fetchCachedPurchaseOrders(),
         ]);
         const [nextItems, nextSkus] = await loadCachedProductDetails(
           nextProducts.map((item) => item.id),
@@ -147,48 +151,87 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
         setProducts(nextProducts);
         setItems(nextItems);
         setSkus(nextSkus);
-        setOrders(nextOrders);
-        const serverPackageTrackingDrafts = Object.fromEntries(
-          nextOrders.flatMap((order) =>
-            order.packages.map((pkg) => [pkg.id, pkg.tracking_no]),
-          ),
-        );
-        const serverSourceDrafts = Object.fromEntries(
-          nextOrders.flatMap((order) =>
-            order.sources.map((source) => [
-              source.id,
-              {
-                alibabaOrderNo: source.alibaba_order_no,
-                freightRmb: String(source.freight_rmb),
-              },
-            ]),
-          ),
-        );
-
-        const latestRecordsDraft = readDraft<PurchaseRecordsDraft>(recordsDraftKey);
-        setExistingPackageTrackingDrafts({
-          ...serverPackageTrackingDrafts,
-          ...(latestRecordsDraft?.existingPackageTrackingDrafts ?? {}),
-        });
-        setSourceDrafts({
-          ...serverSourceDrafts,
-          ...(latestRecordsDraft?.sourceDrafts ?? {}),
-        });
-        setPackageTrackingDrafts(latestRecordsDraft?.packageTrackingDrafts ?? {});
-        if (view === "records" && hasPurchaseRecordsDraft(latestRecordsDraft)) {
-          setDraftNotice("已恢复上次未保存的采购记录编辑草稿。");
-        }
       } catch (error) {
         if (active) setErrorMessage(getErrorMessage(error, "加载采购信息失败"));
       } finally {
-        if (active) setLoading(false);
+        if (active) setReferenceLoading(false);
       }
     }
-    void load();
+    void loadReferences();
     return () => {
       active = false;
     };
-  }, [recordsDraftKey, user.id, view]);
+  }, [user.id]);
+
+  const loadPurchasePage = useCallback(async () => {
+    const requestId = purchasePageRequestIdRef.current + 1;
+    purchasePageRequestIdRef.current = requestId;
+    const nextPage = await fetchPurchaseOrdersPage({
+      page: currentPage,
+      pageSize,
+      search: debouncedSearch,
+    });
+    if (requestId !== purchasePageRequestIdRef.current) return;
+    setOrders(nextPage.orders);
+    setTotalRecordCount(nextPage.totalCount);
+    setRecordStats(nextPage.summary);
+
+    const serverPackageTrackingDrafts = Object.fromEntries(
+      nextPage.orders.flatMap((order) =>
+        order.packages.map((pkg) => [pkg.id, pkg.tracking_no]),
+      ),
+    );
+    const serverSourceDrafts = Object.fromEntries(
+      nextPage.orders.flatMap((order) =>
+        order.sources.map((source) => [
+          source.id,
+          {
+            alibabaOrderNo: source.alibaba_order_no,
+            freightRmb: String(source.freight_rmb),
+          },
+        ]),
+      ),
+    );
+    const latestRecordsDraft = readDraft<PurchaseRecordsDraft>(recordsDraftKey);
+    setExistingPackageTrackingDrafts({
+      ...serverPackageTrackingDrafts,
+      ...(latestRecordsDraft?.existingPackageTrackingDrafts ?? {}),
+    });
+    setSourceDrafts({
+      ...serverSourceDrafts,
+      ...(latestRecordsDraft?.sourceDrafts ?? {}),
+    });
+    setPackageTrackingDrafts(latestRecordsDraft?.packageTrackingDrafts ?? {});
+    if (hasPurchaseRecordsDraft(latestRecordsDraft)) {
+      setDraftNotice("已恢复上次未保存的采购记录编辑草稿。");
+    }
+  }, [currentPage, debouncedSearch, pageSize, recordsDraftKey]);
+
+  const refreshPurchasePage = useCallback(() => {
+    void loadPurchasePage().catch((error) => {
+      setErrorMessage(getErrorMessage(error, "刷新采购记录失败"));
+    });
+  }, [loadPurchasePage]);
+
+  useEffect(() => {
+    if (view !== "records") {
+      setRecordsLoading(false);
+      return;
+    }
+    let active = true;
+    setRecordsLoading(true);
+    setErrorMessage("");
+    void loadPurchasePage()
+      .catch((error) => {
+        if (active) setErrorMessage(getErrorMessage(error, "加载采购记录失败"));
+      })
+      .finally(() => {
+        if (active) setRecordsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [loadPurchasePage, view]);
 
   const warehousesById = useMemo(
     () => Object.fromEntries(warehouses.map((item) => [item.id, item])),
@@ -220,67 +263,8 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
   const [receiveQuantities, setReceiveQuantities] = useState<Record<string, string>>({});
   const [skuBindingDrafts, setSkuBindingDrafts] = useState<Record<string, string>>({});
 
-  const filteredOrders = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    let result = orders;
-
-    if (term) {
-      result = orders.filter(
-        (order) =>
-          order.order_code.toLowerCase().includes(term) ||
-          order.sources.some((source) => source.alibaba_order_no.toLowerCase().includes(term)) ||
-          order.items.some(
-            (item) =>
-              item.product_code.toLowerCase().includes(term) ||
-              item.product_name_cn.toLowerCase().includes(term),
-          ),
-      );
-    }
-
-    return [...result].sort((a, b) => {
-      const weight: Record<string, number> = { pending: 0, partially_received: 0, received: 1 };
-      const weightA = weight[a.status] ?? 0;
-      const weightB = weight[b.status] ?? 0;
-      if (weightA !== weightB) return weightA - weightB;
-      return new Date(b.purchased_at).getTime() - new Date(a.purchased_at).getTime();
-    });
-  }, [orders, search]);
-
-  const totalRecordCount = filteredOrders.length;
   const totalPages = Math.max(1, Math.ceil(totalRecordCount / pageSize));
-
-  const paginatedOrders = useMemo(() => {
-    const startIndex = (currentPage - 1) * pageSize;
-    return filteredOrders.slice(startIndex, startIndex + pageSize);
-  }, [filteredOrders, currentPage, pageSize]);
-
-  const recordStats = useMemo(() => {
-    const packageCount = filteredOrders.reduce(
-      (sum, order) => sum + order.packages.length,
-      0,
-    );
-    const receivedPackageCount = filteredOrders.reduce(
-      (sum, order) =>
-        sum + order.packages.filter((pkg) => pkg.status === "received").length,
-      0,
-    );
-
-    return {
-      pendingOrderCount: filteredOrders.filter((order) => order.status === "pending")
-        .length,
-      partiallyReceivedOrderCount: filteredOrders.filter(
-        (order) => order.status === "partially_received",
-      ).length,
-      receivedOrderCount: filteredOrders.filter((order) => order.status === "received")
-        .length,
-      totalCostRmb: filteredOrders.reduce(
-        (sum, order) => sum + order.total_cost_rmb,
-        0,
-      ),
-      packageCount,
-      receivedPackageCount,
-    };
-  }, [filteredOrders]);
+  const paginatedOrders = orders;
 
   const draftItemsTotal = useMemo(
     () =>
@@ -744,6 +728,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
             : item,
         ),
       );
+      refreshPurchasePage();
     } catch (error) {
       setErrorMessage(getErrorMessage(error, "更新运费失败"));
     } finally {
@@ -778,6 +763,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
         ),
       );
       setPackageTrackingDrafts((current) => ({ ...current, [packageKey]: "" }));
+      refreshPurchasePage();
     } catch (error) {
       setErrorMessage(getErrorMessage(error, "保存快递包裹失败"));
     } finally {
@@ -811,6 +797,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
             : item,
         ),
       );
+      refreshPurchasePage();
     } catch (error) {
       setErrorMessage(getErrorMessage(error, "签收入库失败"));
     } finally {
@@ -897,8 +884,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
         await receivePurchasePackage(order, pkg);
       }
       setReceiveConfirmOrder(null);
-      const nextOrders = await fetchCachedPurchaseOrders(true);
-      setOrders(nextOrders);
+      refreshPurchasePage();
       setNoticeMessage("签收成功");
     } catch (error) {
       setErrorMessage(getErrorMessage(error, "签收失败"));
@@ -936,6 +922,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
             : entry,
         ),
       );
+      refreshPurchasePage();
       setSkuBindingDrafts((current) => {
         const next = { ...current };
         updatedItems.forEach((updatedItem) => {
@@ -999,6 +986,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
             : item,
         ),
       );
+      refreshPurchasePage();
     } catch (error) {
       setErrorMessage(getErrorMessage(error, "删除快递包裹失败"));
     } finally {
@@ -1027,6 +1015,11 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
     try {
       await deletePurchaseOrder(order.id);
       setOrders((current) => current.filter((item) => item.id !== order.id));
+      if (orders.length === 1 && currentPage > 1) {
+        setCurrentPage((page) => Math.max(1, page - 1));
+      } else {
+        refreshPurchasePage();
+      }
     } catch (error) {
       setErrorMessage(getErrorMessage(error, "删除采购管理单失败"));
     } finally {
@@ -1304,7 +1297,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
               <div>
                 <h2 className="text-base font-semibold text-ink">采购管理记录</h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  共 {filteredOrders.length} 张记录，待签收{" "}
+                  共 {totalRecordCount} 张记录，待签收{" "}
                   {recordStats.pendingOrderCount + recordStats.partiallyReceivedOrderCount} 张
                 </p>
               </div>
@@ -1350,7 +1343,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
 
           {loading ? (
             <div className="text-sm text-slate-500">加载中...</div>
-          ) : filteredOrders.length === 0 ? (
+          ) : orders.length === 0 ? (
             <div className="empty-state">暂无采购管理单</div>
           ) : (
             <>

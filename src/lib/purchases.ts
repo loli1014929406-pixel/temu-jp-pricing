@@ -324,6 +324,123 @@ function validateCreatePurchaseOrderInput(input: CreatePurchaseOrderInput) {
   assertPurchaseItemsHaveSkuInfo(input.items);
 }
 
+export type PurchaseOrdersPageSummary = {
+  pendingOrderCount: number;
+  partiallyReceivedOrderCount: number;
+  receivedOrderCount: number;
+  packageCount: number;
+  receivedPackageCount: number;
+  totalCostRmb: number;
+};
+
+export type PurchaseOrdersPage = {
+  orders: PurchaseOrder[];
+  totalCount: number;
+  summary: PurchaseOrdersPageSummary;
+};
+
+export const emptyPurchaseOrdersPageSummary: PurchaseOrdersPageSummary = {
+  pendingOrderCount: 0,
+  partiallyReceivedOrderCount: 0,
+  receivedOrderCount: 0,
+  packageCount: 0,
+  receivedPackageCount: 0,
+  totalCostRmb: 0,
+};
+
+function isMissingPurchasePageRpcError(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const maybeError = error as { code?: unknown; message?: unknown };
+  return (
+    String(maybeError.code ?? "") === "PGRST202" ||
+    String(maybeError.code ?? "") === "42883" ||
+    String(maybeError.message ?? "").includes("get_purchase_orders_page")
+  );
+}
+
+export function buildLegacyPurchaseOrdersPage(
+  orders: PurchaseOrder[],
+  options: { page: number; pageSize: number; search?: string },
+): PurchaseOrdersPage {
+  const term = options.search?.trim().toLowerCase() ?? "";
+  const filtered = orders.filter((order) =>
+    !term ||
+    order.order_code.toLowerCase().includes(term) ||
+    order.sources.some((source) => source.alibaba_order_no.toLowerCase().includes(term)) ||
+    order.items.some((item) =>
+      item.product_code.toLowerCase().includes(term) ||
+      item.product_name_cn.toLowerCase().includes(term),
+    ),
+  ).sort((a, b) => {
+    const weight: Record<PurchaseOrder["status"], number> = {
+      pending: 0,
+      partially_received: 0,
+      received: 1,
+    };
+    return weight[a.status] - weight[b.status]
+      || new Date(b.purchased_at).getTime() - new Date(a.purchased_at).getTime();
+  });
+  const page = Math.max(1, Math.trunc(options.page || 1));
+  const pageSize = Math.min(100, Math.max(1, Math.trunc(options.pageSize || 20)));
+  const start = (page - 1) * pageSize;
+  return {
+    orders: filtered.slice(start, start + pageSize),
+    totalCount: filtered.length,
+    summary: {
+      pendingOrderCount: filtered.filter((order) => order.status === "pending").length,
+      partiallyReceivedOrderCount: filtered.filter((order) => order.status === "partially_received").length,
+      receivedOrderCount: filtered.filter((order) => order.status === "received").length,
+      packageCount: filtered.reduce((sum, order) => sum + order.packages.length, 0),
+      receivedPackageCount: filtered.reduce(
+        (sum, order) => sum + order.packages.filter((pkg) => pkg.status === "received").length,
+        0,
+      ),
+      totalCostRmb: filtered.reduce((sum, order) => sum + order.total_cost_rmb, 0),
+    },
+  };
+}
+
+export async function fetchPurchaseOrdersPage(options: {
+  page: number;
+  pageSize: number;
+  search?: string;
+}): Promise<PurchaseOrdersPage> {
+  const { supabase } = await requireSession();
+  const { data, error } = await withTimeout(
+    supabase.rpc("get_purchase_orders_page", {
+      p_page: Math.max(1, Math.trunc(options.page || 1)),
+      p_page_size: Math.min(100, Math.max(1, Math.trunc(options.pageSize || 20))),
+      p_search: options.search?.trim() ?? "",
+    }),
+    "加载采购记录分页",
+    { requestKind: "rpc" },
+  );
+  if (error) {
+    if (isMissingPurchasePageRpcError(error)) {
+      return buildLegacyPurchaseOrdersPage(await fetchPurchaseOrders(), options);
+    }
+    throw error;
+  }
+
+  const payload = (Array.isArray(data) ? data[0] : data) as
+    | { orders?: unknown; total_count?: unknown; summary?: unknown }
+    | null;
+  const rawSummary = payload?.summary && typeof payload.summary === "object"
+    ? payload.summary as Partial<Record<keyof PurchaseOrdersPageSummary, unknown>>
+    : {};
+
+  return {
+    orders: Array.isArray(payload?.orders) ? payload.orders as PurchaseOrder[] : [],
+    totalCount: Number(payload?.total_count ?? 0),
+    summary: Object.fromEntries(
+      Object.entries(emptyPurchaseOrdersPageSummary).map(([key, fallback]) => [
+        key,
+        Number(rawSummary[key as keyof PurchaseOrdersPageSummary] ?? fallback),
+      ]),
+    ) as PurchaseOrdersPageSummary,
+  };
+}
+
 type AtomicPurchaseOrderPayload = {
   order: Omit<PurchaseOrder, "sources" | "items" | "packages">;
   sources: PurchaseOrderSource[];

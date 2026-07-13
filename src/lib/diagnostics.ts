@@ -6,9 +6,19 @@ export type AppDiagnostic = {
   context: string;
   message: string;
   durationMs?: number;
+  requestKind?: string;
+  cacheStatus?: string;
+  rowCount?: number;
+  retryCount?: number;
+  traceId?: string;
   createdAt: string;
   uploadStatus: "pending" | "uploaded";
 };
+
+export type DiagnosticMetadata = Pick<
+  AppDiagnostic,
+  "requestKind" | "cacheStatus" | "rowCount" | "retryCount" | "traceId"
+>;
 
 const maxDiagnostics = 50;
 const diagnosticsStorageKey = "temu-jp:diagnostics:v1";
@@ -35,6 +45,9 @@ let nextDiagnosticId = Math.max(0, ...diagnostics.map((item) => item.id)) + 1;
 let uploadTimer: ReturnType<typeof setTimeout> | undefined;
 let uploadInFlight: Promise<void> | null = null;
 let centralDiagnosticsUnavailable = false;
+const pageTraceId = typeof crypto !== "undefined" && "randomUUID" in crypto
+  ? crypto.randomUUID()
+  : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 function persistDiagnostics() {
   if (typeof window === "undefined") return;
@@ -88,8 +101,7 @@ export async function flushCentralDiagnostics() {
       } = await supabase.auth.getSession();
       if (!session?.user) return;
 
-      const { error } = await supabase.from("app_diagnostics").insert(
-        pending.map((item) => ({
+      const extendedRows = pending.map((item) => ({
           user_id: session.user.id,
           event_type: item.type,
           context: sanitizeDiagnosticContext(item.context),
@@ -97,8 +109,24 @@ export async function flushCentralDiagnostics() {
           duration_ms: item.durationMs ?? null,
           path: getDiagnosticPath(),
           app_version: String(import.meta.env.VITE_APP_VERSION ?? "web").slice(0, 50),
-        })),
-      );
+          request_kind: sanitizeDiagnosticContext(item.requestKind ?? ""),
+          cache_status: sanitizeDiagnosticContext(item.cacheStatus ?? ""),
+          row_count: item.rowCount ?? null,
+          retry_count: item.retryCount ?? 0,
+          trace_id: sanitizeDiagnosticContext(item.traceId ?? pageTraceId),
+        }));
+      let { error } = await supabase.from("app_diagnostics").insert(extendedRows);
+      if (error?.code === "PGRST204" || error?.code === "42703") {
+        const legacyRows = extendedRows.map(({
+          request_kind: _requestKind,
+          cache_status: _cacheStatus,
+          row_count: _rowCount,
+          retry_count: _retryCount,
+          trace_id: _traceId,
+          ...row
+        }) => row);
+        ({ error } = await supabase.from("app_diagnostics").insert(legacyRows));
+      }
       if (error) {
         if (error.code === "42P01" || error.code === "PGRST205") {
           centralDiagnosticsUnavailable = true;
@@ -146,17 +174,26 @@ function appendDiagnostic(
   scheduleCentralUpload();
 }
 
-export function reportAppError(error: unknown, context: string) {
-  appendDiagnostic({ type: "error", context, message: error });
+export function reportAppError(
+  error: unknown,
+  context: string,
+  metadata: DiagnosticMetadata = {},
+) {
+  appendDiagnostic({ type: "error", context, message: error, ...metadata });
   console.error(`[${context}]`, error);
 }
 
-export function reportSlowOperation(context: string, durationMs: number) {
+export function reportSlowOperation(
+  context: string,
+  durationMs: number,
+  metadata: DiagnosticMetadata = {},
+) {
   appendDiagnostic({
     type: "slow-operation",
     context,
     message: `操作耗时 ${Math.round(durationMs)}ms`,
     durationMs: Math.round(durationMs),
+    ...metadata,
   });
 }
 
@@ -182,6 +219,56 @@ export function subscribeDiagnostics(listener: (items: AppDiagnostic[]) => void)
 export function installGlobalDiagnostics() {
   if (typeof window === "undefined") return () => undefined;
 
+  const observers: PerformanceObserver[] = [];
+  let lcpMs = 0;
+  let clsScore = 0;
+  let inpMs = 0;
+  let vitalsReported = false;
+
+  function observe(entryType: string, handler: (entry: PerformanceEntry) => void) {
+    if (typeof PerformanceObserver === "undefined") return;
+    try {
+      const observer = new PerformanceObserver((list) => {
+        list.getEntries().forEach(handler);
+      });
+      observer.observe({ type: entryType, buffered: true });
+      observers.push(observer);
+    } catch {
+      // Older browsers may not support every performance entry type.
+    }
+  }
+
+  observe("largest-contentful-paint", (entry) => {
+    lcpMs = Math.max(lcpMs, entry.startTime);
+  });
+  observe("layout-shift", (entry) => {
+    const layoutEntry = entry as PerformanceEntry & { value?: number; hadRecentInput?: boolean };
+    if (!layoutEntry.hadRecentInput) clsScore += Number(layoutEntry.value ?? 0);
+  });
+  observe("event", (entry) => {
+    const eventEntry = entry as PerformanceEntry & { interactionId?: number };
+    if (eventEntry.interactionId) inpMs = Math.max(inpMs, eventEntry.duration);
+  });
+
+  function reportWebVitals() {
+    if (vitalsReported) return;
+    vitalsReported = true;
+    [
+      { context: "web-vital:LCP", value: Math.round(lcpMs), message: `LCP ${Math.round(lcpMs)}ms` },
+      { context: "web-vital:INP", value: Math.round(inpMs), message: `INP ${Math.round(inpMs)}ms` },
+      { context: "web-vital:CLS", value: Math.round(clsScore * 1000), message: `CLS ${clsScore.toFixed(3)}` },
+    ].forEach((metric) => {
+      if (metric.value <= 0) return;
+      appendDiagnostic({
+        type: "navigation",
+        context: metric.context,
+        message: metric.message,
+        durationMs: metric.value,
+        requestKind: "browser",
+      });
+    });
+  }
+
   const handleError = (event: ErrorEvent) => {
     appendDiagnostic({
       type: "error",
@@ -198,14 +285,18 @@ export function installGlobalDiagnostics() {
   };
   const handleLoad = () => {
     const navigation = performance.getEntriesByType("navigation")[0];
-    if (navigation && navigation.duration >= 3_000) {
+    if (navigation) {
       appendDiagnostic({
         type: "navigation",
         context: "initial-navigation",
         message: `首屏加载耗时 ${Math.round(navigation.duration)}ms`,
         durationMs: Math.round(navigation.duration),
+        requestKind: "browser",
       });
     }
+  };
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === "hidden") reportWebVitals();
   };
   const handleOnline = () => scheduleCentralUpload();
 
@@ -213,6 +304,8 @@ export function installGlobalDiagnostics() {
   window.addEventListener("unhandledrejection", handleRejection);
   window.addEventListener("load", handleLoad, { once: true });
   window.addEventListener("online", handleOnline);
+  window.addEventListener("pagehide", reportWebVitals, { once: true });
+  document.addEventListener("visibilitychange", handleVisibilityChange);
   scheduleCentralUpload();
 
   return () => {
@@ -220,5 +313,8 @@ export function installGlobalDiagnostics() {
     window.removeEventListener("unhandledrejection", handleRejection);
     window.removeEventListener("load", handleLoad);
     window.removeEventListener("online", handleOnline);
+    window.removeEventListener("pagehide", reportWebVitals);
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+    observers.forEach((observer) => observer.disconnect());
   };
 }

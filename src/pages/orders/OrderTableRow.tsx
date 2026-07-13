@@ -1,4 +1,13 @@
-import { memo, useEffect, useMemo, useState, type MouseEvent } from "react";
+import {
+  createContext,
+  memo,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import { Badge } from "../../components/ui";
 import { createEmptyDraft, toDraft, type OrderDraft } from "../../hooks/useOrders";
 import { getWarehouseLogisticsMethodNames } from "../../lib/logistics-methods";
@@ -443,6 +452,27 @@ export function getDeliveryDeadlineBadge(order: TemuOrderRecord, now: Date) {
     : { label: "期限外签收", tone: "danger" as const };
 }
 
+const OrderCountdownContext = createContext<Date | null>(null);
+
+export function OrderCountdownProvider({ children }: { children: ReactNode }) {
+  const [currentTime, setCurrentTime] = useState(() => new Date());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  return (
+    <OrderCountdownContext.Provider value={currentTime}>
+      {children}
+    </OrderCountdownContext.Provider>
+  );
+}
+
+function useOrderCountdownTime() {
+  return useContext(OrderCountdownContext) ?? new Date();
+}
+
 export function normalizeRmbAmount(value: number) {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Number(value.toFixed(2)));
@@ -451,7 +481,6 @@ export function normalizeRmbAmount(value: number) {
 export type OrderTableRowProps = {
   activeStage: OrderStage;
   canEdit: boolean;
-  currentTime: Date;
   logisticsMethods: LogisticsMethod[];
   onHandleWarehouseChangeForOrders: (orderIds: string[], warehouseId: string) => void;
   onSaveActualShipTimeForOrders: (targetOrders: TemuOrderRecord[]) => Promise<void>;
@@ -475,7 +504,6 @@ export type OrderTableRowProps = {
 export const OrderTableRow = memo(function OrderTableRow({
   activeStage,
   canEdit,
-  currentTime,
   logisticsMethods,
   onHandleWarehouseChangeForOrders,
   onSaveActualShipTimeForOrders,
@@ -492,6 +520,7 @@ export const OrderTableRow = memo(function OrderTableRow({
   warehouses,
 }: OrderTableRowProps) {
   const [attrCellExpanded, setAttrCellExpanded] = useState(false);
+  const currentTime = useOrderCountdownTime();
 
   const rowOrderIds = useMemo(
     () => rowOrderIdsKey.split("|").filter(Boolean),

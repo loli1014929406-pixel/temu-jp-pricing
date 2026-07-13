@@ -16,7 +16,7 @@ import {
   Settings,
   Activity,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import type { User } from "@supabase/supabase-js";
 import { getSupabaseClient } from "../lib/supabase";
@@ -201,7 +201,18 @@ export function PageShell({ user }: PageShellProps) {
 
       <div className="erp-workspace">
         <main className="erp-main">
-          <Outlet />
+          <Suspense
+            fallback={
+              <div className="grid gap-3 p-6" aria-live="polite" aria-busy="true">
+                <div className="h-8 w-48 animate-pulse rounded-lg bg-slate-100" />
+                <div className="h-24 animate-pulse rounded-xl bg-slate-50" />
+                <div className="h-64 animate-pulse rounded-xl bg-slate-50" />
+                <span className="sr-only">页面加载中…</span>
+              </div>
+            }
+          >
+            <Outlet />
+          </Suspense>
         </main>
       </div>
     </div>

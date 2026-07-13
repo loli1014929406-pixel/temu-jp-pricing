@@ -45,6 +45,9 @@ jobs:
       - name: Check database migrations
         run: npm run check:migrations
 
+      - name: Check frontend RPC contracts
+        run: npm run check:rpc-contracts
+
       - name: Check database snapshot coverage
         run: npm run check:data-coverage
 

@@ -38,6 +38,7 @@ export async function fetchFinanceLedgerPage(options: {
       p_month: options.month,
     }),
     "加载财务流水分页",
+    { requestKind: "rpc" },
   );
   if (error) throw error;
   const payload = (Array.isArray(data) ? data[0] : data) as {
@@ -107,6 +108,7 @@ export async function fetchFinanceOrderAnalysis(options: {
       p_issue: options.issue ?? "all",
     }),
     "加载财务订单分页与汇总",
+    { requestKind: "rpc" },
   );
   if (error) throw error;
   const payload = (Array.isArray(data) ? data[0] : data) as {

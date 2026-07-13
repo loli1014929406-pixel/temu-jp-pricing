@@ -116,7 +116,6 @@ type UseOrdersResult = {
   loading: boolean;
   errorMessage: string;
   draftNotice: string;
-  currentTime: Date;
   setSelectedOrderIds: Dispatch<SetStateAction<string[]>>;
   setBulkWarehouseId: Dispatch<SetStateAction<string>>;
   setBulkLogisticsMethod: Dispatch<SetStateAction<string>>;
@@ -438,7 +437,6 @@ export function useOrders(user: User, orderQuery: FetchTemuOrdersPageOptions) {
   const [draftNotice, setDraftNotice] = useState(
     hasOrdersDraft(restoredDraft) ? "已恢复上次未保存的订单编辑草稿。" : "",
   );
-  const [currentTime, setCurrentTime] = useState(() => new Date());
   const {
     page: orderPage,
     pageSize: orderPageSize,
@@ -585,11 +583,6 @@ export function useOrders(user: User, orderQuery: FetchTemuOrdersPageOptions) {
     orderWarehouseId,
     orderRefreshVersion,
   ]);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setCurrentTime(new Date()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
 
   const ordersDraftValue = useMemo<OrdersDraftState>(
     () => {
@@ -753,7 +746,6 @@ export function useOrders(user: User, orderQuery: FetchTemuOrdersPageOptions) {
     loading,
     errorMessage,
     draftNotice,
-    currentTime,
     setSelectedOrderIds,
     setBulkWarehouseId,
     setBulkLogisticsMethod,

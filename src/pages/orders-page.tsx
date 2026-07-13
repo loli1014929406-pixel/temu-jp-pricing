@@ -36,6 +36,7 @@ import {
 } from "../lib/logistics-methods";
 import { getWarehouseLogisticsConfigStatus } from "../lib/warehouse-logistics";
 import { getSupabaseClient } from "../lib/supabase";
+import { mapWithConcurrency } from "../lib/concurrency";
 import {
   deleteTemuOrder,
   importTemuOrders,
@@ -115,6 +116,7 @@ import {
 
 import {
   OrderTableRow,
+  OrderCountdownProvider,
   parseFulfillmentQuantity,
   getOrderNoKey,
   getOrderLineKey,
@@ -181,7 +183,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
     loading,
     errorMessage,
     draftNotice,
-    currentTime,
     setSelectedOrderIds,
     setBulkWarehouseId,
     setBulkLogisticsMethod,
@@ -1262,15 +1263,20 @@ export function OrdersPage({ user }: OrdersPageProps) {
     }
 
     try {
-      const statusResults = await Promise.all(
-        queryableOrders.map(async (order) => {
+      const statusResults = await mapWithConcurrency(
+        queryableOrders,
+        5,
+        async (order) => {
           try {
             const trackingResult = await fetchTrackingStatus(order);
             return { order, trackingResult };
           } catch {
             return { order, trackingResult: { status: "查询失败" } };
           }
-        }),
+        },
+        (completed, total) => {
+          if (showNotice) setNoticeMessage(`正在查询物流状态 ${completed} / ${total}`);
+        },
       );
 
       const saveEntries = statusResults.map(({ order, trackingResult }) => {
@@ -2679,7 +2685,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
           </div>
         ) : (
           <div className="shadow-none min-w-0 w-full overflow-hidden">
-            <StandardTable
+            <OrderCountdownProvider>
+              <StandardTable
               page={page}
               pageSize={pageSize}
               totalPages={filteredTotalPages}
@@ -2734,7 +2741,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
                       key={orderRow.id}
                       activeStage={activeStage}
                       canEdit={canEdit}
-                      currentTime={currentTime}
                       logisticsMethods={logisticsMethods}
                       onHandleWarehouseChangeForOrders={handleWarehouseChangeForOrders}
                       onSaveActualShipTimeForOrders={handleSaveActualShipTimeForOrders}
@@ -2752,7 +2758,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
                     />
                   ))}
                 </tbody>
-            </StandardTable>
+              </StandardTable>
+            </OrderCountdownProvider>
           </div>
         )}
       </section>
