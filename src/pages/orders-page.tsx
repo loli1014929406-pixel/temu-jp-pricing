@@ -32,9 +32,12 @@ import {
   reserveWarehouseSkuStockForOrder,
 } from "../lib/inventory";
 import {
+  dedupeLogisticsMethodNames,
+  getLogisticsMethodIdByName,
   getWarehouseLogisticsMethodNames,
   isLogisticsMethodAllowedForWarehouse as isConfiguredLogisticsMethodAllowedForWarehouse,
 } from "../lib/logistics-methods";
+import { resolveLastLegMethods } from "../lib/defaults";
 import { getWarehouseLogisticsConfigStatus } from "../lib/warehouse-logistics";
 import { getSupabaseClient } from "../lib/supabase";
 import { mapWithConcurrency } from "../lib/concurrency";
@@ -47,6 +50,7 @@ import {
 import type {
   Product,
   ProductSku,
+  LogisticsMethodConfig,
   TemuOrderRecord,
   Warehouse,
   WarehouseSku,
@@ -514,6 +518,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
       updateDraftFieldsForOrders(orderIds, {
         warehouse_id: null,
         warehouse_name: "",
+        logistics_method_id: null,
         logistics_method: "",
       });
       return;
@@ -548,6 +553,9 @@ export function OrdersPage({ user }: OrdersPageProps) {
     updateDraftFieldsForOrders(orderIds, {
       warehouse_id: warehouse?.id ?? warehouseId,
       warehouse_name: nextWarehouseName,
+      logistics_method_id: nextLogisticsMethod
+        ? getLogisticsMethodIdByName(nextLogisticsMethod, logisticsMethods)
+        : null,
       logistics_method: nextLogisticsMethod,
     });
   }
@@ -569,6 +577,42 @@ export function OrdersPage({ user }: OrdersPageProps) {
       warehouseLogisticsMethods,
     );
     return methods.includes(normalizedMethod) ? normalizedMethod : "";
+  }
+
+  function getAllowedWarehouseLogisticsMethodByFormula(
+    warehouse: Warehouse,
+    formula: LogisticsMethodConfig["formula"],
+    fallbackName: string,
+  ) {
+    const allowedMethodIds = new Set(
+      warehouseLogisticsMethods
+        .filter((link) => link.warehouse_id === warehouse.id)
+        .map((link) => link.logistics_method_id),
+    );
+    const allowedMethods = logisticsMethods.filter((method) =>
+      allowedMethodIds.has(method.id),
+    );
+    const config = settings
+      ? resolveLastLegMethods(settings).find(
+          (method) =>
+            method.isActive &&
+            method.formula === formula &&
+            (method.db_method_id
+              ? allowedMethodIds.has(method.db_method_id)
+              : allowedMethods.some(
+                  (allowedMethod) =>
+                    normalizeLogisticsMethod(allowedMethod.name) ===
+                    normalizeLogisticsMethod(method.name),
+                )),
+        )
+      : null;
+    const masterMethod = config?.db_method_id
+      ? logisticsMethods.find((method) => method.id === config.db_method_id)
+      : null;
+    return getAllowedWarehouseLogisticsMethod(
+      warehouse,
+      masterMethod?.name ?? config?.name ?? fallbackName,
+    );
   }
 
   function canQueryTrackingStatus(order: TemuOrderRecord) {
@@ -889,22 +933,24 @@ export function OrdersPage({ user }: OrdersPageProps) {
       availableStockByKey,
     );
     if (fukuokaWarehouse) {
+      const fukuokaMethod = getAllowedWarehouseLogisticsMethodByFormula(
+        fukuokaWarehouse,
+        "flat_jpy",
+        fukuokaLastmileMethod,
+      );
       const dimensionIssue = getThreeCmDimensionIssueForSku(sku);
       if (dimensionIssue) {
         return {
           status: "blocked",
-          reason: `订单 ${getOrderLineLabel(order)}：福冈仓有库存，但${dimensionIssue}，不能发福冈Japan Post。`,
+          reason: `订单 ${getOrderLineLabel(order)}：福冈仓有库存，但${dimensionIssue}，不能发${fukuokaMethod || "该尾程方式"}。`,
         };
       }
 
-      const logisticsMethod = getAllowedWarehouseLogisticsMethod(
-        fukuokaWarehouse,
-        fukuokaLastmileMethod,
-      );
+      const logisticsMethod = fukuokaMethod;
       if (!logisticsMethod) {
         return {
           status: "blocked",
-          reason: `${fukuokaWarehouse.name} 没有配置“${fukuokaLastmileMethod}”发货方式。`,
+          reason: `${fukuokaWarehouse.name} 没有配置对应的尾程发货方式。`,
         };
       }
       return {
@@ -922,8 +968,9 @@ export function OrdersPage({ user }: OrdersPageProps) {
     if (!suzhouWarehouse) return { status: "unmatched" };
 
     const dimensionIssue = getThreeCmDimensionIssueForSku(sku);
-    const logisticsMethod = getAllowedWarehouseLogisticsMethod(
+    const logisticsMethod = getAllowedWarehouseLogisticsMethodByFormula(
       suzhouWarehouse,
+      dimensionIssue ? "ocs_small" : "ocs_3cm",
       dimensionIssue ? ocsSmallParcelMethod : ocsThreeCmMethod,
     );
     if (!logisticsMethod) return { status: "unmatched" };
@@ -1390,9 +1437,25 @@ export function OrdersPage({ user }: OrdersPageProps) {
           );
         }
 
+        const logisticsMethod = Object.prototype.hasOwnProperty.call(
+          entry.updates,
+          "logistics_method",
+        )
+          ? normalizeLogisticsMethod(entry.updates.logistics_method ?? "")
+          : undefined;
+        const updatesWithReference =
+          logisticsMethod === undefined
+            ? entry.updates
+            : {
+                ...entry.updates,
+                logistics_method: logisticsMethod,
+                logistics_method_id: logisticsMethod
+                  ? getLogisticsMethodIdByName(logisticsMethod, logisticsMethods)
+                  : null,
+              };
         const nextOrder = await updateTemuOrder(
           entry.order.id,
-          sanitizeOrderUpdatesForSave(entry.order, entry.updates),
+          sanitizeOrderUpdatesForSave(entry.order, updatesWithReference),
         );
         nextOrders.push(nextOrder);
         collectInventoryChanges(entryReservationChanges);
@@ -2352,7 +2415,12 @@ export function OrdersPage({ user }: OrdersPageProps) {
 
     try {
       await downloadOcsShippingWorkbook(targetOrders);
-      setNoticeMessage(`已下载 ${buildOrderDisplayRows(targetOrders).length} 行 OCS 3cm 发货表格`);
+      const methodLabel = dedupeLogisticsMethodNames(
+        targetOrders.map((order) => order.logistics_method),
+      ).join("、");
+      setNoticeMessage(
+        `已下载 ${buildOrderDisplayRows(targetOrders).length} 行 ${methodLabel || "物流"}发货表格`,
+      );
     } catch (error) {
       setErrorMessage(getOrdersErrorMessage(error, "下载发货表格失败"));
     } finally {

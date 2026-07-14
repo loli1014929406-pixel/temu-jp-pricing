@@ -25,6 +25,7 @@ import {
   loadCachedProducts,
 } from "../lib/cached-products";
 import { loadCachedWarehouses } from "../lib/cached-warehouses";
+import { resolveLastLegMethods } from "../lib/defaults";
 
 type TestShippingPageProps = {
   user: User;
@@ -56,7 +57,7 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
         temuShippingSubsidyRmb: number | null;
         sfCostRmb: number | null;
         canUseOcsKunshan3cm: boolean | null;
-        logisticsMethod: "OCS Yamato" | "OCS 小包" | null;
+        logisticsMethod: string | null;
         logisticsCostRmb: number | null;
         adFeeRmb: number | null;
         profitRmb: number | null;
@@ -121,6 +122,13 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
           },
           {},
         );
+        const lastLegMethods = resolveLastLegMethods(nextSettings);
+        const threeCmMethodName =
+          lastLegMethods.find((method) => method.formula === "ocs_3cm")?.name ??
+          "3cm 尾程";
+        const smallParcelMethodName =
+          lastLegMethods.find((method) => method.formula === "ocs_small")?.name ??
+          "小包尾程";
         const nextSummaries = Object.fromEntries(
           nextProducts.map((baseProduct) => {
             const product = {
@@ -133,8 +141,8 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                 ? productTestShipping.ocsKunshan3cmCostRmb
                 : productTestShipping.ocsKunshanSmallParcelCostRmb;
             const selectedLogisticsMethod = productTestShipping.canUseOcsKunshan3cm
-              ? "OCS Yamato"
-              : "OCS 小包";
+              ? threeCmMethodName
+              : smallParcelMethodName;
             const productSkus = skusByProductId[product.id] ?? [];
             const draftDiscounts = draftDiscountsByProductId[product.id];
             const skuSummaries = productSkus.flatMap((sku) => {
@@ -239,7 +247,7 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
                     : Number(representativeSummary.temuShippingSubsidyRmb.toFixed(2)),
                 sfCostRmb: representativeSummary?.sfCostRmb ?? null,
                 canUseOcsKunshan3cm: productTestShipping.canUseOcsKunshan3cm,
-                logisticsMethod: selectedLogisticsMethod as "OCS Yamato" | "OCS 小包",
+                logisticsMethod: selectedLogisticsMethod,
                 logisticsCostRmb: Number(selectedLogisticsCostRmb.toFixed(2)),
                 adFeeRmb:
                   representativeSummary === null

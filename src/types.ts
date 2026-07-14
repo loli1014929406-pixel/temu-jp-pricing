@@ -403,7 +403,9 @@ export type TemuOrderRecord = {
   sku_code: string;
   warehouse_id: string | null;
   warehouse_name: string;
+  logistics_method_id: string | null;
   logistics_method: string;
+  logistics_method_is_unmatched: boolean;
   label_printed_at: string;
   logistics_tracking_no: string;
   logistics_status: string;

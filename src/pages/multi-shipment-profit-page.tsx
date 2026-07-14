@@ -6,6 +6,7 @@ import { BackToParentAction, Badge, PageHeader, StatCard } from "../components/u
 import { fetchProfitCalculationsBySkuIds } from "../lib/profit-calculations";
 import { fetchProduct, fetchProductItems, fetchProductSkus } from "../lib/products";
 import { fetchSettings } from "../lib/settings";
+import { resolveLastLegMethods } from "../lib/defaults";
 import { loadCachedWarehouses } from "../lib/cached-warehouses";
 import { fetchProductWarehouseShippingLimits } from "../lib/product-warehouse-shipping-limits";
 import type {
@@ -53,13 +54,11 @@ const defaultInput: ProfitCalculationInput = {
 const modeContent = {
   direct: {
     title: "多件直发利润测算",
-    description: "按 SKU 和件数自动选择 OCS 3cm 或 OCS 小包，亏损后停止继续测算。",
     otherModeLabel: "查看正常发货",
     otherMode: "standard-shipping",
   },
   standard: {
     title: "多件正常发货利润测算",
-    description: "3cm 内引用利润分析里的物流成本，超过 3cm 时按 OCS 小包测算，亏损后停止继续测算。",
     otherModeLabel: "查看直发",
     otherMode: "direct-shipping",
   },
@@ -260,6 +259,17 @@ export function MultiShipmentProfitPage({
     [calculations],
   );
   const content = modeContent[mode];
+  const lastLegMethods = settings ? resolveLastLegMethods(settings) : [];
+  const threeCmMethodName =
+    lastLegMethods.find((method) => method.formula === "ocs_3cm")?.name ??
+    "3cm 尾程";
+  const smallParcelMethodName =
+    lastLegMethods.find((method) => method.formula === "ocs_small")?.name ??
+    "小包尾程";
+  const modeDescription =
+    mode === "direct"
+      ? `按 SKU 和件数自动选择 ${threeCmMethodName} 或 ${smallParcelMethodName}，亏损后停止继续测算。`
+      : `3cm 内引用利润分析里的物流成本，超过 3cm 时按 ${smallParcelMethodName} 测算，亏损后停止继续测算。`;
   const otherModePath = product
     ? buildProductProfitPath(product, content.otherMode)
     : "/profit-calculation";
@@ -281,7 +291,7 @@ export function MultiShipmentProfitPage({
     <section className="page-stack">
       <PageHeader
         title={content.title}
-        description={`${product.product_code} · ${product.product_name_cn}。${content.description}`}
+        description={`${product.product_code} · ${product.product_name_cn}。${modeDescription}`}
         actions={
           <>
             <Link className="btn-secondary" to={otherModePath}>

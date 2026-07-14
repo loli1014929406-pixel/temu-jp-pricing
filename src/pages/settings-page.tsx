@@ -66,8 +66,8 @@ const formulaOptionsByType = {
   last_leg: [
     { value: "flat_jpy", label: "固定日元" },
     { value: "fixed_rmb", label: "固定运费" },
-    { value: "ocs_3cm", label: "OCS Yamato 3cm" },
-    { value: "ocs_small", label: "OCS 小包" },
+    { value: "ocs_3cm", label: "首重＋续重（每100g）" },
+    { value: "ocs_small", label: "首重＋续重（每500g）" },
   ],
 } satisfies Record<LogisticsSectionType, Array<{ value: LogisticsFormula; label: string }>>;
 

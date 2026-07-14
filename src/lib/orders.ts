@@ -57,7 +57,8 @@ const textOrderFields = [
 const temuOrderLegacySelectFields =
   "id, owner_id, order_no, sub_order_no, order_status, sku_code, warehouse_name, logistics_method, label_printed_at, logistics_tracking_no, logistics_status, product_attributes, recipient_name, recipient_phone, email, province, city, district, address_line1, address_line2, postal_code, latest_ship_time, actual_ship_time, estimated_delivery_time, actual_signed_time, created_at, updated_at, warehouse_id, fulfillment_quantity";
 
-const temuOrderSelectFields = `${temuOrderLegacySelectFields}, actual_shipping_fee_rmb`;
+const temuOrderActualFeeSelectFields = `${temuOrderLegacySelectFields}, actual_shipping_fee_rmb`;
+const temuOrderSelectFields = `${temuOrderActualFeeSelectFields}, logistics_method_id`;
 
 function isMissingActualShippingFeeColumnError(error: unknown) {
   if (!error || typeof error !== "object") return false;
@@ -136,13 +137,22 @@ function normalizeTemuOrder(row: Partial<TemuOrderRecord>): TemuOrderRecord {
     textOrderFields.map((field) => [field, String(row[field] ?? "")]),
   ) as Omit<
     TemuOrderRecord,
-    "fulfillment_quantity" | "warehouse_id" | "actual_shipping_fee_rmb"
+    | "fulfillment_quantity"
+    | "warehouse_id"
+    | "logistics_method_id"
+    | "logistics_method_is_unmatched"
+    | "actual_shipping_fee_rmb"
   >;
 
   return {
     ...normalized,
     logistics_method: normalizeLogisticsMethod(normalized.logistics_method),
     warehouse_id: row.warehouse_id ?? null,
+    logistics_method_id: row.logistics_method_id ?? null,
+    logistics_method_is_unmatched:
+      Object.prototype.hasOwnProperty.call(row, "logistics_method_id") &&
+      Boolean(normalized.logistics_method.trim()) &&
+      !row.logistics_method_id,
     fulfillment_quantity: Number(row.fulfillment_quantity ?? 0),
     actual_shipping_fee_rmb: Number(row.actual_shipping_fee_rmb ?? 0),
   };
@@ -166,6 +176,13 @@ export async function fetchTemuOrders() {
     });
 
   const { data, error } = await fetchByFields(temuOrderSelectFields);
+  if (error && isMissingLogisticsMethodIdColumnError(error)) {
+    const { data: compatibleData, error: compatibleError } = await fetchByFields(
+      temuOrderActualFeeSelectFields,
+    );
+    if (compatibleError) throw compatibleError;
+    return (compatibleData ?? []).map(normalizeTemuOrder);
+  }
   if (error && isMissingActualShippingFeeColumnError(error)) {
     const { data: legacyData, error: legacyError } = await fetchByFields(
       temuOrderLegacySelectFields,
@@ -175,6 +192,14 @@ export async function fetchTemuOrders() {
   }
   if (error) throw error;
   return (data ?? []).map(normalizeTemuOrder);
+}
+
+function isMissingLogisticsMethodIdColumnError(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const maybeError = error as { code?: unknown; message?: unknown };
+  const code = String(maybeError.code ?? "");
+  const message = String(maybeError.message ?? "");
+  return code === "42703" && message.includes("logistics_method_id");
 }
 
 export type TemuOrderStageFilter =
@@ -432,6 +457,20 @@ export async function importTemuOrders(rows: TemuOrderImportRow[]) {
       .select(temuOrderSelectFields),
     "导入订单",
   );
+  if (error && isMissingLogisticsMethodIdColumnError(error)) {
+    const { data: compatibleData, error: compatibleError } = await withTimeout(
+      supabase
+        .from("temu_orders")
+        .upsert(payload, {
+          onConflict: "order_no,sub_order_no",
+          ignoreDuplicates: true,
+        })
+        .select(temuOrderActualFeeSelectFields),
+      "导入订单",
+    );
+    if (compatibleError) throw compatibleError;
+    return ((compatibleData ?? []) as Partial<TemuOrderRecord>[]).map(normalizeTemuOrder);
+  }
   if (error) {
     const message = String(error.message ?? "");
     if (isMissingActualShippingFeeColumnError(error)) {
@@ -479,6 +518,7 @@ export async function updateTemuOrder(
       | "order_status"
       | "warehouse_id"
       | "warehouse_name"
+      | "logistics_method_id"
       | "logistics_method"
       | "label_printed_at"
       | "logistics_tracking_no"
@@ -521,6 +561,21 @@ export async function updateTemuOrder(
     );
     if (legacyError) throw legacyError;
     return normalizeTemuOrder(legacyData as Partial<TemuOrderRecord>);
+  }
+  if (error && isMissingLogisticsMethodIdColumnError(error)) {
+    const { logistics_method_id, ...compatibleUpdates } = normalizedUpdates;
+    void logistics_method_id;
+    const { data: compatibleData, error: compatibleError } = await withTimeout(
+      supabase
+        .from("temu_orders")
+        .update(compatibleUpdates)
+        .eq("id", orderId)
+        .select(temuOrderActualFeeSelectFields)
+        .single(),
+      "更新订单",
+    );
+    if (compatibleError) throw compatibleError;
+    return normalizeTemuOrder(compatibleData as Partial<TemuOrderRecord>);
   }
   if (error) throw error;
   return normalizeTemuOrder(data as Partial<TemuOrderRecord>);
@@ -566,6 +621,7 @@ export async function createReshipmentOrder(
       
       warehouse_id: null,
       warehouse_name: "",
+      logistics_method_id: null,
       logistics_method: "",
       logistics_tracking_no: "",
       logistics_status: "",
@@ -597,6 +653,21 @@ export async function createReshipmentOrder(
   );
 
   if (error) {
+    if (isMissingLogisticsMethodIdColumnError(error)) {
+      const compatiblePayload = payload.map(({ logistics_method_id, ...row }) => {
+        void logistics_method_id;
+        return row;
+      });
+      const { data: compatibleData, error: compatibleError } = await withTimeout(
+        supabase
+          .from("temu_orders")
+          .insert(compatiblePayload)
+          .select(temuOrderActualFeeSelectFields),
+        "创建补发订单",
+      );
+      if (compatibleError) throw compatibleError;
+      return ((compatibleData ?? []) as Partial<TemuOrderRecord>[]).map(normalizeTemuOrder);
+    }
     // If standard fields fail, check if actual_shipping_fee_rmb exists
     if (isMissingActualShippingFeeColumnError(error)) {
       const { data: legacyData, error: legacyError } = await withTimeout(

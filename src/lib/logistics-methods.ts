@@ -38,6 +38,19 @@ export function dedupeLogisticsMethodNames(methods: string[]) {
   return Array.from(names.values());
 }
 
+export function getLogisticsMethodIdByName(
+  name: string,
+  logisticsMethods: LogisticsMethod[],
+) {
+  const normalizedName = normalizeLogisticsMethodName(name).toLowerCase();
+  if (!normalizedName) return null;
+  return (
+    logisticsMethods.find(
+      (method) => normalizeLogisticsMethodName(method.name).toLowerCase() === normalizedName,
+    )?.id ?? null
+  );
+}
+
 export async function fetchLogisticsMethods() {
   const { supabase } = await requireSession();
   const { data, error } = await withTimeout(
@@ -147,16 +160,10 @@ async function syncLogisticsMethodConfigs(
     let syncedMethod: LogisticsMethod;
 
     if (existing) {
-      const shouldUpdateName =
-        normalizeLogisticsMethodName(existing.name).toLowerCase() !== name.toLowerCase();
       const shouldUpdateActive = existing.is_active !== isActive;
-      syncedMethod =
-        shouldUpdateName || shouldUpdateActive
-          ? await updateLogisticsMethod(existing.id, {
-              name: shouldUpdateName ? name : undefined,
-              is_active: shouldUpdateActive ? isActive : undefined,
-            })
-          : existing;
+      syncedMethod = shouldUpdateActive
+        ? await updateLogisticsMethod(existing.id, { is_active: isActive })
+        : existing;
       const index = syncedMethods.findIndex((method) => method.id === syncedMethod.id);
       if (index >= 0) syncedMethods[index] = syncedMethod;
     } else {
@@ -170,12 +177,56 @@ async function syncLogisticsMethodConfigs(
     syncedConfigs.push({
       ...config,
       db_method_id: syncedMethod.id,
-      name,
+      name: syncedMethod.name,
       isActive,
     });
   }
 
   return syncedConfigs;
+}
+
+export function getLogisticsMethodRenameIntents(
+  settings: {
+    first_leg_methods?: LogisticsMethodConfig[];
+    last_leg_methods?: LogisticsMethodConfig[];
+  },
+  previousSettings: {
+    first_leg_methods?: LogisticsMethodConfig[];
+    last_leg_methods?: LogisticsMethodConfig[];
+  },
+  logisticsMethods: LogisticsMethod[],
+) {
+  const renameIntents = new Map<string, string>();
+  const sections = [
+    [settings.first_leg_methods ?? [], previousSettings.first_leg_methods ?? []],
+    [settings.last_leg_methods ?? [], previousSettings.last_leg_methods ?? []],
+  ] as const;
+
+  sections.forEach(([configs, previousConfigs]) => {
+    const previousById = new Map(previousConfigs.map((config) => [config.id, config]));
+    configs.forEach((config) => {
+      const previousConfig = previousById.get(config.id);
+      if (!previousConfig) return;
+      const nextName = normalizeLogisticsMethodName(config.name);
+      const previousName = normalizeLogisticsMethodName(previousConfig.name);
+      if (!nextName || nextName.toLowerCase() === previousName.toLowerCase()) return;
+
+      const existing = findLogisticsMethodForConfig(
+        config,
+        previousConfig,
+        logisticsMethods,
+      );
+      if (!existing) return;
+
+      const currentIntent = renameIntents.get(existing.id);
+      if (currentIntent && currentIntent.toLowerCase() !== nextName.toLowerCase()) {
+        throw new Error(`同一发货方式不能同时改成“${currentIntent}”和“${nextName}”`);
+      }
+      renameIntents.set(existing.id, nextName);
+    });
+  });
+
+  return renameIntents;
 }
 
 export async function syncLogisticsMethodsFromSettings(
@@ -188,7 +239,18 @@ export async function syncLogisticsMethodsFromSettings(
     last_leg_methods?: LogisticsMethodConfig[];
   },
 ) {
-  const logisticsMethods = await fetchLogisticsMethods();
+  let logisticsMethods = await fetchLogisticsMethods();
+  const renameIntents = getLogisticsMethodRenameIntents(
+    settings,
+    previousSettings ?? {},
+    logisticsMethods,
+  );
+  for (const [methodId, name] of renameIntents) {
+    await updateLogisticsMethod(methodId, { name });
+  }
+  if (renameIntents.size > 0) {
+    logisticsMethods = await fetchLogisticsMethods();
+  }
   const firstLegMethods = await syncLogisticsMethodConfigs(
     settings.first_leg_methods ?? [],
     previousSettings?.first_leg_methods ?? [],

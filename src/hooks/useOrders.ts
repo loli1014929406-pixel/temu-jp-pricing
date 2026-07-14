@@ -48,6 +48,7 @@ export type OrderDraft = Pick<
   | "order_status"
   | "warehouse_id"
   | "warehouse_name"
+  | "logistics_method_id"
   | "logistics_method"
   | "label_printed_at"
   | "logistics_tracking_no"
@@ -68,6 +69,7 @@ const orderDraftFields = [
   "order_status",
   "warehouse_id",
   "warehouse_name",
+  "logistics_method_id",
   "logistics_method",
   "label_printed_at",
   "logistics_tracking_no",
@@ -91,6 +93,7 @@ const serverManagedDraftFieldSet = new Set<keyof OrderDraft>(serverManagedDraftF
 const restoredEditableDraftFields = [
   "warehouse_id",
   "warehouse_name",
+  "logistics_method_id",
   "logistics_method",
   "actual_shipping_fee_rmb",
 ] as const satisfies readonly (keyof OrderDraft)[];
@@ -228,6 +231,7 @@ export function toDraft(order: TemuOrderRecord): OrderDraft {
     order_status: order.order_status,
     warehouse_id: order.warehouse_id,
     warehouse_name: order.warehouse_name,
+    logistics_method_id: order.logistics_method_id,
     logistics_method: normalizeLogisticsMethod(order.logistics_method),
     label_printed_at: order.label_printed_at,
     logistics_tracking_no: order.logistics_tracking_no,
@@ -243,6 +247,7 @@ export function createEmptyDraft(): OrderDraft {
     order_status: "",
     warehouse_id: null,
     warehouse_name: "",
+    logistics_method_id: null,
     logistics_method: "",
     label_printed_at: "",
     logistics_tracking_no: "",

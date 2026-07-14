@@ -21,7 +21,11 @@ import {
 import { getErrorMessage } from "../../utils/errors";
 import { updateSkuCode } from "../../lib/products";
 import { updateTemuOrder } from "../../lib/orders";
-import { getWarehouseLogisticsMethodNames, normalizeLogisticsMethodName } from "../../lib/logistics-methods";
+import {
+  getLogisticsMethodIdByName,
+  getWarehouseLogisticsMethodNames,
+  normalizeLogisticsMethodName,
+} from "../../lib/logistics-methods";
 import { confirmAction, confirmDelete, confirmSave } from "../../utils/confirmations";
 import { notifyError, notifySuccess, notifyWarning } from "../../lib/notifications";
 import { ActualShippingFeesPanel } from "../../components/finance/ActualShippingFeesPanel";
@@ -231,7 +235,13 @@ export function FinanceSettlementPage({ user }: Props) {
     if (!confirmSave()) return;
     setSavingLogisticsOrderId(orderId);
     try {
-      await updateTemuOrder(orderId, { logistics_method: logisticsMethod });
+      await updateTemuOrder(orderId, {
+        logistics_method_id: getLogisticsMethodIdByName(
+          logisticsMethod,
+          data.logisticsMethods,
+        ),
+        logistics_method: logisticsMethod,
+      });
       setEditingLogisticsOrderId(null);
       await reload();
     } catch (err) {
@@ -280,6 +290,14 @@ export function FinanceSettlementPage({ user }: Props) {
             <X size={12} />
           </button>
         </div>
+      );
+    }
+
+    if (row.order.logistics_method_is_unmatched) {
+      return (
+        <span className="text-xs font-semibold text-amber-700">
+          未匹配物流方式（{current}）
+        </span>
       );
     }
 

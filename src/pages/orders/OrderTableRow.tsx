@@ -660,6 +660,9 @@ export const OrderTableRow = memo(function OrderTableRow({
     () => normalizeLogisticsMethod(draft.logistics_method),
     [draft.logistics_method],
   );
+  const hasUnmatchedLogisticsMethod = rowOrders.some(
+    (order) => order.logistics_method_is_unmatched,
+  );
   const trackingUrl = useMemo(
     () => (mergedOrder ? getTrackingUrl(mergedOrder) : ""),
     [mergedOrder],
@@ -759,8 +762,14 @@ export const OrderTableRow = memo(function OrderTableRow({
               )}
           </select>
         ) : (
-          <span className="text-sm font-medium text-slate-700 whitespace-nowrap">
-            {normalizedDraftLogisticsMethod || "未分配"}
+          <span
+            className={`text-sm font-medium whitespace-nowrap ${
+              hasUnmatchedLogisticsMethod ? "text-amber-700" : "text-slate-700"
+            }`}
+          >
+            {hasUnmatchedLogisticsMethod
+              ? `未匹配物流方式（${normalizedDraftLogisticsMethod}）`
+              : normalizedDraftLogisticsMethod || "未分配"}
           </span>
         )}
       </td>

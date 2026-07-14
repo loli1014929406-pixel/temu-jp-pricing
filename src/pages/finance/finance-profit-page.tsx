@@ -30,6 +30,7 @@ import {
 } from "./shared";
 import { useFinanceAnalysis } from "./use-finance-analysis";
 import { buildSettlementLookup } from "../../lib/settlement";
+import { normalizeLogisticsMethodName } from "../../lib/logistics-methods";
 
 type Props = {
   user: User;
@@ -141,7 +142,7 @@ function formatShare(value: number, total: number) {
 }
 
 function getShippingMethodLabel(value: unknown) {
-  const label = String(value ?? "").trim().replace(/\s+/g, " ");
+  const label = normalizeLogisticsMethodName(String(value ?? "")).replace(/\s+/g, " ");
   return label || "未填写发货方式";
 }
 
@@ -485,18 +486,38 @@ export function FinanceProfitPage({ user }: Props) {
     }));
   }, [analysis.monthly, data.purchases, expenses, period]);
 
-  const shippingMethodRows = useMemo<ShippingMethodRow[]>(() => analysis.shippingMethods.map((raw) => {
-    const orderCount = Number(raw.order_count ?? 0);
-    const quantity = Number(raw.quantity ?? 0);
-    const totalShipping = Number(raw.total_shipping ?? 0);
-    return {
-      method: String(raw.method ?? "未填写发货方式"), orderCount, quantity,
-      actualShipping: Number(raw.actual_shipping ?? 0), estimatedShipping: Number(raw.estimated_shipping ?? 0),
-      totalShipping, missingShippingCount: Number(raw.missing_shipping_count ?? 0),
-      averagePerOrder: orderCount > 0 ? roundMoney(totalShipping / orderCount) : 0,
-      averagePerItem: quantity > 0 ? roundMoney(totalShipping / quantity) : 0,
-    };
-  }), [analysis.shippingMethods]);
+  const shippingMethodRows = useMemo<ShippingMethodRow[]>(() => {
+    const merged = new Map<string, Omit<ShippingMethodRow, "averagePerOrder" | "averagePerItem">>();
+    analysis.shippingMethods.forEach((raw) => {
+      const method = getShippingMethodLabel(raw.method);
+      const current = merged.get(method) ?? {
+        method,
+        orderCount: 0,
+        quantity: 0,
+        actualShipping: 0,
+        estimatedShipping: 0,
+        totalShipping: 0,
+        missingShippingCount: 0,
+      };
+      current.orderCount += Number(raw.order_count ?? 0);
+      current.quantity += Number(raw.quantity ?? 0);
+      current.actualShipping += Number(raw.actual_shipping ?? 0);
+      current.estimatedShipping += Number(raw.estimated_shipping ?? 0);
+      current.totalShipping += Number(raw.total_shipping ?? 0);
+      current.missingShippingCount += Number(raw.missing_shipping_count ?? 0);
+      merged.set(method, current);
+    });
+
+    return Array.from(merged.values()).map((row) => ({
+      ...row,
+      quantity: roundMoney(row.quantity),
+      actualShipping: roundMoney(row.actualShipping),
+      estimatedShipping: roundMoney(row.estimatedShipping),
+      totalShipping: roundMoney(row.totalShipping),
+      averagePerOrder: row.orderCount > 0 ? roundMoney(row.totalShipping / row.orderCount) : 0,
+      averagePerItem: row.quantity > 0 ? roundMoney(row.totalShipping / row.quantity) : 0,
+    }));
+  }, [analysis.shippingMethods]);
 
   const shippingMethodSummary = useMemo(() => {
     return shippingMethodRows.reduce(
