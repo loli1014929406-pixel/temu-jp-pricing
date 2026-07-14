@@ -298,7 +298,7 @@ export function ProductForm({
   return (
     <form onSubmit={onSubmit} className="grid gap-6">
       <fieldset disabled={readOnly || busy} className="contents">
-      <section className="grid gap-4 rounded-lg bg-white p-5 shadow-panel">
+      <section className="section-card grid gap-4">
         <h2 className="text-base font-semibold text-ink">商品主信息</h2>
         <div className="grid gap-4 md:grid-cols-2">
           <Field label="商品编号">
@@ -445,7 +445,7 @@ export function ProductForm({
         </Field>
       </section>
 
-      <section className="grid gap-4 rounded-lg bg-white p-5 shadow-panel">
+      <section className="section-card grid gap-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-base font-semibold text-ink">组合配件库</h2>
           <button
@@ -581,7 +581,7 @@ export function ProductForm({
         </div>
       </section>
 
-      <section className="grid gap-4 rounded-lg bg-white p-5 shadow-panel">
+      <section className="section-card grid gap-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-base font-semibold text-ink">销售规格生成矩阵</h2>
           <button
@@ -665,7 +665,7 @@ export function ProductForm({
         </div>
       </section>
 
-      <section className="grid gap-4 rounded-lg bg-white p-5 shadow-panel">
+      <section className="section-card grid gap-4">
         <h2 className="text-base font-semibold text-ink">最终 SKU 属性与 BOM 关联映射表</h2>
         {skus.length === 0 ? (
           <div className="rounded-md border border-dashed border-line px-4 py-8 text-center text-sm text-slate-500">

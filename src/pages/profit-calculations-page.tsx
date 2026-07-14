@@ -901,7 +901,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
   }, [discountSummaries]);
 
   return (
-    <section className="flex flex-col gap-6 p-4 sm:p-6">
+    <section className="page-stack">
       <PageHeader
         title="利润分析"
         description="实时分析利润率、最终售价及广告投放安全边际"

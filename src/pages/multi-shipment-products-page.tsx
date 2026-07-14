@@ -114,7 +114,7 @@ export function MultiShipmentProductsPage({
   }, [products, page, pageSize]);
 
   return (
-    <section className="flex flex-col gap-6 p-4 sm:p-6">
+    <section className="page-stack">
       <PageHeader
         title={content.title}
         description={content.description}
@@ -127,7 +127,7 @@ export function MultiShipmentProductsPage({
         </div>
       )}
 
-      <section className="grid gap-3 sm:grid-cols-3 rounded-lg bg-panel p-5 shadow-soft">
+      <section className="section-card grid gap-3 sm:grid-cols-3">
         <StatCard label="商品数" value={String(products.length)} />
         <StatCard label="3cm 可用商品" value={String(threeCmProducts)} />
         <StatCard
@@ -173,7 +173,7 @@ export function MultiShipmentProductsPage({
         )}
       </div>
 
-      <div className="table-card hidden md:block rounded-lg shadow-soft overflow-hidden bg-panel">
+      <div className="table-card hidden overflow-hidden md:block">
         <div className="overflow-x-auto">
           <StandardTable
             page={paginatedProducts.page}

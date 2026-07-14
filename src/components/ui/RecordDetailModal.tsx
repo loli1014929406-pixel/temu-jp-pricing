@@ -35,7 +35,7 @@ export function RecordDetailModal({
       aria-modal="true"
       aria-label={title}
     >
-      <div className={`grid max-h-[88vh] w-full ${maxWidthClassName} grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-lg bg-white shadow-xl`}>
+      <div className={`grid max-h-[88vh] w-full ${maxWidthClassName} grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-2xl`}>
         <div className="flex items-start justify-between gap-4 border-b border-line px-4 py-3">
           <div className="min-w-0">
             <h2 className="text-base font-semibold text-slate-950">{title}</h2>
@@ -46,7 +46,7 @@ export function RecordDetailModal({
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-line bg-white text-slate-600 transition hover:bg-slate-50 hover:text-slate-950"
+            className="icon-btn"
             aria-label="关闭详情"
           >
             <X size={18} />

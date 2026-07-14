@@ -278,7 +278,7 @@ export function MultiShipmentProfitPage({
   }
 
   return (
-    <section className="grid gap-5">
+    <section className="page-stack">
       <PageHeader
         title={content.title}
         description={`${product.product_code} · ${product.product_name_cn}。${content.description}`}

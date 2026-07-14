@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePermissions } from "../hooks/use-permissions";
 import { getSupabaseClient } from "../lib/supabase";
+import { PageHeader } from "../components/ui";
 
 type CentralDiagnostic = {
   id: string;
@@ -142,16 +143,13 @@ export function AdminDiagnosticsPage() {
     return <p className="p-6 text-sm text-slate-500">加载诊断记录中…</p>;
   }
   if (!canDelete) {
-    return <p className="m-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-800">仅管理员可以查看集中诊断。</p>;
+    return <p className="status-banner border-amber-200 bg-amber-50 text-amber-800">仅管理员可以查看集中诊断。</p>;
   }
 
   return (
-    <section className="grid gap-5 p-6">
-      <div>
-        <h1 className="text-2xl font-bold">集中诊断</h1>
-        <p className="mt-1 text-sm text-slate-500">最近 500 条；按操作展示耗时分位数，数据库每天自动删除 90 天前记录。</p>
-      </div>
-      {error && <p className="rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}
+    <section className="page-stack">
+      <PageHeader title="集中诊断" description="最近 500 条；按操作展示耗时分位数，数据库每天自动删除 90 天前记录。" />
+      {error && <p className="status-banner border-rose-200 bg-rose-50 text-rose-700">{error}</p>}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {[
           ["记录", overview.total],
@@ -159,7 +157,7 @@ export function AdminDiagnosticsPage() {
           ["慢操作", `${overview.slow}（P95 ${overview.slowP95}ms）`],
           ["首屏 P95", `${overview.navigationP95}ms`],
         ].map(([label, value]) => (
-          <div className="rounded-xl border border-line bg-white p-4" key={label}>
+          <div className="section-card p-4" key={label}>
             <strong className="text-2xl">{value}</strong>
             <p className="mt-1 text-xs text-slate-500">{label}</p>
           </div>
@@ -169,7 +167,7 @@ export function AdminDiagnosticsPage() {
         <h2 className="text-lg font-semibold">Web Vitals</h2>
         <p className="mt-1 text-xs text-slate-500">LCP、INP 使用毫秒；CLS 使用无单位分数，分别统计，避免混入业务请求耗时。</p>
       </div>
-      <div className="overflow-x-auto rounded-xl border border-line">
+      <div className="table-card overflow-x-auto">
         <table className="data-table min-w-[720px]">
           <thead><tr><th>指标</th><th>样本</th><th>P50</th><th>P75</th><th>P95</th></tr></thead>
           <tbody>{vitalSummaries.map((item) => (
@@ -186,7 +184,7 @@ export function AdminDiagnosticsPage() {
         <h2 className="text-lg font-semibold">业务请求与错误</h2>
         <p className="mt-1 text-xs text-slate-500">仅按业务操作分组，不混入浏览器性能指标和首屏导航。</p>
       </div>
-      <div className="overflow-x-auto rounded-xl border border-line">
+      <div className="table-card overflow-x-auto">
         <table className="data-table min-w-[960px]">
           <thead>
             <tr><th>操作</th><th>请求类型</th><th>缓存</th><th>次数</th><th>错误</th><th>平均</th><th>P50</th><th>P95</th><th>最大</th></tr>
@@ -202,7 +200,7 @@ export function AdminDiagnosticsPage() {
           </tbody>
         </table>
       </div>
-      <div className="overflow-x-auto rounded-xl border border-line">
+      <div className="table-card overflow-x-auto">
         <table className="data-table min-w-[1200px]">
           <thead><tr><th>时间</th><th>版本</th><th>类型</th><th>上下文</th><th>耗时</th><th>请求</th><th>缓存</th><th>路径</th><th>信息</th></tr></thead>
           <tbody>{rows.map((row) => <tr key={row.id}><td>{new Date(row.created_at).toLocaleString("zh-CN")}</td><td>{row.app_version || "-"}</td><td>{row.event_type}</td><td>{row.context}</td><td>{row.duration_ms == null ? "-" : isWebVital(row) ? formatVitalValue(row.context, row.duration_ms) : `${row.duration_ms}ms`}</td><td>{row.request_kind || "-"}</td><td>{row.cache_status || "-"}</td><td>{row.path}</td><td>{row.message}</td></tr>)}</tbody>

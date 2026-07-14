@@ -1028,7 +1028,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
   }
 
   return (
-    <section className="flex flex-col gap-6 p-4 sm:p-6">
+    <section className="page-stack">
       <PageHeader
         title={view === "create" ? "新增采购管理单" : "采购管理记录"}
         description={view === "create" ? "保存采购管理单，后续在记录页补录物流并签收入库" : "查看采购管理单、补录物流并按包裹签收入库"}
@@ -1049,7 +1049,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
       {noticeMessage && <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{noticeMessage}</div>}
       {draftNotice && <div className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-700">{draftNotice}</div>}
 
-      {view === "create" && <section className="grid gap-4 rounded-lg bg-panel p-5 shadow-soft">
+      {view === "create" && <section className="section-card grid gap-4">
         <div>
           <h2 className="text-base font-semibold text-ink">新增采购管理单</h2>
           <p className="mt-1 text-sm text-slate-500">同一个 1688 订单号保存为一张采购管理单。</p>
@@ -1292,7 +1292,7 @@ export function PurchasesPage({ user, view }: PurchasesPageProps) {
 
       {view === "records" && (
         <section className="grid gap-4">
-          <section className="grid gap-4 rounded-lg bg-panel p-4 sm:p-5 shadow-soft">
+          <section className="section-card grid gap-4 p-4 sm:p-5">
             <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(280px,380px)] lg:items-end">
               <div>
                 <h2 className="text-base font-semibold text-ink">采购管理记录</h2>

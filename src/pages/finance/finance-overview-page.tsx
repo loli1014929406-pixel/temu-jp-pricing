@@ -1,6 +1,6 @@
 import type { User } from "@supabase/supabase-js";
 import { useMemo } from "react";
-import { RefreshCw, TrendingUp, AlertCircle, ArrowRight } from "lucide-react";
+import { RefreshCw, TrendingUp, AlertCircle, ArrowRight, CircleCheck } from "lucide-react";
 import { Link } from "react-router-dom";
 import { PageHeader, Badge, StandardTable } from "../../components/ui";
 import { useFinanceData } from "./use-finance-data";
@@ -50,7 +50,7 @@ export function FinanceOverviewPage({ user }: Props) {
   const reload = async () => { await Promise.all([reloadBase(), analysis.reload(), issues.reload()]); };
 
   return (
-    <section className="flex flex-col gap-6 p-4 sm:p-6">
+    <section className="page-stack">
       <PageHeader
         title="财务总览"
         description="集中查看核心指标、资金健康状态和待处理财务事项"
@@ -145,14 +145,14 @@ export function FinanceOverviewPage({ user }: Props) {
             <div className="rounded-2xl border border-line bg-white shadow-sm overflow-hidden">
               <div className="bg-slate-50 px-5 py-3 border-b border-slate-100 flex items-center gap-4">
                  {totals.unmatchedCount === 0 && totals.missingShippingFeeCount === 0 ? (
-                    <span className="text-emerald-600 font-bold text-sm flex items-center gap-1">✓ 暂无待处理对账问题</span>
+                    <span className="flex items-center gap-1.5 text-sm font-bold text-emerald-600"><CircleCheck size={16} />暂无待处理对账问题</span>
                  ) : (
                     <>
                       <Link to="/finance/settlement" className={`rounded-full px-3 py-1 text-xs font-bold flex items-center gap-1 transition-colors ${totals.unmatchedCount > 0 ? "bg-rose-100 text-rose-700 hover:bg-rose-200" : "bg-emerald-100 text-emerald-700"}`}>
-                        {totals.unmatchedCount} 笔 SKU 未匹配 →
+                        {totals.unmatchedCount} 笔 SKU 未匹配 <ArrowRight size={14} />
                       </Link>
                       <Link to="/finance/settlement" className={`rounded-full px-3 py-1 text-xs font-bold flex items-center gap-1 transition-colors ${totals.missingShippingFeeCount > 0 ? "bg-amber-100 text-amber-700 hover:bg-amber-200" : "bg-emerald-100 text-emerald-700"}`}>
-                        {totals.missingShippingFeeCount} 笔运费缺失 →
+                        {totals.missingShippingFeeCount} 笔运费缺失 <ArrowRight size={14} />
                       </Link>
                     </>
                  )}

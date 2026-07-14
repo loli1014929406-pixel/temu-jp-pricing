@@ -278,7 +278,7 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
   const paginatedProducts = products.slice((page - 1) * pageSize, page * pageSize);
 
   return (
-    <section className="flex flex-col gap-6 p-4 sm:p-6">
+    <section className="page-stack">
       <PageHeader
         title="直发测算"
         description="查看直发物流方案与利润表现"
@@ -341,7 +341,7 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
         )}
       </div>
 
-      <div className="hidden rounded-lg bg-panel shadow-soft overflow-hidden md:block">
+      <div className="table-card hidden overflow-hidden md:block">
         <div className="overflow-x-auto">
           <StandardTable
             page={page}

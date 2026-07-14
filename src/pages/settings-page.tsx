@@ -471,7 +471,7 @@ function LogisticsSection({
   const addButtonLabel = type === "first_leg" ? "新增头程方式" : "新增尾程方式";
 
   return (
-    <section className="rounded-lg bg-panel p-5 shadow-soft">
+    <section className="section-card">
       <div className="flex items-start justify-between gap-4 border-b border-line pb-4">
         <div>
           <h2 className="text-base font-bold text-ink">{title}</h2>
@@ -750,7 +750,7 @@ export function SettingsPage({ user }: SettingsPageProps) {
   }
 
   return (
-    <section className="flex flex-col relative">
+    <section className="page-stack relative">
       <PageHeader 
         title="参数设置" 
           description="独立配置系统参数及多维度物流规则" 
@@ -807,7 +807,7 @@ export function SettingsPage({ user }: SettingsPageProps) {
         )}
 
         <form id="settings-form" onSubmit={handleSubmit} className="grid gap-6">
-        <div className="rounded-lg bg-panel p-5 shadow-soft">
+        <div className="section-card">
           <div className="grid gap-5">
             {fieldGroups.map((group) => (
               <section

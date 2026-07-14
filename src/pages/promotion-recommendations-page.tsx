@@ -905,7 +905,7 @@ export function PromotionRecommendationsPage({
   const paginatedRows = rows.slice((page - 1) * pageSize, page * pageSize);
 
   return (
-    <section className="flex flex-col gap-6 p-4 sm:p-6">
+    <section className="page-stack">
       <PageHeader
         title="促销投放推荐"
         description="按现有核价、成本和利润设置，给出每个商品的促销与广告建议"
@@ -927,7 +927,7 @@ export function PromotionRecommendationsPage({
         <StatCard label="建议开广告" value={String(summary.adCount)} />
       </div>
 
-      <section className="grid gap-4 rounded-lg bg-panel p-4 sm:p-5 shadow-soft">
+      <section className="section-card grid gap-4 p-4 sm:p-5">
         <h2 className="text-base font-semibold text-ink">统一勾选</h2>
         <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
           {featureKeys.map((feature) => (
@@ -1004,7 +1004,7 @@ export function PromotionRecommendationsPage({
         )}
       </div>
 
-      <div className="hidden rounded-lg bg-panel shadow-soft overflow-hidden md:block">
+      <div className="table-card hidden overflow-hidden md:block">
         <div className="overflow-x-auto">
           <StandardTable
             page={page}
@@ -1152,7 +1152,7 @@ export function PromotionRecommendationsPage({
       </div>
 
       {!loading && missingRows.length > 0 && (
-        <section className="grid gap-4 rounded-lg bg-panel p-4 sm:p-5 shadow-soft">
+        <section className="section-card grid gap-4 p-4 sm:p-5">
           <h2 className="text-base font-semibold text-ink">暂不可推荐</h2>
           <div className="mt-3 grid gap-2 text-sm text-slate-600">
             {missingRows.map((row) => (

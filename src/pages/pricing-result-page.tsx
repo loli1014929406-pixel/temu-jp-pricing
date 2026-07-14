@@ -15,7 +15,7 @@ import { usePermissions } from "../hooks/use-permissions";
 import { calculatePricing, formatCurrency, formatPercent } from "../utils/pricing";
 import type { PricingResult, Product, ProductSku } from "../types";
 import { getErrorMessage } from "../utils/errors";
-import { BackToParentAction } from "../components/ui";
+import { BackToParentAction, PageHeader } from "../components/ui";
 import { confirmSave } from "../utils/confirmations";
 
 type PricingResultPageProps = {
@@ -139,8 +139,8 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
 
   if (emptyItems) {
     return (
-      <section className="flex flex-col gap-6 p-4 sm:p-6">
-        <h1 className="page-title">核算定价结果</h1>
+      <section className="page-stack">
+        <PageHeader title="核算定价结果" description="查看商品核算定价结果" />
         <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
           暂无组合明细，无法计算核算定价
         </div>
@@ -153,18 +153,12 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
   }
 
   return (
-    <section className="flex flex-col gap-6 p-4 sm:p-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="page-title">核算定价结果</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            {product.product_code} · {product.product_name_cn}
-          </p>
-          <p className="mt-1 text-sm text-slate-500">
-            在满足目标利润率的前提下，计算核算定价
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
+    <section className="page-stack">
+      <PageHeader
+        title="核算定价结果"
+        description={`${product.product_code} · ${product.product_name_cn} · 在满足目标利润率的前提下计算核算定价`}
+        actions={
+          <>
           {canEdit && (
             <button
               type="button"
@@ -178,12 +172,13 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
           )}
           <BackToParentAction fallbackTo="/declaration-prices" />
           {canEdit && (
-            <Link to={getProductRoutePath(product, "/edit")} className="text-sm text-accent">
+            <Link to={getProductRoutePath(product, "/edit")} className="btn-secondary">
               编辑商品
             </Link>
           )}
-        </div>
-      </div>
+          </>
+        }
+      />
       {savedMessage && (
         <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
           {savedMessage}
@@ -219,26 +214,26 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
                 </p>
               </div>
               <div className="grid gap-4 md:grid-cols-3">
-                <div className="rounded-lg bg-panel p-5 shadow-soft">
+                <div className="section-card">
                   <p className="text-sm text-slate-500">核算定价</p>
                   <p className="mt-2 text-3xl font-semibold text-ink">
                     {formatCurrency(result.temuDeclarationPriceRmb)}
                   </p>
                 </div>
-                <div className="rounded-lg bg-panel p-5 shadow-soft">
+                <div className="section-card">
                   <p className="text-sm text-slate-500">利润</p>
                   <p className="mt-2 text-3xl font-semibold text-ink">
                     {formatCurrency(result.profitRmb)}
                   </p>
                 </div>
-                <div className="rounded-lg bg-panel p-5 shadow-soft">
+                <div className="section-card">
                   <p className="text-sm text-slate-500">利润率</p>
                   <p className="mt-2 text-3xl font-semibold text-ink">
                     {formatPercent(result.profitRate)}
                   </p>
                 </div>
               </div>
-              <div className="grid gap-4 rounded-lg bg-panel p-5 shadow-soft sm:grid-cols-2 xl:grid-cols-3">
+              <div className="section-card grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {metrics.map(([label, value]) => (
                   <div key={label} className="rounded-md border border-line p-4">
                     <p className="text-sm text-slate-500">{label}</p>

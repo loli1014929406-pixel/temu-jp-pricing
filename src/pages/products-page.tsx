@@ -277,7 +277,7 @@ export function ProductsPage({ user }: ProductsPageProps) {
   }
 
   return (
-    <section className="grid min-w-0 gap-5">
+    <section className="page-stack">
       <PageHeader
         title="商品管理"
         description="管理商品尺寸、重量与申报材质"

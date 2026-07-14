@@ -1,4 +1,5 @@
 import type { User } from "@supabase/supabase-js";
+import { ArrowDown, ArrowUp } from "lucide-react";
 import { OrderBulkActions } from "../components/orders/OrderBulkActions";
 import { OrderDetailPanel } from "../components/orders/OrderDetailPanel";
 import { OrderFilters } from "../components/orders/OrderFilters";
@@ -2506,7 +2507,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
   const activeOrderViewTone = showUrgentUnuploadedOnly ? "danger" : activeStageMeta.tone;
 
   return (
-    <section className="grid gap-5">
+    <section className="page-stack">
       <PageHeader
         title="订单管理"
         description="上传 Temu 导出的订单表，按仓库分配、下载发货表格并跟进签收流程"
@@ -2792,9 +2793,9 @@ export function OrdersPage({ user }: OrdersPageProps) {
                           >
                             <span>{column.label}</span>
                             {orderSort.key === column.key && (
-                              <span aria-hidden="true">
-                                {orderSort.direction === "asc" ? "↑" : "↓"}
-                              </span>
+                              orderSort.direction === "asc"
+                                ? <ArrowUp size={14} aria-hidden="true" />
+                                : <ArrowDown size={14} aria-hidden="true" />
                             )}
                           </button>
                         ) : (

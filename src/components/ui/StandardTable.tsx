@@ -87,7 +87,7 @@ export function StandardTable({
       
       {/* Pagination Footer */}
       {totalRecordCount > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-4 border-t border-line bg-mist/30 px-6 py-3 text-xs text-slate-600">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-t border-slate-100 bg-slate-50/70 px-5 py-3 text-xs text-slate-600">
           <div className="flex items-center gap-3">
             <span>共 {totalRecordCount} 条记录</span>
             <select
@@ -95,7 +95,7 @@ export function StandardTable({
               value={pageSize}
               onChange={(e) => onPageSizeChange(Number(e.target.value))}
               disabled={loading}
-              className="h-8 rounded-md border border-line bg-white px-2 text-xs outline-none transition focus:border-accent focus:ring-1 focus:ring-accent disabled:opacity-50"
+              className="h-8 rounded-xl border border-slate-200 bg-white px-2.5 text-xs outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/10 disabled:opacity-50"
             >
               {pageSizeOptions.map(size => (
                 <option key={size} value={size}>{size} 条 / 页</option>
@@ -110,7 +110,7 @@ export function StandardTable({
               aria-label="上一页"
               onClick={() => onPageChange(page - 1)}
               disabled={page <= 1 || loading}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-line bg-white text-slate-600 transition hover:bg-slate-50 hover:text-accent disabled:opacity-50 disabled:hover:bg-white disabled:hover:text-slate-600"
+              className="icon-btn h-8 w-8"
             >
               <ChevronLeft size={16} />
             </button>
@@ -119,7 +119,7 @@ export function StandardTable({
               aria-label="下一页"
               onClick={() => onPageChange(page + 1)}
               disabled={page >= totalPages || loading}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-line bg-white text-slate-600 transition hover:bg-slate-50 hover:text-accent disabled:opacity-50 disabled:hover:bg-white disabled:hover:text-slate-600"
+              className="icon-btn h-8 w-8"
             >
               <ChevronRight size={16} />
             </button>

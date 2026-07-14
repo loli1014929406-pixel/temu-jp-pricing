@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ProductForm } from "../components/product-form";
-import { BackToParentAction } from "../components/ui";
+import { BackToParentAction, PageHeader } from "../components/ui";
 import {
   fetchProduct,
   fetchProductItems,
@@ -546,10 +546,12 @@ export function ProductEditPage() {
   }
 
   return (
-    <section className="flex flex-col gap-6 p-4 sm:p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="page-title">编辑商品</h1>
-        <div className="flex flex-wrap items-center gap-2">
+    <section className="page-stack">
+      <PageHeader
+        title="编辑商品"
+        description="维护商品资料、规格、SKU 与仓库配送限制"
+        actions={
+          <>
           {isEditing ? (
             <button type="button" className="btn-secondary" onClick={handleCancelEdit}>
               取消
@@ -560,8 +562,9 @@ export function ProductEditPage() {
             </button>
           )}
           <BackToParentAction fallbackTo="/products" />
-        </div>
-      </div>
+          </>
+        }
+      />
       {message && (
         <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
           {message}

@@ -321,7 +321,7 @@ export function FinanceSettlementPage({ user }: Props) {
   };
 
   return (
-    <section className="flex flex-col gap-6 p-4 sm:p-6">
+    <section className="page-stack">
       <PageHeader
         title="结算与对账"
         description="管理 Temu 结算文件、排查对账异常、查看订单收入明细。"

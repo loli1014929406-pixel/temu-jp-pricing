@@ -532,7 +532,7 @@ export function FinanceExpensesPage({ user }: Props) {
   }, [adImportActions, pendingAdImport]);
 
   return (
-    <section className="flex flex-col gap-6 p-4 sm:p-6">
+    <section className="page-stack">
       <PageHeader
         title="费用管理"
         description="记录和管理各项杂费，如平台佣金、广告推广、关税头程等。"

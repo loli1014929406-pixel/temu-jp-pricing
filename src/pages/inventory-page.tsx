@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, Plus, Trash2, Settings, Search, MapPin, Truck, ArrowLeftRight, Edit3 } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronUp, Plus, Trash2, Settings, Search, MapPin, Truck, ArrowLeftRight, Edit3 } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { Link, useParams } from "react-router-dom";
@@ -808,7 +808,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
   }, [sortedWarehouseSkusByWarehouseId]);
 
   return (
-    <section className="flex flex-col gap-6 p-4 sm:p-6">
+    <section className="page-stack">
       <PageHeader
         title={pageTitle}
         description={pageDescription}
@@ -838,7 +838,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
       )}
 
       {!loading && warehouses.length > 0 && (
-        <section className="rounded-lg bg-panel p-3 shadow-soft">
+        <section className="section-card p-3">
           <div className="flex flex-wrap gap-2">
             <Link
               to="/inventory"
@@ -870,7 +870,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
 
       {!warehouseSlug && !loading && (
         <div className="grid gap-5 sm:grid-cols-3">
-          <div className="rounded-lg bg-panel p-5 flex items-center justify-between shadow-soft">
+          <div className="section-card flex items-center justify-between">
             <div>
               <div className="text-sm font-medium text-slate-500">仓库总数</div>
               <div className="mt-1 text-2xl font-bold text-ink">{warehouses.length} 个</div>
@@ -879,7 +879,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
               <MapPin size={24} />
             </div>
           </div>
-          <div className="rounded-lg bg-panel p-5 flex items-center justify-between shadow-soft">
+          <div className="section-card flex items-center justify-between">
             <div>
               <div className="text-sm font-medium text-slate-500">已分配商品 SKU 总数</div>
               <div className="mt-1 text-2xl font-bold text-ink">
@@ -890,7 +890,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
               <Search size={24} />
             </div>
           </div>
-          <div className="rounded-lg bg-panel p-5 flex items-center justify-between shadow-soft">
+          <div className="section-card flex items-center justify-between">
             <div>
               <div className="text-sm font-medium text-slate-500">可用发货方式</div>
               <div className="mt-1 text-2xl font-bold text-ink">
@@ -925,7 +925,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                 const totalAssignedLegs = firstLegs.length + lastLegs.length;
 
                 return (
-                  <div key={warehouse.id} className="rounded-lg bg-panel p-5 flex flex-col justify-between shadow-soft relative group">
+                  <div key={warehouse.id} className="section-card group relative flex flex-col justify-between">
                     <div>
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2.5">
@@ -1150,9 +1150,9 @@ export function InventoryPage({ user }: InventoryPageProps) {
                     <div className="mt-5 pt-4 border-t border-line flex justify-end">
                       <Link
                         to={`/inventory/${getWarehouseRouteSlug(warehouse)}`}
-                        className="inline-flex h-10 items-center justify-center rounded-xl bg-violet-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-700"
+                        className="btn-primary"
                       >
-                        进入该仓库库存 →
+                        进入该仓库库存 <ChevronRight size={15} />
                       </Link>
                     </div>
                   </div>
@@ -1171,7 +1171,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                 <div key={warehouse.id} className="grid gap-5">
                   {/* KPI cards for warehouse page */}
                   <div className="grid gap-5 sm:grid-cols-3">
-                    <div className="rounded-lg bg-panel p-5 flex items-center justify-between shadow-soft">
+                    <div className="section-card flex items-center justify-between">
                       <div>
                         <div className="text-sm font-medium text-slate-500">{hasSearch ? "筛选匹配 SKU 数" : "已分配商品 SKU 数"}</div>
                         <div className="mt-1 text-2xl font-bold text-ink">
@@ -1182,7 +1182,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                         <Search size={24} />
                       </div>
                     </div>
-                    <div className="rounded-lg bg-panel p-5 flex items-center justify-between shadow-soft">
+                    <div className="section-card flex items-center justify-between">
                       <div>
                         <div className="text-sm font-medium text-slate-500">已关联头程物流</div>
                         <div className="mt-1 text-2xl font-bold text-ink">
@@ -1193,7 +1193,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                         <Truck size={24} />
                       </div>
                     </div>
-                    <div className="rounded-lg bg-panel p-5 flex items-center justify-between shadow-soft">
+                    <div className="section-card flex items-center justify-between">
                       <div>
                         <div className="text-sm font-medium text-slate-500">已关联尾程物流</div>
                         <div className="mt-1 text-2xl font-bold text-ink">
@@ -1207,7 +1207,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                   </div>
 
                   {/* Action Control Board */}
-                  <section className="grid gap-4 rounded-lg bg-panel p-5 shadow-soft">
+                  <section className="section-card grid gap-4">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div className="flex items-center gap-3">
                         <button
@@ -1245,7 +1245,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                           value={searchQuery}
                           onChange={(e) => setSearchQuery(e.target.value)}
                           placeholder="搜索商品编号、产品名称或SKU编号..."
-                          className="h-10 w-full rounded-xl border border-line bg-white pl-10 pr-4 text-sm outline-none transition focus:border-violet-600 focus:ring-2 focus:ring-violet-600/20"
+                          className="h-10 w-full rounded-xl border border-line bg-white pl-10 pr-4 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/10"
                         />
                       </div>
                     </div>
@@ -1418,7 +1418,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                       </div>
                     </div>
                   ) : (
-                    <div className="rounded-lg shadow-soft overflow-hidden bg-panel">
+                    <div className="table-card overflow-hidden">
                       <div className="overflow-x-auto">
                         <StandardTable
                           page={warehousePages[warehouse.id] ?? 1}
@@ -1522,7 +1522,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                                     [item.id]: event.target.value,
                                                   }))
                                                 }
-                                                className="h-9 w-24 rounded-lg border border-line bg-white px-2 text-xs font-semibold text-ink outline-none transition focus:border-violet-600"
+                                                className="h-9 w-24 rounded-xl border border-line bg-white px-2 text-xs font-semibold text-ink outline-none transition focus:border-accent"
                                               />
                                               <button
                                                 type="button"
@@ -1531,7 +1531,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                                   busyKey === `sku-stock-${item.id}` ||
                                                   !itemStockReasonDrafts[item.id]?.trim()
                                                 }
-                                                className="h-9 rounded-lg bg-violet-600 px-3 text-xs font-semibold text-white shadow-sm hover:bg-violet-700 transition disabled:opacity-60"
+                                                className="btn-primary h-9 px-3 text-xs"
                                               >
                                                 保存
                                               </button>
@@ -1546,7 +1546,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                               }
                                               disabled={!canEdit}
                                               placeholder="校准原因"
-                                              className="h-8 w-40 rounded-lg border border-line bg-white px-2 text-xs outline-none transition focus:border-violet-600"
+                                              className="h-8 w-40 rounded-xl border border-line bg-white px-2 text-xs outline-none transition focus:border-accent"
                                             />
                                           </div>
                                         ) : (

@@ -133,7 +133,7 @@ export function DeclarationPricesPage({ user }: DeclarationPricesPageProps) {
   const paginatedProducts = products.slice((page - 1) * pageSize, page * pageSize);
 
   return (
-    <section className="flex flex-col gap-6 p-4 sm:p-6">
+    <section className="page-stack">
       <PageHeader title="核算定价" description="查看和维护商品核算定价数据" />
 
       {errorMessage && (
@@ -188,7 +188,7 @@ export function DeclarationPricesPage({ user }: DeclarationPricesPageProps) {
         )}
       </div>
 
-      <div className="rounded-lg bg-panel shadow-soft overflow-hidden hidden md:block">
+      <div className="table-card hidden overflow-hidden md:block">
         <div className="overflow-x-auto">
           <StandardTable
             page={page}

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { Link, useParams } from "react-router-dom";
 import { Field, TextInput } from "../components/form-controls";
-import { BackToParentAction } from "../components/ui";
+import { BackToParentAction, PageHeader } from "../components/ui";
 import { isSameDraft, readDraft, useDraftPersistence } from "../hooks/use-draft-persistence";
 import { usePermissions } from "../hooks/use-permissions";
 import { useAutoDismiss } from "../hooks/use-auto-dismiss";
@@ -373,15 +373,12 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
   }
 
   return (
-    <section className="flex flex-col gap-6 p-4 sm:p-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-        <h1 className="page-title">利润分析</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            {product.product_code} · {product.product_name_cn}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
+    <section className="page-stack">
+      <PageHeader
+        title="利润分析"
+        description={`${product.product_code} · ${product.product_name_cn}`}
+        actions={
+          <>
           <Link className="btn-secondary" to={getMultiShipmentProfitPath(product, "direct-shipping")}>
             多件直发
           </Link>
@@ -389,8 +386,9 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
             多件正常
           </Link>
           <BackToParentAction fallbackTo="/profit-calculation" />
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {errorMessage && (
         <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
@@ -403,7 +401,7 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
         </div>
       )}
 
-      <section className="grid gap-4 rounded-lg bg-panel p-5 shadow-soft">
+      <section className="section-card grid gap-4">
         <div className="grid gap-4 md:grid-cols-5">
           <Field label="核价">
             <TextInput
@@ -485,7 +483,7 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
           {Object.values(calculations).map(({ sku, input, result }) => {
                   const skuId = sku.id as string;
                   return (
-                    <section key={skuId} className="grid gap-4 rounded-lg bg-panel p-5 shadow-soft">
+                    <section key={skuId} className="section-card grid gap-4">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
                           <h3 className="text-base font-semibold text-ink">{sku.sku_code}</h3>

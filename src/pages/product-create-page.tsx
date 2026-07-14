@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import type { User } from "@supabase/supabase-js";
 import { ProductForm } from "../components/product-form";
-import { BackToParentAction } from "../components/ui";
+import { BackToParentAction, PageHeader } from "../components/ui";
 import {
   clearDraft,
   readDraft,
@@ -203,11 +203,12 @@ export function ProductCreatePage({ user }: ProductCreatePageProps) {
   }
 
   return (
-    <section className="grid gap-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="page-title">新增商品</h1>
-        <BackToParentAction fallbackTo="/products" />
-      </div>
+    <section className="page-stack">
+      <PageHeader
+        title="新增商品"
+        description="创建商品资料、规格、SKU 与仓库配送限制"
+        actions={<BackToParentAction fallbackTo="/products" />}
+      />
       {message && (
         <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
           {message}

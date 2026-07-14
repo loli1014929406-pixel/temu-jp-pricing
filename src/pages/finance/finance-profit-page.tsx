@@ -897,7 +897,7 @@ ${primaryCostLabel}: ${formatCurrency(primaryCost)}
   };
 
   return (
-    <section className="flex flex-col gap-6 p-4 sm:p-6">
+    <section className="page-stack">
       <PageHeader
         title="利润报表"
         description="基于收支结算数据与业务核算逻辑的财务利润。"

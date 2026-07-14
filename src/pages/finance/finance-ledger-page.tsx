@@ -70,7 +70,7 @@ export function FinanceLedgerPage({ user }: Props) {
   const reload = load;
 
   return (
-    <section className="flex flex-col gap-6 p-4 sm:p-6">
+    <section className="page-stack">
       <PageHeader
         title="收支流水"
         description="查看全部业务的资金流入和流出明细"

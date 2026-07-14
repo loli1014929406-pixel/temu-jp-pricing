@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  ArrowRight,
   Calendar,
   CheckCircle2,
   ChevronDown,
@@ -764,7 +765,7 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
     }
 
     return (
-      <section className="flex flex-col gap-6 p-4 sm:p-6">
+      <section className="page-stack">
         <PageHeader
           title="库存调拨"
           description="先从调出仓扣减库存，快递签收后再加入调入仓库"
@@ -1460,8 +1461,10 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
                                   >
                                     {changeLabel}
                                   </span>
-                                  <span className="font-mono text-slate-400">
-                                    {adjustment.previous_quantity} → {adjustment.next_quantity}
+                                  <span className="inline-flex items-center gap-1.5 font-mono text-slate-400">
+                                    <span>{adjustment.previous_quantity}</span>
+                                    <ArrowRight size={14} aria-hidden="true" />
+                                    <span>{adjustment.next_quantity}</span>
                                   </span>
                                 </div>
                               </div>
