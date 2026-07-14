@@ -37,6 +37,7 @@ const tables = [
   "finance_expenses",
   "finance_settlement_files",
   "finance_settlement_records",
+  "finance_actual_shipping_fees",
 ];
 
 function parseEnv(contents) {

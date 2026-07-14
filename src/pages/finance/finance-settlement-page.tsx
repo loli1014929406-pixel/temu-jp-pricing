@@ -24,6 +24,7 @@ import { updateTemuOrder } from "../../lib/orders";
 import { getWarehouseLogisticsMethodNames, normalizeLogisticsMethodName } from "../../lib/logistics-methods";
 import { confirmAction, confirmDelete, confirmSave } from "../../utils/confirmations";
 import { notifyError, notifySuccess, notifyWarning } from "../../lib/notifications";
+import { ActualShippingFeesPanel } from "../../components/finance/ActualShippingFeesPanel";
 
 type Props = {
   user: User;
@@ -48,7 +49,7 @@ export function FinanceSettlementPage({ user }: Props) {
     logistics: true,
   });
 
-  const [activeTab, setActiveTab] = useState<"files" | "recon" | "income">("files");
+  const [activeTab, setActiveTab] = useState<"files" | "shipping" | "recon" | "income">("files");
 
   const [importing, setImporting] = useState(false);
   const [showAllOrders, setShowAllOrders] = useState(false);
@@ -368,6 +369,14 @@ export function FinanceSettlementPage({ user }: Props) {
         >
           收入明细
         </button>
+        <button
+          onClick={() => setActiveTab("shipping")}
+          className={`pb-3 text-sm font-bold transition-colors ${
+            activeTab === "shipping" ? "border-b-2 border-accent text-accentDeep" : "text-slate-500 hover:text-slate-800"
+          }`}
+        >
+          物流商月结
+        </button>
       </div>
 
       <div className="surface-card p-5">
@@ -436,6 +445,10 @@ export function FinanceSettlementPage({ user }: Props) {
               </StandardTable>
             )}
           </div>
+        )}
+
+        {activeTab === "shipping" && (
+          <ActualShippingFeesPanel canEdit={canEdit} onImported={reload} />
         )}
 
         {/* Tab 2: 对账排查 */}
