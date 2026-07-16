@@ -34,11 +34,13 @@ import {
 import {
   dedupeLogisticsMethodNames,
   getLogisticsMethodIdByName,
-  getWarehouseLogisticsMethodNames,
-  isLogisticsMethodAllowedForWarehouse as isConfiguredLogisticsMethodAllowedForWarehouse,
 } from "../lib/logistics-methods";
 import { resolveLastLegMethods } from "../lib/defaults";
-import { getWarehouseLogisticsConfigStatus } from "../lib/warehouse-logistics";
+import {
+  getWarehouseLastLegMethodNames,
+  getWarehouseLogisticsConfigStatus,
+  isLastLegMethodAllowedForWarehouse,
+} from "../lib/warehouse-logistics";
 import { getSupabaseClient } from "../lib/supabase";
 import { mapWithConcurrency } from "../lib/concurrency";
 import {
@@ -302,16 +304,17 @@ export function OrdersPage({ user }: OrdersPageProps) {
   const bulkLogisticsMethodOptions = useMemo(
     () =>
       selectedBulkWarehouse
-        ? getWarehouseLogisticsMethodNames(
+        ? getWarehouseLastLegMethodNames(
             selectedBulkWarehouse.id,
+            settings,
             logisticsMethods,
             warehouseLogisticsMethods,
           )
-        : logisticsMethodOptions,
+        : [],
     [
-      logisticsMethodOptions,
       logisticsMethods,
       selectedBulkWarehouse,
+      settings,
       warehouseLogisticsMethods,
     ],
   );
@@ -542,9 +545,10 @@ export function OrdersPage({ user }: OrdersPageProps) {
     const nextWarehouseName = warehouse?.name ?? "";
     const nextLogisticsMethod =
       warehouse &&
-      isConfiguredLogisticsMethodAllowedForWarehouse(
+      isLastLegMethodAllowedForWarehouse(
         warehouse.id,
         currentDraft.logistics_method,
+        settings,
         logisticsMethods,
         warehouseLogisticsMethods,
       )
@@ -571,8 +575,9 @@ export function OrdersPage({ user }: OrdersPageProps) {
     logisticsMethod: string,
   ) {
     const normalizedMethod = normalizeLogisticsMethod(logisticsMethod);
-    const methods = getWarehouseLogisticsMethodNames(
+    const methods = getWarehouseLastLegMethodNames(
       warehouse.id,
+      settings,
       logisticsMethods,
       warehouseLogisticsMethods,
     );
@@ -1529,6 +1534,27 @@ export function OrdersPage({ user }: OrdersPageProps) {
       setNoticeMessage("请先勾选要保存的订单。");
       return;
     }
+    const invalidPendingOrder = selectedOrdersInView
+      .filter((order) => getOrderStage(order) === "pending_assignment")
+      .map((order) => ({ order, nextOrder: mergeOrderDraft(order) }))
+      .find(
+        ({ nextOrder }) =>
+          Boolean(nextOrder.logistics_method.trim()) &&
+          (!nextOrder.warehouse_id ||
+            !isLastLegMethodAllowedForWarehouse(
+              nextOrder.warehouse_id,
+              nextOrder.logistics_method,
+              settings,
+              logisticsMethods,
+              warehouseLogisticsMethods,
+            )),
+      );
+    if (invalidPendingOrder) {
+      setErrorMessage(
+        `订单 ${invalidPendingOrder.order.order_no} 的尾程发货方式必须从所选仓库的绑定方式中选择。`,
+      );
+      return;
+    }
     if (!(await confirmSave(`确认保存已选中的 ${selectedOrdersInView.length} 条订单吗？`))) return;
 
     setBusyKey("save-selected");
@@ -1815,16 +1841,21 @@ export function OrdersPage({ user }: OrdersPageProps) {
     }
 
     const logisticsMethod = normalizeLogisticsMethod(bulkLogisticsMethod);
+    if (!selectedWarehouse && logisticsMethod) {
+      setErrorMessage("请先选择仓库，再选择该仓库绑定的尾程发货方式。");
+      return;
+    }
     if (!selectedWarehouse && !logisticsMethod) {
-      setNoticeMessage("请选择仓库或填写发货方式后再批量分配。");
+      setNoticeMessage("请选择仓库后再批量分配。");
       return;
     }
     if (
       selectedWarehouse &&
       logisticsMethod &&
-      !isConfiguredLogisticsMethodAllowedForWarehouse(
+      !isLastLegMethodAllowedForWarehouse(
         selectedWarehouse.id,
         logisticsMethod,
+        settings,
         logisticsMethods,
         warehouseLogisticsMethods,
       )
@@ -1854,9 +1885,10 @@ export function OrdersPage({ user }: OrdersPageProps) {
           warehouse_name: nextWarehouseName,
           logistics_method:
             nextWarehouseId &&
-            isConfiguredLogisticsMethodAllowedForWarehouse(
+            isLastLegMethodAllowedForWarehouse(
               nextWarehouseId,
               nextLogisticsMethod,
+              settings,
               logisticsMethods,
               warehouseLogisticsMethods,
             )
@@ -2727,14 +2759,15 @@ export function OrdersPage({ user }: OrdersPageProps) {
             }
             setBulkWarehouseId(warehouseId);
             if (
-              warehouse &&
-              bulkLogisticsMethod &&
-              !isConfiguredLogisticsMethodAllowedForWarehouse(
-                warehouse.id,
-                bulkLogisticsMethod,
-                logisticsMethods,
-                warehouseLogisticsMethods,
-              )
+              !warehouse ||
+              (bulkLogisticsMethod &&
+                !isLastLegMethodAllowedForWarehouse(
+                  warehouse.id,
+                  bulkLogisticsMethod,
+                  settings,
+                  logisticsMethods,
+                  warehouseLogisticsMethods,
+                ))
             ) {
               setBulkLogisticsMethod("");
             }
@@ -2880,6 +2913,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
                       activeStage={activeStage}
                       canEdit={canEdit}
                       logisticsMethods={logisticsMethods}
+                      settings={settings}
                       onHandleWarehouseChangeForOrders={handleWarehouseChangeForOrders}
                       onSaveActualShipTimeForOrders={handleSaveActualShipTimeForOrders}
                       onToggleOrderRowSelection={toggleOrderRowSelection}

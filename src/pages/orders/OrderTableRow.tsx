@@ -10,12 +10,13 @@ import {
 } from "react";
 import { Badge } from "../../components/ui";
 import { createEmptyDraft, toDraft, type OrderDraft } from "../../hooks/useOrders";
-import { getWarehouseLogisticsMethodNames } from "../../lib/logistics-methods";
+import { getWarehouseLastLegMethodNames } from "../../lib/warehouse-logistics";
 import type { TemuOrderImportRow } from "../../lib/orders";
 import type {
   Product,
   ProductSku,
   LogisticsMethod,
+  PricingSettings,
   TemuOrderRecord,
   Warehouse,
   WarehouseLogisticsMethod,
@@ -482,6 +483,7 @@ export type OrderTableRowProps = {
   activeStage: OrderStage;
   canEdit: boolean;
   logisticsMethods: LogisticsMethod[];
+  settings: PricingSettings | null;
   onHandleWarehouseChangeForOrders: (orderIds: string[], warehouseId: string) => void;
   onSaveActualShipTimeForOrders: (targetOrders: TemuOrderRecord[]) => Promise<void>;
   onToggleOrderRowSelection: (rowOrderIds: string[], checked: boolean) => void;
@@ -505,6 +507,7 @@ export const OrderTableRow = memo(function OrderTableRow({
   activeStage,
   canEdit,
   logisticsMethods,
+  settings,
   onHandleWarehouseChangeForOrders,
   onSaveActualShipTimeForOrders,
   onToggleOrderRowSelection,
@@ -584,13 +587,14 @@ export const OrderTableRow = memo(function OrderTableRow({
   const rowLogisticsOptions = useMemo(
     () =>
       draftWarehouse
-        ? getWarehouseLogisticsMethodNames(
+        ? getWarehouseLastLegMethodNames(
             draftWarehouse.id,
+            settings,
             logisticsMethods,
             warehouseLogisticsMethods,
           )
         : [],
-    [draftWarehouse, logisticsMethods, warehouseLogisticsMethods],
+    [draftWarehouse, logisticsMethods, settings, warehouseLogisticsMethods],
   );
   const currentWarehouseMissing = useMemo(
     () =>
@@ -737,7 +741,11 @@ export const OrderTableRow = memo(function OrderTableRow({
       <td className="order-logistics-col">
         {canAssignOrder ? (
           <select
-            value={normalizedDraftLogisticsMethod}
+            value={
+              rowLogisticsOptions.includes(normalizedDraftLogisticsMethod)
+                ? normalizedDraftLogisticsMethod
+                : ""
+            }
             disabled={!draft.warehouse_id}
             onChange={(event) =>
               onUpdateDraftForOrders(
@@ -754,12 +762,6 @@ export const OrderTableRow = memo(function OrderTableRow({
                 {method}
               </option>
             ))}
-            {draft.logistics_method &&
-              !rowLogisticsOptions.includes(normalizedDraftLogisticsMethod) && (
-                <option value={normalizedDraftLogisticsMethod}>
-                  {normalizedDraftLogisticsMethod}
-                </option>
-              )}
           </select>
         ) : (
           <span

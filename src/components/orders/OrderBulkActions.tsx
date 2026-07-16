@@ -267,11 +267,13 @@ export function OrderBulkActions({
             <span className="shrink-0">发货方式</span>
             <select
               value={bulkLogisticsMethod}
-              disabled={busyKey === "bulk-assign"}
+              disabled={busyKey === "bulk-assign" || !bulkWarehouseId}
               onChange={(event) => onBulkLogisticsMethodChange(event.target.value)}
-              className="h-10 min-w-0 flex-1 rounded-md border border-line bg-white px-3 text-sm outline-none focus:border-accent"
+              className="h-10 min-w-0 flex-1 rounded-md border border-line bg-white px-3 text-sm outline-none focus:border-accent disabled:bg-slate-100 disabled:text-slate-400"
             >
-              <option value="">不修改发货方式</option>
+              <option value="">
+                {bulkWarehouseId ? "不修改尾程发货方式" : "请先选择仓库"}
+              </option>
               {bulkLogisticsMethodOptions.map((method) => (
                 <option key={method} value={method}>
                   {method}

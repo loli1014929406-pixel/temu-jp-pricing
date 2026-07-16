@@ -6,7 +6,10 @@ import type {
 } from "../types";
 import { calculateDynamicMethodCost } from "../utils/shipping-costs";
 import { resolveFirstLegMethods, resolveLastLegMethods } from "./defaults";
-import { normalizeLogisticsMethodName } from "./logistics-methods";
+import {
+  dedupeLogisticsMethodNames,
+  normalizeLogisticsMethodName,
+} from "./logistics-methods";
 
 export type WarehouseLogisticsConfigStatus = {
   firstLegs: LogisticsMethodConfig[];
@@ -111,6 +114,47 @@ export function getWarehouseLogisticsConfigStatus(
     isComplete: hasFirstLeg && hasLastLeg,
     issue: missing.length > 0 ? `仓库物流配置不完整：缺少${missing.join("、")}` : "",
   };
+}
+
+export function getWarehouseLastLegMethodNames(
+  warehouseId: string | null | undefined,
+  settings: PricingSettings | null | undefined,
+  logisticsMethods: LogisticsMethod[],
+  warehouseLogisticsMethods: WarehouseLogisticsMethod[],
+) {
+  if (!warehouseId || !settings) return [];
+
+  const methodsById = new Map(
+    logisticsMethods
+      .filter((method) => method.is_active)
+      .map((method) => [method.id, method]),
+  );
+  const lastLegConfigs = resolveLastLegMethods(settings);
+  const methodNames = sortWarehouseLinks(
+    warehouseLogisticsMethods.filter((item) => item.warehouse_id === warehouseId),
+  ).flatMap((link) => {
+    const method = methodsById.get(link.logistics_method_id);
+    return method && findConfigForMethod(method, lastLegConfigs) ? [method.name] : [];
+  });
+
+  return dedupeLogisticsMethodNames(methodNames);
+}
+
+export function isLastLegMethodAllowedForWarehouse(
+  warehouseId: string | null | undefined,
+  logisticsMethod: string,
+  settings: PricingSettings | null | undefined,
+  logisticsMethods: LogisticsMethod[],
+  warehouseLogisticsMethods: WarehouseLogisticsMethod[],
+) {
+  const normalizedMethod = normalizeLogisticsMethodName(logisticsMethod);
+  if (!normalizedMethod) return true;
+  return getWarehouseLastLegMethodNames(
+    warehouseId,
+    settings,
+    logisticsMethods,
+    warehouseLogisticsMethods,
+  ).includes(normalizedMethod);
 }
 
 export function calculateHighestWarehouseFirstLegCostRmb({
