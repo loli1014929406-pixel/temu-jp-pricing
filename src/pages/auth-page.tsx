@@ -111,7 +111,7 @@ export function AuthPage({ user }: AuthPageProps) {
             </button>
           </form>
         </div>
-        <p className="mt-5 text-center text-xs text-[#8a8a8a]">
+        <p className="mt-5 text-center text-xs text-[#616161]">
           一站式管理商品、订单、采购、库存与利润数据
         </p>
       </div>

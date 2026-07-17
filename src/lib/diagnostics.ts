@@ -24,6 +24,8 @@ export type DiagnosticMetadata = Pick<
 
 const maxDiagnostics = 50;
 const diagnosticsStorageKey = "temu-jp:diagnostics:v1";
+const maxCredibleWebVitalMs = 60_000;
+const maxCredibleClsMilli = 10_000;
 
 function getDiagnosticPath() {
   return typeof window === "undefined" ? "" : window.location.pathname.slice(0, 200);
@@ -98,6 +100,20 @@ export function sanitizeDiagnosticText(value: unknown) {
     .slice(0, 500);
 }
 
+export function sanitizeDiagnosticTraceId(value: unknown) {
+  const text = String(value ?? "").trim();
+  return /^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$/.test(text) ? text : "";
+}
+
+export function isCredibleWebVitalValue(context: string, value: number) {
+  if (!Number.isFinite(value) || value <= 0) return false;
+  if (context === "web-vital:CLS") return value <= maxCredibleClsMilli;
+  if (context === "web-vital:LCP" || context === "web-vital:INP") {
+    return value <= maxCredibleWebVitalMs;
+  }
+  return false;
+}
+
 function sanitizeDiagnosticContext(value: unknown) {
   return sanitizeDiagnosticText(value).replace(/[\r\n]+/g, " ").slice(0, 120);
 }
@@ -137,7 +153,7 @@ export async function flushCentralDiagnostics() {
           cache_status: sanitizeDiagnosticContext(item.cacheStatus ?? ""),
           row_count: item.rowCount ?? null,
           retry_count: item.retryCount ?? 0,
-          trace_id: sanitizeDiagnosticContext(item.traceId ?? ""),
+          trace_id: sanitizeDiagnosticTraceId(item.traceId),
         }));
       let { error } = await supabase.from("app_diagnostics").insert(extendedRows);
       if (error?.code === "PGRST204" || error?.code === "42703") {
@@ -181,9 +197,10 @@ export async function flushCentralDiagnostics() {
 function appendDiagnostic(
   diagnostic: Omit<AppDiagnostic, "id" | "path" | "appVersion" | "createdAt" | "message" | "uploadStatus"> & {
     message: unknown;
+    path?: string;
   },
 ) {
-  const path = getDiagnosticPath();
+  const path = (diagnostic.path ?? getDiagnosticPath()).slice(0, 200);
   diagnostics.push({
     ...diagnostic,
     id: nextDiagnosticId,
@@ -248,6 +265,11 @@ export function installGlobalDiagnostics() {
   if (typeof window === "undefined") return () => undefined;
 
   const observers: PerformanceObserver[] = [];
+  const navigationPath = getDiagnosticPath();
+  const navigationTraceId = getPageTraceId(navigationPath);
+  let firstHiddenAt = document.visibilityState === "hidden"
+    ? 0
+    : Number.POSITIVE_INFINITY;
   let lcpMs = 0;
   let clsScore = 0;
   let inpMs = 0;
@@ -267,6 +289,7 @@ export function installGlobalDiagnostics() {
   }
 
   observe("largest-contentful-paint", (entry) => {
+    if (entry.startTime >= firstHiddenAt || entry.startTime > maxCredibleWebVitalMs) return;
     lcpMs = Math.max(lcpMs, entry.startTime);
   });
   observe("layout-shift", (entry) => {
@@ -286,13 +309,15 @@ export function installGlobalDiagnostics() {
       { context: "web-vital:INP", value: Math.round(inpMs), message: `INP ${Math.round(inpMs)}ms` },
       { context: "web-vital:CLS", value: Math.round(clsScore * 1000), message: `CLS ${clsScore.toFixed(3)}` },
     ].forEach((metric) => {
-      if (metric.value <= 0) return;
+      if (!isCredibleWebVitalValue(metric.context, metric.value)) return;
       appendDiagnostic({
         type: "navigation",
         context: metric.context,
         message: metric.message,
         durationMs: metric.value,
         requestKind: "browser",
+        path: navigationPath,
+        traceId: navigationTraceId,
       });
     });
   }
@@ -322,11 +347,20 @@ export function installGlobalDiagnostics() {
         message: `首屏加载耗时 ${durationMs}ms`,
         durationMs,
         requestKind: "browser",
+        path: navigationPath,
+        traceId: navigationTraceId,
       });
     }
   };
   const handleVisibilityChange = () => {
-    if (document.visibilityState === "hidden") reportWebVitals();
+    if (document.visibilityState === "hidden") {
+      firstHiddenAt = Math.min(firstHiddenAt, performance.now());
+      reportWebVitals();
+    }
+  };
+  const handlePageHide = () => {
+    firstHiddenAt = Math.min(firstHiddenAt, performance.now());
+    reportWebVitals();
   };
   const handleOnline = () => scheduleCentralUpload();
 
@@ -334,7 +368,7 @@ export function installGlobalDiagnostics() {
   window.addEventListener("unhandledrejection", handleRejection);
   window.addEventListener("load", handleLoad, { once: true });
   window.addEventListener("online", handleOnline);
-  window.addEventListener("pagehide", reportWebVitals, { once: true });
+  window.addEventListener("pagehide", handlePageHide, { once: true });
   document.addEventListener("visibilitychange", handleVisibilityChange);
   scheduleCentralUpload();
 
@@ -343,7 +377,7 @@ export function installGlobalDiagnostics() {
     window.removeEventListener("unhandledrejection", handleRejection);
     window.removeEventListener("load", handleLoad);
     window.removeEventListener("online", handleOnline);
-    window.removeEventListener("pagehide", reportWebVitals);
+    window.removeEventListener("pagehide", handlePageHide);
     document.removeEventListener("visibilitychange", handleVisibilityChange);
     observers.forEach((observer) => observer.disconnect());
   };

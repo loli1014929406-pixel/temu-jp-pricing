@@ -30,4 +30,18 @@ export default tseslint.config(
       "preserve-caught-error": "warn",
     },
   },
+  {
+    files: ["cloudflare/**/*.ts"],
+    extends: [js.configs.recommended, ...tseslint.configs.recommended],
+    languageOptions: {
+      ecmaVersion: 2022,
+      globals: globals.serviceworker,
+    },
+    rules: {
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
+    },
+  },
 );

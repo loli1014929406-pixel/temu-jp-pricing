@@ -1,16 +1,23 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   clearDiagnostics,
+  flushCentralDiagnostics,
   getRecentDiagnostics,
+  isCredibleWebVitalValue,
   reportAppError,
   reportSlowOperation,
   sanitizeDiagnosticText,
+  sanitizeDiagnosticTraceId,
   subscribeDiagnostics,
 } from "./diagnostics";
+import { getSupabaseClient } from "./supabase";
+
+vi.mock("./supabase", () => ({ getSupabaseClient: vi.fn() }));
 
 afterEach(() => {
   clearDiagnostics();
   vi.restoreAllMocks();
+  vi.clearAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -50,6 +57,40 @@ describe("diagnostics", () => {
     ).toBe(
       "Bearer [redacted] [token] https://example.com?a=1&token=[redacted]&password=[redacted]",
     );
+  });
+
+  it("preserves valid trace IDs without allowing arbitrary text", () => {
+    const traceId = "019ee9fd-ded7-7990-bfb3-1039438917c6";
+    expect(sanitizeDiagnosticTraceId(traceId)).toBe(traceId);
+    expect(sanitizeDiagnosticTraceId("Bearer secret token")).toBe("");
+  });
+
+  it("uploads the original valid trace ID", async () => {
+    const insert = vi.fn().mockResolvedValue({ error: null });
+    vi.mocked(getSupabaseClient).mockReturnValue({
+      auth: {
+        getSession: vi.fn().mockResolvedValue({
+          data: { session: { user: { id: "user-1" } } },
+        }),
+      },
+      from: vi.fn().mockReturnValue({ insert }),
+    } as never);
+    const traceId = "019ee9fd-ded7-7990-bfb3-1039438917c6";
+
+    reportSlowOperation("load-orders", 1200, { traceId });
+    await flushCentralDiagnostics();
+
+    expect(insert).toHaveBeenCalledWith([
+      expect.objectContaining({ trace_id: traceId }),
+    ]);
+  });
+
+  it("rejects impossible Web Vital samples from percentile calculations", () => {
+    expect(isCredibleWebVitalValue("web-vital:LCP", 2500)).toBe(true);
+    expect(isCredibleWebVitalValue("web-vital:LCP", 60_001)).toBe(false);
+    expect(isCredibleWebVitalValue("web-vital:INP", Number.NaN)).toBe(false);
+    expect(isCredibleWebVitalValue("web-vital:CLS", 250)).toBe(true);
+    expect(isCredibleWebVitalValue("web-vital:CLS", 10_001)).toBe(false);
   });
 
   it("captures the event path and rotates the trace when the route changes", () => {

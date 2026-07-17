@@ -63,6 +63,7 @@ import {
 } from "../utils/shipping-costs";
 import { confirmAction, confirmDelete, confirmSave } from "../utils/confirmations";
 import {
+  getOrderFulfillmentAssignmentIssue,
   getOrderStage,
   getOrderStageDefinition as getStageDefinition,
   getSplitOrderFulfillmentIssue,
@@ -489,7 +490,11 @@ export function OrdersPage({ user }: OrdersPageProps) {
     if (!canEdit || loading || busyKey) return;
   }, [allOrders, busyKey, canEdit, loading]);
 
-  function getOrderWarehouseLogisticsIssue(order: Pick<TemuOrderRecord, "warehouse_id" | "warehouse_name" | "order_no">) {
+  function getOrderWarehouseLogisticsIssue(order: TemuOrderRecord) {
+    const assignmentIssue = getOrderFulfillmentAssignmentIssue(order);
+    if (getOrderStage(order) !== "pending_assignment" && assignmentIssue) {
+      return `${order.order_no}：${assignmentIssue}`;
+    }
     if (!order.warehouse_id) return "";
     const status = getWarehouseLogisticsConfigStatus(
       order.warehouse_id,
@@ -507,7 +512,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
   }
 
   function assertOrdersWarehouseLogisticsComplete(
-    ordersToValidate: Array<Pick<TemuOrderRecord, "warehouse_id" | "warehouse_name" | "order_no">>,
+    ordersToValidate: TemuOrderRecord[],
   ) {
     const issue = ordersToValidate
       .map((order) => getOrderWarehouseLogisticsIssue(order))
@@ -770,9 +775,14 @@ export function OrdersPage({ user }: OrdersPageProps) {
     return { status: getTrackingStatusLabel(displayStatus) || "暂无轨迹" };
   }
 
-  async function fetchYamatoTrackingStatus(trackingNo: string) {
+  async function getTrackingAuthorization() {
     const { data: { session } } = await getSupabaseClient().auth.getSession();
     if (!session?.access_token) throw new Error("登录状态已失效，请重新登录");
+    return `Bearer ${session.access_token}`;
+  }
+
+  async function fetchYamatoTrackingStatus(trackingNo: string) {
+    const authorization = await getTrackingAuthorization();
     const body = new URLSearchParams({
       number01: trackingNo.trim(),
       category: "0",
@@ -783,7 +793,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-          Authorization: `Bearer ${session.access_token}`,
+          Authorization: authorization,
         },
         body,
         cache: "no-store",
@@ -813,12 +823,14 @@ export function OrdersPage({ user }: OrdersPageProps) {
   }
 
   async function fetchJapanPostTrackingStatus(trackingNo: string) {
+    const authorization = await getTrackingAuthorization();
     const params = new URLSearchParams({
       reqCodeNo1: trackingNo.trim(),
       searchKind: "S002",
       locale: "ja",
     });
     const response = await fetch(`${japanPostTrackingProxyPath}?${params.toString()}`, {
+      headers: { Authorization: authorization },
       cache: "no-store",
     });
     if (!response.ok) {
@@ -1591,9 +1603,19 @@ export function OrdersPage({ user }: OrdersPageProps) {
       setNoticeMessage("请先勾选要保存的订单。");
       return;
     }
-    const invalidPendingOrder = selectedOrdersInView
+    const pendingOrderAssignments = selectedOrdersInView
       .filter((order) => getOrderStage(order) === "pending_assignment")
-      .map((order) => ({ order, nextOrder: mergeOrderDraft(order) }))
+      .map((order) => ({ order, nextOrder: mergeOrderDraft(order) }));
+    const incompletePendingOrder = pendingOrderAssignments.find(
+      ({ nextOrder }) => Boolean(getOrderFulfillmentAssignmentIssue(nextOrder)),
+    );
+    if (incompletePendingOrder) {
+      setErrorMessage(
+        `订单 ${incompletePendingOrder.order.order_no}：${getOrderFulfillmentAssignmentIssue(incompletePendingOrder.nextOrder)}`,
+      );
+      return;
+    }
+    const invalidPendingOrder = pendingOrderAssignments
       .find(
         ({ nextOrder }) =>
           Boolean(nextOrder.logistics_method.trim()) &&
@@ -1898,12 +1920,12 @@ export function OrdersPage({ user }: OrdersPageProps) {
     }
 
     const logisticsMethod = normalizeLogisticsMethod(bulkLogisticsMethod);
-    if (!selectedWarehouse && logisticsMethod) {
-      setErrorMessage("请先选择仓库，再选择该仓库绑定的尾程发货方式。");
+    if (!selectedWarehouse) {
+      setNoticeMessage("请选择仓库后再批量分配。");
       return;
     }
-    if (!selectedWarehouse && !logisticsMethod) {
-      setNoticeMessage("请选择仓库后再批量分配。");
+    if (!logisticsMethod) {
+      setNoticeMessage("请选择发货方式后再批量分配。");
       return;
     }
     if (
@@ -1945,7 +1967,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
         const nextWarehouseId = selectedWarehouse
           ? selectedWarehouse.id
           : draft.warehouse_id;
-        const nextLogisticsMethod = logisticsMethod || draft.logistics_method;
+        const nextLogisticsMethod = logisticsMethod;
         const nextDraft: OrderDraft = {
           ...draft,
           warehouse_id: nextWarehouseId,
@@ -1961,6 +1983,10 @@ export function OrdersPage({ user }: OrdersPageProps) {
             )
               ? nextLogisticsMethod
               : "",
+          logistics_method_id: getLogisticsMethodIdByName(
+            nextLogisticsMethod,
+            logisticsMethods,
+          ),
         };
         const updates = {
           ...nextDraft,

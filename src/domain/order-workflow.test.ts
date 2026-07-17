@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { TemuOrderRecord } from "../types";
 import {
+  getOrderFulfillmentAssignmentIssue,
   getOrderStage,
   getSplitOrderFulfillmentIssue,
   isShippingTrackingStage,
@@ -16,6 +17,8 @@ function order(overrides: Partial<TemuOrderRecord> = {}) {
     label_printed_at: "",
     warehouse_id: null,
     warehouse_name: "",
+    logistics_method_id: null,
+    logistics_method: "",
     ...overrides,
   } as TemuOrderRecord;
 }
@@ -23,7 +26,9 @@ function order(overrides: Partial<TemuOrderRecord> = {}) {
 describe("order workflow", () => {
   it.each([
     [order(), "pending_assignment"],
-    [order({ warehouse_name: "苏州" }), "new_order"],
+    [order({ warehouse_name: "苏州" }), "pending_assignment"],
+    [order({ logistics_method: "OCS Yamato" }), "pending_assignment"],
+    [order({ warehouse_name: "苏州", logistics_method: "OCS Yamato" }), "new_order"],
     [order({ label_printed_at: "2026-07-10" }), "pending_shipping"],
     [order({ logistics_tracking_no: "TRACK-1" }), "shipped"],
     [order({ order_status: "上传Temu", logistics_tracking_no: "TRACK-1" }), "uploaded_temu"],
@@ -31,6 +36,19 @@ describe("order workflow", () => {
     [order({ order_status: "上传Temu", actual_signed_time: "2026-07-10" }), "completed"],
   ])("assigns the expected stage", (record, expected) => {
     expect(getOrderStage(record)).toBe(expected);
+  });
+
+  it("requires both a warehouse and a shipping method before leaving pending assignment", () => {
+    expect(getOrderFulfillmentAssignmentIssue(order())).toBe("还没有分配发货仓库。");
+    expect(
+      getOrderFulfillmentAssignmentIssue(order({ warehouse_name: "苏州" })),
+    ).toBe("还没有分配发货方式。");
+    expect(
+      getOrderFulfillmentAssignmentIssue(order({
+        warehouse_name: "苏州",
+        logistics_method: "OCS Yamato",
+      })),
+    ).toBe("");
   });
 
   it("only treats shipped and uploaded orders as tracking stages", () => {

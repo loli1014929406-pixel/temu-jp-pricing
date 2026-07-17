@@ -256,7 +256,7 @@ export function OrderBulkActions({
               onChange={(event) => onBulkWarehouseChange(event.target.value)}
               className="h-10 min-w-0 flex-1 rounded-md border border-line bg-white px-2 text-sm outline-none focus:border-accent"
             >
-              <option value="">不修改仓库</option>
+              <option value="">请选择仓库</option>
               {warehouses.map((warehouse) => (
                 <option key={warehouse.id} value={warehouse.id}>
                   {warehouse.name}
@@ -273,7 +273,7 @@ export function OrderBulkActions({
               className="h-10 min-w-0 flex-1 rounded-md border border-line bg-white px-3 text-sm outline-none focus:border-accent disabled:bg-slate-100 disabled:text-slate-400"
             >
               <option value="">
-                {bulkWarehouseId ? "不修改尾程发货方式" : "请先选择仓库"}
+                {bulkWarehouseId ? "请选择发货方式" : "请先选择仓库"}
               </option>
               {bulkLogisticsMethodOptions.map((method) => (
                 <option key={method} value={method}>
@@ -287,7 +287,8 @@ export function OrderBulkActions({
             disabled={
               selectedOrderLineInViewCount === 0 ||
               busyKey === "bulk-assign" ||
-              (!bulkWarehouseId && !bulkLogisticsMethod.trim())
+              !bulkWarehouseId ||
+              !bulkLogisticsMethod.trim()
             }
             onClick={onBulkAssign}
             className="btn-primary h-10 px-3"

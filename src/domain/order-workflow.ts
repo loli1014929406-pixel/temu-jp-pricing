@@ -32,8 +32,30 @@ const uploadedTemuOrderStatuses = new Set([
   legacyUploadedTemuOrderStatus.toLowerCase(),
 ]);
 
+type OrderFulfillmentAssignment = Pick<
+  TemuOrderRecord,
+  | "order_no"
+  | "warehouse_id"
+  | "warehouse_name"
+  | "logistics_method_id"
+  | "logistics_method"
+>;
+
 export function isUploadedTemuStatus(value: string) {
   return uploadedTemuOrderStatuses.has(value.trim().toLowerCase());
+}
+
+export function getOrderFulfillmentAssignmentIssue(
+  order: OrderFulfillmentAssignment,
+) {
+  const hasWarehouse = Boolean(order.warehouse_id || order.warehouse_name.trim());
+  if (!hasWarehouse) return "还没有分配发货仓库。";
+
+  const hasLogisticsMethod = Boolean(
+    order.logistics_method_id || order.logistics_method.trim(),
+  );
+  if (!hasLogisticsMethod) return "还没有分配发货方式。";
+  return "";
 }
 
 export function getOrderStage(order: TemuOrderRecord): PersistedOrderStage {
@@ -41,7 +63,7 @@ export function getOrderStage(order: TemuOrderRecord): PersistedOrderStage {
   if (isUploadedTemuStatus(order.order_status)) return "uploaded_temu";
   if (order.actual_ship_time.trim() || order.logistics_tracking_no.trim()) return "shipped";
   if (order.label_printed_at.trim()) return "pending_shipping";
-  if (order.warehouse_id || order.warehouse_name.trim()) return "new_order";
+  if (!getOrderFulfillmentAssignmentIssue(order)) return "new_order";
   return "pending_assignment";
 }
 
@@ -52,15 +74,6 @@ export function isShippingTrackingStage(stage: OrderStage) {
 export function shouldReserveOrderInventory(stage: PersistedOrderStage) {
   return stage !== "pending_assignment";
 }
-
-type OrderFulfillmentAssignment = Pick<
-  TemuOrderRecord,
-  | "order_no"
-  | "warehouse_id"
-  | "warehouse_name"
-  | "logistics_method_id"
-  | "logistics_method"
->;
 
 function getAssignmentKey(id: string | null, name: string) {
   return name.trim().toLocaleLowerCase() || id?.trim() || "";
