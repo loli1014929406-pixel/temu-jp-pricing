@@ -14,7 +14,7 @@ const errors = [];
 const warnings = [];
 const activeIndexes = new Map();
 const pinnedSearchPathPattern =
-  /set\s+search_path\s*=\s*(?![^;\r\n]*\$user)[a-z_][\w$]*(?:\s*,\s*[a-z_][\w$]*)*/i;
+  /set\s+search_path\s*=\s*(?:''|(?![^;\r\n]*\$user)[a-z_][\w$]*(?:\s*,\s*[a-z_][\w$]*)*)/i;
 const sqlByFile = Object.fromEntries(
   await Promise.all(
     migrationFiles.map(async (file) => [
