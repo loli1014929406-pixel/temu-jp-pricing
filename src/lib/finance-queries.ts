@@ -4,7 +4,7 @@ import type { FinanceOrderRow } from "../pages/finance/shared";
 
 export type FinanceLedgerRow = {
   date: string;
-  type: "订单回款" | "采购付款" | "其他费用";
+  type: "订单回款" | "采购付款" | "物流付款" | "其他费用";
   direction: "收入" | "支出";
   subject: string;
   amountRmb: number;

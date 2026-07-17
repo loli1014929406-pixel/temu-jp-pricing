@@ -12,6 +12,7 @@ import {
   getPurchaseTotalRmb,
 } from "./shared";
 import { useFinanceAnalysis } from "./use-finance-analysis";
+import { useFinanceLogisticsCash } from "./use-finance-logistics-cash";
 
 type Props = {
   user: User;
@@ -24,13 +25,13 @@ export function FinanceOverviewPage({ user }: Props) {
   });
   const analysis = useFinanceAnalysis({ page: 1, pageSize: 1 });
   const issues = useFinanceAnalysis({ page: 1, pageSize: 5, issue: "reconciliation" });
+  const logisticsCash = useFinanceLogisticsCash();
   const orderRows = issues.rows;
   const purchasePayment = useMemo(() => data.purchases.reduce((sum, row) => sum + getPurchaseTotalRmb(row), 0), [data.purchases]);
   const totals = {
     estimatedBillAmount: analysis.summary.bill,
     actualRevenueAmount: analysis.summary.actualRevenue,
     orderShippingFee: analysis.summary.shipping,
-    cashOrderShippingFee: analysis.summary.cashShipping,
     orderProductCost: analysis.summary.productCost,
     purchasePayment,
     missingShippingFeeCount: analysis.summary.missingShippingAttentionCount,
@@ -40,14 +41,14 @@ export function FinanceOverviewPage({ user }: Props) {
 
   const totalOtherExpenses = useMemo(() => expenses.reduce((sum, e) => sum + e.amount_rmb, 0), [expenses]);
   
-  const cashProfit = totals.actualRevenueAmount - totals.purchasePayment - totals.cashOrderShippingFee - totalOtherExpenses;
+  const actualCashNet = totals.actualRevenueAmount - totals.purchasePayment - logisticsCash.data.paidAmountRmb - totalOtherExpenses;
   const orderProfit = totals.actualRevenueAmount - totals.orderProductCost - totals.orderShippingFee - totalOtherExpenses;
-  const cashMarginRate = calculateMarginRate(cashProfit, totals.actualRevenueAmount);
+  const cashMarginRate = calculateMarginRate(actualCashNet, totals.actualRevenueAmount);
   
   const pendingReconciliations = orderRows;
-  const loading = baseLoading || analysis.loading || issues.loading;
-  const error = baseError || analysis.error || issues.error;
-  const reload = async () => { await Promise.all([reloadBase(), analysis.reload(), issues.reload()]); };
+  const loading = baseLoading || analysis.loading || issues.loading || logisticsCash.loading;
+  const error = baseError || analysis.error || issues.error || logisticsCash.error;
+  const reload = async () => { await Promise.all([reloadBase(), analysis.reload(), issues.reload(), logisticsCash.reload()]); };
 
   return (
     <section className="page-stack">
@@ -92,11 +93,11 @@ export function FinanceOverviewPage({ user }: Props) {
                 <p className="mt-2 text-xs text-slate-400 font-medium">含未结算订单估算</p>
               </div>
               <div className="rounded-2xl border border-line bg-white p-5 shadow-sm">
-                <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">结算口径利润率</div>
+                <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">实际现金净额率</div>
                 <div className={`text-3xl font-black tabular-nums ${cashMarginRate >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
                   {cashMarginRate.toFixed(1)}%
                 </div>
-                <p className="mt-2 text-xs text-slate-400 font-medium">已结算订单口径</p>
+                <p className="mt-2 text-xs text-slate-400 font-medium">已结算回款口径</p>
               </div>
             </div>
           </section>
@@ -112,12 +113,15 @@ export function FinanceOverviewPage({ user }: Props) {
             <div className="grid gap-4 md:grid-cols-2">
               <div className="rounded-2xl border border-line bg-white p-6 shadow-sm flex flex-col justify-center">
                 <div className="flex items-baseline gap-3 mb-2">
-                  <span className="text-sm font-bold text-slate-500">现金利润</span>
-                  <span className={`text-2xl font-black tabular-nums ${cashProfit >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
-                    {formatCurrency(cashProfit)}
+                  <span className="text-sm font-bold text-slate-500">实际现金净额</span>
+                  <span className={`text-2xl font-black tabular-nums ${actualCashNet >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                    {formatCurrency(actualCashNet)}
                   </span>
                 </div>
-                <p className="text-xs text-slate-400 font-medium">本期采购占用资金 {formatCurrency(totals.purchasePayment - totals.orderProductCost)} （当期付款 - 订单成本）</p>
+                <p className="text-xs text-slate-400 font-medium">
+                  已结算收入 {formatCurrency(totals.actualRevenueAmount)} · 采购已付 {formatCurrency(totals.purchasePayment)} · 物流已付 {formatCurrency(logisticsCash.data.paidAmountRmb)} · 其他支出 {formatCurrency(totalOtherExpenses)}
+                </p>
+                <p className="mt-1 text-xs font-semibold text-amber-600">物流待付 {formatCurrency(logisticsCash.data.outstandingAmountRmb)}</p>
               </div>
               
               <Link to="/finance/settlement" className="rounded-2xl border border-line bg-white p-6 shadow-sm flex flex-col justify-center hover:border-accent transition-colors group">
@@ -144,7 +148,7 @@ export function FinanceOverviewPage({ user }: Props) {
             
             <div className="rounded-2xl border border-line bg-white shadow-sm overflow-hidden">
               <div className="bg-slate-50 px-5 py-3 border-b border-slate-100 flex items-center gap-4">
-                 {totals.unmatchedCount === 0 && totals.missingShippingFeeCount === 0 ? (
+                 {totals.unmatchedCount === 0 && totals.missingShippingFeeCount === 0 && logisticsCash.data.outstandingAmountRmb <= 0 ? (
                     <span className="flex items-center gap-1.5 text-sm font-bold text-emerald-600"><CircleCheck size={16} />暂无待处理对账问题</span>
                  ) : (
                     <>
@@ -154,6 +158,11 @@ export function FinanceOverviewPage({ user }: Props) {
                       <Link to="/finance/settlement" className={`rounded-full px-3 py-1 text-xs font-bold flex items-center gap-1 transition-colors ${totals.missingShippingFeeCount > 0 ? "bg-amber-100 text-amber-700 hover:bg-amber-200" : "bg-emerald-100 text-emerald-700"}`}>
                         {totals.missingShippingFeeCount} 笔运费缺失 <ArrowRight size={14} />
                       </Link>
+                      {logisticsCash.data.outstandingAmountRmb > 0 && (
+                        <Link to="/finance/settlement" className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-700 transition-colors hover:bg-amber-200">
+                          物流待付款 {formatCurrency(logisticsCash.data.outstandingAmountRmb)} <ArrowRight size={14} className="inline" />
+                        </Link>
+                      )}
                     </>
                  )}
               </div>

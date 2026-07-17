@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from "react";
-import { AlertTriangle, Check, CheckCircle2, Search, Upload, X } from "lucide-react";
+import { AlertTriangle, Ban, Check, CheckCircle2, History, Search, Upload, WalletCards, X } from "lucide-react";
 import { StandardTable } from "../ui/StandardTable";
 import { readXlsxWorkbook } from "../../lib/tabular-parser";
 import {
@@ -9,13 +9,18 @@ import {
 } from "../../lib/actual-shipping-fee-parser";
 import {
   fetchActualShippingFeeReport,
+  fetchLogisticsPaymentRecords,
   importActualShippingFees,
   previewActualShippingFeeImport,
+  recordLogisticsPayment,
   updateActualShipTimeForShipment,
+  voidLogisticsPayment,
   type ActualShippingFeeImportPreview,
   type ActualShippingFeePreviewStatus,
   type ActualShippingFeeReport,
   type ActualShippingFeeReportRow,
+  type LogisticsPaymentRecord,
+  type LogisticsSettlementSummary,
 } from "../../lib/actual-shipping-fees";
 import { confirmAction, confirmSave } from "../../utils/confirmations";
 import { getErrorMessage } from "../../utils/errors";
@@ -35,7 +40,15 @@ type PendingImport = {
 const emptyReport: ActualShippingFeeReport = {
   rows: [],
   totalCount: 0,
-  summary: { shipmentCount: 0, totalAmountRmb: 0, missingActualShipTimeCount: 0 },
+  summary: {
+    shipmentCount: 0,
+    totalAmountRmb: 0,
+    missingActualShipTimeCount: 0,
+    payableAmountRmb: 0,
+    paidAmountRmb: 0,
+    outstandingAmountRmb: 0,
+    settlements: [],
+  },
   months: [],
 };
 
@@ -48,6 +61,24 @@ function formatPreciseRmb(value: number) {
 
 function carrierLabel(carrier: ActualShippingCarrier) {
   return carrier === "japan_post" ? "福冈仓日本邮便" : "苏州仓 OCS Yamato";
+}
+
+function getLocalDateTimeInputValue(date = new Date()) {
+  const offsetMs = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+}
+
+function formatPaymentTime(value: string) {
+  if (!value) return "--";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("zh-CN", { hour12: false });
+}
+
+function settlementStatusMeta(status: LogisticsSettlementSummary["status"]) {
+  if (status === "paid") return { label: "已结清", className: "bg-emerald-50 text-emerald-700" };
+  if (status === "partial") return { label: "部分付款", className: "bg-amber-50 text-amber-700" };
+  return { label: "未付款", className: "bg-slate-100 text-slate-600" };
 }
 
 function statusMeta(status: ActualShippingFeePreviewStatus) {
@@ -73,6 +104,16 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
   const [editingActualShipTimeId, setEditingActualShipTimeId] = useState<string | null>(null);
   const [editingActualShipTimeValue, setEditingActualShipTimeValue] = useState("");
   const [savingActualShipTimeId, setSavingActualShipTimeId] = useState<string | null>(null);
+  const [paymentTarget, setPaymentTarget] = useState<LogisticsSettlementSummary | null>(null);
+  const [paymentRecords, setPaymentRecords] = useState<LogisticsPaymentRecord[]>([]);
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [paymentDateTime, setPaymentDateTime] = useState(getLocalDateTimeInputValue);
+  const [paymentRemark, setPaymentRemark] = useState("");
+  const [paymentRequestKey, setPaymentRequestKey] = useState("");
+  const [loadingPayments, setLoadingPayments] = useState(false);
+  const [savingPayment, setSavingPayment] = useState(false);
+  const [voidingPaymentId, setVoidingPaymentId] = useState<string | null>(null);
+  const [voidReason, setVoidReason] = useState("");
 
   const loadReport = useCallback(async () => {
     setLoading(true);
@@ -192,6 +233,85 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
       notifyError(getErrorMessage(saveError, "补填实际发货时间失败"));
     } finally {
       setSavingActualShipTimeId(null);
+    }
+  }
+
+  async function openPaymentDialog(target: LogisticsSettlementSummary) {
+    setPaymentTarget(target);
+    setPaymentAmount(target.outstandingAmountRmb > 0 ? String(target.outstandingAmountRmb) : "");
+    setPaymentDateTime(getLocalDateTimeInputValue());
+    setPaymentRemark("");
+    setPaymentRequestKey(crypto.randomUUID());
+    setVoidReason("");
+    setLoadingPayments(true);
+    try {
+      setPaymentRecords(await fetchLogisticsPaymentRecords({
+        carrier: target.carrier,
+        shippingMonth: target.shippingMonth,
+      }));
+    } catch (paymentError) {
+      notifyError(getErrorMessage(paymentError, "加载物流付款记录失败"));
+      setPaymentRecords([]);
+    } finally {
+      setLoadingPayments(false);
+    }
+  }
+
+  async function handleRecordPayment() {
+    if (!paymentTarget) return;
+    const amount = Number(paymentAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      notifyWarning("请输入大于 0 的实付金额");
+      return;
+    }
+    if (amount > paymentTarget.outstandingAmountRmb) {
+      notifyWarning("实付金额不能超过当前待付金额");
+      return;
+    }
+    if (!paymentDateTime) {
+      notifyWarning("请选择实际付款时间");
+      return;
+    }
+    if (!await confirmSave(
+      `确认登记 ${carrierLabel(paymentTarget.carrier)} ${paymentTarget.shippingMonth} 发货月付款 ${formatPreciseRmb(amount)} 吗？`,
+    )) return;
+
+    setSavingPayment(true);
+    try {
+      await recordLogisticsPayment({
+        carrier: paymentTarget.carrier,
+        shippingMonth: paymentTarget.shippingMonth,
+        paidAmountRmb: amount,
+        paidAt: new Date(paymentDateTime).toISOString(),
+        remark: paymentRemark,
+        requestKey: paymentRequestKey || crypto.randomUUID(),
+      });
+      notifySuccess(`物流付款已登记：${formatPreciseRmb(amount)}。`);
+      setPaymentTarget(null);
+      await Promise.all([loadReport(), onImported()]);
+    } catch (paymentError) {
+      notifyError(getErrorMessage(paymentError, "登记物流付款失败"));
+    } finally {
+      setSavingPayment(false);
+    }
+  }
+
+  async function handleVoidPayment(payment: LogisticsPaymentRecord) {
+    if (!paymentTarget || !voidReason.trim()) {
+      notifyWarning("请先填写作废原因");
+      return;
+    }
+    if (!confirmAction(`确认作废这笔 ${formatPreciseRmb(payment.amountRmb)} 的物流付款吗？`)) return;
+    setVoidingPaymentId(payment.id);
+    try {
+      await voidLogisticsPayment(payment.id, voidReason);
+      notifySuccess("物流付款记录已作废，待付金额已恢复。");
+      setPaymentTarget(null);
+      await Promise.all([loadReport(), onImported()]);
+    } catch (voidError) {
+      notifyError(getErrorMessage(voidError, "作废物流付款失败"));
+    } finally {
+      setVoidingPaymentId(null);
     }
   }
 
@@ -326,22 +446,32 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
         </div>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-lg border border-slate-100 bg-slate-50/70 p-3">
           <div className="text-xs font-semibold text-slate-500">当前筛选物流单数</div>
           <div className="mt-1 text-lg font-bold text-slate-900">{report.summary.shipmentCount}</div>
         </div>
         <div className="rounded-lg border border-slate-100 bg-slate-50/70 p-3">
           <div className="text-xs font-semibold text-slate-500">应付实际尾程运费</div>
-          <div className="mt-1 text-lg font-bold text-emerald-700">{formatPreciseRmb(report.summary.totalAmountRmb)}</div>
+          <div className="mt-1 text-lg font-bold text-slate-900">{formatPreciseRmb(report.summary.payableAmountRmb)}</div>
         </div>
         <div className="rounded-lg border border-slate-100 bg-slate-50/70 p-3">
-          <div className="text-xs font-semibold text-slate-500">待补实际发货时间</div>
-          <div className={`mt-1 text-lg font-bold ${report.summary.missingActualShipTimeCount > 0 ? "text-amber-700" : "text-slate-900"}`}>
-            {report.summary.missingActualShipTimeCount}
+          <div className="text-xs font-semibold text-slate-500">已支付物流商</div>
+          <div className="mt-1 text-lg font-bold text-emerald-700">{formatPreciseRmb(report.summary.paidAmountRmb)}</div>
+        </div>
+        <div className="rounded-lg border border-slate-100 bg-slate-50/70 p-3">
+          <div className="text-xs font-semibold text-slate-500">待支付物流商</div>
+          <div className={`mt-1 text-lg font-bold ${report.summary.outstandingAmountRmb > 0 ? "text-amber-700" : "text-emerald-700"}`}>
+            {formatPreciseRmb(report.summary.outstandingAmountRmb)}
           </div>
         </div>
       </div>
+
+      {report.summary.missingActualShipTimeCount > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
+          当前筛选还有 {report.summary.missingActualShipTimeCount} 票待补实际发货时间，补齐后才能归入月份并结算。
+        </div>
+      )}
 
       <div className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-100 bg-slate-50/50 p-3">
         <label className="flex min-w-44 flex-col gap-1 text-xs font-semibold text-slate-600">
@@ -377,6 +507,58 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
           <button type="submit" className="btn-secondary h-9 px-3"><Search size={15} /> 搜索</button>
         </form>
       </div>
+
+      {month && month !== "__missing__" && report.summary.settlements.length > 0 && (
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+          <div className="flex items-center gap-2 border-b border-slate-100 bg-slate-50 px-4 py-3">
+            <WalletCards size={16} className="text-accent" />
+            <span className="text-sm font-bold text-slate-800">{month} 物流商付款状态</span>
+          </div>
+          <div className="divide-y divide-slate-100">
+            {report.summary.settlements.map((settlement) => {
+              const meta = settlementStatusMeta(settlement.status);
+              return (
+                <div key={`${settlement.carrier}-${settlement.shippingMonth}`} className="grid gap-3 px-4 py-4 lg:grid-cols-[1.4fr_repeat(4,minmax(110px,1fr))_auto] lg:items-center">
+                  <div>
+                    <div className="font-bold text-slate-800">{carrierLabel(settlement.carrier)}</div>
+                    <div className="mt-1 text-xs text-slate-500">{settlement.shipmentCount} 票 · 实际发货月 {settlement.shippingMonth}</div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] font-semibold text-slate-400">应付</div>
+                    <div className="mt-1 font-bold text-slate-800">{formatPreciseRmb(settlement.payableAmountRmb)}</div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] font-semibold text-slate-400">已付</div>
+                    <div className="mt-1 font-bold text-emerald-700">{formatPreciseRmb(settlement.paidAmountRmb)}</div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] font-semibold text-slate-400">待付</div>
+                    <div className="mt-1 font-bold text-amber-700">{formatPreciseRmb(settlement.outstandingAmountRmb)}</div>
+                  </div>
+                  <div>
+                    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${meta.className}`}>{meta.label}</span>
+                    {settlement.lastPaidAt && <div className="mt-1 text-[11px] text-slate-400">最近 {formatPaymentTime(settlement.lastPaidAt)}</div>}
+                  </div>
+                  <button
+                    type="button"
+                    className={settlement.status === "paid" ? "btn-secondary h-9 px-3 text-xs" : "btn-primary h-9 px-3 text-xs"}
+                    onClick={() => void openPaymentDialog(settlement)}
+                    disabled={!canEdit && settlement.paidAmountRmb <= 0}
+                  >
+                    {settlement.status === "paid" ? <><History size={15} /> 查看记录</> : settlement.status === "partial" ? <><WalletCards size={15} /> 继续付款</> : <><WalletCards size={15} /> 登记付款</>}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {(!month || month === "__missing__") && (
+        <div className="rounded-lg border border-sky-100 bg-sky-50/50 px-3 py-2 text-xs font-medium text-sky-700">
+          请选择一个具体的实际发货月份，系统会按物流商分别显示付款按钮。
+        </div>
+      )}
 
       {error && (
         <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
@@ -487,6 +669,130 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
           </>
         )}
       </StandardTable>
+
+      {paymentTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 p-4" role="dialog" aria-modal="true" aria-label="物流付款登记">
+          <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-2xl border border-slate-200 bg-white shadow-2xl">
+            <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-100 bg-white px-5 py-4">
+              <div>
+                <h4 className="text-base font-bold text-slate-900">物流商月结付款</h4>
+                <p className="mt-1 text-xs text-slate-500">
+                  {carrierLabel(paymentTarget.carrier)} · {paymentTarget.shippingMonth} 实际发货月 · {paymentTarget.shipmentCount}票
+                </p>
+              </div>
+              <button type="button" className="icon-btn h-8 w-8" onClick={() => setPaymentTarget(null)} disabled={savingPayment || Boolean(voidingPaymentId)} aria-label="关闭付款窗口">
+                <X size={17} />
+              </button>
+            </div>
+
+            <div className="space-y-5 p-5">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="rounded-lg bg-slate-50 p-3">
+                  <div className="text-xs font-semibold text-slate-500">应付金额</div>
+                  <div className="mt-1 text-lg font-bold text-slate-900">{formatPreciseRmb(paymentTarget.payableAmountRmb)}</div>
+                </div>
+                <div className="rounded-lg bg-emerald-50 p-3">
+                  <div className="text-xs font-semibold text-emerald-700">已付金额</div>
+                  <div className="mt-1 text-lg font-bold text-emerald-700">{formatPreciseRmb(paymentTarget.paidAmountRmb)}</div>
+                </div>
+                <div className="rounded-lg bg-amber-50 p-3">
+                  <div className="text-xs font-semibold text-amber-700">待付金额</div>
+                  <div className="mt-1 text-lg font-bold text-amber-700">{formatPreciseRmb(paymentTarget.outstandingAmountRmb)}</div>
+                </div>
+              </div>
+
+              {canEdit && paymentTarget.outstandingAmountRmb > 0 && (
+                <div className="rounded-xl border border-slate-200 p-4">
+                  <div className="mb-3 text-sm font-bold text-slate-800">登记本次付款</div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">
+                      本次实付金额
+                      <input
+                        type="number"
+                        min="0.001"
+                        step="0.001"
+                        max={paymentTarget.outstandingAmountRmb}
+                        value={paymentAmount}
+                        onChange={(event) => setPaymentAmount(event.target.value)}
+                        className="h-10 rounded-lg border border-line bg-white px-3 text-sm font-bold outline-none focus:border-accent"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">
+                      实际付款时间
+                      <input
+                        type="datetime-local"
+                        step="60"
+                        value={paymentDateTime}
+                        onChange={(event) => setPaymentDateTime(event.target.value)}
+                        className="h-10 rounded-lg border border-line bg-white px-3 text-sm outline-none focus:border-accent"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 text-xs font-semibold text-slate-600 sm:col-span-2">
+                      付款备注（选填）
+                      <input
+                        value={paymentRemark}
+                        onChange={(event) => setPaymentRemark(event.target.value)}
+                        placeholder="例如：银行转账、付款批次或凭证编号"
+                        className="h-10 rounded-lg border border-line bg-white px-3 text-sm outline-none focus:border-accent"
+                      />
+                    </label>
+                  </div>
+                  <div className="mt-4 flex justify-end">
+                    <button type="button" className="btn-primary" onClick={() => void handleRecordPayment()} disabled={savingPayment}>
+                      <WalletCards size={16} /> {savingPayment ? "登记中..." : "确认登记付款"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <div className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-800"><History size={16} />付款记录</div>
+                {loadingPayments ? (
+                  <div className="rounded-lg bg-slate-50 p-4 text-center text-sm text-slate-500">加载中...</div>
+                ) : paymentRecords.length === 0 ? (
+                  <div className="rounded-lg bg-slate-50 p-4 text-center text-sm text-slate-500">暂无付款记录</div>
+                ) : (
+                  <div className="space-y-2">
+                    {paymentRecords.map((payment) => (
+                      <div key={payment.id} className={`rounded-lg border p-3 ${payment.voidedAt ? "border-slate-200 bg-slate-50 opacity-70" : "border-slate-200 bg-white"}`}>
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <div className={`font-bold ${payment.voidedAt ? "text-slate-500 line-through" : "text-emerald-700"}`}>{formatPreciseRmb(payment.amountRmb)}</div>
+                            <div className="mt-1 text-xs text-slate-500">付款时间：{formatPaymentTime(payment.paidAt)}</div>
+                            {payment.remark && <div className="mt-1 text-xs text-slate-500">备注：{payment.remark}</div>}
+                            {payment.voidedAt && <div className="mt-1 text-xs font-semibold text-rose-600">已作废：{payment.voidReason}</div>}
+                          </div>
+                          {canEdit && !payment.voidedAt && (
+                            <button
+                              type="button"
+                              className="inline-flex items-center gap-1 text-xs font-bold text-rose-600 hover:text-rose-800"
+                              onClick={() => void handleVoidPayment(payment)}
+                              disabled={voidingPaymentId === payment.id}
+                            >
+                              <Ban size={14} /> {voidingPaymentId === payment.id ? "作废中..." : "作废"}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {canEdit && paymentRecords.some((payment) => !payment.voidedAt) && (
+                  <label className="mt-3 flex flex-col gap-1 text-xs font-semibold text-slate-600">
+                    作废原因（点击某条记录的“作废”前填写）
+                    <input
+                      value={voidReason}
+                      onChange={(event) => setVoidReason(event.target.value)}
+                      placeholder="必须填写，作废后记录仍会保留"
+                      className="h-9 rounded-lg border border-line bg-white px-3 text-sm outline-none focus:border-accent"
+                    />
+                  </label>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

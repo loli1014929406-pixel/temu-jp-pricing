@@ -88,6 +88,17 @@ const checks = [
       p_lines: [],
     },
   },
+  {
+    name: "record_logistics_payment",
+    args: {
+      p_carrier: "",
+      p_shipping_month: "2026-05",
+      p_paid_amount_rmb: 1,
+      p_paid_at: new Date().toISOString(),
+      p_remark: "",
+      p_request_key: "00000000-0000-0000-0000-000000000001",
+    },
+  },
 ];
 
 for (const check of checks) {

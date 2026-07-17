@@ -68,8 +68,42 @@ export type ActualShippingFeeReport = {
     shipmentCount: number;
     totalAmountRmb: number;
     missingActualShipTimeCount: number;
+    payableAmountRmb: number;
+    paidAmountRmb: number;
+    outstandingAmountRmb: number;
+    settlements: LogisticsSettlementSummary[];
   };
   months: ActualShippingFeeMonthSummary[];
+};
+
+export type LogisticsSettlementStatus = "unpaid" | "partial" | "paid";
+
+export type LogisticsSettlementSummary = {
+  carrier: ActualShippingCarrier;
+  shippingMonth: string;
+  shipmentCount: number;
+  payableAmountRmb: number;
+  paidAmountRmb: number;
+  outstandingAmountRmb: number;
+  lastPaidAt: string;
+  status: LogisticsSettlementStatus;
+};
+
+export type LogisticsPaymentRecord = {
+  id: string;
+  amountRmb: number;
+  paidAt: string;
+  remark: string;
+  voidedAt: string;
+  voidReason: string;
+  createdAt: string;
+};
+
+export type FinanceLogisticsCashSummary = {
+  payableAmountRmb: number;
+  paidAmountRmb: number;
+  outstandingAmountRmb: number;
+  monthly: Array<{ month: string; paidAmountRmb: number }>;
 };
 
 function numberValue(value: unknown) {
@@ -208,8 +242,117 @@ export async function fetchActualShippingFeeReport(options: {
       shipmentCount: numberValue(summary.shipmentCount),
       totalAmountRmb: numberValue(summary.totalAmountRmb),
       missingActualShipTimeCount: numberValue(summary.missingActualShipTimeCount),
+      payableAmountRmb: numberValue(summary.payableAmountRmb),
+      paidAmountRmb: numberValue(summary.paidAmountRmb),
+      outstandingAmountRmb: numberValue(summary.outstandingAmountRmb),
+      settlements: (Array.isArray(summary.settlements) ? summary.settlements : []).map((row) => {
+        const item = row as Record<string, unknown>;
+        return {
+          carrier: String(item.carrier ?? "japan_post") as ActualShippingCarrier,
+          shippingMonth: String(item.shippingMonth ?? ""),
+          shipmentCount: numberValue(item.shipmentCount),
+          payableAmountRmb: numberValue(item.payableAmountRmb),
+          paidAmountRmb: numberValue(item.paidAmountRmb),
+          outstandingAmountRmb: numberValue(item.outstandingAmountRmb),
+          lastPaidAt: String(item.lastPaidAt ?? ""),
+          status: String(item.status ?? "unpaid") as LogisticsSettlementStatus,
+        };
+      }),
     },
     months: parseMonthSummary(payload?.months),
+  };
+}
+
+export async function recordLogisticsPayment(options: {
+  carrier: ActualShippingCarrier;
+  shippingMonth: string;
+  paidAmountRmb: number;
+  paidAt: string;
+  remark: string;
+  requestKey: string;
+}) {
+  const { supabase } = await requireSession();
+  const { data, error } = await withTimeout(
+    supabase.rpc("record_logistics_payment", {
+      p_carrier: options.carrier,
+      p_shipping_month: options.shippingMonth,
+      p_paid_amount_rmb: options.paidAmountRmb,
+      p_paid_at: options.paidAt,
+      p_remark: options.remark.trim(),
+      p_request_key: options.requestKey,
+    }),
+    "登记物流付款",
+    { requestKind: "rpc" },
+  );
+  if (error) throw new Error(getStorageErrorMessage(error, "登记物流付款"));
+  return (data ?? {}) as Record<string, unknown>;
+}
+
+export async function fetchLogisticsPaymentRecords(options: {
+  carrier: ActualShippingCarrier;
+  shippingMonth: string;
+}): Promise<LogisticsPaymentRecord[]> {
+  const { supabase } = await requireSession();
+  const { data, error } = await withTimeout(
+    supabase.rpc("get_logistics_payment_records", {
+      p_carrier: options.carrier,
+      p_shipping_month: options.shippingMonth,
+    }),
+    "加载物流付款记录",
+    { requestKind: "rpc" },
+  );
+  if (error) throw new Error(getStorageErrorMessage(error, "加载物流付款记录"));
+  const rows = Array.isArray(data) ? data : [];
+  return rows.map((row) => {
+    const item = row as Record<string, unknown>;
+    return {
+      id: String(item.id ?? ""),
+      amountRmb: numberValue(item.amountRmb),
+      paidAt: String(item.paidAt ?? ""),
+      remark: String(item.remark ?? ""),
+      voidedAt: String(item.voidedAt ?? ""),
+      voidReason: String(item.voidReason ?? ""),
+      createdAt: String(item.createdAt ?? ""),
+    };
+  });
+}
+
+export async function voidLogisticsPayment(paymentId: string, reason: string) {
+  const { supabase } = await requireSession();
+  const { data, error } = await withTimeout(
+    supabase.rpc("void_logistics_payment", {
+      p_payment_id: paymentId,
+      p_reason: reason.trim(),
+    }),
+    "作废物流付款",
+    { requestKind: "rpc" },
+  );
+  if (error) throw new Error(getStorageErrorMessage(error, "作废物流付款"));
+  return (data ?? {}) as Record<string, unknown>;
+}
+
+export async function fetchFinanceLogisticsCashSummary(): Promise<FinanceLogisticsCashSummary> {
+  const { supabase } = await requireSession();
+  const { data, error } = await withTimeout(
+    supabase.rpc("get_finance_logistics_cash_summary"),
+    "加载物流现金汇总",
+    { requestKind: "rpc" },
+  );
+  if (error) throw new Error(getStorageErrorMessage(error, "加载物流现金汇总"));
+  const payload = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null;
+  const summary = (payload?.summary ?? {}) as Record<string, unknown>;
+  const monthly = Array.isArray(payload?.monthly) ? payload.monthly : [];
+  return {
+    payableAmountRmb: numberValue(summary.payableAmountRmb),
+    paidAmountRmb: numberValue(summary.paidAmountRmb),
+    outstandingAmountRmb: numberValue(summary.outstandingAmountRmb),
+    monthly: monthly.map((row) => {
+      const item = row as Record<string, unknown>;
+      return {
+        month: String(item.month ?? ""),
+        paidAmountRmb: numberValue(item.paidAmountRmb),
+      };
+    }),
   };
 }
 

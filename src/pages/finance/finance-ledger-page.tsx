@@ -24,7 +24,7 @@ const ledgerTableColumns = [
 ] as const;
 
 export function FinanceLedgerPage({ user }: Props) {
-  const [activeTab, setActiveTab] = useState<"all" | "订单回款" | "采购付款" | "其他费用">("all");
+  const [activeTab, setActiveTab] = useState<"all" | FinanceLedgerRow["type"]>("all");
   const [cashflowMonth, setCashflowMonth] = useState<string>("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -114,6 +114,14 @@ export function FinanceLedgerPage({ user }: Props) {
           }`}
         >
           采购付款
+        </button>
+        <button
+          onClick={() => { setActiveTab("物流付款"); setPage(1); }}
+          className={`pb-3 text-sm font-bold transition-colors ${
+            activeTab === "物流付款" ? "border-b-2 border-accent text-accentDeep" : "text-slate-500 hover:text-slate-800"
+          }`}
+        >
+          物流付款
         </button>
         <button
           onClick={() => { setActiveTab("其他费用"); setPage(1); }}

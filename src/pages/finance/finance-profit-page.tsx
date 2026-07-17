@@ -32,6 +32,7 @@ import { useFinanceAnalysis } from "./use-finance-analysis";
 import { buildSettlementLookup } from "../../lib/settlement";
 import { normalizeLogisticsMethodName } from "../../lib/logistics-methods";
 import { TABLE_COLUMN_WIDTH } from "../../components/ui/table-layout";
+import { useFinanceLogisticsCash } from "./use-finance-logistics-cash";
 
 type Props = {
   user: User;
@@ -47,7 +48,7 @@ const profitChartSeries: Array<{
   label: string;
   color: string;
 }> = [
-  { key: "cashProfit", label: "结算口径现金利润", color: "#6366f1" },
+  { key: "cashProfit", label: "实际现金净额", color: "#6366f1" },
   { key: "orderProfit", label: "发货口径利润", color: "#10b981" },
 ];
 
@@ -265,9 +266,10 @@ export function FinanceProfitPage({ user }: Props) {
     dateStart: period.mode === "all" ? "" : period.start,
     dateEnd: period.mode === "all" ? "" : period.end,
   });
-  const loading = baseLoading || analysis.loading;
-  const error = baseError || analysis.error;
-  const reload = async () => { await Promise.all([reloadBase(), analysis.reload()]); };
+  const logisticsCash = useFinanceLogisticsCash();
+  const loading = baseLoading || analysis.loading || logisticsCash.loading;
+  const error = baseError || analysis.error || logisticsCash.error;
+  const reload = async () => { await Promise.all([reloadBase(), analysis.reload(), logisticsCash.reload()]); };
 
   // Monthly Profit Logic
   const legacyMonthlyRows = useMemo(() => {
@@ -457,7 +459,7 @@ export function FinanceProfitPage({ user }: Props) {
   const monthlyRows = useMemo(() => {
     const rows = new Map<string, any>();
     const ensure = (month: string) => {
-      if (!rows.has(month)) rows.set(month, { month, settledIncome: 0, estimatedIncome: 0, purchase: 0, productCost: 0, shipping: 0, cashShipping: 0, otherExpense: 0 });
+      if (!rows.has(month)) rows.set(month, { month, settledIncome: 0, estimatedIncome: 0, purchase: 0, productCost: 0, shipping: 0, cashShipping: 0, logisticsPaid: 0, otherExpense: 0 });
       return rows.get(month)!;
     };
     analysis.monthly.forEach((raw) => {
@@ -477,15 +479,20 @@ export function FinanceProfitPage({ user }: Props) {
       if (period.mode !== "all" && !isDateInPeriod(expense.expense_date, period)) return;
       ensure(getMonthKey(expense.expense_date)).otherExpense += expense.amount_rmb;
     });
+    logisticsCash.data.monthly.forEach((payment) => {
+      const paymentDate = `${payment.month}-01`;
+      if (period.mode !== "all" && !isDateInPeriod(paymentDate, period)) return;
+      ensure(payment.month).logisticsPaid += payment.paidAmountRmb;
+    });
     return Array.from(rows.values()).sort((a, b) => b.month.localeCompare(a.month)).map((row) => ({
       ...row,
       settledIncome: roundMoney(row.settledIncome), estimatedIncome: roundMoney(row.estimatedIncome),
       purchase: roundMoney(row.purchase), productCost: roundMoney(row.productCost), shipping: roundMoney(row.shipping),
-      cashShipping: roundMoney(row.cashShipping), otherExpense: roundMoney(row.otherExpense),
-      cashProfit: roundMoney(row.settledIncome - row.purchase - row.cashShipping - row.otherExpense),
+      cashShipping: roundMoney(row.cashShipping), logisticsPaid: roundMoney(row.logisticsPaid), otherExpense: roundMoney(row.otherExpense),
+      cashProfit: roundMoney(row.settledIncome - row.purchase - row.logisticsPaid - row.otherExpense),
       orderProfit: roundMoney(row.estimatedIncome - row.productCost - row.shipping - row.otherExpense),
     }));
-  }, [analysis.monthly, data.purchases, expenses, period]);
+  }, [analysis.monthly, data.purchases, expenses, logisticsCash.data.monthly, period]);
 
   const shippingMethodRows = useMemo<ShippingMethodRow[]>(() => {
     const merged = new Map<string, Omit<ShippingMethodRow, "averagePerOrder" | "averagePerItem">>();
@@ -688,7 +695,7 @@ export function FinanceProfitPage({ user }: Props) {
               <TrendingUp size={16} className="text-accent" />
               <span>{title}</span>
             </h4>
-            <p className="mt-1 text-xs text-slate-400">柱子低于 0 轴即为亏损，颜色仍对应原利润口径。</p>
+            <p className="mt-1 text-xs text-slate-400">现金净额按实际物流付款计算；发货利润仍按核算运费成本计算。</p>
           </div>
           <div className="flex flex-wrap items-center gap-4 text-xs font-semibold">
             {profitChartSeries.map((series) => (
@@ -702,11 +709,11 @@ export function FinanceProfitPage({ user }: Props) {
 
         <div className="mt-4 grid border-y border-slate-100 sm:grid-cols-2 sm:divide-x sm:divide-slate-100">
           <div className="py-3 sm:pr-4">
-            <div className="text-xs font-semibold text-slate-500">结算口径现金利润</div>
+            <div className="text-xs font-semibold text-slate-500">实际现金净额</div>
             <div className={`mt-1 text-xl font-bold ${getSignedAmountClass(latest.cashProfit)}`}>
               {formatCurrency(latest.cashProfit)}
             </div>
-            <div className="mt-1 text-xs text-slate-400">利润率 {latestCashMargin.toFixed(2)}%</div>
+            <div className="mt-1 text-xs text-slate-400">净额率 {latestCashMargin.toFixed(2)}%</div>
           </div>
           <div className="border-t border-slate-100 py-3 sm:border-t-0 sm:pl-4">
             <div className="text-xs font-semibold text-slate-500">发货口径利润</div>
@@ -746,6 +753,8 @@ export function FinanceProfitPage({ user }: Props) {
                     const revenue = series.key === "cashProfit" ? d.settledIncome : d.estimatedIncome;
                     const primaryCost = series.key === "cashProfit" ? d.purchase : d.productCost;
                     const primaryCostLabel = series.key === "cashProfit" ? "当月采购付款" : "订单商品成本";
+                    const shippingCost = series.key === "cashProfit" ? d.logisticsPaid : d.shipping;
+                    const shippingCostLabel = series.key === "cashProfit" ? "实际物流付款" : "核算运费成本";
                     const valueY = yForValue(value);
                     const barHeight = Math.abs(valueY - y0);
                     const barY = Math.min(valueY, y0);
@@ -769,7 +778,7 @@ export function FinanceProfitPage({ user }: Props) {
                           <title>{`${d.month} ${series.label}: ${formatCurrency(value)}
 收入: ${formatCurrency(revenue)}
 ${primaryCostLabel}: ${formatCurrency(primaryCost)}
-核算运费支出: ${formatCurrency(d.shipping)}
+${shippingCostLabel}: ${formatCurrency(shippingCost)}
 其他杂项费用: ${formatCurrency(d.otherExpense)}`}</title>
                         </rect>
                         <text
@@ -992,13 +1001,14 @@ ${primaryCostLabel}: ${formatCurrency(primaryCost)}
                       </th>
                       <th className="number-cell bg-slate-50 px-3 py-2">当月采购付款 (-)</th>
                       <th className="number-cell bg-slate-50 px-3 py-2">订单商品成本 (-)</th>
-                      <th className="number-cell bg-slate-50 px-3 py-2">核算运费支出 (-)</th>
+                      <th className="number-cell bg-slate-50 px-3 py-2" title="按实际发货月确认，包含已导入真实运费或缺失时的预估运费。">核算运费成本 (-)</th>
+                      <th className="number-cell bg-slate-50 px-3 py-2" title="仅统计已经登记付款的物流商月结款，按实际付款月份归入现金支出。">实际物流付款 (-)</th>
                       <th className="number-cell bg-slate-50 px-3 py-2">其他杂项费用 (-)</th>
-                      <th className="number-cell px-3 py-2" title="仅统计已导入结算文件匹配到的订单的(实际回款 - 采购 - 运费 - 杂费)">结算口径现金利润</th>
+                      <th className="number-cell px-3 py-2" title="实际结算回款 - 采购付款 - 实际物流付款 - 其他费用">实际现金净额</th>
                       <th className="number-cell px-3 py-2" title="所有已发出订单的(估算回款 - 商品成本 - 运费 - 杂费)">
                         发货口径利润
                       </th>
-                      <th className="number-cell px-3 py-2">结算口径现金利润率</th>
+                      <th className="number-cell px-3 py-2">实际现金净额率</th>
                       <th className="number-cell px-3 py-2">发货口径利润率</th>
                     </tr>
                   </thead>
@@ -1016,6 +1026,7 @@ ${primaryCostLabel}: ${formatCurrency(primaryCost)}
                           <td className="money text-rose-700 px-3 py-2">{formatCurrency(row.purchase)}</td>
                           <td className="money text-slate-700 px-3 py-2">{formatCurrency(row.productCost)}</td>
                           <td className="money text-slate-700 px-3 py-2">{formatCurrency(row.shipping)}</td>
+                          <td className="money text-rose-700 px-3 py-2">{formatCurrency(row.logisticsPaid)}</td>
                           <td className="money text-slate-700 px-3 py-2">{formatCurrency(row.otherExpense)}</td>
                           <td className={`money ${cashClass} px-3 py-2`}>{formatCurrency(row.cashProfit)}</td>
                           <td className={`money ${orderClass} px-3 py-2`}>{formatCurrency(row.orderProfit)}</td>
