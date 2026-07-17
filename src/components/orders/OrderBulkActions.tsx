@@ -16,6 +16,7 @@ type OrderBulkActionsProps = {
   busyKey: string;
   canDelete: boolean;
   canEdit: boolean;
+  canSaveSelectedOrders: boolean;
   selectedOrderLineInViewCount: number;
   selectedInViewCount: number;
   selectedNewOrderRowCount: number;
@@ -56,6 +57,7 @@ export function OrderBulkActions({
   busyKey,
   canDelete,
   canEdit,
+  canSaveSelectedOrders,
   selectedOrderLineInViewCount,
   selectedInViewCount,
   selectedNewOrderRowCount,
@@ -154,7 +156,7 @@ export function OrderBulkActions({
                 创建补发
               </button>
             )}
-            {canEdit && (
+            {canEdit && canSaveSelectedOrders && (
               <button
                 type="button"
                 disabled={busyKey === "save-selected"}

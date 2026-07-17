@@ -2772,6 +2772,9 @@ export function OrdersPage({ user }: OrdersPageProps) {
           busyKey={busyKey}
           canDelete={canDelete}
           canEdit={canEdit}
+          canSaveSelectedOrders={selectedOrdersInView.some(
+            (order) => getOrderStage(order) === "pending_assignment",
+          )}
           selectedOrderLineInViewCount={selectedOrderLineInViewCount}
           selectedInViewCount={selectedInViewCount}
           selectedNewOrderRowCount={selectedNewOrderRowCount}
