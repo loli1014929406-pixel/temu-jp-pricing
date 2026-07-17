@@ -213,3 +213,34 @@ export async function fetchActualShippingFeeReport(options: {
   };
 }
 
+export async function updateActualShipTimeForShipment(options: {
+  trackingNo: string;
+  orderNo: string;
+  actualShipTime: string;
+}) {
+  const trackingNo = options.trackingNo.trim();
+  const orderNo = options.orderNo.trim();
+  const actualShipTime = options.actualShipTime.trim();
+  if (!trackingNo || !orderNo || !actualShipTime) {
+    throw new Error("物流单号、订单号和实际发货时间不能为空");
+  }
+
+  const { supabase } = await requireSession();
+  const { data, error } = await withTimeout(
+    supabase
+      .from("temu_orders")
+      .update({ actual_ship_time: actualShipTime })
+      .eq("logistics_tracking_no", trackingNo)
+      .eq("order_no", orderNo)
+      .select("id"),
+    "补填实际发货时间",
+    { requestKind: "supabase" },
+  );
+  if (error) throw error;
+
+  const updatedCount = Array.isArray(data) ? data.length : 0;
+  if (updatedCount === 0) {
+    throw new Error("未找到与该物流单号和订单号匹配的订单明细");
+  }
+  return updatedCount;
+}

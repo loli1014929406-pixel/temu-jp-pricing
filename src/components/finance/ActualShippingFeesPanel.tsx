@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from "react";
-import { AlertTriangle, CheckCircle2, Search, Upload, X } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, Search, Upload, X } from "lucide-react";
 import { StandardTable } from "../ui/StandardTable";
 import { readXlsxWorkbook } from "../../lib/tabular-parser";
 import {
@@ -11,11 +11,13 @@ import {
   fetchActualShippingFeeReport,
   importActualShippingFees,
   previewActualShippingFeeImport,
+  updateActualShipTimeForShipment,
   type ActualShippingFeeImportPreview,
   type ActualShippingFeePreviewStatus,
   type ActualShippingFeeReport,
+  type ActualShippingFeeReportRow,
 } from "../../lib/actual-shipping-fees";
-import { confirmAction } from "../../utils/confirmations";
+import { confirmAction, confirmSave } from "../../utils/confirmations";
 import { getErrorMessage } from "../../utils/errors";
 import { notifyError, notifySuccess, notifyWarning } from "../../lib/notifications";
 
@@ -68,6 +70,9 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
   const [parsing, setParsing] = useState(false);
   const [importing, setImporting] = useState(false);
   const [pendingImport, setPendingImport] = useState<PendingImport | null>(null);
+  const [editingActualShipTimeId, setEditingActualShipTimeId] = useState<string | null>(null);
+  const [editingActualShipTimeValue, setEditingActualShipTimeValue] = useState("");
+  const [savingActualShipTimeId, setSavingActualShipTimeId] = useState<string | null>(null);
 
   const loadReport = useCallback(async () => {
     setLoading(true);
@@ -75,9 +80,11 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
     try {
       const nextReport = await fetchActualShippingFeeReport({ page, pageSize, month, carrier, search });
       setReport(nextReport);
+      return nextReport;
     } catch (loadError) {
       setError(getErrorMessage(loadError, "加载实际运费月结失败"));
       setReport(emptyReport);
+      return null;
     } finally {
       setLoading(false);
     }
@@ -155,6 +162,36 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
       notifyError(getErrorMessage(importError, "导入实际运费失败"));
     } finally {
       setImporting(false);
+    }
+  }
+
+  async function handleSaveActualShipTime(row: ActualShippingFeeReportRow) {
+    const actualShipTime = editingActualShipTimeValue.trim().replace("T", " ");
+    if (!actualShipTime) {
+      notifyWarning("请选择实际发货时间");
+      return;
+    }
+    if (!await confirmSave(`确认将订单 ${row.orderNo} 的实际发货时间补填为 ${actualShipTime} 吗？`)) return;
+
+    setSavingActualShipTimeId(row.id);
+    try {
+      const updatedCount = await updateActualShipTimeForShipment({
+        trackingNo: row.trackingNo,
+        orderNo: row.orderNo,
+        actualShipTime,
+      });
+      setEditingActualShipTimeId(null);
+      setEditingActualShipTimeValue("");
+      notifySuccess(`实际发货时间已补填，共更新 ${updatedCount} 条订单明细。`);
+      const [nextReport] = await Promise.all([loadReport(), onImported()]);
+      if (month === "__missing__" && nextReport?.totalCount === 0) {
+        setMonth("");
+        setPage(1);
+      }
+    } catch (saveError) {
+      notifyError(getErrorMessage(saveError, "补填实际发货时间失败"));
+    } finally {
+      setSavingActualShipTimeId(null);
     }
   }
 
@@ -380,7 +417,68 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
                   <td className="font-semibold text-slate-700">{carrierLabel(row.carrier)}</td>
                   <td className="font-mono text-xs font-semibold text-slate-700">{row.trackingNo}</td>
                   <td className="font-mono text-xs text-slate-600">{row.orderNo || "--"}</td>
-                  <td className="text-xs text-slate-500">{row.actualShipTime || "待补实际发货时间"}</td>
+                  <td className="text-xs text-slate-500">
+                    {editingActualShipTimeId === row.id ? (
+                      <div className="flex min-w-64 items-center gap-1.5">
+                        <input
+                          type="datetime-local"
+                          step="60"
+                          value={editingActualShipTimeValue}
+                          onInput={(event) => setEditingActualShipTimeValue(event.currentTarget.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") void handleSaveActualShipTime(row);
+                            if (event.key === "Escape") {
+                              setEditingActualShipTimeId(null);
+                              setEditingActualShipTimeValue("");
+                            }
+                          }}
+                          disabled={savingActualShipTimeId === row.id}
+                          className="h-8 min-w-48 rounded-md border border-line bg-white px-2 text-xs font-semibold text-slate-700 outline-none focus:border-accent"
+                          aria-label={`补填 ${row.trackingNo} 的实际发货时间`}
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          className="icon-btn h-8 w-8 text-emerald-600"
+                          onClick={() => void handleSaveActualShipTime(row)}
+                          disabled={savingActualShipTimeId === row.id || !editingActualShipTimeValue}
+                          aria-label={`保存 ${row.trackingNo} 的实际发货时间`}
+                        >
+                          <Check size={15} />
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-btn h-8 w-8 text-slate-400"
+                          onClick={() => {
+                            setEditingActualShipTimeId(null);
+                            setEditingActualShipTimeValue("");
+                          }}
+                          disabled={savingActualShipTimeId === row.id}
+                          aria-label={`取消补填 ${row.trackingNo} 的实际发货时间`}
+                        >
+                          <X size={15} />
+                        </button>
+                      </div>
+                    ) : row.actualShipTime ? (
+                      row.actualShipTime
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-amber-700">待补实际发货时间</span>
+                        {canEdit && (
+                          <button
+                            type="button"
+                            className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-bold text-amber-700 hover:bg-amber-100"
+                            onClick={() => {
+                              setEditingActualShipTimeId(row.id);
+                              setEditingActualShipTimeValue("");
+                            }}
+                          >
+                            补填
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </td>
                   <td className="number-cell px-3 py-2 font-bold text-emerald-700">{formatPreciseRmb(row.amountRmb)}</td>
                   <td className="max-w-64 truncate text-xs text-slate-500" title={row.sourceFileName}>{row.sourceFileName}</td>
                 </tr>
