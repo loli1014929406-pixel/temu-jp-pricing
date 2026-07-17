@@ -843,7 +843,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
             <Link
               to="/inventory"
               className={`inline-flex h-10 items-center rounded-lg border px-4 text-sm font-semibold transition ${!warehouseSlug
-                ? "border-violet-200 bg-violet-50 text-violet-700"
+                ? "border-[#b4e8cc] bg-[#eaf8f0] text-[#0c5132]"
                 : "border-line bg-white text-slate-700 hover:bg-slate-50"
                 }`}
             >
@@ -856,7 +856,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                   key={warehouse.id}
                   to={`/inventory/${getWarehouseRouteSlug(warehouse)}`}
                   className={`inline-flex h-10 items-center rounded-lg border px-4 text-sm font-semibold transition ${isActive
-                    ? "border-violet-200 bg-violet-50 text-violet-700"
+                    ? "border-[#b4e8cc] bg-[#eaf8f0] text-[#0c5132]"
                     : "border-line bg-white text-slate-700 hover:bg-slate-50"
                     }`}
                 >
@@ -875,7 +875,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
               <div className="text-sm font-medium text-slate-500">仓库总数</div>
               <div className="mt-1 text-2xl font-bold text-ink">{warehouses.length} 个</div>
             </div>
-            <div className="rounded-full bg-violet-50 p-3 text-violet-600">
+            <div className="rounded-lg bg-[#eaf8f0] p-3 text-[#29845a]">
               <MapPin size={24} />
             </div>
           </div>
@@ -929,7 +929,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                     <div>
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2.5">
-                          <div className="rounded-lg bg-violet-50 p-2 text-violet-600">
+                          <div className="rounded-lg bg-[#eaf8f0] p-2 text-[#29845a]">
                             <MapPin size={20} />
                           </div>
                           <h3 className="text-lg font-bold text-ink">{warehouse.name}</h3>
@@ -939,7 +939,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                             type="button"
                             onClick={() => setEditingWarehouseId(editingWarehouseId === warehouse.id ? null : warehouse.id)}
                             className={`p-2 rounded-lg border transition ${editingWarehouseId === warehouse.id
-                              ? "bg-violet-50 text-violet-600 border-violet-200"
+                              ? "border-[#b4e8cc] bg-[#eaf8f0] text-[#0c5132]"
                               : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
                               }`}
                             title="仓库属性设置"
@@ -979,13 +979,13 @@ export function InventoryPage({ user }: InventoryPageProps) {
                             </div>
                           </div>
                           <div className="flex items-start gap-2">
-                            <span className="text-[10px] uppercase font-bold text-violet-600 bg-violet-50 border border-violet-100 rounded px-1.5 py-0.5 mt-0.5 shrink-0">尾程</span>
+                            <span className="mt-0.5 shrink-0 rounded border border-[#b4e8cc] bg-[#eaf8f0] px-1.5 py-0.5 text-[10px] font-bold uppercase text-[#0c5132]">尾程</span>
                             <div className="flex flex-wrap gap-1.5">
                               {lastLegs.length === 0 ? (
                                 <span className="text-xs text-slate-400">未设置尾程</span>
                               ) : (
                                 lastLegs.map((name) => (
-                                  <span key={name} className="inline-flex items-center gap-1 rounded bg-violet-50 border border-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700">
+                                  <span key={name} className="inline-flex items-center gap-1 rounded border border-[#b4e8cc] bg-[#eaf8f0] px-2 py-0.5 text-xs font-medium text-[#0c5132]">
                                     <Truck size={12} />
                                     {name}
                                   </span>
@@ -1086,8 +1086,8 @@ export function InventoryPage({ user }: InventoryPageProps) {
                           </div>
 
                           <div className="grid gap-2">
-                            <div className="text-xs font-semibold text-violet-800 flex items-center gap-1.5">
-                              <span className="h-1.5 w-1.5 rounded-full bg-violet-500"></span>
+                            <div className="flex items-center gap-1.5 text-xs font-semibold text-[#0c5132]">
+                              <span className="h-1.5 w-1.5 rounded-full bg-[#29845a]"></span>
                               可用尾程物流 (Last Leg)
                             </div>
                             {settingsLastLegs.length === 0 ? (
@@ -1106,7 +1106,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                     <label
                                       key={config.name}
                                       className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium cursor-pointer transition select-none ${checked
-                                        ? "border-violet-200 bg-violet-50 text-violet-700"
+                                        ? "border-[#b4e8cc] bg-[#eaf8f0] text-[#0c5132]"
                                         : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
                                         }`}
                                     >
@@ -1124,7 +1124,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                             event.target.checked,
                                           )
                                         }
-                                        className="h-3.5 w-3.5 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                                        className="h-3.5 w-3.5 rounded border-slate-300 text-[#303030] focus:ring-[#303030]"
                                       />
                                       {config.name}
                                     </label>
@@ -1189,7 +1189,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                           {firstLegs.length} 个
                         </div>
                       </div>
-                      <div className="rounded-full bg-indigo-50 p-3 text-indigo-600">
+                      <div className="rounded-lg bg-[#eaf4ff] p-3 text-[#0b4f80]">
                         <Truck size={24} />
                       </div>
                     </div>
@@ -1200,7 +1200,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                           {lastLegs.length} 个
                         </div>
                       </div>
-                      <div className="rounded-full bg-violet-50 p-3 text-violet-600">
+                      <div className="rounded-lg bg-[#eaf8f0] p-3 text-[#29845a]">
                         <Truck size={24} />
                       </div>
                     </div>
@@ -1214,7 +1214,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                           type="button"
                           onClick={() => setShowWarehouseSettings(!showWarehouseSettings)}
                           className={`inline-flex h-10 items-center gap-2 rounded-xl border px-4 text-sm font-semibold transition ${showWarehouseSettings
-                            ? "border-violet-200 bg-violet-50 text-violet-700"
+                            ? "border-[#b4e8cc] bg-[#eaf8f0] text-[#0c5132]"
                             : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
                             }`}
                         >
@@ -1342,8 +1342,8 @@ export function InventoryPage({ user }: InventoryPageProps) {
 
                           {/* Last Leg */}
                           <div className="grid gap-2">
-                            <div className="text-sm font-semibold text-violet-800 flex items-center gap-1.5">
-                              <span className="h-2 w-2 rounded-full bg-violet-500"></span>
+                            <div className="flex items-center gap-1.5 text-sm font-semibold text-[#0c5132]">
+                              <span className="h-2 w-2 rounded-full bg-[#29845a]"></span>
                               可用尾程物流 (Last Leg)
                             </div>
                             {settingsLastLegs.length === 0 ? (
@@ -1362,7 +1362,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                     <label
                                       key={config.name}
                                       className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-medium cursor-pointer transition select-none ${checked
-                                        ? "border-violet-200 bg-violet-50 text-violet-700"
+                                        ? "border-[#b4e8cc] bg-[#eaf8f0] text-[#0c5132]"
                                         : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
                                         }`}
                                     >
@@ -1380,7 +1380,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                             event.target.checked,
                                           )
                                         }
-                                        className="h-3.5 w-3.5 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                                        className="h-3.5 w-3.5 rounded border-slate-300 text-[#303030] focus:ring-[#303030]"
                                       />
                                       {config.name}
                                     </label>
@@ -1432,8 +1432,8 @@ export function InventoryPage({ user }: InventoryPageProps) {
                           }}
                           loading={warehousePageLoading[warehouse.id] ?? false}
                           columns={inventoryTableColumns}
-                          layout="fixed"
-                          minWidth="min-w-[980px]"
+                          layout="auto"
+                          minWidth="min-w-max"
                           tableClassName="inventory-stock-table"
                         >
                           <thead>
@@ -1582,7 +1582,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                           type="button"
                                           onClick={() => handleToggleSkuDetails(item)}
                                           className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition ${expandedSkuIds[item.id]
-                                            ? "border-violet-200 bg-violet-50 text-violet-700"
+                                            ? "border-[#b4e8cc] bg-[#eaf8f0] text-[#0c5132]"
                                             : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
                                             }`}
                                         >

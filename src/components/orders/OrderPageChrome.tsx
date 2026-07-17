@@ -87,9 +87,9 @@ export function OrderDataHeader({
   onRefreshTracking,
 }: OrderDataHeaderProps) {
   return (
-    <div className="grid gap-3 border-b border-slate-100 pb-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
+    <div className="grid gap-3 border-b border-[#e3e3e3] pb-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
       <div className="flex min-w-0 flex-wrap items-center gap-3">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#f1f1f1] text-[#616161]">
           <FileSpreadsheet size={18} />
         </span>
         <div className="min-w-0">

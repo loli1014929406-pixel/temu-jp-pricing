@@ -7,7 +7,6 @@ import {
   Save,
   Sparkles,
   Trash2,
-  Truck,
   X,
 } from "lucide-react";
 import type { Warehouse } from "../../types";
@@ -95,7 +94,7 @@ export function OrderBulkActions({
     <>
       {selectedOrderLineInViewCount > 0 && (
         <div className="grid gap-3 rounded-xl border border-accentSoft bg-accentSoft/50 p-3 lg:grid-cols-[auto_minmax(0,1fr)] lg:items-center">
-          <span className="inline-flex h-9 w-fit items-center rounded-lg bg-white px-3 text-sm font-semibold text-slate-900 ring-1 ring-violet-100">
+          <span className="inline-flex h-9 w-fit items-center rounded-lg bg-white px-3 text-sm font-semibold text-[#303030] ring-1 ring-[#d4d4d4]">
             已选 {selectedInViewCount || selectedOrderLineInViewCount}
             {selectedInViewCount > 0 ? " 行" : " 条明细"}
             {selectedInViewCount > 0 && selectedOrderLineInViewCount !== selectedInViewCount
@@ -129,7 +128,7 @@ export function OrderBulkActions({
                   onClick={onMoveNewOrdersToPendingShipping}
                   className="btn-secondary h-9 px-3"
                 >
-                  <Truck size={16} />
+                  <ArrowRight size={16} />
                   转到待发货（{selectedNewOrderRowCount}）
                 </button>
               </>

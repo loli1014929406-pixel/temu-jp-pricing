@@ -12,6 +12,7 @@ import type { FinanceExpense } from "../../types";
 import { confirmAction, confirmCancelEdit, confirmDelete, confirmSave } from "../../utils/confirmations";
 import { getErrorMessage } from "../../utils/errors";
 import { notifyError, notifySuccess, notifyWarning } from "../../lib/notifications";
+import { TABLE_COLUMN_WIDTH } from "../../components/ui/table-layout";
 
 type Props = {
   user: User;
@@ -49,11 +50,11 @@ const categoryLabels: Record<FinanceExpense["category"], string> = {
 };
 
 const expenseTableColumns = [
-  { key: "date", width: "8rem" },
-  { key: "category", width: "9rem" },
-  { key: "amount", width: "9rem" },
-  { key: "remark", width: "22rem" },
-  { key: "actions", width: "9rem" },
+  { key: "date", width: TABLE_COLUMN_WIDTH.short },
+  { key: "category", width: TABLE_COLUMN_WIDTH.actions },
+  { key: "amount", width: TABLE_COLUMN_WIDTH.actions },
+  { key: "remark", width: TABLE_COLUMN_WIDTH.wide },
+  { key: "actions", width: TABLE_COLUMN_WIDTH.actions },
 ] as const;
 
 const adPaymentRequiredColumns = [
@@ -727,8 +728,8 @@ export function FinanceExpensesPage({ user }: Props) {
               onPageChange={setPage}
               onPageSizeChange={setPageSize}
               columns={expenseTableColumns}
-              layout="fixed"
-              minWidth="min-w-[760px]"
+              layout="auto"
+              minWidth="min-w-max"
             >
               <thead>
                 <tr>

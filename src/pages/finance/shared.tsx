@@ -513,7 +513,7 @@ export function EmptyPanel({ label, compact = false }: { label: string; compact?
 
 export function FinanceTable({
   children,
-  minWidth = "min-w-[1100px]",
+  minWidth = "min-w-max",
   tableClassName = "",
 }: {
   children: ReactNode;

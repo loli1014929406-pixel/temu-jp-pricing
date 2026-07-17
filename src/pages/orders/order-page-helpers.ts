@@ -3,6 +3,7 @@ import type { TemuOrderImportRow } from "../../lib/orders";
 import { normalizeLogisticsMethodName } from "../../lib/logistics-methods";
 import type { Product, ProductSku, TemuOrderRecord, Warehouse, WarehouseSku } from "../../types";
 import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../../utils/sku-code";
+import { TABLE_COLUMN_WIDTH } from "../../components/ui/table-layout";
 
 function getDisplayOrderNoKey(value: string) {
   return value.trim().toLowerCase();
@@ -210,22 +211,22 @@ export const visibleColumns = [
 }>;
 
 export const orderColumnWidths: Record<string, string> = {
-  order_no: "14.5rem",
-  stage: "6rem",
-  ship_deadline: "7.5rem",
-  delivery_deadline: "7.5rem",
-  warehouse: "5.5rem",
-  logistics: "8rem",
-  quantity: "4rem",
-  product: "16rem",
-  sales_spec: "10rem",
-  logistics_tracking_no: "9.5rem",
-  logistics_status: "8.5rem",
-  recipient: "7rem",
-  phone: "9rem",
-  address: "18rem",
-  postal_code: "6rem",
-  actual_ship_time: "11rem",
+  order_no: TABLE_COLUMN_WIDTH.content,
+  stage: TABLE_COLUMN_WIDTH.compact,
+  ship_deadline: TABLE_COLUMN_WIDTH.short,
+  delivery_deadline: TABLE_COLUMN_WIDTH.short,
+  warehouse: TABLE_COLUMN_WIDTH.short,
+  logistics: TABLE_COLUMN_WIDTH.medium,
+  quantity: TABLE_COLUMN_WIDTH.index,
+  product: TABLE_COLUMN_WIDTH.content,
+  sales_spec: TABLE_COLUMN_WIDTH.content,
+  logistics_tracking_no: TABLE_COLUMN_WIDTH.medium,
+  logistics_status: TABLE_COLUMN_WIDTH.actions,
+  recipient: TABLE_COLUMN_WIDTH.short,
+  phone: TABLE_COLUMN_WIDTH.medium,
+  address: TABLE_COLUMN_WIDTH.wide,
+  postal_code: TABLE_COLUMN_WIDTH.compact,
+  actual_ship_time: TABLE_COLUMN_WIDTH.medium,
 };
 
 export function cleanCell(value: unknown) {

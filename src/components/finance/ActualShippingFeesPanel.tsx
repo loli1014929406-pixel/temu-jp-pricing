@@ -349,7 +349,7 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
       )}
 
       <StandardTable
-        minWidth="min-w-[1080px]"
+        minWidth="min-w-max"
         page={page}
         pageSize={pageSize}
         totalPages={totalPages}
@@ -392,4 +392,3 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
     </div>
   );
 }
-

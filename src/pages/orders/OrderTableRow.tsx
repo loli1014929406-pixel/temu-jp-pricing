@@ -8,6 +8,7 @@ import {
   type MouseEvent,
   type ReactNode,
 } from "react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { Badge } from "../../components/ui";
 import { createEmptyDraft, toDraft, type OrderDraft } from "../../hooks/useOrders";
 import { getWarehouseLastLegMethodNames } from "../../lib/warehouse-logistics";
@@ -61,7 +62,7 @@ export function SkuImageThumb({ product, sku }: { product: Product; sku: Product
   }, [imageUrl]);
 
   if (!imageUrl || hasError) {
-    return <div className="h-12 w-12 shrink-0 rounded-md border border-slate-200 bg-slate-50" role="img" aria-label="暂无图片" title="暂无图片" />;
+    return <div className="h-10 w-10 shrink-0 rounded-lg border border-slate-200 bg-slate-50" role="img" aria-label="暂无图片" title="暂无图片" />;
   }
 
   return (
@@ -71,7 +72,7 @@ export function SkuImageThumb({ product, sku }: { product: Product; sku: Product
       loading="lazy"
       referrerPolicy="no-referrer"
       onError={() => setHasError(true)}
-      className="h-12 w-12 shrink-0 rounded-md border border-slate-200 object-cover"
+      className="h-10 w-10 shrink-0 rounded-lg border border-slate-200 object-cover"
     />
   );
 }
@@ -523,6 +524,7 @@ export const OrderTableRow = memo(function OrderTableRow({
   warehouses,
 }: OrderTableRowProps) {
   const [attrCellExpanded, setAttrCellExpanded] = useState(false);
+  const [productCellExpanded, setProductCellExpanded] = useState(false);
   const currentTime = useOrderCountdownTime();
 
   const rowOrderIds = useMemo(
@@ -635,10 +637,9 @@ export const OrderTableRow = memo(function OrderTableRow({
           rowOrders.forEach((order) => {
             const label = order.product_attributes.trim() || "--";
             const key =
-              [
-                normalizeSkuCode(order.sku_code),
-                normalizeSalesSpec(order.product_attributes),
-              ].join("\u0000") || label;
+              normalizeSkuCode(order.sku_code) ||
+              normalizeSalesSpec(order.product_attributes) ||
+              order.id;
             const current = specGroups.get(key);
             specGroups.set(key, {
               label: current?.label ?? label,
@@ -660,6 +661,10 @@ export const OrderTableRow = memo(function OrderTableRow({
   );
   const canExpandAttrCell =
     specLines.length > 1 || (salesSpec?.length ?? 0) > 14;
+  const canExpandProductCell = declarationGroups.length > 1;
+  const visibleDeclarationGroups = productCellExpanded
+    ? declarationGroups
+    : declarationGroups.slice(0, 1);
   const normalizedDraftLogisticsMethod = useMemo(
     () => normalizeLogisticsMethod(draft.logistics_method),
     [draft.logistics_method],
@@ -720,7 +725,7 @@ export const OrderTableRow = memo(function OrderTableRow({
             onChange={(event) =>
               onHandleWarehouseChangeForOrders(rowOrderIds, event.target.value)
             }
-            className="h-9 w-36 rounded-md border border-line bg-white px-2 text-sm outline-none focus:border-accent"
+            className="h-9 w-full min-w-0 rounded-md border border-line bg-white px-2 text-sm outline-none focus:border-accent"
           >
             <option value="">未分配</option>
             {currentWarehouseMissing && (
@@ -754,7 +759,7 @@ export const OrderTableRow = memo(function OrderTableRow({
                 event.target.value,
               )
             }
-            className="h-9 w-36 rounded-md border border-line bg-white px-2 text-sm outline-none focus:border-accent disabled:bg-slate-50 disabled:text-slate-400"
+            className="h-9 w-full min-w-0 rounded-md border border-line bg-white px-2 text-sm outline-none focus:border-accent disabled:bg-slate-50 disabled:text-slate-400"
           >
             <option value="">未分配</option>
             {rowLogisticsOptions.map((method) => (
@@ -776,31 +781,83 @@ export const OrderTableRow = memo(function OrderTableRow({
         )}
       </td>
       <td className="order-qty-col text-right-num">{rowQuantity}</td>
-      <td className="order-product-col" data-full-text={productCellFullText || undefined}>
+      <td
+        className="order-product-col"
+        data-full-text={productCellFullText || undefined}
+        data-cell-detail-disabled="true"
+        style={{ cursor: canExpandProductCell ? "pointer" : "default" }}
+        onClick={() => {
+          if (canExpandProductCell) {
+            setProductCellExpanded((current) => !current);
+          }
+        }}
+      >
         {primaryDeclaration ? (
-          <div className="flex min-w-0 items-center gap-2">
-            <div className="flex w-[58px] shrink-0 items-center gap-1 overflow-hidden">
-              {declarationGroups.slice(0, 1).map((group) => (
+          <div
+            className={
+              productCellExpanded
+                ? "min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
+                : "min-w-0"
+            }
+          >
+            {visibleDeclarationGroups.map((group) => (
+              <div
+                key={group.declaration.sku.id || group.declaration.sku.sku_code}
+                className={`flex min-w-0 items-center gap-2 ${
+                  productCellExpanded
+                    ? "border-b border-slate-100 px-2 py-2 last:border-b-0"
+                    : ""
+                }`}
+              >
                 <SkuImageThumb
-                  key={group.declaration.sku.id || group.declaration.sku.sku_code}
                   product={group.declaration.product}
                   sku={group.declaration.sku}
                 />
-              ))}
-              {declarationGroups.length > 1 && (
-                <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-md border border-slate-200 bg-slate-50 px-1 text-[11px] font-semibold text-slate-500">
-                  +{declarationGroups.length - 1}
-                </span>
-              )}
-            </div>
-            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-              <span className="table-cell-clamp table-cell-clamp-1 font-medium text-slate-900">
-                {primaryDeclaration.product.product_name_cn || "--"}
-              </span>
-              <span className="text-xs font-medium text-slate-500">
-                {primaryDeclaration.sku.sku_code || "--"} ×{declarationGroups[0]?.quantity ?? 1}
-              </span>
-            </div>
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span
+                    className={
+                      productCellExpanded
+                        ? "whitespace-normal break-words font-medium leading-5 text-slate-900"
+                        : "block truncate font-medium text-slate-900"
+                    }
+                  >
+                    {group.declaration.product.product_name_cn || "--"}
+                  </span>
+                  <span className="text-xs font-medium text-slate-500">
+                    {group.declaration.sku.sku_code || "--"} ×{group.quantity}
+                  </span>
+                </div>
+                {!productCellExpanded && canExpandProductCell && (
+                  <button
+                    type="button"
+                    aria-expanded="false"
+                    aria-label={`查看全部 ${declarationGroups.length} 个 SKU`}
+                    className="inline-flex h-7 shrink-0 items-center gap-0.5 rounded-md border border-slate-200 bg-slate-50 px-2 text-xs font-semibold text-slate-500 transition hover:border-sky-200 hover:bg-sky-50 hover:text-sky-700"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setProductCellExpanded(true);
+                    }}
+                  >
+                    <ChevronDown size={13} />
+                    +{declarationGroups.length - 1}
+                  </button>
+                )}
+              </div>
+            ))}
+            {productCellExpanded && (
+              <button
+                type="button"
+                aria-expanded="true"
+                className="inline-flex h-8 w-full items-center justify-center gap-1 border-t border-slate-100 bg-slate-50 text-xs font-semibold text-slate-600 transition hover:bg-sky-50 hover:text-sky-700"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setProductCellExpanded(false);
+                }}
+              >
+                <ChevronUp size={14} />
+                收起 SKU
+              </button>
+            )}
           </div>
         ) : (
           <span className="text-sm font-medium text-slate-500">{skuSummary}</span>
@@ -809,6 +866,7 @@ export const OrderTableRow = memo(function OrderTableRow({
       <td
         className="order-attr-col"
         data-full-text={salesSpec || undefined}
+        data-cell-detail-disabled="true"
         style={{ cursor: canExpandAttrCell ? "pointer" : "default" }}
         onClick={() => {
           if (canExpandAttrCell) {
@@ -817,30 +875,47 @@ export const OrderTableRow = memo(function OrderTableRow({
         }}
       >
         {attrCellExpanded ? (
-          <div className="flex flex-col gap-0.5">
+          <div className="min-w-0 max-w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
             {specLines.map((line, index) => (
-              <span key={index} className="text-xs text-slate-700 leading-5">
+              <span
+                key={index}
+                className="block w-full whitespace-normal break-all border-b border-slate-100 px-2 py-2 text-xs leading-5 text-slate-700 last:border-b-0"
+              >
                 {line}
               </span>
             ))}
             <button
               type="button"
-              className="mt-0.5 text-left text-xs text-sky-600 hover:text-sky-800"
+              aria-expanded="true"
+              className="inline-flex h-8 w-full items-center justify-center gap-1 border-t border-slate-100 bg-slate-50 text-xs font-semibold text-slate-600 transition hover:bg-sky-50 hover:text-sky-700"
               onClick={(e) => {
                 e.stopPropagation();
                 setAttrCellExpanded(false);
               }}
             >
-              ⌃ 收起
+              <ChevronUp size={14} />
+              收起
             </button>
           </div>
         ) : (
-          <div className="flex min-w-0 items-center gap-1">
-            <span className="table-cell-clamp table-cell-clamp-1 text-slate-700">
-              {salesSpec || "--"}
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="block min-w-0 flex-1 truncate text-slate-700">
+              {specLines[0] || "--"}
             </span>
-            {(specLines.length > 1 || (salesSpec?.length ?? 0) > 14) && (
-              <span className="shrink-0 text-xs text-slate-400">⌄</span>
+            {canExpandAttrCell && (
+              <button
+                type="button"
+                aria-expanded="false"
+                aria-label={specLines.length > 1 ? `查看全部 ${specLines.length} 个 SKU 规格` : "查看完整规格"}
+                className="inline-flex h-7 shrink-0 items-center gap-0.5 rounded-md border border-slate-200 bg-slate-50 px-2 text-xs font-semibold text-slate-500 transition hover:border-sky-200 hover:bg-sky-50 hover:text-sky-700"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setAttrCellExpanded(true);
+                }}
+              >
+                <ChevronDown size={14} />
+                {specLines.length > 1 ? `+${specLines.length - 1}` : "展开"}
+              </button>
             )}
           </div>
         )}
@@ -896,7 +971,7 @@ export const OrderTableRow = memo(function OrderTableRow({
         </div>
       </td>
       <td className="order-postal-col">{mergedOrder.postal_code || "--"}</td>
-      <td>
+      <td className="order-time-col order-actual-ship-time-col">
         {activeStage === "uploaded_temu" ? (
           <input
             value={draft.actual_ship_time}
@@ -915,7 +990,7 @@ export const OrderTableRow = memo(function OrderTableRow({
               }
             }}
             placeholder="填写时间"
-            className="h-9 w-40 rounded-md border border-line bg-white px-2 text-sm outline-none focus:border-accent"
+            className="h-9 w-full min-w-0 rounded-md border border-line bg-white px-2 text-sm outline-none focus:border-accent"
           />
         ) : (
           <span className="text-sm font-medium text-slate-700">

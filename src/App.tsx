@@ -4,6 +4,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PageShell } from "./components/page-shell";
 import { ProtectedRoute } from "./components/protected-route";
 import { DataTableCellFullText } from "./components/ui/DataTableCellFullText";
+import { DataTableColumnAlignment } from "./components/ui/DataTableColumnAlignment";
 import { NotificationCenter } from "./components/ui/notification-center";
 import { useAuth } from "./hooks/use-auth";
 import { PermissionGate, PermissionProvider } from "./hooks/use-permissions";
@@ -52,6 +53,7 @@ export default function App() {
   return (
     <ErrorBoundary>
       <DataTableCellFullText />
+      <DataTableColumnAlignment />
       <NotificationCenter />
       <Suspense
         fallback={

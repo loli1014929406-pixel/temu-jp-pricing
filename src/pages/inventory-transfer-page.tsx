@@ -832,8 +832,8 @@ export function InventoryTransferPage({ user: _user }: InventoryTransferPageProp
                 <Truck size={14} />
                 <span>在途调拨运输</span>
               </div>
-              <div className="hidden h-0.5 w-24 bg-gradient-to-r from-violet-200 via-indigo-300 to-indigo-200 md:block" />
-              <div className="block h-8 w-0.5 bg-gradient-to-b from-violet-200 via-indigo-300 to-indigo-200 md:hidden" />
+              <div className="hidden h-px w-24 bg-[#c9cccf] md:block" />
+              <div className="block h-8 w-px bg-[#c9cccf] md:hidden" />
             </div>
 
             {/* Destination Warehouse Card */}

@@ -1257,7 +1257,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
       <div className="table-card hidden md:block rounded-lg shadow-soft overflow-hidden bg-panel">
         <div className="overflow-x-auto">
           <StandardTable 
-            minWidth="min-w-[1200px]"
+            minWidth="min-w-max"
             page={paginatedProducts.page}
             pageSize={pageSize}
             totalPages={paginatedProducts.totalPages}

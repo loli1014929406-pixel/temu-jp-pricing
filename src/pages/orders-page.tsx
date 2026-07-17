@@ -2867,8 +2867,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
               loading={loading}
               empty={filteredOrderRows.length === 0}
               columns={orderTableLayoutColumns}
-              layout="fixed"
-              minWidth="min-w-[1920px]"
+              layout="auto"
+              minWidth="min-w-max"
               tableClassName="orders-table"
             >
                 <thead>

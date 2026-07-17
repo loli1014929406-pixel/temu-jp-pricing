@@ -45,13 +45,13 @@ export function StandardTable({
   onPageSizeChange,
   pageSizeOptions = [20, 50, 100]
 }: StandardTableProps) {
-  const tableLayout = layout ?? (columns && columns.length > 0 ? "fixed" : "auto");
+  const tableLayout = layout ?? "auto";
 
   return (
     <div className="table-card min-w-0 flex flex-col bg-panel">
       <div className="min-w-0 overflow-x-auto" tabIndex={0} aria-label="可横向滚动的数据表格">
         <table className={`data-table ${tableLayout === "fixed" ? "is-fixed-table" : ""} ${minWidth} ${tableClassName}`}>
-          {columns && columns.length > 0 && (
+          {tableLayout === "fixed" && columns && columns.length > 0 && (
             <colgroup>
               {columns.map((column) => (
                 <col
@@ -87,7 +87,7 @@ export function StandardTable({
       
       {/* Pagination Footer */}
       {totalRecordCount > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-4 border-t border-slate-100 bg-slate-50/70 px-5 py-3 text-xs text-slate-600">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#e3e3e3] bg-white px-4 py-3 text-xs text-[#616161]">
           <div className="flex items-center gap-3">
             <span>共 {totalRecordCount} 条记录</span>
             <select
@@ -95,7 +95,7 @@ export function StandardTable({
               value={pageSize}
               onChange={(e) => onPageSizeChange(Number(e.target.value))}
               disabled={loading}
-              className="h-8 rounded-xl border border-slate-200 bg-white px-2.5 text-xs outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/10 disabled:opacity-50"
+              className="h-8 rounded-lg border border-[#c9cccf] bg-white px-2.5 text-xs outline-none transition focus:border-[#303030] focus:ring-2 focus:ring-black/10 disabled:opacity-50"
             >
               {pageSizeOptions.map(size => (
                 <option key={size} value={size}>{size} 条 / 页</option>

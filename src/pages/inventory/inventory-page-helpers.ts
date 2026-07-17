@@ -1,14 +1,15 @@
 import type { Warehouse, WarehouseLogisticsMethod, WarehouseSku } from "../../types";
 import { getErrorMessage } from "../../utils/errors";
+import { TABLE_COLUMN_WIDTH } from "../../components/ui/table-layout";
 
 export const inventoryTableColumns = [
-  { key: "product_code", width: "8rem" },
-  { key: "product_name", width: "15rem" },
-  { key: "sku_code", width: "12rem" },
-  { key: "sales_spec", width: "14rem" },
-  { key: "stock", width: "9rem" },
-  { key: "components", width: "9rem" },
-  { key: "actions", width: "7rem" },
+  { key: "product_code", width: TABLE_COLUMN_WIDTH.short },
+  { key: "product_name", width: TABLE_COLUMN_WIDTH.content },
+  { key: "sku_code", width: TABLE_COLUMN_WIDTH.medium },
+  { key: "sales_spec", width: TABLE_COLUMN_WIDTH.content },
+  { key: "stock", width: TABLE_COLUMN_WIDTH.short },
+  { key: "components", width: TABLE_COLUMN_WIDTH.short },
+  { key: "actions", width: TABLE_COLUMN_WIDTH.short },
 ] as const;
 
 export type InventoryDraft = {
@@ -167,4 +168,3 @@ export function groupWarehouseLogisticsMethodIds(links: WarehouseLogisticsMethod
     return groups;
   }, {});
 }
-

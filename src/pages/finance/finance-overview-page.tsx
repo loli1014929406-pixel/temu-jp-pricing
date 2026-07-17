@@ -160,7 +160,7 @@ export function FinanceOverviewPage({ user }: Props) {
               
               {pendingReconciliations.length > 0 && (
                 <StandardTable 
-                  minWidth="min-w-[800px]" 
+                  minWidth="min-w-max"
                   tableClassName="finance-freeze-reconciliation"
                   page={1}
                   pageSize={5}

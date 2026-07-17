@@ -18,7 +18,7 @@ export function TextInput(props: InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       {...props}
-      className="w-full min-w-0 h-10 rounded-xl border border-line bg-white px-3.5 text-sm outline-none transition placeholder:text-slate-400 focus:border-accent focus:ring-4 focus:ring-accent/10 disabled:bg-slate-100 disabled:text-slate-500"
+      className="h-10 w-full min-w-0 rounded-lg border border-line bg-white px-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-accent focus:ring-2 focus:ring-black/10 disabled:bg-[#f1f1f1] disabled:text-slate-500"
     />
   );
 }
@@ -27,7 +27,7 @@ export function TextArea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (
     <textarea
       {...props}
-      className="w-full min-w-0 min-h-24 rounded-xl border border-line bg-white px-3.5 py-2.5 text-sm outline-none transition placeholder:text-slate-400 focus:border-accent focus:ring-4 focus:ring-accent/10 disabled:bg-slate-100 disabled:text-slate-500"
+      className="min-h-24 w-full min-w-0 rounded-lg border border-line bg-white px-3 py-2.5 text-sm outline-none transition placeholder:text-slate-400 focus:border-accent focus:ring-2 focus:ring-black/10 disabled:bg-[#f1f1f1] disabled:text-slate-500"
     />
   );
 }

@@ -52,13 +52,13 @@ export function OrderFilters({
   return (
     <section className="grid gap-3">
       {urgentUnuploadedCount > 0 && (
-        <section className="rounded-2xl border border-rose-100 bg-rose-50/70 px-4 py-3">
+        <section className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <span className="text-sm font-semibold text-rose-700">待办任务</span>
             <button
               type="button"
               onClick={onShowUrgentUnuploadedOnly}
-              className={`inline-flex h-10 min-w-60 items-center justify-center gap-2 rounded-xl border px-4 text-sm font-semibold transition-all duration-200 ${
+              className={`inline-flex h-9 min-w-60 items-center justify-center gap-2 rounded-lg border px-4 text-sm font-semibold transition-colors duration-150 ${
                 showUrgentUnuploadedOnly
                   ? "border-rose-600 bg-rose-600 text-white shadow-sm shadow-rose-600/10"
                   : "border-rose-200 bg-rose-50/50 text-rose-700 hover:border-rose-350 hover:bg-rose-100/50"
@@ -94,10 +94,10 @@ export function OrderFilters({
                     type="button"
                     aria-pressed={active}
                     onClick={() => onStageChange(stage.key)}
-                    className={`inline-flex h-10 shrink-0 items-center gap-2 rounded-xl px-3.5 text-sm font-semibold transition-all duration-250 ${
+                    className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border px-3 text-sm font-semibold transition-colors duration-150 ${
                       active
-                        ? "bg-accent text-white shadow-md shadow-violet-600/15"
-                        : "bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                        ? "border-[#303030] bg-[#303030] text-white shadow-sm"
+                        : "border-transparent bg-[#f1f1f1] text-[#4a4a4a] hover:border-[#d4d4d4] hover:bg-[#e9e9e9] hover:text-[#1a1a1a]"
                     }`}
                   >
                     <span>{stage.label}</span>
@@ -124,7 +124,7 @@ export function OrderFilters({
                 <select
                   value={warehouseFilter}
                   onChange={(event) => onWarehouseFilterChange(event.target.value)}
-                  className="h-10 w-full appearance-none rounded-xl border border-line bg-white pl-9 pr-8 text-sm font-medium text-slate-700 outline-none transition focus:border-accent focus:ring-4 focus:ring-accent/10"
+                  className="h-10 w-full appearance-none rounded-lg border border-line bg-white pl-9 pr-8 text-sm font-medium text-slate-700 outline-none transition focus:border-accent focus:ring-2 focus:ring-black/10"
                 >
                   <option value="">全部仓库</option>
                   {warehouseOptions.map((warehouse) => (
@@ -144,7 +144,7 @@ export function OrderFilters({
                 <select
                   value={logisticsMethodFilter}
                   onChange={(event) => onLogisticsMethodFilterChange(event.target.value)}
-                  className="h-10 w-full appearance-none rounded-xl border border-line bg-white pl-9 pr-8 text-sm font-medium text-slate-700 outline-none transition focus:border-accent focus:ring-4 focus:ring-accent/10"
+                  className="h-10 w-full appearance-none rounded-lg border border-line bg-white pl-9 pr-8 text-sm font-medium text-slate-700 outline-none transition focus:border-accent focus:ring-2 focus:ring-black/10"
                 >
                   <option value="">全部方式</option>
                   {logisticsMethodOptions.map((method) => (
@@ -165,7 +165,7 @@ export function OrderFilters({
                   value={search}
                   onChange={(event) => onSearchChange(event.target.value)}
                   placeholder="订单号 / 收货人 / 地址 / 物流"
-                  className="h-10 w-full rounded-xl border border-line bg-white pl-9 pr-3 text-sm outline-none transition focus:border-accent focus:ring-4 focus:ring-accent/10"
+                  className="h-10 w-full rounded-lg border border-line bg-white pl-9 pr-3 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-black/10"
                 />
               </div>
             </label>

@@ -56,15 +56,15 @@ type BadgeProps = {
 
 export function Badge({ tone = "neutral", children }: BadgeProps) {
   const tones = {
-    success: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-    warning: "bg-amber-50 text-amber-700 ring-amber-200",
-    danger: "bg-rose-50 text-rose-700 ring-rose-200",
-    neutral: "bg-slate-100 text-slate-700 ring-slate-200",
-    info: "bg-sky-50 text-sky-700 ring-sky-200",
+    success: "bg-[#cdfee1] text-[#0c5132] ring-[#b4e8cc]",
+    warning: "bg-[#fff5c2] text-[#5e4200] ring-[#f1df8a]",
+    danger: "bg-[#fee1e1] text-[#8e1f0b] ring-[#f6c7c7]",
+    neutral: "bg-[#e3e3e3] text-[#4a4a4a] ring-[#d4d4d4]",
+    info: "bg-[#eaf4ff] text-[#0b4f80] ring-[#c9e3f8]",
   };
 
   return (
-    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${tones[tone]}`}>
+    <span className={`inline-flex rounded-lg px-2 py-0.5 text-xs font-semibold ring-1 ${tones[tone]}`}>
       {children}
     </span>
   );
@@ -102,3 +102,5 @@ export * from "./ui/StandardTable";
 export * from "./ui/RecordDetailModal";
 export * from "./ui/TableCellPreview";
 export * from "./ui/DataTableCellFullText";
+export * from "./ui/DataTableColumnAlignment";
+export * from "./ui/table-layout";

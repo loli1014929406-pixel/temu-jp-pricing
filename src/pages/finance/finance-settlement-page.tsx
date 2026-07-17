@@ -424,7 +424,7 @@ export function FinanceSettlementPage({ user }: Props) {
               <EmptyPanel label="暂未导入任何结算文件" />
             ) : (
               <StandardTable 
-                minWidth="min-w-[800px]"
+                minWidth="min-w-max"
                 page={1}
                 pageSize={100}
                 totalPages={1}
@@ -496,9 +496,9 @@ export function FinanceSettlementPage({ user }: Props) {
             ) : (
               <>
                 <StandardTable 
-                  minWidth="min-w-[1250px]"
+                  minWidth="min-w-max"
                   columns={settlementReconColumns}
-                  layout="fixed"
+                  layout="auto"
                   page={reconPaginated.page}
                   pageSize={reconPageSize}
                   totalPages={reconPaginated.totalPages}
@@ -740,7 +740,7 @@ export function FinanceSettlementPage({ user }: Props) {
                   </div>
                   <div className="rounded-lg border border-slate-100 bg-slate-50/70 p-3">
                     <div className="text-xs font-semibold text-slate-500">实际结算回款</div>
-                    <div className="money mt-1 text-lg font-bold text-indigo-700">{formatCurrency(incomeSummary.actualRevenue)}</div>
+                    <div className="money mt-1 text-lg font-bold text-[#0c5132]">{formatCurrency(incomeSummary.actualRevenue)}</div>
                     <div className="mt-1 text-[11px] font-semibold text-slate-400">已结算 {incomeSummary.settledCount} / {incomeSummary.orderCount} 单</div>
                   </div>
                   <div className="rounded-lg border border-slate-100 bg-slate-50/70 p-3">
@@ -803,10 +803,10 @@ export function FinanceSettlementPage({ user }: Props) {
                 </div>
 
                 <StandardTable 
-                  minWidth="min-w-[1450px]" 
+                  minWidth="min-w-max"
                   tableClassName="finance-freeze-order"
                   columns={settlementIncomeColumns}
-                  layout="fixed"
+                  layout="auto"
                   page={incomePaginated.page}
                   pageSize={incomePageSize}
                   totalPages={incomePaginated.totalPages}
@@ -916,7 +916,7 @@ export function FinanceSettlementPage({ user }: Props) {
                           </td>
                           <td className="money text-slate-500 px-3 py-2">{formatCurrency(row.billAmountRmb)}</td>
                           <td className="money px-3 py-2">
-                            {row.isSettled ? <span className="font-bold text-indigo-700">{formatCurrency(row.actualRevenueRmb)}</span> : <span className="text-slate-400 font-medium">未结算</span>}
+                            {row.isSettled ? <span className="font-bold text-[#0c5132]">{formatCurrency(row.actualRevenueRmb)}</span> : <span className="text-slate-400 font-medium">未结算</span>}
                           </td>
                           {/* 利润 */}
                           <td className="money px-3 py-2">
@@ -945,7 +945,7 @@ export function FinanceSettlementPage({ user }: Props) {
                       <td className="money px-3 py-2 text-slate-700">{formatCurrency(incomeSummary.firstLegShipping)}</td>
                       <td className="money px-3 py-2 text-slate-700">{formatCurrency(incomeSummary.lastLegShipping)}</td>
                       <td className="money px-3 py-2 text-slate-700">{formatCurrency(incomeSummary.bill)}</td>
-                      <td className="money px-3 py-2 text-indigo-700">{formatCurrency(incomeSummary.actualRevenue)}</td>
+                      <td className="money px-3 py-2 text-[#0c5132]">{formatCurrency(incomeSummary.actualRevenue)}</td>
                       <td className={`money px-3 py-2 ${incomeSummary.profit >= 0 ? "text-emerald-700" : "text-rose-700"}`}>{formatCurrency(incomeSummary.profit)}</td>
                       <td colSpan={3} className="px-3 py-2 text-xs text-slate-500">
                         {incomeSummary.orderCount} 单，{incomeSummary.quantity} 件，缺失运费 {incomeSummary.missingShippingCount} 单

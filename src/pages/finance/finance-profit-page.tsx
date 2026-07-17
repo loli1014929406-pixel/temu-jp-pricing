@@ -31,6 +31,7 @@ import {
 import { useFinanceAnalysis } from "./use-finance-analysis";
 import { buildSettlementLookup } from "../../lib/settlement";
 import { normalizeLogisticsMethodName } from "../../lib/logistics-methods";
+import { TABLE_COLUMN_WIDTH } from "../../components/ui/table-layout";
 
 type Props = {
   user: User;
@@ -63,15 +64,15 @@ type ShippingMethodRow = {
 };
 
 const financeProductProfitColumns = [
-  { key: "product_code", width: "9rem" },
-  { key: "product_name", width: "18rem" },
-  { key: "order_count", width: "8rem" },
-  { key: "quantity", width: "8rem" },
-  { key: "product_cost", width: "10rem" },
-  { key: "shipping", width: "10rem" },
-  { key: "revenue", width: "11rem" },
-  { key: "profit", width: "10rem" },
-  { key: "margin", width: "9rem" },
+  { key: "product_code", width: TABLE_COLUMN_WIDTH.actions },
+  { key: "product_name", width: TABLE_COLUMN_WIDTH.content },
+  { key: "order_count", width: TABLE_COLUMN_WIDTH.short },
+  { key: "quantity", width: TABLE_COLUMN_WIDTH.short },
+  { key: "product_cost", width: TABLE_COLUMN_WIDTH.actions },
+  { key: "shipping", width: TABLE_COLUMN_WIDTH.actions },
+  { key: "revenue", width: TABLE_COLUMN_WIDTH.medium },
+  { key: "profit", width: TABLE_COLUMN_WIDTH.actions },
+  { key: "margin", width: TABLE_COLUMN_WIDTH.short },
 ] as const;
 
 function normalizeAxisValue(value: number) {
@@ -817,7 +818,7 @@ ${primaryCostLabel}: ${formatCurrency(primaryCost)}
 
         <div className="mt-4 grid gap-3 sm:grid-cols-3">
           <div className="flex items-center gap-3 border-y border-slate-100 py-3">
-            <ReceiptText size={18} className="text-indigo-500" />
+            <ReceiptText size={18} className="text-[#29845a]" />
             <div>
               <div className="text-xs font-semibold text-slate-500">当月总运费</div>
               <div className="money mt-1 text-lg font-bold text-slate-900">{formatCurrency(shippingMethodSummary.totalShipping)}</div>
@@ -858,7 +859,7 @@ ${primaryCostLabel}: ${formatCurrency(primaryCost)}
                     </div>
                     <div className="h-4 overflow-hidden rounded bg-slate-100">
                       <div className="flex h-full rounded" style={{ width: `${totalWidth}%` }}>
-                        <span className="h-full bg-indigo-500" style={{ width: `${actualShare}%` }} />
+                        <span className="h-full bg-[#29845a]" style={{ width: `${actualShare}%` }} />
                         <span className="h-full bg-amber-400" style={{ width: `${estimatedShare}%` }} />
                       </div>
                     </div>
@@ -872,7 +873,7 @@ ${primaryCostLabel}: ${formatCurrency(primaryCost)}
             </div>
           </div>
 
-          <FinanceTable minWidth="min-w-[860px]">
+          <FinanceTable minWidth="min-w-max">
             <thead>
               <tr>
                 <th>发货方式</th>
@@ -900,7 +901,7 @@ ${primaryCostLabel}: ${formatCurrency(primaryCost)}
                   </td>
                   <td className="number-cell font-semibold px-3 py-2">{row.orderCount}</td>
                   <td className="number-cell font-semibold px-3 py-2">{row.quantity}</td>
-                  <td className="money px-3 py-2 text-indigo-700">{formatCurrency(row.actualShipping)}</td>
+                  <td className="money px-3 py-2 text-[#0c5132]">{formatCurrency(row.actualShipping)}</td>
                   <td className="money px-3 py-2 text-amber-700">{formatCurrency(row.estimatedShipping)}</td>
                   <td className="money px-3 py-2 font-bold text-slate-900">{formatCurrency(row.totalShipping)}</td>
                   <td className="money px-3 py-2">{formatCurrency(row.averagePerOrder)}</td>
@@ -974,7 +975,7 @@ ${primaryCostLabel}: ${formatCurrency(primaryCost)}
               <section className="grid min-w-0 gap-4">
                 <h3 className="text-sm font-bold text-slate-800">月度实际利润与订单利润表</h3>
                 <StandardTable 
-                  minWidth="min-w-[1160px]"
+                  minWidth="min-w-max"
                   page={paginatedMonthly.page}
                   pageSize={monthlyPageSize}
                   totalPages={paginatedMonthly.totalPages}
@@ -1011,7 +1012,7 @@ ${primaryCostLabel}: ${formatCurrency(primaryCost)}
                         <tr key={row.month} className="hover:bg-slate-50/50">
                           <td className="font-bold text-slate-900">{row.month}</td>
                           <td className="money text-emerald-700 px-3 py-2">{formatCurrency(row.settledIncome)}</td>
-                          <td className="money text-indigo-700 px-3 py-2">{formatCurrency(row.estimatedIncome)}</td>
+                          <td className="money px-3 py-2 text-[#0c5132]">{formatCurrency(row.estimatedIncome)}</td>
                           <td className="money text-rose-700 px-3 py-2">{formatCurrency(row.purchase)}</td>
                           <td className="money text-slate-700 px-3 py-2">{formatCurrency(row.productCost)}</td>
                           <td className="money text-slate-700 px-3 py-2">{formatCurrency(row.shipping)}</td>
@@ -1052,9 +1053,9 @@ ${primaryCostLabel}: ${formatCurrency(primaryCost)}
                 </span>
               </div>
               <StandardTable 
-                minWidth="min-w-[1250px]"
+                minWidth="min-w-max"
                 columns={financeProductProfitColumns}
-                layout="fixed"
+                layout="auto"
                 page={paginatedProduct.page}
                 pageSize={productPageSize}
                 totalPages={paginatedProduct.totalPages}

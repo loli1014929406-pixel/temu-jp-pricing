@@ -8,18 +8,19 @@ import {
 } from "./shared";
 import { fetchFinanceLedgerPage, type FinanceLedgerRow } from "../../lib/finance-queries";
 import { getErrorMessage } from "../../utils/errors";
+import { TABLE_COLUMN_WIDTH } from "../../components/ui/table-layout";
 
 type Props = {
   user: User;
 };
 
 const ledgerTableColumns = [
-  { key: "date", width: "8rem" },
-  { key: "type", width: "8rem" },
-  { key: "direction", width: "7rem" },
-  { key: "subject", width: "18rem" },
-  { key: "amount", width: "10rem" },
-  { key: "remark", width: "24rem" },
+  { key: "date", width: TABLE_COLUMN_WIDTH.short },
+  { key: "type", width: TABLE_COLUMN_WIDTH.short },
+  { key: "direction", width: TABLE_COLUMN_WIDTH.short },
+  { key: "subject", width: TABLE_COLUMN_WIDTH.content },
+  { key: "amount", width: TABLE_COLUMN_WIDTH.medium },
+  { key: "remark", width: TABLE_COLUMN_WIDTH.wide },
 ] as const;
 
 export function FinanceLedgerPage({ user }: Props) {
@@ -159,8 +160,8 @@ export function FinanceLedgerPage({ user }: Props) {
               onPageChange={setPage}
               onPageSizeChange={setPageSize}
               columns={ledgerTableColumns}
-              layout="fixed"
-              minWidth="min-w-[980px]"
+              layout="auto"
+              minWidth="min-w-max"
             >
               <thead>
                 <tr>

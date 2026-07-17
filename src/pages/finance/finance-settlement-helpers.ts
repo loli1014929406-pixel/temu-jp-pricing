@@ -1,5 +1,6 @@
 import type { FinanceOrderRow } from "./shared";
 import { getCurrentMonthInputValue, getDateKey, getOrderDate, getReconciliationIssues } from "./shared";
+import { TABLE_COLUMN_WIDTH } from "../../components/ui/table-layout";
 
 export type IncomeDateFilterMode = "all" | "month" | "custom";
 
@@ -15,29 +16,29 @@ export type IncomeShippingMethodRow = {
 };
 
 export const settlementReconColumns = [
-  { key: "order_no", width: "13rem" },
-  { key: "sku_code", width: "11rem" },
-  { key: "product", width: "18rem" },
-  { key: "status", width: "16rem" },
-  { key: "logistics", width: "13rem" },
-  { key: "shipping_fee", width: "10rem" },
-  { key: "actions", width: "14rem" },
+  { key: "order_no", width: TABLE_COLUMN_WIDTH.standard },
+  { key: "sku_code", width: TABLE_COLUMN_WIDTH.medium },
+  { key: "product", width: TABLE_COLUMN_WIDTH.content },
+  { key: "status", width: TABLE_COLUMN_WIDTH.standard },
+  { key: "logistics", width: TABLE_COLUMN_WIDTH.medium },
+  { key: "shipping_fee", width: TABLE_COLUMN_WIDTH.actions },
+  { key: "actions", width: TABLE_COLUMN_WIDTH.standard },
 ] as const;
 
 export const settlementIncomeColumns = [
-  { key: "index", width: "4rem" },
-  { key: "order_no", width: "13rem" },
-  { key: "sku_code", width: "13rem" },
-  { key: "product", width: "18rem" },
-  { key: "product_cost", width: "10rem" },
-  { key: "first_leg_shipping", width: "9rem" },
-  { key: "last_leg_shipping", width: "9rem" },
-  { key: "bill", width: "10rem" },
-  { key: "revenue", width: "10rem" },
-  { key: "profit", width: "9rem" },
-  { key: "logistics", width: "13rem" },
-  { key: "settlement", width: "8rem" },
-  { key: "accounting", width: "8rem" },
+  { key: "index", width: TABLE_COLUMN_WIDTH.index },
+  { key: "order_no", width: TABLE_COLUMN_WIDTH.standard },
+  { key: "sku_code", width: TABLE_COLUMN_WIDTH.standard },
+  { key: "product", width: TABLE_COLUMN_WIDTH.content },
+  { key: "product_cost", width: TABLE_COLUMN_WIDTH.actions },
+  { key: "first_leg_shipping", width: TABLE_COLUMN_WIDTH.actions },
+  { key: "last_leg_shipping", width: TABLE_COLUMN_WIDTH.actions },
+  { key: "bill", width: TABLE_COLUMN_WIDTH.actions },
+  { key: "revenue", width: TABLE_COLUMN_WIDTH.actions },
+  { key: "profit", width: TABLE_COLUMN_WIDTH.actions },
+  { key: "logistics", width: TABLE_COLUMN_WIDTH.medium },
+  { key: "settlement", width: TABLE_COLUMN_WIDTH.short },
+  { key: "accounting", width: TABLE_COLUMN_WIDTH.short },
 ] as const;
 
 export function getReconciliationIssueLabel(issue: ReturnType<typeof getReconciliationIssues>[number]) {
@@ -64,4 +65,3 @@ export function getShippingMethodDisplay(value: unknown) {
   const label = String(value ?? "").trim().replace(/\s+/g, " ");
   return label || "未填写发货方式";
 }
-

@@ -9,8 +9,8 @@ html {
 }
 
 :root {
-  color: #1e293b;
-  background: #f8fafc;
+  color: #303030;
+  background: #f1f1f1;
   font-family:
     "Microsoft YaHei", "PingFang SC", "Noto Sans SC", "Segoe UI",
     system-ui, -apple-system, BlinkMacSystemFont, Arial, sans-serif;
@@ -28,7 +28,7 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background: #f8fafc;
+  background: #f1f1f1;
   font-family: inherit;
   font-size: 16px;
 }
@@ -59,11 +59,11 @@ a {
 
 @layer components {
   .erp-shell {
-    @apply flex bg-[#f8fafc] min-h-screen p-0 lg:p-4;
+    @apply flex min-h-screen bg-[#f1f1f1] p-0;
   }
 
   .erp-sidebar {
-    @apply fixed left-0 top-0 bottom-0 lg:left-4 lg:top-4 lg:bottom-4 z-40 flex w-[200px] flex-col border-r border-slate-100 bg-white/95 transition-all duration-300 lg:rounded-3xl lg:border lg:shadow-[0_8px_30px_rgb(0,0,0,0.02)];
+    @apply fixed bottom-0 left-0 top-0 z-40 flex w-[240px] flex-col border-r border-[#e3e3e3] bg-[#ebebeb] transition-all duration-300;
   }
 
   .erp-sidebar-brand {
@@ -71,7 +71,7 @@ a {
   }
 
   .erp-brand-mark {
-    @apply inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-tr from-accent to-accentDeep text-xs font-black tracking-tight text-white shadow-md shadow-accent/25 transition-transform duration-300 hover:scale-105;
+    @apply inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#303030] text-xs font-black tracking-tight text-white shadow-sm transition-colors duration-150 hover:bg-[#1a1a1a];
   }
 
   .erp-side-nav {
@@ -89,11 +89,11 @@ a {
   }
 
   .erp-side-section-title {
-    @apply px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-slate-600;
+    @apply px-3 py-1 text-[11px] font-semibold tracking-wide text-[#616161];
   }
 
   .erp-side-nav-item {
-    @apply relative inline-flex h-10 items-center gap-3 rounded-xl px-3 text-sm font-medium text-slate-600 transition-all duration-200 hover:bg-slate-50 hover:text-slate-900;
+    @apply relative inline-flex h-9 items-center gap-3 rounded-lg px-3 text-sm font-medium text-[#4a4a4a] transition-colors duration-150 hover:bg-[#f7f7f7] hover:text-[#1a1a1a];
   }
 
   .erp-side-nav-item svg {
@@ -105,39 +105,31 @@ a {
   }
 
   .erp-side-nav-item-active {
-    @apply bg-accent text-white shadow-md shadow-accent/15 hover:bg-accentDeep hover:text-white;
+    @apply bg-white font-semibold text-[#1a1a1a] shadow-[0_1px_2px_rgba(0,0,0,0.08)] hover:bg-white hover:text-[#1a1a1a];
   }
 
   .erp-side-nav-item-active svg {
-    @apply text-white;
+    @apply text-[#303030];
   }
 
   .erp-side-nav-item-active::after {
-    content: "";
-    position: absolute;
-    right: 12px;
-    top: 50%;
-    width: 6px;
-    height: 6px;
-    border-radius: 999px;
-    background: #ffffff;
-    transform: translateY(-50%);
+    display: none;
   }
 
   .erp-workspace {
-    @apply ml-0 lg:ml-[220px] flex min-h-screen min-w-0 flex-1 flex-col bg-[#f8fafc] transition-all duration-300;
+    @apply ml-0 flex min-h-screen min-w-0 flex-1 flex-col bg-[#f1f1f1] transition-all duration-300 lg:ml-[240px];
   }
 
   .erp-main {
-    @apply min-w-0 flex-1 px-0 pb-6 pt-0 lg:px-6;
+    @apply min-w-0 flex-1 px-3 pb-8 pt-0 sm:px-5 lg:px-8;
   }
 
   .page-stack {
-    @apply flex min-w-0 flex-col gap-5;
+    @apply flex min-w-0 flex-col gap-4;
   }
 
   .page-header {
-    @apply sticky top-16 z-20 mb-1 flex flex-wrap items-start justify-between gap-4 border-b border-slate-200/60 bg-slate-50/90 pb-4 pt-4 shadow-sm backdrop-blur-md lg:top-0 lg:pt-6;
+    @apply sticky top-16 z-20 flex flex-wrap items-start justify-between gap-4 border-b border-transparent bg-[#f1f1f1]/95 pb-4 pt-5 backdrop-blur-md lg:top-0 lg:pt-6;
   }
 
   .page-header-actions {
@@ -146,37 +138,55 @@ a {
 
   .surface-card,
   .erp-panel {
-    @apply min-w-0 rounded-2xl border border-slate-100 bg-white p-6 shadow-[0_8px_30px_rgb(0,0,0,0.02)] transition-all duration-300 hover:shadow-[0_8px_30px_rgb(0,0,0,0.04)];
+    @apply min-w-0 rounded-xl border border-[#e3e3e3] bg-white p-5 shadow-[0_1px_0_rgba(0,0,0,0.05),0_1px_3px_rgba(0,0,0,0.08)];
   }
 
   .section-card {
-    @apply min-w-0 rounded-2xl border border-slate-100 bg-white p-5 shadow-[0_8px_30px_rgb(0,0,0,0.02)];
+    @apply min-w-0 rounded-xl border border-[#e3e3e3] bg-white p-5 shadow-[0_1px_0_rgba(0,0,0,0.05),0_1px_3px_rgba(0,0,0,0.08)];
   }
 
   .subtle-card {
-    @apply rounded-xl border border-slate-100 bg-slate-50/70 p-4;
+    @apply rounded-lg border border-[#e3e3e3] bg-[#f7f7f7] p-4;
   }
 
   /* Keep legacy page panels visually aligned while pages migrate to shared components. */
   .erp-main .rounded-lg.bg-panel.shadow-soft,
   .erp-main .rounded-lg.bg-white.shadow-panel,
   .erp-main .rounded-lg.border.border-line.bg-white.shadow-sm {
-    border-radius: 1rem;
-    border-color: #f1f5f9;
-    box-shadow: 0 8px 30px rgb(0 0 0 / 0.02);
+    border-radius: 0.75rem;
+    border-color: #e3e3e3;
+    box-shadow: 0 1px 0 rgb(0 0 0 / 0.05), 0 1px 3px rgb(0 0 0 / 0.08);
+  }
+
+  .erp-main .rounded-2xl.border.border-line.bg-white.shadow-sm,
+  .erp-main .rounded-2xl.border.border-slate-100.bg-white,
+  .erp-main .rounded-2xl.border.border-line.bg-white {
+    border-radius: 0.75rem;
+    border-color: #e3e3e3;
+    box-shadow: 0 1px 0 rgb(0 0 0 / 0.05), 0 1px 3px rgb(0 0 0 / 0.08);
+  }
+
+  .erp-main .rounded-2xl,
+  .erp-main .rounded-3xl {
+    border-radius: 0.75rem;
+  }
+
+  .erp-main .shadow-xl,
+  .erp-main .shadow-2xl {
+    box-shadow: 0 4px 12px rgb(0 0 0 / 0.12);
   }
 
   .erp-main input:not([type="checkbox"]):not([type="radio"]),
   .erp-main select,
   .erp-main textarea {
-    border-radius: 0.75rem;
+    border-radius: 0.5rem;
   }
 
   .erp-main input:not([type="checkbox"]):not([type="radio"]):focus,
   .erp-main select:focus,
   .erp-main textarea:focus {
-    border-color: #0369a1;
-    box-shadow: 0 0 0 3px rgb(3 105 161 / 0.1);
+    border-color: #303030;
+    box-shadow: 0 0 0 2px rgb(48 48 48 / 0.12);
   }
 
   .erp-main .rounded-md.border.bg-rose-50,
@@ -191,16 +201,16 @@ a {
   }
 
   .page-title {
-    @apply text-xl font-bold tracking-tight text-slate-900 sm:text-2xl;
+    @apply text-xl font-bold tracking-tight text-[#303030] sm:text-2xl;
     line-height: 1.15;
   }
 
   .page-description {
-    @apply mt-1 max-w-3xl text-sm font-medium leading-5 text-slate-600;
+    @apply mt-1 max-w-3xl text-sm font-normal leading-5 text-[#616161];
   }
 
   .table-card {
-    @apply overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.02)];
+    @apply overflow-hidden rounded-xl border border-[#e3e3e3] bg-white shadow-[0_1px_0_rgba(0,0,0,0.05),0_1px_3px_rgba(0,0,0,0.08)];
   }
 
   .table-card > .overflow-x-auto {
@@ -208,8 +218,16 @@ a {
     overflow: auto;
   }
 
+  .table-card .table-card {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
   .data-table {
-    @apply min-w-full text-left text-sm;
+    @apply text-left text-sm;
+    width: max-content !important;
+    min-width: 100% !important;
     border-collapse: separate;
     border-spacing: 0;
     font-size: 13px;
@@ -217,7 +235,16 @@ a {
   }
 
   .data-table.is-fixed-table {
-    table-layout: fixed;
+    table-layout: auto;
+  }
+
+  .data-table.table-fixed {
+    table-layout: auto !important;
+  }
+
+  .data-table > colgroup col {
+    width: auto !important;
+    min-width: 0 !important;
   }
 
   .data-table.multi-shipment-profit-table th,
@@ -236,23 +263,23 @@ a {
     position: sticky;
     top: 0;
     z-index: 20;
-    background: #f8fafc;
-    color: #475569;
-    box-shadow: 0 1px 0 #f1f5f9;
+    background: #f7f7f7;
+    color: #616161;
+    box-shadow: 0 1px 0 #e3e3e3;
   }
 
   .data-table th {
-    @apply py-2 text-sm font-semibold tracking-normal text-slate-600 bg-slate-50/75 backdrop-blur-sm whitespace-nowrap;
+    @apply h-10 align-middle text-xs font-semibold tracking-normal text-[#616161] whitespace-nowrap;
     padding-left: 0.75rem !important;
     padding-right: 0.75rem !important;
     font-size: 13px;
     line-height: 1.35;
-    background: #f8fafc;
+    background: #f7f7f7;
     text-align: left;
   }
 
   .data-table td {
-    @apply py-2.5 align-middle text-slate-700 border-t border-slate-100;
+    @apply h-11 align-middle text-[#303030] border-t border-[#e3e3e3];
     padding-left: 0.75rem !important;
     padding-right: 0.75rem !important;
     font-size: 13px;
@@ -363,41 +390,41 @@ a {
 
   .data-table.orders-table th.order-no-col,
   .data-table.orders-table td.order-no-col {
-    width: 14.5rem;
-    min-width: 14.5rem;
-    max-width: 14.5rem;
+    width: 1%;
+    min-width: 13rem;
+    max-width: 13rem;
     white-space: nowrap;
     @apply font-mono;
   }
 
   .data-table.orders-table th.order-stage-col,
   .data-table.orders-table td.order-stage-col {
-    width: 6rem;
-    min-width: 6rem;
+    width: 1%;
+    min-width: 5rem;
     max-width: 6rem;
     white-space: nowrap;
   }
 
   .data-table.orders-table th.order-warehouse-col,
   .data-table.orders-table td.order-warehouse-col {
-    width: 5.5rem;
-    min-width: 5.5rem;
-    max-width: 5.5rem;
+    width: 1%;
+    min-width: 5rem;
+    max-width: 7rem;
     white-space: nowrap;
   }
 
   .data-table.orders-table th.order-logistics-col,
   .data-table.orders-table td.order-logistics-col {
-    width: 8rem;
-    min-width: 8rem;
-    max-width: 8rem;
+    width: 1%;
+    min-width: 7.5rem;
+    max-width: 9rem;
     white-space: nowrap;
   }
 
   .data-table.orders-table th.order-qty-col,
   .data-table.orders-table td.order-qty-col {
-    width: 4rem;
-    min-width: 4rem;
+    width: 1%;
+    min-width: 3.5rem;
     max-width: 4rem;
     white-space: nowrap;
     text-align: right;
@@ -405,17 +432,17 @@ a {
 
   .data-table.orders-table th.order-attr-col,
   .data-table.orders-table td.order-attr-col {
-    width: 12rem;
-    min-width: 12rem;
-    max-width: 12rem;
+    width: auto;
+    min-width: 11rem;
+    max-width: 16rem;
     white-space: nowrap;
   }
 
   .data-table.orders-table th.order-phone-col,
   .data-table.orders-table td.order-phone-col {
-    width: 9rem;
-    min-width: 9rem;
-    max-width: 9rem;
+    width: 1%;
+    min-width: 8.5rem;
+    max-width: 10rem;
     white-space: nowrap;
   }
 
@@ -430,18 +457,18 @@ a {
 
   .data-table.orders-table th.order-time-col,
   .data-table.orders-table td.order-time-col {
-    width: 7.5rem;
-    min-width: 7.5rem;
-    max-width: 7.5rem;
+    width: 1%;
+    min-width: 7.25rem;
+    max-width: 8rem;
     white-space: nowrap;
     text-align: center;
   }
 
   .data-table.orders-table th.order-actual-ship-time-col,
   .data-table.orders-table td.order-actual-ship-time-col {
-    width: 11rem;
-    min-width: 11rem;
-    max-width: 11rem;
+    width: 1%;
+    min-width: 9rem;
+    max-width: 10rem;
     text-align: center;
   }
 
@@ -455,34 +482,34 @@ a {
 
   .data-table.orders-table th.order-tracking-status-col,
   .data-table.orders-table td.order-tracking-status-col {
-    width: 8.5rem;
-    min-width: 8.5rem;
-    max-width: 8.5rem;
+    width: 9rem;
+    min-width: 9rem;
+    max-width: 9rem;
     white-space: nowrap;
   }
 
   .data-table.orders-table th.order-product-col,
   .data-table.orders-table td.order-product-col {
-    width: 14rem;
-    min-width: 14rem;
-    max-width: 14rem;
+    width: auto;
+    min-width: 12rem;
+    max-width: 16rem;
     white-space: nowrap;
   }
 
   .data-table.orders-table th.order-tracking-col,
   .data-table.orders-table td.order-tracking-col {
-    width: 9.5rem;
-    min-width: 9.5rem;
-    max-width: 9.5rem;
+    width: 10rem;
+    min-width: 10rem;
+    max-width: 10rem;
     white-space: nowrap;
     @apply font-mono;
   }
 
   .data-table.orders-table th.order-recipient-col,
   .data-table.orders-table td.order-recipient-col {
-    width: 7rem;
+    width: 1%;
     min-width: 7rem;
-    max-width: 7rem;
+    max-width: 9rem;
     white-space: nowrap;
   }
 
@@ -594,7 +621,7 @@ a {
   }
 
   .data-table tbody tr:hover {
-    @apply bg-slate-50/60;
+    @apply bg-[#f7f7f7];
   }
 
   .data-table tbody tr.is-selected,
@@ -623,24 +650,33 @@ a {
     font-variant-numeric: tabular-nums;
   }
 
+  .data-table .table-column-align-right {
+    text-align: right !important;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .data-table .table-column-align-center {
+    text-align: center !important;
+  }
+
   .btn-primary {
-    @apply inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-accent px-4 text-sm font-semibold text-white shadow-sm shadow-accent/10 transition-all duration-200 hover:bg-accentDeep hover:shadow-md hover:shadow-accent/20 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex h-9 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-[#303030] px-4 text-sm font-semibold text-white shadow-sm transition-colors duration-150 hover:bg-[#1a1a1a] disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .btn-secondary {
-    @apply inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex h-9 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-[#c9cccf] bg-white px-4 text-sm font-semibold text-[#303030] shadow-sm transition-colors duration-150 hover:bg-[#f7f7f7] disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .btn-danger {
-    @apply inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-700 transition-all duration-200 hover:bg-rose-100 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex h-9 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-rose-200 bg-white px-4 text-sm font-semibold text-rose-700 shadow-sm transition-colors duration-150 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .icon-btn-danger {
-    @apply inline-flex h-9 w-9 items-center justify-center rounded-xl border border-rose-200 bg-rose-50/50 text-rose-700 transition-all duration-200 hover:bg-rose-100 active:scale-95 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300;
+    @apply inline-flex h-9 w-9 items-center justify-center rounded-lg border border-rose-200 bg-white text-rose-700 transition-colors duration-150 hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300;
   }
 
   .icon-btn {
-    @apply inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#c9cccf] bg-white text-[#616161] shadow-sm transition-colors duration-150 hover:bg-[#f7f7f7] hover:text-[#303030] disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .text-action {
@@ -648,11 +684,11 @@ a {
   }
 
   .empty-state {
-    @apply rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-12 text-center text-sm font-medium text-slate-400 shadow-[0_8px_30px_rgb(0,0,0,0.01)];
+    @apply rounded-xl border border-dashed border-[#c9cccf] bg-white px-4 py-12 text-center text-sm font-medium text-[#8a8a8a];
   }
 
   .mobile-summary-card {
-    @apply surface-card p-4 rounded-2xl border border-slate-100 bg-white shadow-sm transition-all duration-200 hover:shadow-md;
+    @apply surface-card rounded-xl border border-[#e3e3e3] bg-white p-4 shadow-sm;
   }
 
   .mobile-summary-title {
@@ -668,7 +704,7 @@ a {
   }
 
   .mobile-summary-cell {
-    @apply rounded-xl border border-slate-100 bg-slate-50/50 px-2.5 py-2 text-slate-600 font-medium;
+    @apply rounded-lg border border-[#e3e3e3] bg-[#f7f7f7] px-2.5 py-2 text-[#616161] font-medium;
   }
 
   .mobile-summary-actions {
@@ -676,16 +712,11 @@ a {
   }
 
   .erp-kpi-card {
-    @apply relative overflow-hidden rounded-2xl border border-slate-100 bg-white p-5 shadow-[0_8px_30px_rgb(0,0,0,0.02)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_12px_40px_rgb(0,0,0,0.04)];
+    @apply relative overflow-hidden rounded-xl border border-[#e3e3e3] bg-white p-5 shadow-[0_1px_0_rgba(0,0,0,0.05),0_1px_3px_rgba(0,0,0,0.08)];
   }
 
   .erp-kpi-card::before {
-    content: "";
-    position: absolute;
-    inset: 0 auto 0 0;
-    width: 4px;
-    background: #4f46e5;
-    border-radius: 4px 0 0 4px;
+    display: none;
   }
 
   .erp-kpi-success::before {
@@ -701,7 +732,7 @@ a {
   }
 
   .erp-dashboard-panel {
-    @apply rounded-2xl border border-slate-100 bg-white p-5 shadow-[0_8px_30px_rgb(0,0,0,0.02)];
+    @apply rounded-xl border border-[#e3e3e3] bg-white p-5 shadow-[0_1px_0_rgba(0,0,0,0.05),0_1px_3px_rgba(0,0,0,0.08)];
   }
 
   .erp-toolbar {
@@ -744,9 +775,6 @@ a {
       padding-left: 0.5rem !important;
       padding-right: 0.5rem !important;
       font-size: 12px;
-      width: calc(4em + 0.8rem);
-      min-width: calc(4em + 0.8rem);
-      max-width: calc(4em + 0.8rem);
     }
 
     .data-table th.product-name-col,
@@ -766,7 +794,7 @@ a {
     .btn-primary,
     .btn-secondary,
     .btn-danger {
-      @apply h-9 px-3.5 text-xs rounded-xl;
+      @apply h-9 rounded-lg px-3.5 text-xs;
     }
 
     .mobile-summary-card {

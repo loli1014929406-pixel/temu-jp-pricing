@@ -27,6 +27,7 @@ import type { AccountProfile, Product } from "../types";
 import type { User } from "@supabase/supabase-js";
 import { PageHeader, StatCard, TableCellPreview } from "../components/ui";
 import { StandardTable } from "../components/ui/StandardTable";
+import { TABLE_COLUMN_WIDTH } from "../components/ui/table-layout";
 
 type ProductsPageProps = {
   user: User;
@@ -35,18 +36,18 @@ type ProductsPageProps = {
 type ProductSellingFilter = "selling" | "not_selling" | "all";
 
 const productTableColumns = [
-  { key: "product_code", width: "8rem" },
-  { key: "product_name_cn", width: "15rem" },
-  { key: "material_en", width: "11rem" },
-  { key: "material_cn", width: "11rem" },
-  { key: "length", width: "6rem" },
-  { key: "width", width: "6rem" },
-  { key: "height", width: "6rem" },
-  { key: "weight", width: "7rem" },
-  { key: "is_selling", width: "7rem" },
-  { key: "owner", width: "10rem" },
-  { key: "created_at", width: "10rem" },
-  { key: "actions", width: "11rem" },
+  { key: "product_code", width: TABLE_COLUMN_WIDTH.short },
+  { key: "product_name_cn", width: TABLE_COLUMN_WIDTH.content },
+  { key: "material_en", width: TABLE_COLUMN_WIDTH.medium },
+  { key: "material_cn", width: TABLE_COLUMN_WIDTH.medium },
+  { key: "length", width: TABLE_COLUMN_WIDTH.compact },
+  { key: "width", width: TABLE_COLUMN_WIDTH.compact },
+  { key: "height", width: TABLE_COLUMN_WIDTH.compact },
+  { key: "weight", width: TABLE_COLUMN_WIDTH.short },
+  { key: "is_selling", width: TABLE_COLUMN_WIDTH.short },
+  { key: "owner", width: TABLE_COLUMN_WIDTH.medium },
+  { key: "created_at", width: TABLE_COLUMN_WIDTH.medium },
+  { key: "actions", width: TABLE_COLUMN_WIDTH.medium },
 ] as const;
 
 export function ProductsPage({ user }: ProductsPageProps) {
@@ -529,8 +530,8 @@ export function ProductsPage({ user }: ProductsPageProps) {
           loading={loading}
           empty={filteredProducts.length === 0}
           columns={productTableColumns}
-          layout="fixed"
-          minWidth="min-w-[1200px]"
+          layout="auto"
+          minWidth="min-w-max"
         >
             <thead>
               <tr>

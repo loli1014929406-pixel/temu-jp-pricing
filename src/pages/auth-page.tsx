@@ -56,45 +56,20 @@ export function AuthPage({ user }: AuthPageProps) {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-indigo-950 via-slate-900 to-slate-950 px-4 py-8 text-slate-100 flex items-center justify-center relative overflow-hidden">
-      {/* Background ambient glows */}
-      <div className="absolute top-0 right-1/4 w-96 h-96 bg-accent/10 rounded-full blur-[100px] pointer-events-none" />
-      <div className="absolute bottom-0 left-1/4 w-96 h-96 bg-accentSoft0/10 rounded-full blur-[100px] pointer-events-none" />
-
-      <div className="mx-auto grid min-h-[calc(100vh-4rem)] w-full max-w-5xl items-center gap-12 lg:grid-cols-[minmax(0,1fr)_440px] relative z-10">
-        <section className="grid gap-6">
-          <div className="inline-flex w-fit rounded-xl border border-white/10 bg-white/5 px-3.5 py-1 text-xs font-bold uppercase tracking-wider text-violet-400 backdrop-blur-md shadow-inner">
-            ERP Operations Console
-          </div>
+    <div className="flex min-h-screen items-center justify-center bg-[#f1f1f1] px-4 py-10 text-[#303030]">
+      <div className="w-full max-w-[440px]">
+        <div className="mb-6 flex items-center justify-center gap-3">
+          <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-[#303030] text-xs font-black text-white shadow-sm">JP</span>
           <div>
-            <h1 className="max-w-3xl text-4xl font-extrabold leading-tight tracking-tight text-white sm:text-5xl">
-              Temu 日本站 <span className="bg-gradient-to-r from-violet-400 to-indigo-400 bg-clip-text text-transparent">运营核算系统</span>
-            </h1>
-            <p className="mt-4 max-w-2xl text-base font-medium leading-7 text-slate-400">
-              一站式集中管理商品、订单、采购、库存与利润数据，助力决策优化。
-            </p>
+            <h1 className="text-lg font-bold tracking-tight text-[#303030]">Temu 日本站运营核算系统</h1>
+            <p className="mt-0.5 text-xs text-[#616161]">ERP Operations Console</p>
           </div>
-          <div className="grid max-w-2xl gap-4 sm:grid-cols-3">
-            {[
-              { title: "商品管理", desc: "主参数与申报材质" },
-              { title: "订单分配", desc: "仓储物流最优解" },
-              { title: "利润分析", desc: "实销实退利润模型" }
-            ].map((item) => (
-              <div
-                key={item.title}
-                className="bg-white/5 border border-white/10 rounded-2xl p-4 backdrop-blur-md transition hover:bg-white/10 hover:border-white/20"
-              >
-                <p className="text-sm font-bold text-white">{item.title}</p>
-                <p className="text-xs text-slate-400 mt-1">{item.desc}</p>
-              </div>
-            ))}
-          </div>
-        </section>
+        </div>
 
-        <div className="bg-white/90 backdrop-blur-xl border border-white/20 p-8 rounded-3xl shadow-2xl shadow-black/30 w-full text-slate-800">
+        <div className="w-full rounded-xl border border-[#e3e3e3] bg-white p-7 shadow-[0_1px_0_rgba(0,0,0,0.05),0_1px_3px_rgba(0,0,0,0.08)] sm:p-8">
           <div className="mb-6">
-            <p className="text-2xl font-bold text-slate-900">账号登录</p>
-            <p className="mt-2 text-sm text-slate-500 font-medium">
+            <p className="text-xl font-bold text-[#303030]">账号登录</p>
+            <p className="mt-1.5 text-sm text-[#616161]">
               登录后继续访问管理控制台
             </p>
           </div>
@@ -130,12 +105,15 @@ export function AuthPage({ user }: AuthPageProps) {
             <button
               type="submit"
               disabled={busy || Boolean(supabaseConfigError)}
-              className="btn-primary mt-2 w-full text-base py-3"
+              className="btn-primary mt-2 w-full"
             >
               {busy ? "处理中..." : "安全登录"}
             </button>
           </form>
         </div>
+        <p className="mt-5 text-center text-xs text-[#8a8a8a]">
+          一站式管理商品、订单、采购、库存与利润数据
+        </p>
       </div>
     </div>
   );

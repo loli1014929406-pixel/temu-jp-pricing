@@ -4,19 +4,19 @@ export default {
   theme: {
     extend: {
       colors: {
-        ink: "#0f172a",
-        mist: "#f1f5f9",
-        line: "#cbd5e1",
-        accent: "#0369a1",
-        accentDeep: "#075985",
-        accentSoft: "#e0f2fe",
+        ink: "#303030",
+        mist: "#f1f1f1",
+        line: "#d4d4d4",
+        accent: "#303030",
+        accentDeep: "#1a1a1a",
+        accentSoft: "#e3e3e3",
         panel: "#ffffff",
-        warning: "#b45309",
+        warning: "#8a6116",
       },
       boxShadow: {
-        panel: "0 18px 44px rgba(15, 23, 42, 0.08)",
-        soft: "0 1px 2px rgba(15, 23, 42, 0.08)",
-        glow: "0 14px 34px rgba(3, 105, 161, 0.18)",
+        panel: "0 1px 0 rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.08)",
+        soft: "0 1px 2px rgba(0, 0, 0, 0.08)",
+        glow: "0 2px 6px rgba(0, 0, 0, 0.14)",
       },
       animation: {
         "fade-up": "fade-up 700ms ease both",

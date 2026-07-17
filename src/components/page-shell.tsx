@@ -189,7 +189,7 @@ export function PageShell({ user }: PageShellProps) {
   const profileCard = (
     <div className="flex items-center justify-between gap-2.5 border-t border-slate-100 p-4">
       <Link to="/user" className="flex min-w-0 flex-1 items-center gap-2.5 hover:no-underline">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-accentSoft bg-gradient-to-tr from-violet-100 to-indigo-100 text-xs font-bold text-accentDeep shadow-sm">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#d4d4d4] bg-white text-xs font-bold text-[#303030] shadow-sm">
           {avatarText}
         </div>
         <div className="min-w-0 flex-1">
@@ -222,7 +222,7 @@ export function PageShell({ user }: PageShellProps) {
           <Link
             to="/user"
             aria-label="用户资料"
-            className="flex h-10 w-10 items-center justify-center rounded-full border border-accentSoft bg-gradient-to-tr from-violet-100 to-indigo-100 text-xs font-bold text-accentDeep"
+            className="flex h-10 w-10 items-center justify-center rounded-lg border border-[#d4d4d4] bg-white text-xs font-bold text-[#303030]"
           >
             {avatarText}
           </Link>
