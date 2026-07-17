@@ -65,6 +65,7 @@ import { confirmAction, confirmDelete, confirmSave } from "../utils/confirmation
 import {
   getOrderStage,
   getOrderStageDefinition as getStageDefinition,
+  getSplitOrderFulfillmentIssue,
   isShippingTrackingStage,
   orderStageDefinitions as stageDefinitions,
   shouldReserveOrderInventory,
@@ -539,6 +540,15 @@ export function OrdersPage({ user }: OrdersPageProps) {
         setErrorMessage(`仓库“${warehouse.name}”物流配置不完整，不能选择：${status.issue}`);
         return;
       }
+
+      const targetOrders = orderIds
+        .map((orderId) => ordersById.get(orderId))
+        .filter((order): order is TemuOrderRecord => Boolean(order));
+      const stockIssue = getWarehouseStockIssueForOrders(targetOrders, warehouse.id);
+      if (stockIssue) {
+        setErrorMessage(stockIssue);
+        return;
+      }
     }
 
     const currentDraft = drafts[orderIds[0]] ?? createEmptyDraft();
@@ -568,6 +578,41 @@ export function OrdersPage({ user }: OrdersPageProps) {
     const skuCode = normalizeSkuCode(order.sku_code);
     if (skuCode) return skuOrderLookup.skuByCode.get(skuCode) ?? null;
     return skuOrderLookup.skuBySalesSpec.get(normalizeSalesSpec(order.product_attributes)) ?? null;
+  }
+
+  function getWarehouseStockIssueForOrders(
+    targetOrders: TemuOrderRecord[],
+    warehouseId: string,
+  ) {
+    const warehouseName =
+      warehouses.find((warehouse) => warehouse.id === warehouseId)?.name || "所选仓库";
+    const requiredQuantityBySkuId = new Map<
+      string,
+      { sku: ProductSku; quantity: number }
+    >();
+
+    for (const order of targetOrders) {
+      const sku = getOrderSku(order);
+      if (!sku?.id) {
+        return `订单 ${order.order_no} 没有匹配到商品 SKU，不能分配仓库。`;
+      }
+      const current = requiredQuantityBySkuId.get(sku.id);
+      requiredQuantityBySkuId.set(sku.id, {
+        sku,
+        quantity:
+          (current?.quantity ?? 0) + getOrderFulfillmentQuantity(order),
+      });
+    }
+
+    for (const [skuId, requirement] of requiredQuantityBySkuId) {
+      const stock = warehouseSkusByKey.get(`${warehouseId}:${skuId}`);
+      const availableQuantity = stock?.stock_quantity ?? 0;
+      if (availableQuantity < requirement.quantity) {
+        return `${warehouseName} 的 SKU ${requirement.sku.sku_code || skuId} 库存不足：当前 ${availableQuantity}，需要 ${requirement.quantity}。`;
+      }
+    }
+
+    return "";
   }
 
   function getAllowedWarehouseLogisticsMethod(
@@ -1409,6 +1454,18 @@ export function OrdersPage({ user }: OrdersPageProps) {
   ) {
     assertOrdersWarehouseLogisticsComplete(entries.map((entry) => entry.nextOrder));
 
+    const updatesByOrderId = new Map(
+      entries.map((entry) => [entry.order.id, entry.nextOrder]),
+    );
+    const affectedMainOrderNos = new Set(
+      entries.map((entry) => entry.order.order_no.trim()).filter(Boolean),
+    );
+    const projectedAffectedOrders = allOrders
+      .filter((order) => affectedMainOrderNos.has(order.order_no.trim()))
+      .map((order) => updatesByOrderId.get(order.id) ?? order);
+    const splitOrderIssue = getSplitOrderFulfillmentIssue(projectedAffectedOrders);
+    if (splitOrderIssue) throw new Error(splitOrderIssue);
+
     const nextOrders: TemuOrderRecord[] = [];
     const inventoryChanges: Awaited<ReturnType<typeof deductInventoryForOrders>> = [];
     const deductedInventoryChanges: Awaited<ReturnType<typeof deductInventoryForOrders>> = [];
@@ -1863,6 +1920,16 @@ export function OrdersPage({ user }: OrdersPageProps) {
       setErrorMessage(`${selectedWarehouse.name} 不能使用“${logisticsMethod}”发货方式。`);
       return;
     }
+    if (selectedWarehouse) {
+      const stockIssue = getWarehouseStockIssueForOrders(
+        pendingSelectedOrders,
+        selectedWarehouse.id,
+      );
+      if (stockIssue) {
+        setErrorMessage(stockIssue);
+        return;
+      }
+    }
     if (!(await confirmSave(`确认批量分配 ${pendingSelectedOrders.length} 条订单吗？`))) return;
 
     setBusyKey("bulk-assign");
@@ -2001,6 +2068,17 @@ export function OrdersPage({ user }: OrdersPageProps) {
         }
 
         const matched = matchResult.match;
+        const firstGroupMatch = groupMatches[0];
+        if (
+          firstGroupMatch &&
+          (firstGroupMatch.warehouse.id !== matched.warehouse.id ||
+            firstGroupMatch.logisticsMethod !== matched.logisticsMethod)
+        ) {
+          blockedReasons.push(
+            `主订单 ${orderLabel} 的所有子单必须使用同一仓库和同一发货方式，自动匹配不会拆单。`,
+          );
+          return;
+        }
         const reserved = reserveOrderInventory(
           matched.warehouse.id,
           matched.sku,
@@ -2912,6 +2990,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
                       key={orderRow.id}
                       activeStage={activeStage}
                       canEdit={canEdit}
+                      getWarehouseStockIssueForOrders={getWarehouseStockIssueForOrders}
                       logisticsMethods={logisticsMethods}
                       settings={settings}
                       onHandleWarehouseChangeForOrders={handleWarehouseChangeForOrders}

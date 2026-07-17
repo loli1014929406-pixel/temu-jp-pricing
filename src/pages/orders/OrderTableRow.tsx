@@ -486,6 +486,10 @@ export type OrderTableRowProps = {
   logisticsMethods: LogisticsMethod[];
   settings: PricingSettings | null;
   onHandleWarehouseChangeForOrders: (orderIds: string[], warehouseId: string) => void;
+  getWarehouseStockIssueForOrders: (
+    orders: TemuOrderRecord[],
+    warehouseId: string,
+  ) => string;
   onSaveActualShipTimeForOrders: (targetOrders: TemuOrderRecord[]) => Promise<void>;
   onToggleOrderRowSelection: (rowOrderIds: string[], checked: boolean) => void;
   onUpdateDraftForOrders: <K extends keyof OrderDraft>(
@@ -509,6 +513,7 @@ export const OrderTableRow = memo(function OrderTableRow({
   canEdit,
   logisticsMethods,
   settings,
+  getWarehouseStockIssueForOrders,
   onHandleWarehouseChangeForOrders,
   onSaveActualShipTimeForOrders,
   onToggleOrderRowSelection,
@@ -606,6 +611,16 @@ export const OrderTableRow = memo(function OrderTableRow({
           !warehouses.some((warehouse) => warehouse.id === draft.warehouse_id),
       ),
     [draft.warehouse_id, draft.warehouse_name, warehouses],
+  );
+  const warehouseStockIssueById = useMemo(
+    () =>
+      new Map(
+        warehouses.map((warehouse) => [
+          warehouse.id,
+          getWarehouseStockIssueForOrders(rowOrders, warehouse.id),
+        ]),
+      ),
+    [getWarehouseStockIssueForOrders, rowOrders, warehouses],
   );
   const declarationGroups = useMemo(
     () =>
@@ -731,11 +746,19 @@ export const OrderTableRow = memo(function OrderTableRow({
             {currentWarehouseMissing && (
               <option value={draft.warehouse_id ?? ""}>{draft.warehouse_name}</option>
             )}
-            {warehouses.map((warehouse) => (
-              <option key={warehouse.id} value={warehouse.id}>
-                {warehouse.name}
-              </option>
-            ))}
+            {warehouses.map((warehouse) => {
+              const stockIssue = warehouseStockIssueById.get(warehouse.id) ?? "";
+              return (
+                <option
+                  key={warehouse.id}
+                  value={warehouse.id}
+                  disabled={Boolean(stockIssue)}
+                  title={stockIssue || undefined}
+                >
+                  {warehouse.name}{stockIssue ? "（库存不足）" : ""}
+                </option>
+              );
+            })}
           </select>
         ) : (
           <span className="text-sm font-medium text-slate-700 whitespace-nowrap">

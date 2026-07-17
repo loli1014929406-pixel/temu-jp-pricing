@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { TemuOrderRecord } from "../types";
 import {
   getOrderStage,
+  getSplitOrderFulfillmentIssue,
   isShippingTrackingStage,
   shouldReserveOrderInventory,
 } from "./order-workflow";
@@ -42,5 +43,68 @@ describe("order workflow", () => {
     expect(shouldReserveOrderInventory("pending_assignment")).toBe(false);
     expect(shouldReserveOrderInventory("new_order")).toBe(true);
     expect(shouldReserveOrderInventory("completed")).toBe(true);
+  });
+
+  it("allows a multi-line main order to use one warehouse and one shipping method", () => {
+    const orders = [
+      order({
+        order_no: "PO-1",
+        warehouse_id: "warehouse-1",
+        warehouse_name: "苏州",
+        logistics_method_id: "method-1",
+        logistics_method: "OCS Yamato",
+      }),
+      order({
+        order_no: "PO-1",
+        warehouse_id: "warehouse-1",
+        warehouse_name: "苏州",
+        logistics_method_id: "method-1",
+        logistics_method: "OCS Yamato",
+      }),
+    ];
+
+    expect(getSplitOrderFulfillmentIssue(orders)).toBe("");
+  });
+
+  it("blocks a multi-line main order from being split across warehouses", () => {
+    const orders = [
+      order({
+        order_no: "PO-1",
+        warehouse_id: "warehouse-1",
+        warehouse_name: "苏州",
+        logistics_method_id: "method-1",
+        logistics_method: "OCS Yamato",
+      }),
+      order({
+        order_no: "PO-1",
+        warehouse_id: "warehouse-2",
+        warehouse_name: "福冈",
+        logistics_method_id: "method-1",
+        logistics_method: "OCS Yamato",
+      }),
+    ];
+
+    expect(getSplitOrderFulfillmentIssue(orders)).toContain("必须使用同一发货仓库");
+  });
+
+  it("blocks a multi-line main order from using different shipping methods", () => {
+    const orders = [
+      order({
+        order_no: "PO-1",
+        warehouse_id: "warehouse-1",
+        warehouse_name: "苏州",
+        logistics_method_id: "method-1",
+        logistics_method: "OCS Yamato",
+      }),
+      order({
+        order_no: "PO-1",
+        warehouse_id: "warehouse-1",
+        warehouse_name: "苏州",
+        logistics_method_id: "method-2",
+        logistics_method: "OCS 小包",
+      }),
+    ];
+
+    expect(getSplitOrderFulfillmentIssue(orders)).toContain("必须使用同一发货方式");
   });
 });
