@@ -86,6 +86,87 @@ export type FinanceAnalysisSummary = {
 
 export type FinanceAggregateRow = Record<string, string | number>;
 
+export type FinanceOperatingOverviewSummary = {
+  orderCount: number;
+  settledCount: number;
+  unsettledCount: number;
+  actualRevenue: number;
+  settledProductCost: number;
+  settledShipping: number;
+  settledProfit: number;
+  unsettledProductCost: number;
+  unsettledShipping: number;
+  unsettledCost: number;
+  unmatchedCount: number;
+  missingShippingAttentionCount: number;
+  missingActualShipTimeCount: number;
+};
+
+export type FinanceOperatingMonthlyRow = {
+  month: string;
+  orderCount: number;
+  settledCount: number;
+  actualRevenue: number;
+  settledProductCost: number;
+  settledShipping: number;
+  settledProfit: number;
+  unsettledCost: number;
+};
+
+const emptyOperatingOverviewSummary: FinanceOperatingOverviewSummary = {
+  orderCount: 0,
+  settledCount: 0,
+  unsettledCount: 0,
+  actualRevenue: 0,
+  settledProductCost: 0,
+  settledShipping: 0,
+  settledProfit: 0,
+  unsettledProductCost: 0,
+  unsettledShipping: 0,
+  unsettledCost: 0,
+  unmatchedCount: 0,
+  missingShippingAttentionCount: 0,
+  missingActualShipTimeCount: 0,
+};
+
+export async function fetchFinanceOperatingOverview(options: {
+  dateStart?: string;
+  dateEnd?: string;
+}) {
+  await requireSession();
+  const supabase = getSupabaseClient();
+  const { data, error } = await withTimeout(
+    supabase.rpc("get_finance_operating_overview", {
+      p_date_start: options.dateStart || null,
+      p_date_end: options.dateEnd || null,
+    }),
+    "加载财务经营总览",
+    { requestKind: "rpc" },
+  );
+  if (error) throw error;
+  const payload = (Array.isArray(data) ? data[0] : data) as {
+    summary?: Record<string, unknown>;
+    monthly?: Array<Record<string, unknown>>;
+  } | null;
+  const rawSummary = payload?.summary ?? {};
+  const numberValue = (key: keyof FinanceOperatingOverviewSummary) => Number(rawSummary[key] ?? 0);
+  const summary = Object.fromEntries(
+    (Object.keys(emptyOperatingOverviewSummary) as Array<keyof FinanceOperatingOverviewSummary>)
+      .map((key) => [key, numberValue(key)]),
+  ) as FinanceOperatingOverviewSummary;
+  const monthly = (Array.isArray(payload?.monthly) ? payload.monthly : []).map((row) => ({
+    month: String(row.month ?? ""),
+    orderCount: Number(row.order_count ?? 0),
+    settledCount: Number(row.settled_count ?? 0),
+    actualRevenue: Number(row.actual_revenue ?? 0),
+    settledProductCost: Number(row.settled_product_cost ?? 0),
+    settledShipping: Number(row.settled_shipping ?? 0),
+    settledProfit: Number(row.settled_profit ?? 0),
+    unsettledCost: Number(row.unsettled_cost ?? 0),
+  })) as FinanceOperatingMonthlyRow[];
+  return { summary, monthly };
+}
+
 export async function fetchFinanceOrderAnalysis(options: {
   page?: number;
   pageSize?: number;
