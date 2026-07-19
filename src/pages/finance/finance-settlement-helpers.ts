@@ -5,14 +5,16 @@ import { TABLE_COLUMN_WIDTH } from "../../components/ui/table-layout";
 export type IncomeDateFilterMode = "all" | "month" | "custom";
 
 export type IncomeShippingMethodRow = {
+  warehouse: string;
   method: string;
   orderCount: number;
+  shipmentCount: number;
   quantity: number;
   actualShipping: number;
   estimatedShipping: number;
   totalShipping: number;
   missingShippingCount: number;
-  averagePerOrder: number;
+  averagePerShipment: number;
 };
 
 export const settlementReconColumns = [

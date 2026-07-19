@@ -132,11 +132,14 @@ export function FinanceSettlementPage({ user }: Props) {
   const incomePaginated = { page: incomePage, rows: filteredOrderRows, total: incomeAnalysis.totalCount, totalPages: Math.max(1, Math.ceil(incomeAnalysis.totalCount / incomePageSize)) };
   const incomeSummary = incomeAnalysis.summary;
   const incomeShippingMethodRows = incomeAnalysis.shippingMethods.map((row) => ({
+    warehouse: String(row.warehouse ?? "未填写仓库"),
     method: String(row.method ?? "未填写发货方式"),
-    orderCount: Number(row.order_count ?? 0), quantity: Number(row.quantity ?? 0),
+    orderCount: Number(row.order_count ?? 0), shipmentCount: Number(row.shipment_count ?? row.order_count ?? 0), quantity: Number(row.quantity ?? 0),
     actualShipping: Number(row.actual_shipping ?? 0), estimatedShipping: Number(row.estimated_shipping ?? 0),
     totalShipping: Number(row.total_shipping ?? 0), missingShippingCount: Number(row.missing_shipping_count ?? 0),
-    averagePerOrder: Number(row.order_count ?? 0) > 0 ? roundMoney(Number(row.total_shipping ?? 0) / Number(row.order_count)) : 0,
+    averagePerShipment: Number(row.shipment_count ?? row.order_count ?? 0) > 0
+      ? roundMoney(Number(row.total_shipping ?? 0) / Number(row.shipment_count ?? row.order_count))
+      : 0,
   })) as IncomeShippingMethodRow[];
   const loading = baseLoading || reconAnalysis.loading || incomeAnalysis.loading || issueCountAnalysis.loading;
   const error = baseError || reconAnalysis.error || incomeAnalysis.error || issueCountAnalysis.error;
@@ -753,45 +756,47 @@ export function FinanceSettlementPage({ user }: Props) {
                 <div className="mb-5 rounded-lg border border-slate-100 bg-white">
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-3 py-2.5">
                     <div>
-                      <h4 className="text-sm font-bold text-slate-800">发货方式运费明细</h4>
-                      <p className="mt-0.5 text-xs text-slate-400">按当前筛选结果统计；实际运费优先，没有实际运费时使用自动估算运费。</p>
+                      <h4 className="text-sm font-bold text-slate-800">仓库与发货方式运费明细</h4>
+                      <p className="mt-0.5 text-xs text-slate-400">
+                        按下方订单明细汇总：实际尾程取已录入金额；自动核算包含头程运费，以及未录入实际尾程时的系统估算金额。
+                      </p>
                     </div>
                     <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500">
-                      共 {incomeShippingMethodRows.length} 种发货方式
+                      共 {incomeShippingMethodRows.length} 组仓库 / 发货方式
                     </span>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full min-w-[780px] text-sm">
                       <thead>
                         <tr className="border-b border-slate-100 text-left text-xs font-bold text-slate-500">
-                          <th className="py-2 pl-3 pr-3">发货方式</th>
-                          <th className="py-2 pr-3 text-right">订单数</th>
+                          <th className="py-2 pl-3 pr-3">仓库 / 发货方式</th>
+                          <th className="py-2 pr-3 text-right">票数</th>
                           <th className="py-2 pr-3 text-right">件数</th>
-                          <th className="py-2 pr-3 text-right">实际运费</th>
-                          <th className="py-2 pr-3 text-right">估算运费</th>
-                          <th className="py-2 pr-3 text-right">总运费</th>
-                          <th className="py-2 pr-3 text-right">单均</th>
-                          <th className="py-2 pr-3 text-right">缺失</th>
+                          <th className="py-2 pr-3 text-right">实际尾程运费</th>
+                          <th className="py-2 pr-3 text-right">自动核算运费</th>
+                          <th className="py-2 pr-3 text-right">核算运费合计</th>
+                          <th className="py-2 pr-3 text-right">票均运费</th>
+                          <th className="py-2 pr-3 text-right">运费缺失订单</th>
                         </tr>
                       </thead>
                       <tbody>
                         {incomeShippingMethodRows.map((row) => (
-                          <tr key={row.method} className="border-b border-slate-50 last:border-0">
+                          <tr key={`${row.warehouse}-${row.method}`} className="border-b border-slate-50 last:border-0">
                             <td className="py-2 pl-3 pr-3 font-semibold text-slate-800">
                               <TableCellPreview
-                                label="发货方式"
-                                value={row.method}
+                                label="仓库 / 发货方式"
+                                value={`${row.warehouse} · ${row.method}`}
                                 lines={1}
-                                alwaysShowDetail={row.method.length > 18}
-                                detailTitle="发货方式"
+                                alwaysShowDetail={`${row.warehouse} · ${row.method}`.length > 18}
+                                detailTitle="仓库 / 发货方式"
                               />
                             </td>
-                            <td className="py-2 pr-3 text-right font-semibold text-slate-700">{row.orderCount}</td>
+                            <td className="py-2 pr-3 text-right font-semibold text-slate-700">{row.shipmentCount}</td>
                             <td className="py-2 pr-3 text-right font-semibold text-slate-700">{row.quantity}</td>
                             <td className="money py-2 pr-3 text-right text-emerald-700">{formatCurrency(row.actualShipping)}</td>
                             <td className="money py-2 pr-3 text-right text-amber-700">{formatCurrency(row.estimatedShipping)}</td>
                             <td className="money py-2 pr-3 text-right font-bold text-slate-900">{formatCurrency(row.totalShipping)}</td>
-                            <td className="money py-2 pr-3 text-right text-slate-700">{formatCurrency(row.averagePerOrder)}</td>
+                            <td className="money py-2 pr-3 text-right text-slate-700">{formatCurrency(row.averagePerShipment)}</td>
                             <td className={`py-2 pr-3 text-right font-semibold ${row.missingShippingCount > 0 ? "text-rose-700" : "text-slate-400"}`}>
                               {row.missingShippingCount}
                             </td>
@@ -804,7 +809,7 @@ export function FinanceSettlementPage({ user }: Props) {
 
                 <StandardTable 
                   minWidth="min-w-max"
-                  tableClassName="finance-freeze-order"
+                  tableClassName="finance-freeze-order finance-settlement-income-table"
                   columns={settlementIncomeColumns}
                   layout="auto"
                   page={incomePaginated.page}
@@ -898,12 +903,12 @@ export function FinanceSettlementPage({ user }: Props) {
                                   <span className="money text-rose-600 font-bold">缺失</span>
                                 ) : (
                                   <>
-                                    <span className={`money ${row.shippingFeeSource === "actual" ? "font-bold text-slate-900" : "text-accent font-semibold"}`}>{formatCurrency(row.lastLegShippingRmb)}</span>
                                     {row.shippingFeeSource === "actual" ? (
                                       <span className="rounded bg-emerald-50 px-1 py-0.5 text-[9px] font-black text-emerald-600">实际</span>
                                     ) : (
                                       <span className="rounded bg-accentSoft px-1 py-0.5 text-[9px] font-black text-accent">估算</span>
                                     )}
+                                    <span className={`money ${row.shippingFeeSource === "actual" ? "font-bold text-slate-900" : "text-accent font-semibold"}`}>{formatCurrency(row.lastLegShippingRmb)}</span>
                                   </>
                                 )}
                                 {canEdit && (

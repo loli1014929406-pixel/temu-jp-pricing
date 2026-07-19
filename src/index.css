@@ -377,6 +377,65 @@ a {
     max-width: 13rem;
   }
 
+  .data-table.finance-settlement-income-table {
+    width: 100% !important;
+    min-width: 96rem !important;
+    table-layout: fixed !important;
+  }
+
+  .data-table.finance-settlement-income-table th:nth-child(3),
+  .data-table.finance-settlement-income-table td:nth-child(3) {
+    width: 8rem;
+  }
+
+  .data-table.finance-settlement-income-table th:nth-child(4),
+  .data-table.finance-settlement-income-table td:nth-child(4) {
+    width: 9rem;
+    max-width: 9rem;
+  }
+
+  .data-table.finance-settlement-income-table th:nth-child(5),
+  .data-table.finance-settlement-income-table td:nth-child(5) {
+    width: 7rem;
+  }
+
+  .data-table.finance-settlement-income-table th:nth-child(6),
+  .data-table.finance-settlement-income-table td:nth-child(6) {
+    width: 6rem;
+  }
+
+  .data-table.finance-settlement-income-table th:nth-child(7),
+  .data-table.finance-settlement-income-table td:nth-child(7) {
+    width: 7rem;
+  }
+
+  .data-table.finance-settlement-income-table th:nth-child(8),
+  .data-table.finance-settlement-income-table td:nth-child(8) {
+    width: 7.5rem;
+  }
+
+  .data-table.finance-settlement-income-table th:nth-child(9),
+  .data-table.finance-settlement-income-table td:nth-child(9) {
+    width: 8rem;
+  }
+
+  .data-table.finance-settlement-income-table th:nth-child(10),
+  .data-table.finance-settlement-income-table td:nth-child(10) {
+    width: 5.5rem;
+  }
+
+  .data-table.finance-settlement-income-table th:nth-child(11),
+  .data-table.finance-settlement-income-table td:nth-child(11) {
+    width: 9rem;
+  }
+
+  .data-table.finance-settlement-income-table th:nth-child(12),
+  .data-table.finance-settlement-income-table td:nth-child(12),
+  .data-table.finance-settlement-income-table th:nth-child(13),
+  .data-table.finance-settlement-income-table td:nth-child(13) {
+    width: 6rem;
+  }
+
   .data-table th.product-name-col,
   .data-table td.product-name-col {
     width: 15rem;

@@ -53,14 +53,16 @@ const profitChartSeries: Array<{
 ];
 
 type ShippingMethodRow = {
+  warehouse: string;
   method: string;
   orderCount: number;
+  shipmentCount: number;
   quantity: number;
   actualShipping: number;
   estimatedShipping: number;
   totalShipping: number;
   missingShippingCount: number;
-  averagePerOrder: number;
+  averagePerShipment: number;
   averagePerItem: number;
 };
 
@@ -379,14 +381,16 @@ export function FinanceProfitPage({ user }: Props) {
     const getShippingObj = (method: string) => {
       if (!shippingData.has(method)) {
         shippingData.set(method, {
+          warehouse: "未填写仓库",
           method,
           orderCount: 0,
+          shipmentCount: 0,
           quantity: 0,
           actualShipping: 0,
           estimatedShipping: 0,
           totalShipping: 0,
           missingShippingCount: 0,
-          averagePerOrder: 0,
+          averagePerShipment: 0,
           averagePerItem: 0,
         });
       }
@@ -411,6 +415,7 @@ export function FinanceProfitPage({ user }: Props) {
       const obj = getShippingObj(method);
 
       obj.orderCount += 1;
+      obj.shipmentCount += 1;
       obj.quantity += quantity;
 
       if (shipping.shippingFeeSource === "actual") {
@@ -438,7 +443,7 @@ export function FinanceProfitPage({ user }: Props) {
           actualShipping,
           estimatedShipping,
           totalShipping,
-          averagePerOrder: row.orderCount > 0 ? roundMoney(totalShipping / row.orderCount) : 0,
+          averagePerShipment: row.shipmentCount > 0 ? roundMoney(totalShipping / row.shipmentCount) : 0,
           averagePerItem: row.quantity > 0 ? roundMoney(totalShipping / row.quantity) : 0,
         };
       })
@@ -495,12 +500,16 @@ export function FinanceProfitPage({ user }: Props) {
   }, [analysis.monthly, data.purchases, expenses, logisticsCash.data.monthly, period]);
 
   const shippingMethodRows = useMemo<ShippingMethodRow[]>(() => {
-    const merged = new Map<string, Omit<ShippingMethodRow, "averagePerOrder" | "averagePerItem">>();
+    const merged = new Map<string, Omit<ShippingMethodRow, "averagePerShipment" | "averagePerItem">>();
     analysis.shippingMethods.forEach((raw) => {
+      const warehouse = String(raw.warehouse ?? "未填写仓库").trim() || "未填写仓库";
       const method = getShippingMethodLabel(raw.method);
-      const current = merged.get(method) ?? {
+      const key = `${warehouse}\u0000${method}`;
+      const current = merged.get(key) ?? {
+        warehouse,
         method,
         orderCount: 0,
+        shipmentCount: 0,
         quantity: 0,
         actualShipping: 0,
         estimatedShipping: 0,
@@ -508,12 +517,13 @@ export function FinanceProfitPage({ user }: Props) {
         missingShippingCount: 0,
       };
       current.orderCount += Number(raw.order_count ?? 0);
+      current.shipmentCount += Number(raw.shipment_count ?? raw.order_count ?? 0);
       current.quantity += Number(raw.quantity ?? 0);
       current.actualShipping += Number(raw.actual_shipping ?? 0);
       current.estimatedShipping += Number(raw.estimated_shipping ?? 0);
       current.totalShipping += Number(raw.total_shipping ?? 0);
       current.missingShippingCount += Number(raw.missing_shipping_count ?? 0);
-      merged.set(method, current);
+      merged.set(key, current);
     });
 
     return Array.from(merged.values()).map((row) => ({
@@ -522,7 +532,7 @@ export function FinanceProfitPage({ user }: Props) {
       actualShipping: roundMoney(row.actualShipping),
       estimatedShipping: roundMoney(row.estimatedShipping),
       totalShipping: roundMoney(row.totalShipping),
-      averagePerOrder: row.orderCount > 0 ? roundMoney(row.totalShipping / row.orderCount) : 0,
+      averagePerShipment: row.shipmentCount > 0 ? roundMoney(row.totalShipping / row.shipmentCount) : 0,
       averagePerItem: row.quantity > 0 ? roundMoney(row.totalShipping / row.quantity) : 0,
     }));
   }, [analysis.shippingMethods]);
@@ -533,7 +543,7 @@ export function FinanceProfitPage({ user }: Props) {
         totalShipping: roundMoney(summary.totalShipping + row.totalShipping),
         actualShipping: roundMoney(summary.actualShipping + row.actualShipping),
         estimatedShipping: roundMoney(summary.estimatedShipping + row.estimatedShipping),
-        orderCount: summary.orderCount + row.orderCount,
+        shipmentCount: summary.shipmentCount + row.shipmentCount,
         quantity: roundMoney(summary.quantity + row.quantity),
         missingShippingCount: summary.missingShippingCount + row.missingShippingCount,
       }),
@@ -541,7 +551,7 @@ export function FinanceProfitPage({ user }: Props) {
         totalShipping: 0,
         actualShipping: 0,
         estimatedShipping: 0,
-        orderCount: 0,
+        shipmentCount: 0,
         quantity: 0,
         missingShippingCount: 0,
       },
@@ -816,12 +826,12 @@ ${shippingCostLabel}: ${formatCurrency(shippingCost)}
           <div className="min-w-0">
             <h4 className="flex items-center gap-1.5 text-sm font-bold text-slate-800">
               <Truck size={16} className="text-accent" />
-              <span>发货方式运费分析</span>
+              <span>仓库与发货方式运费分析</span>
             </h4>
             <p className="mt-1 text-xs text-slate-400">按当前时间范围统计，实际运费优先；没有实际运费时使用页面核算估算值。</p>
           </div>
           <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500">
-            共 {shippingMethodRows.length} 种发货方式
+            共 {shippingMethodRows.length} 组仓库 / 发货方式
           </span>
         </div>
 
@@ -861,9 +871,9 @@ ${shippingCostLabel}: ${formatCurrency(shippingCost)}
                 const actualShare = row.totalShipping > 0 ? (row.actualShipping / row.totalShipping) * 100 : 0;
                 const estimatedShare = row.totalShipping > 0 ? (row.estimatedShipping / row.totalShipping) * 100 : 0;
                 return (
-                  <div key={row.method} className="grid gap-1.5">
+                  <div key={`${row.warehouse}-${row.method}`} className="grid gap-1.5">
                     <div className="flex items-center justify-between gap-3 text-xs">
-                      <span className="truncate font-semibold text-slate-700" title={row.method}>{row.method}</span>
+                      <span className="truncate font-semibold text-slate-700" title={`${row.warehouse} · ${row.method}`}>{row.warehouse} · {row.method}</span>
                       <span className="money shrink-0 font-bold text-slate-900">{formatCurrency(row.totalShipping)}</span>
                     </div>
                     <div className="h-4 overflow-hidden rounded bg-slate-100">
@@ -874,7 +884,7 @@ ${shippingCostLabel}: ${formatCurrency(shippingCost)}
                     </div>
                     <div className="flex justify-between text-[11px] text-slate-400">
                       <span>{formatShare(row.totalShipping, shippingMethodSummary.totalShipping)}</span>
-                      <span>{row.orderCount} 单 / {row.quantity} 件</span>
+                      <span>{row.shipmentCount} 票 / {row.quantity} 件</span>
                     </div>
                   </div>
                 );
@@ -885,35 +895,35 @@ ${shippingCostLabel}: ${formatCurrency(shippingCost)}
           <FinanceTable minWidth="min-w-max">
             <thead>
               <tr>
-                <th>发货方式</th>
-                <th className="number-cell px-3 py-2">订单数</th>
+                <th>仓库 / 发货方式</th>
+                <th className="number-cell px-3 py-2">票数</th>
                 <th className="number-cell px-3 py-2">件数</th>
                 <th className="number-cell px-3 py-2">实际运费</th>
                 <th className="number-cell px-3 py-2">估算运费</th>
                 <th className="number-cell px-3 py-2">总运费</th>
-                <th className="number-cell px-3 py-2">单均</th>
+                <th className="number-cell px-3 py-2">票均</th>
                 <th className="number-cell px-3 py-2">件均</th>
                 <th className="number-cell px-3 py-2">缺失</th>
               </tr>
             </thead>
             <tbody>
               {shippingMethodRows.map((row) => (
-                <tr key={row.method} className="hover:bg-slate-50/50">
-                  <td className="font-semibold text-slate-800" data-full-text={row.method}>
+                <tr key={`${row.warehouse}-${row.method}`} className="hover:bg-slate-50/50">
+                  <td className="font-semibold text-slate-800" data-full-text={`${row.warehouse} · ${row.method}`}>
                     <TableCellPreview
-                      label="发货方式"
-                      value={row.method}
+                      label="仓库 / 发货方式"
+                      value={`${row.warehouse} · ${row.method}`}
                       lines={1}
                       alwaysShowDetail
-                      detailTitle="发货方式"
+                      detailTitle="仓库 / 发货方式"
                     />
                   </td>
-                  <td className="number-cell font-semibold px-3 py-2">{row.orderCount}</td>
+                  <td className="number-cell font-semibold px-3 py-2">{row.shipmentCount}</td>
                   <td className="number-cell font-semibold px-3 py-2">{row.quantity}</td>
                   <td className="money px-3 py-2 text-[#0c5132]">{formatCurrency(row.actualShipping)}</td>
                   <td className="money px-3 py-2 text-amber-700">{formatCurrency(row.estimatedShipping)}</td>
                   <td className="money px-3 py-2 font-bold text-slate-900">{formatCurrency(row.totalShipping)}</td>
-                  <td className="money px-3 py-2">{formatCurrency(row.averagePerOrder)}</td>
+                  <td className="money px-3 py-2">{formatCurrency(row.averagePerShipment)}</td>
                   <td className="money px-3 py-2">{formatCurrency(row.averagePerItem)}</td>
                   <td className={`number-cell px-3 py-2 font-semibold ${row.missingShippingCount > 0 ? "text-rose-700" : "text-slate-400"}`}>
                     {row.missingShippingCount}
