@@ -88,10 +88,12 @@ export type LogisticsMethodConfig = {
     | "flat_rmb_tariff"
     | "flat_jpy"
     | "fixed_rmb"
+    | "quantity_tier"
     | "ocs_3cm"
     | "ocs_small";
   params: {
     price?: number;        // flat_rmb, flat_jpy, fixed_rmb
+    quantityPrices?: number[]; // quantity_tier: index 0 = 1 item; overflow uses last price
     currency?: "RMB" | "JPY";
     billingUnit?: "kg" | "100g" | "500g" | "ticket";
     tariffRate?: number;   // flat_rmb_tariff
@@ -394,6 +396,12 @@ export type PurchasePackageItem = {
   created_at: string;
 };
 
+export type OrderCustomerHistoryStatus =
+  | "normal"
+  | "repeat_customer"
+  | "refund_order"
+  | "refund_customer";
+
 export type TemuOrderRecord = {
   id: string;
   owner_id: string;
@@ -425,6 +433,9 @@ export type TemuOrderRecord = {
   estimated_delivery_time: string;
   actual_signed_time: string;
   actual_shipping_fee_rmb: number;
+  customer_history_status: OrderCustomerHistoryStatus;
+  customer_sales_reversal: number;
+  customer_freight_reversal: number;
   created_at: string;
   updated_at: string;
 };

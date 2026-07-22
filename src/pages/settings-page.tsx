@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import type { User } from "@supabase/supabase-js";
 import { Pencil, Plus, Trash2, X, Save } from "lucide-react";
 import { Field, TextInput } from "../components/form-controls";
@@ -19,6 +19,10 @@ import type { LogisticsMethodConfig, PricingSettings } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { PageHeader } from "../components/ui";
 import { confirmCancelEdit, confirmDelete, confirmSave } from "../utils/confirmations";
+import {
+  resolveSettingsDraft,
+  type SettingsDraftState,
+} from "../lib/settings-draft";
 
 type SettingsPageProps = {
   user: User;
@@ -27,7 +31,7 @@ type SettingsPageProps = {
 type LogisticsSectionType = LogisticsMethodConfig["type"];
 type LogisticsFormula = LogisticsMethodConfig["formula"];
 type LogisticsParams = LogisticsMethodConfig["params"];
-type LogisticsParamKey = keyof LogisticsParams;
+type LogisticsParamKey = Exclude<keyof LogisticsParams, "quantityPrices">;
 type LogisticsCurrency = NonNullable<LogisticsParams["currency"]>;
 type LogisticsBillingUnit = NonNullable<LogisticsParams["billingUnit"]>;
 
@@ -66,6 +70,7 @@ const formulaOptionsByType = {
   last_leg: [
     { value: "flat_jpy", label: "固定日元" },
     { value: "fixed_rmb", label: "固定运费" },
+    { value: "quantity_tier", label: "按件数分档" },
     { value: "ocs_3cm", label: "首重＋续重（每100g）" },
     { value: "ocs_small", label: "首重＋续重（每500g）" },
   ],
@@ -106,6 +111,9 @@ function getDefaultParamsForFormula(formula: LogisticsFormula): LogisticsParams 
   }
   if (formula === "flat_jpy") {
     return { price: 200, currency: "JPY", billingUnit: "ticket" };
+  }
+  if (formula === "quantity_tier") {
+    return { quantityPrices: [0], currency: "JPY", billingUnit: "ticket" };
   }
   if (formula === "fixed_rmb") {
     return { price: 20, currency: "RMB", billingUnit: "ticket" };
@@ -201,6 +209,73 @@ function LogisticsParamFields({
   params: LogisticsParams;
   onChange: (params: LogisticsParams) => void;
 }) {
+  if (formula === "quantity_tier") {
+    const currency = params.currency ?? "JPY";
+    const quantityPrices = params.quantityPrices?.length ? params.quantityPrices : [0];
+
+    return (
+      <div className="grid gap-3">
+        <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
+          {quantityPrices.map((price, index) => (
+            <Field key={index} label={`${index + 1}件运费 (${currency})`}>
+              <TextInput
+                required
+                disabled={disabled}
+                min="0"
+                step={currency === "JPY" ? "1" : "0.01"}
+                type="number"
+                value={price}
+                onChange={(event) => {
+                  const nextPrices = [...quantityPrices];
+                  nextPrices[index] = Number(event.target.value || 0);
+                  onChange({ ...params, quantityPrices: nextPrices });
+                }}
+              />
+            </Field>
+          ))}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {!disabled ? (
+            <>
+              <button
+                type="button"
+                className="btn-secondary h-9 px-3"
+                onClick={() =>
+                  onChange({
+                    ...params,
+                    quantityPrices: [
+                      ...quantityPrices,
+                      quantityPrices[quantityPrices.length - 1] ?? 0,
+                    ],
+                  })
+                }
+              >
+                <Plus size={15} />
+                增加下一件
+              </button>
+              {quantityPrices.length > 1 ? (
+                <button
+                  type="button"
+                  className="btn-secondary h-9 px-3"
+                  onClick={() =>
+                    onChange({ ...params, quantityPrices: quantityPrices.slice(0, -1) })
+                  }
+                >
+                  <Trash2 size={15} />
+                  删除最后一档
+                </button>
+              ) : null}
+            </>
+          ) : null}
+          <p className="text-xs text-muted">
+            超过最后一个已设置件数时，自动沿用最后一档运费。
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   const fields = getParamFields(formula, params);
 
   return (
@@ -273,19 +348,23 @@ function LogisticsMetaFields({
         </SelectInput>
       </Field>
       <Field label="计费单位">
-        <SelectInput
-          disabled={disabled}
-          value={params.billingUnit ?? "ticket"}
-          onChange={(value) =>
-            onParamsChange({ ...params, billingUnit: value as LogisticsBillingUnit })
-          }
-        >
-          {billingUnitOptions.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </SelectInput>
+        {formula === "quantity_tier" ? (
+          <TextInput disabled value="订单总件数" />
+        ) : (
+          <SelectInput
+            disabled={disabled}
+            value={params.billingUnit ?? "ticket"}
+            onChange={(value) =>
+              onParamsChange({ ...params, billingUnit: value as LogisticsBillingUnit })
+            }
+          >
+            {billingUnitOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </SelectInput>
+        )}
       </Field>
     </div>
   );
@@ -527,7 +606,8 @@ function LogisticsSection({
 
 export function SettingsPage({ user }: SettingsPageProps) {
   const { canEdit } = usePermissions();
-  const draftKey = `settings-draft:v3:${user.id}`;
+  const legacyDraftKey = `settings-draft:v3:${user.id}`;
+  const draftKey = `settings-draft:v4:${user.id}`;
   const [settings, setSettings] = useState<PricingSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -558,7 +638,16 @@ export function SettingsPage({ user }: SettingsPageProps) {
   useAutoDismiss(errorMessage, () => setErrorMessage(""));
   useAutoDismiss(draftNotice, () => setDraftNotice(""));
   useAutoDismiss(saved, () => setSaved(false));
-  useDraftPersistence(draftKey, settings, { enabled: Boolean(canEdit && settings) });
+  const settingsDraft = useMemo<SettingsDraftState | null>(
+    () =>
+      settings && settingsSnapshot
+        ? { settings, baseSettings: settingsSnapshot }
+        : null,
+    [settings, settingsSnapshot],
+  );
+  useDraftPersistence(draftKey, settingsDraft, {
+    enabled: Boolean(canEdit && isEditing && settingsDraft),
+  });
 
   useEffect(() => {
     let active = true;
@@ -569,13 +658,17 @@ export function SettingsPage({ user }: SettingsPageProps) {
 
       try {
         const nextSettings = await fetchSettings(user.id);
-        const cachedDraft = readDraft<PricingSettings>(draftKey);
-        const restoredSettings = cachedDraft ?? nextSettings;
+        clearDraft(legacyDraftKey);
+        const cachedDraft = readDraft<SettingsDraftState>(draftKey);
+        const restoredSettings = resolveSettingsDraft(cachedDraft, nextSettings);
+        if (cachedDraft && !restoredSettings) clearDraft(draftKey);
 
         if (active) {
-          setSettings(restoredSettings);
+          setSettings(restoredSettings ?? nextSettings);
+          setIsEditing(Boolean(restoredSettings));
+          setSettingsSnapshot(restoredSettings ? nextSettings : null);
           setDraftNotice(
-            cachedDraft && !isSameDraft(cachedDraft, nextSettings)
+            restoredSettings && !isSameDraft(restoredSettings, nextSettings)
               ? "已恢复上次未保存的参数草稿。"
               : "",
           );
@@ -595,7 +688,7 @@ export function SettingsPage({ user }: SettingsPageProps) {
     return () => {
       active = false;
     };
-  }, [draftKey, user.id]);
+  }, [draftKey, legacyDraftKey, user.id]);
 
   function updateSettings(updates: Partial<PricingSettings>) {
     if (!settings) return;

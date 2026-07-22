@@ -10,6 +10,10 @@ import {
 } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { Badge } from "../../components/ui";
+import {
+  getOrderCustomerHistoryMeta,
+  getOrderCustomerHistoryTitle,
+} from "../../domain/order-customer-history";
 import { createEmptyDraft, toDraft, type OrderDraft } from "../../hooks/useOrders";
 import { getWarehouseLastLegMethodNames } from "../../lib/warehouse-logistics";
 import type { TemuOrderImportRow } from "../../lib/orders";
@@ -486,6 +490,10 @@ export type OrderTableRowProps = {
   logisticsMethods: LogisticsMethod[];
   settings: PricingSettings | null;
   onHandleWarehouseChangeForOrders: (orderIds: string[], warehouseId: string) => void;
+  onHandleLogisticsMethodChangeForOrders: (
+    orderIds: string[],
+    logisticsMethod: string,
+  ) => Promise<void>;
   getWarehouseStockIssueForOrders: (
     orders: TemuOrderRecord[],
     warehouseId: string,
@@ -515,6 +523,7 @@ export const OrderTableRow = memo(function OrderTableRow({
   settings,
   getWarehouseStockIssueForOrders,
   onHandleWarehouseChangeForOrders,
+  onHandleLogisticsMethodChangeForOrders,
   onSaveActualShipTimeForOrders,
   onToggleOrderRowSelection,
   onUpdateDraftForOrders,
@@ -566,8 +575,8 @@ export const OrderTableRow = memo(function OrderTableRow({
   );
 
   const persistedStage = useMemo(
-    () => (mergedOrder ? getOrderStage(mergedOrder) : "pending_assignment"),
-    [mergedOrder],
+    () => (primaryOrder ? getOrderStage(primaryOrder) : "pending_assignment"),
+    [primaryOrder],
   );
   const stage = useMemo(() => getStageDefinition(persistedStage), [persistedStage]);
   const shipCountdown = useMemo(
@@ -699,6 +708,9 @@ export const OrderTableRow = memo(function OrderTableRow({
   if (!primaryOrder || !mergedOrder) return null;
 
   const canAssignOrder = canEdit && persistedStage === "pending_assignment";
+  const customerHistoryMeta = getOrderCustomerHistoryMeta(
+    primaryOrder.customer_history_status,
+  );
   const productCellFullText = primaryDeclaration
     ? declarationGroups
         .map(
@@ -709,7 +721,12 @@ export const OrderTableRow = memo(function OrderTableRow({
     : skuSummary;
 
   return (
-    <tr key={rowId}>
+    <tr
+      key={rowId}
+      className={customerHistoryMeta.rowClassName}
+      title={getOrderCustomerHistoryTitle(primaryOrder)}
+      data-customer-history-status={primaryOrder.customer_history_status}
+    >
       <td className="text-center">
         <input
           type="checkbox"
@@ -776,9 +793,8 @@ export const OrderTableRow = memo(function OrderTableRow({
             }
             disabled={!draft.warehouse_id}
             onChange={(event) =>
-              onUpdateDraftForOrders(
+              void onHandleLogisticsMethodChangeForOrders(
                 rowOrderIds,
-                "logistics_method",
                 event.target.value,
               )
             }

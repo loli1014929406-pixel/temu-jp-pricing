@@ -1,5 +1,9 @@
 import { FileSpreadsheet, RefreshCw, Upload } from "lucide-react";
 import { useRef } from "react";
+import {
+  orderCustomerHistoryMeta,
+  visibleOrderCustomerHistoryStatuses,
+} from "../../domain/order-customer-history";
 import { Badge } from "../ui";
 
 type OrderFileActionsProps = {
@@ -115,6 +119,29 @@ export function OrderDataHeader({
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+export function OrderCustomerHistoryLegend() {
+  return (
+    <div
+      className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 text-xs text-slate-600"
+      aria-label="客户订单颜色说明"
+    >
+      <span className="font-semibold text-slate-700">客户订单颜色</span>
+      {visibleOrderCustomerHistoryStatuses.map((status) => {
+        const meta = orderCustomerHistoryMeta[status];
+        return (
+          <span key={status} className="inline-flex items-center gap-2">
+            <span
+              className={`h-3 w-5 rounded border ${meta.legendClassName}`}
+              aria-hidden="true"
+            />
+            <span>{meta.label}</span>
+          </span>
+        );
+      })}
     </div>
   );
 }

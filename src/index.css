@@ -750,6 +750,39 @@ a {
     @apply surface-card rounded-xl border border-[#e3e3e3] bg-white p-4 shadow-sm;
   }
 
+  .order-customer-repeat {
+    background-color: #fffbeb;
+    box-shadow: inset 4px 0 0 #f59e0b;
+  }
+
+  .order-customer-refund-order {
+    background-color: #fff1f2;
+    box-shadow: inset 4px 0 0 #e11d48;
+  }
+
+  .order-customer-refund-related {
+    background-color: #faf5ff;
+    box-shadow: inset 4px 0 0 #7c3aed;
+  }
+
+  .data-table.orders-table tbody tr.order-customer-repeat:hover {
+    background-color: #fef3c7;
+  }
+
+  .data-table.orders-table tbody tr.order-customer-refund-order:hover {
+    background-color: #ffe4e6;
+  }
+
+  .data-table.orders-table tbody tr.order-customer-refund-related:hover {
+    background-color: #f3e8ff;
+  }
+
+  .data-table.orders-table tbody tr.order-customer-repeat > td,
+  .data-table.orders-table tbody tr.order-customer-refund-order > td,
+  .data-table.orders-table tbody tr.order-customer-refund-related > td {
+    background-color: inherit;
+  }
+
   .mobile-summary-title {
     @apply text-base font-bold text-slate-900;
   }

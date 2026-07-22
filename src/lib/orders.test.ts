@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   emptyTemuOrderStageCounts,
+  normalizeOrderCustomerHistoryStatus,
   normalizeTemuOrdersPageOptions,
 } from "./orders";
 
@@ -52,5 +53,19 @@ describe("Temu order page options", () => {
       uploaded_temu: 0,
       completed: 0,
     });
+  });
+
+  it("accepts only customer-history signals returned by the order RPC", () => {
+    expect(normalizeOrderCustomerHistoryStatus("repeat_customer")).toBe(
+      "repeat_customer",
+    );
+    expect(normalizeOrderCustomerHistoryStatus("refund_order")).toBe(
+      "refund_order",
+    );
+    expect(normalizeOrderCustomerHistoryStatus("refund_customer")).toBe(
+      "refund_customer",
+    );
+    expect(normalizeOrderCustomerHistoryStatus("unexpected")).toBe("normal");
+    expect(normalizeOrderCustomerHistoryStatus(undefined)).toBe("normal");
   });
 });

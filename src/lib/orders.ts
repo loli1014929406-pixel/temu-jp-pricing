@@ -1,6 +1,6 @@
 import { withTimeout, requireSession } from "./supabase-helpers";
 import { fetchAllPages } from "./paginated-fetch";
-import type { TemuOrderRecord } from "../types";
+import type { OrderCustomerHistoryStatus, TemuOrderRecord } from "../types";
 
 export type TemuOrderImportRow = Pick<
   TemuOrderRecord,
@@ -103,6 +103,16 @@ function normalizeSalesSpec(value: string | null | undefined) {
   return String(value ?? "").replace(/\s+/g, "").toLowerCase();
 }
 
+export function normalizeOrderCustomerHistoryStatus(
+  value: unknown,
+): OrderCustomerHistoryStatus {
+  return value === "repeat_customer" ||
+    value === "refund_order" ||
+    value === "refund_customer"
+    ? value
+    : "normal";
+}
+
 function getOrderLineKey(
   order: Pick<TemuOrderImportRow, "order_no" | "sub_order_no" | "sku_code" | "product_attributes">,
 ) {
@@ -142,6 +152,9 @@ function normalizeTemuOrder(row: Partial<TemuOrderRecord>): TemuOrderRecord {
     | "logistics_method_id"
     | "logistics_method_is_unmatched"
     | "actual_shipping_fee_rmb"
+    | "customer_history_status"
+    | "customer_sales_reversal"
+    | "customer_freight_reversal"
   >;
 
   return {
@@ -155,6 +168,11 @@ function normalizeTemuOrder(row: Partial<TemuOrderRecord>): TemuOrderRecord {
       !row.logistics_method_id,
     fulfillment_quantity: Number(row.fulfillment_quantity ?? 0),
     actual_shipping_fee_rmb: Number(row.actual_shipping_fee_rmb ?? 0),
+    customer_history_status: normalizeOrderCustomerHistoryStatus(
+      row.customer_history_status,
+    ),
+    customer_sales_reversal: Number(row.customer_sales_reversal ?? 0),
+    customer_freight_reversal: Number(row.customer_freight_reversal ?? 0),
   };
 }
 

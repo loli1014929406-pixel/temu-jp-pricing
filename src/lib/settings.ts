@@ -23,6 +23,7 @@ const logisticsFormulas = [
   "flat_rmb_tariff",
   "flat_jpy",
   "fixed_rmb",
+  "quantity_tier",
   "ocs_3cm",
   "ocs_small",
 ] as const satisfies readonly LogisticsMethodConfig["formula"][];
@@ -81,6 +82,11 @@ function normalizeLogisticsMethodConfigs(
         formula,
         params: {
           price: typeof params.price === "number" ? params.price : undefined,
+          quantityPrices: Array.isArray(params.quantityPrices)
+            ? params.quantityPrices
+                .map((price) => Number(price))
+                .filter((price) => Number.isFinite(price) && price >= 0)
+            : undefined,
           currency: params.currency === "RMB" || params.currency === "JPY" ? params.currency : undefined,
           billingUnit:
             params.billingUnit === "kg" ||

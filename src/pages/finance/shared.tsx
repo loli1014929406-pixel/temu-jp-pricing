@@ -353,7 +353,8 @@ function estimateOrderLastLegShippingFee(
   const costRmb = calculateDynamicMethodCost(
     matchedMethod,
     packageWeightG,
-    settings.exchange_rate_rmb_per_jpy
+    settings.exchange_rate_rmb_per_jpy,
+    qty,
   );
 
   return Number(costRmb.toFixed(2));

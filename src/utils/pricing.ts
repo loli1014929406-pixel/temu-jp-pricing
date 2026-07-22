@@ -84,7 +84,10 @@ export function calculatePricing(
       m.formula === "fixed_rmb",
   );
   const overseasLastLegs = activeLastLegs.filter(
-    (m) => m.formula === "flat_jpy" || m.formula === "fixed_rmb",
+    (m) =>
+      m.formula === "flat_jpy" ||
+      m.formula === "fixed_rmb" ||
+      m.formula === "quantity_tier",
   );
 
   let maxLogisticsCost = 0;

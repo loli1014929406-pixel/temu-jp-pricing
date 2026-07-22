@@ -4,6 +4,7 @@ import { OrderBulkActions } from "../components/orders/OrderBulkActions";
 import { OrderDetailPanel } from "../components/orders/OrderDetailPanel";
 import { OrderFilters } from "../components/orders/OrderFilters";
 import {
+  OrderCustomerHistoryLegend,
   OrderDataHeader,
   OrderFileActions,
   OrderPageNotices,
@@ -73,6 +74,10 @@ import {
   type OrderStage,
   uploadedTemuOrderStatus,
 } from "../domain/order-workflow";
+import {
+  getOrderCustomerHistoryMeta,
+  getOrderCustomerHistoryTitle,
+} from "../domain/order-customer-history";
 
 type OrdersPageProps = {
   user: User;
@@ -577,6 +582,135 @@ export function OrdersPage({ user }: OrdersPageProps) {
         : null,
       logistics_method: nextLogisticsMethod,
     });
+  }
+
+  async function handleLogisticsMethodChangeForOrders(
+    orderIds: string[],
+    value: string,
+  ) {
+    const logisticsMethod = normalizeLogisticsMethod(value);
+    if (!logisticsMethod) {
+      updateDraftFieldsForOrders(orderIds, {
+        logistics_method_id: null,
+        logistics_method: "",
+      });
+      return;
+    }
+    if (!canEdit || busyKey) return;
+
+    const targetOrders = orderIds
+      .map((orderId) => ordersById.get(orderId))
+      .filter((order): order is TemuOrderRecord => Boolean(order));
+    if (targetOrders.length !== orderIds.length || targetOrders.length === 0) {
+      setErrorMessage("订单数据已变化，请刷新页面后重新分配。");
+      return;
+    }
+
+    const previousDrafts = new Map(
+      targetOrders.map((order) => [order.id, drafts[order.id] ?? toDraft(order)]),
+    );
+    const warehouseIds = new Set(
+      targetOrders
+        .map((order) => previousDrafts.get(order.id)?.warehouse_id ?? null)
+        .filter((warehouseId): warehouseId is string => Boolean(warehouseId)),
+    );
+    if (warehouseIds.size !== 1) {
+      setErrorMessage(`订单 ${targetOrders[0].order_no} 还没有选择统一的发货仓库。`);
+      return;
+    }
+
+    const warehouseId = Array.from(warehouseIds)[0];
+    const warehouse = warehouses.find((item) => item.id === warehouseId);
+    if (!warehouse) {
+      setErrorMessage("选择的仓库不存在，请重新选择。");
+      return;
+    }
+    if (
+      !isLastLegMethodAllowedForWarehouse(
+        warehouse.id,
+        logisticsMethod,
+        settings,
+        logisticsMethods,
+        warehouseLogisticsMethods,
+      )
+    ) {
+      setErrorMessage(`${warehouse.name} 不能使用“${logisticsMethod}”发货方式。`);
+      return;
+    }
+
+    const stockIssue = getWarehouseStockIssueForOrders(targetOrders, warehouse.id);
+    if (stockIssue) {
+      setErrorMessage(stockIssue);
+      return;
+    }
+
+    const logisticsMethodId = getLogisticsMethodIdByName(
+      logisticsMethod,
+      logisticsMethods,
+    );
+    if (!logisticsMethodId) {
+      setErrorMessage(`发货方式“${logisticsMethod}”没有匹配到有效资料，请刷新后重试。`);
+      return;
+    }
+
+    updateDraftFieldsForOrders(orderIds, {
+      logistics_method_id: logisticsMethodId,
+      logistics_method: logisticsMethod,
+    });
+    setBusyKey(`assign-${orderIds.join("|")}`);
+    setErrorMessage("");
+    setNoticeMessage("");
+
+    try {
+      const saveEntries = targetOrders.map((order) => {
+        const draft = previousDrafts.get(order.id) ?? toDraft(order);
+        const updates = {
+          ...draft,
+          warehouse_id: warehouse.id,
+          warehouse_name: warehouse.name,
+          logistics_method_id: logisticsMethodId,
+          logistics_method: logisticsMethod,
+          order_status: draft.order_status.trim() || "新订单",
+        };
+        return { order, updates, nextOrder: { ...order, ...updates } };
+      });
+      const saveResult = await saveOrderEntriesWithInventory(saveEntries);
+      const { nextOrders, failures } = saveResult;
+
+      failures.forEach(({ order }) => {
+        const previousDraft = previousDrafts.get(order.id) ?? toDraft(order);
+        updateDraftFieldsForOrders([order.id], {
+          logistics_method_id: previousDraft.logistics_method_id,
+          logistics_method: previousDraft.logistics_method,
+        });
+      });
+      if (nextOrders.length === 0 && failures.length > 0) {
+        throw failures[0].error;
+      }
+
+      updateOrdersState(nextOrders);
+      setSelectedOrderIds((current) =>
+        current.filter((id) => !nextOrders.some((order) => order.id === id)),
+      );
+      setNoticeMessage(
+        [
+          `已自动分配 ${buildOrderDisplayRows(nextOrders).length} 个订单并转入新订单`,
+          formatInventoryChangeSummary(saveResult),
+          failures.length > 0 ? `${failures.length} 条保存失败` : "",
+        ].filter(Boolean).join("，"),
+      );
+    } catch (error) {
+      targetOrders.forEach((order) => {
+        const previousDraft = previousDrafts.get(order.id) ?? toDraft(order);
+        updateDraftFieldsForOrders([order.id], {
+          logistics_method_id: previousDraft.logistics_method_id,
+          logistics_method: previousDraft.logistics_method,
+        });
+      });
+      setErrorMessage(getOrdersErrorMessage(error, "自动分配订单失败"));
+    } finally {
+      setBusyKey("");
+    }
   }
 
   function getOrderSku(order: TemuOrderRecord) {
@@ -2793,6 +2927,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
           }
         />
 
+        <OrderCustomerHistoryLegend />
+
         <OrderBulkActions
           activeStage={activeStage}
           busyKey={busyKey}
@@ -2913,7 +3049,12 @@ export function OrdersPage({ user }: OrdersPageProps) {
                 const stage = getStageDefinition(getOrderStage(order));
                 const latestShipTime = parseOrderDateTime(order.latest_ship_time);
                 return (
-                  <article key={orderRow.id} className="mobile-summary-card">
+                  <article
+                    key={orderRow.id}
+                    className={`mobile-summary-card ${getOrderCustomerHistoryMeta(order.customer_history_status).rowClassName}`}
+                    title={getOrderCustomerHistoryTitle(order)}
+                    data-customer-history-status={order.customer_history_status}
+                  >
                     <div className="flex items-start gap-3">
                       <input
                         type="checkbox"
@@ -3023,6 +3164,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
                       logisticsMethods={logisticsMethods}
                       settings={settings}
                       onHandleWarehouseChangeForOrders={handleWarehouseChangeForOrders}
+                      onHandleLogisticsMethodChangeForOrders={handleLogisticsMethodChangeForOrders}
                       onSaveActualShipTimeForOrders={handleSaveActualShipTimeForOrders}
                       onToggleOrderRowSelection={toggleOrderRowSelection}
                       onUpdateDraftForOrders={updateDraftForOrders}

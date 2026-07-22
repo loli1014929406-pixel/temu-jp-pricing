@@ -174,9 +174,12 @@ export function calculateDynamicMethodCost(
   method: LogisticsMethodConfig,
   packageWeightG: number,
   exchangeRateRmbPerJpy: number,
+  quantity = 1,
 ): number {
   const packageWeightKg = packageWeightG / 1000;
-  const currency = method.params.currency ?? (method.formula === "flat_jpy" ? "JPY" : "RMB");
+  const currency =
+    method.params.currency ??
+    (method.formula === "flat_jpy" || method.formula === "quantity_tier" ? "JPY" : "RMB");
   const toRmb = (value: number) =>
     currency === "JPY" ? value * exchangeRateRmbPerJpy : value;
 
@@ -207,6 +210,13 @@ export function calculateDynamicMethodCost(
     }
     case "fixed_rmb": {
       return toRmb(method.params.price ?? 0);
+    }
+    case "quantity_tier": {
+      const quantityPrices = method.params.quantityPrices ?? [];
+      const normalizedQuantity = Math.floor(Number(quantity));
+      if (normalizedQuantity <= 0 || quantityPrices.length === 0) return 0;
+      const priceIndex = Math.min(normalizedQuantity, quantityPrices.length) - 1;
+      return toRmb(quantityPrices[priceIndex] ?? 0);
     }
     case "ocs_3cm": {
       const firstPrice = toRmb(method.params.firstPrice ?? 16.5);

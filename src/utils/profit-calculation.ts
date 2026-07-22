@@ -124,7 +124,11 @@ export function calculateProfitProjection(
         m.formula === "fixed_rmb"),
   );
   const activeLastLegs = lastLegs.filter(
-    (m) => m.isActive && (m.formula === "flat_jpy" || m.formula === "fixed_rmb"),
+    (m) =>
+      m.isActive &&
+      (m.formula === "flat_jpy" ||
+        m.formula === "fixed_rmb" ||
+        m.formula === "quantity_tier"),
   );
 
   const plansList = [];
