@@ -41,6 +41,35 @@ type OrderFulfillmentAssignment = Pick<
   | "logistics_method"
 >;
 
+type PendingAssignmentResetUpdates = Pick<
+  TemuOrderRecord,
+  | "order_status"
+  | "warehouse_id"
+  | "warehouse_name"
+  | "logistics_method_id"
+  | "logistics_method"
+  | "label_printed_at"
+  | "logistics_tracking_no"
+  | "logistics_status"
+  | "actual_ship_time"
+  | "actual_signed_time"
+>;
+
+export function buildPendingAssignmentResetUpdates(): PendingAssignmentResetUpdates {
+  return {
+    order_status: "",
+    warehouse_id: null,
+    warehouse_name: "",
+    logistics_method_id: null,
+    logistics_method: "",
+    label_printed_at: "",
+    logistics_tracking_no: "",
+    logistics_status: "",
+    actual_ship_time: "",
+    actual_signed_time: "",
+  };
+}
+
 export function isUploadedTemuStatus(value: string) {
   return uploadedTemuOrderStatuses.has(value.trim().toLowerCase());
 }

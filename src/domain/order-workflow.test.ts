@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { TemuOrderRecord } from "../types";
 import {
+  buildPendingAssignmentResetUpdates,
   getOrderFulfillmentAssignmentIssue,
   getOrderStage,
   getSplitOrderFulfillmentIssue,
@@ -61,6 +62,29 @@ describe("order workflow", () => {
     expect(shouldReserveOrderInventory("pending_assignment")).toBe(false);
     expect(shouldReserveOrderInventory("new_order")).toBe(true);
     expect(shouldReserveOrderInventory("completed")).toBe(true);
+  });
+
+  it("clears stable assignment identities when returning an order to pending assignment", () => {
+    const assignedOrder = order({
+      order_status: "新订单",
+      warehouse_id: "warehouse-1",
+      warehouse_name: "苏州",
+      logistics_method_id: "method-1",
+      logistics_method: "OCS Yamato",
+    });
+
+    const resetOrder = {
+      ...assignedOrder,
+      ...buildPendingAssignmentResetUpdates(),
+    };
+
+    expect(resetOrder).toMatchObject({
+      warehouse_id: null,
+      warehouse_name: "",
+      logistics_method_id: null,
+      logistics_method: "",
+    });
+    expect(getOrderStage(resetOrder)).toBe("pending_assignment");
   });
 
   it("allows a multi-line main order to use one warehouse and one shipping method", () => {

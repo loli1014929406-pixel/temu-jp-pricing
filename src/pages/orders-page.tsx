@@ -64,6 +64,7 @@ import {
 } from "../utils/shipping-costs";
 import { confirmAction, confirmDelete, confirmSave } from "../utils/confirmations";
 import {
+  buildPendingAssignmentResetUpdates,
   getOrderFulfillmentAssignmentIssue,
   getOrderStage,
   getOrderStageDefinition as getStageDefinition,
@@ -381,8 +382,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
   );
 
   const newOrdersInView = useMemo(
-    () => filteredOrders.filter((order) => getOrderStage(mergeOrderDraft(order)) === "new_order"),
-    [filteredOrders, mergeOrderDraft],
+    () => filteredOrders.filter((order) => getOrderStage(order) === "new_order"),
+    [filteredOrders],
   );
 
   const pendingShippingOrdersInView = useMemo(
@@ -455,7 +456,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
     };
 
     selectedOrderRowsInView.forEach((row) => {
-      const stage = getOrderStage(row.primaryOrder);
+      const stage = getOrderStage(ordersById.get(row.primaryOrder.id) ?? row.primaryOrder);
       if (stage === "new_order") counts.selectedNewOrderRowCount += 1;
       if (stage === "pending_shipping") counts.selectedPendingShippingRowCount += 1;
       if (stage === "shipped") counts.selectedShippedRowCount += 1;
@@ -463,7 +464,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
     });
 
     return counts;
-  }, [selectedOrderRowsInView]);
+  }, [ordersById, selectedOrderRowsInView]);
 
   const selectedOrderLineInViewCount = selectedOrdersInView.length;
   const selectedInViewCount = selectedOrderRowsInView.length;
@@ -1809,19 +1810,10 @@ export function OrdersPage({ user }: OrdersPageProps) {
       return;
     }
 
-    const targetOrders = selectedNewOrdersInView.map((order) => mergeOrderDraft(order));
+    const targetOrders = selectedNewOrdersInView;
     const targetIds = new Set(targetOrders.map((order) => order.id));
-    const pendingAssignmentUpdates: Parameters<typeof updateTemuOrder>[1] = {
-      order_status: "",
-      warehouse_id: null,
-      warehouse_name: "",
-      logistics_method: "",
-      label_printed_at: "",
-      logistics_tracking_no: "",
-      logistics_status: "",
-      actual_ship_time: "",
-      actual_signed_time: "",
-    };
+    const pendingAssignmentUpdates: Parameters<typeof updateTemuOrder>[1] =
+      buildPendingAssignmentResetUpdates();
     if (!(await confirmAction(`确认退回 ${targetOrders.length} 条订单到待分配吗？`))) return;
 
     setBusyKey("new-to-pending-assignment");

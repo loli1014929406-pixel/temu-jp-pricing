@@ -1503,7 +1503,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                           detailSubtitle={skuDisplayCode}
                                         />
                                       </td>
-                                      <td className="px-3 py-2 text-right-num">
+                                      <td className="px-3 py-2">
                                         {isEditingSkuStock ? (
                                           <div className="flex flex-col gap-2">
                                             <div className="flex items-center gap-2">
@@ -1551,7 +1551,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                           </div>
                                         ) : (
                                           <div className="flex items-center gap-2">
-                                            <span className="min-w-12 text-lg font-bold tabular-nums text-ink">
+                                            <span className="min-w-12 text-right-num text-lg font-bold text-ink">
                                               {item.stock_quantity}
                                             </span>
                                             {canEdit && (
