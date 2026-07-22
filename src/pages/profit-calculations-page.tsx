@@ -24,6 +24,7 @@ import {
   calculateFinalSalePriceRmb,
   calculateProfitProjection,
   PROFIT_CALCULATION_VERSION,
+  selectProfitSummaryProjection,
 } from "../utils/profit-calculation";
 import {
   getProfitCalculationsDraftKey,
@@ -300,25 +301,9 @@ function calculateProductDiscountSummary(
       result: calculateProfitProjection(calculation.pricing, settings, input),
     };
   });
-  const validRows = calculatedRows.filter((calculation) => calculation.result.isValid);
-  const representativeCalculation =
-    validRows.length > 0
-      ? validRows.reduce((selected, calculation) => {
-          const selectedMaxCost = Math.max(
-            ...selected.result.plans.map((plan) => plan.totalCostRmb),
-          );
-          const currentMaxCost = Math.max(
-            ...calculation.result.plans.map((plan) => plan.totalCostRmb),
-          );
-          return currentMaxCost > selectedMaxCost ? calculation : selected;
-        })
-      : null;
-  const representativePlan =
-    representativeCalculation && representativeCalculation.result.plans.length > 0
-      ? representativeCalculation.result.plans.reduce((selected, plan) =>
-          plan.totalCostRmb > selected.totalCostRmb ? plan : selected,
-        )
-      : null;
+  const representativeProjection = selectProfitSummaryProjection(calculatedRows, settings);
+  const representativeCalculation = representativeProjection?.calculation ?? null;
+  const representativePlan = representativeProjection?.plan ?? null;
   const costProfitRate =
     representativePlan && representativePlan.totalCostRmb > 0
       ? representativePlan.profitRmb / representativePlan.totalCostRmb

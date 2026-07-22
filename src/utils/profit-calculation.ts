@@ -1,4 +1,5 @@
 import type {
+  LogisticsMethodConfig,
   PricingResult,
   PricingSettings,
   ProfitCalculationInput,
@@ -12,6 +13,70 @@ const round = (value: number, digits = 2) =>
   Math.round((value + Number.EPSILON) * Math.pow(10, digits)) / Math.pow(10, digits);
 
 export const PROFIT_CALCULATION_VERSION = 6;
+
+const profitSummaryFirstLegMethodDbId = "287baa57-4cab-46e3-8cfe-d00dc274bedd";
+const profitSummaryLastLegMethodDbId = "4712d2ae-5d3d-42fd-ae7a-d5468a375e22";
+
+function normalizeLogisticsMethodName(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, "");
+}
+
+function findProfitSummaryMethod(
+  methods: LogisticsMethodConfig[],
+  dbMethodId: string,
+  fallbackName: string,
+) {
+  const normalizedFallbackName = normalizeLogisticsMethodName(fallbackName);
+
+  return (
+    methods.find((method) => method.isActive && method.db_method_id === dbMethodId) ??
+    methods.find(
+      (method) =>
+        method.isActive &&
+        normalizeLogisticsMethodName(method.name) === normalizedFallbackName,
+    )
+  );
+}
+
+export function getProfitSummaryPlanKey(settings: PricingSettings) {
+  const firstLegMethod = findProfitSummaryMethod(
+    resolveFirstLegMethods(settings),
+    profitSummaryFirstLegMethodDbId,
+    "OCS RMB/kg",
+  );
+  const lastLegMethod = findProfitSummaryMethod(
+    resolveLastLegMethods(settings),
+    profitSummaryLastLegMethodDbId,
+    "神户 Yamato3cm",
+  );
+
+  return firstLegMethod && lastLegMethod
+    ? `${firstLegMethod.id}_${lastLegMethod.id}`
+    : null;
+}
+
+export function selectProfitSummaryProjection<
+  TCalculation extends { result: ProfitCalculationResult },
+>(calculations: TCalculation[], settings: PricingSettings) {
+  const planKey = getProfitSummaryPlanKey(settings);
+  if (!planKey) return null;
+
+  return calculations.reduce<{
+    calculation: TCalculation;
+    plan: ProfitCalculationResult["plans"][number];
+  } | null>((selected, calculation) => {
+    if (!calculation.result.isValid) return selected;
+
+    const plan = calculation.result.plans.find(
+      (candidate) => candidate.planKey === planKey,
+    );
+    if (!plan) return selected;
+
+    return selected === null || plan.totalCostRmb > selected.plan.totalCostRmb
+      ? { calculation, plan }
+      : selected;
+  }, null);
+}
 
 type SavedProfitCalculationSnapshot = Pick<
   SavedProfitCalculation,
