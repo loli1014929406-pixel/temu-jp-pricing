@@ -87,4 +87,102 @@ describe("calculatePricing", () => {
     expect(result.planD).toBe(120);
     expect(result.logisticsCostRmb).toBe(120);
   });
+
+  it("excludes Kobe small parcel from normal single-item pricing", () => {
+    const result = calculatePricing(
+      60,
+      [],
+      buildSettings({
+        exchange_rate_rmb_per_jpy: 0.041,
+        first_leg_methods: [
+          {
+            id: "huaian-air-first-leg",
+            name: "淮安空运 RMB/kg",
+            type: "first_leg",
+            formula: "flat_rmb",
+            params: { price: 25, currency: "RMB", billingUnit: "kg" },
+            isActive: true,
+          },
+        ],
+        last_leg_methods: [
+          {
+            id: "osaka-jp-last-leg",
+            name: "大阪Japan Post",
+            type: "last_leg",
+            formula: "flat_jpy",
+            params: { price: 260, currency: "JPY", billingUnit: "ticket" },
+            isActive: true,
+          },
+          {
+            id: "kobe-yamato-small-parcel",
+            name: "神户 Yamato小包",
+            type: "last_leg",
+            formula: "flat_jpy",
+            params: { price: 500, currency: "JPY", billingUnit: "ticket" },
+            isActive: true,
+          },
+        ],
+      }),
+    );
+
+    expect(result.planA).toBe(12.16);
+    expect(result.logisticsCostRmb).toBe(12.16);
+  });
+
+  it("includes OCS RMB/kg with Kobe Yamato 3cm in normal pricing", () => {
+    const result = calculatePricing(
+      60,
+      [],
+      buildSettings({
+        exchange_rate_rmb_per_jpy: 0.041,
+        first_leg_methods: [
+          {
+            id: "ocs-first-leg",
+            name: "OCS RMB/kg",
+            type: "first_leg",
+            formula: "flat_rmb_tariff",
+            params: {
+              price: 20,
+              tariffRate: 0,
+              currency: "RMB",
+              billingUnit: "kg",
+            },
+            isActive: true,
+          },
+        ],
+        last_leg_methods: [
+          {
+            id: "osaka-jp-last-leg",
+            name: "大阪Japan Post",
+            type: "last_leg",
+            formula: "flat_jpy",
+            params: { price: 100, currency: "JPY", billingUnit: "ticket" },
+            isActive: true,
+          },
+          {
+            id: "kobe-yamato-3cm",
+            name: "神户 Yamato3cm",
+            type: "last_leg",
+            formula: "quantity_tier",
+            params: {
+              quantityPrices: [225, 269],
+              currency: "JPY",
+              billingUnit: "ticket",
+            },
+            isActive: true,
+          },
+          {
+            id: "kobe-yamato-small-parcel",
+            name: "神户 Yamato小包",
+            type: "last_leg",
+            formula: "flat_jpy",
+            params: { price: 500, currency: "JPY", billingUnit: "ticket" },
+            isActive: true,
+          },
+        ],
+      }),
+    );
+
+    expect(result.logisticsCostRmb).toBe(10.43);
+  });
 });

@@ -782,14 +782,11 @@ export function FinanceSettlementPage({ user }: Props) {
                       <tbody>
                         {incomeShippingMethodRows.map((row) => (
                           <tr key={`${row.warehouse}-${row.method}`} className="border-b border-slate-50 last:border-0">
-                            <td className="py-2 pl-3 pr-3 font-semibold text-slate-800">
-                              <TableCellPreview
-                                label="仓库 / 发货方式"
-                                value={`${row.warehouse} · ${row.method}`}
-                                lines={1}
-                                alwaysShowDetail={`${row.warehouse} · ${row.method}`.length > 18}
-                                detailTitle="仓库 / 发货方式"
-                              />
+                            <td
+                              className="py-2 pl-3 pr-3 font-semibold text-slate-800"
+                              data-full-text={`${row.warehouse} · ${row.method}`}
+                            >
+                              {row.warehouse} · {row.method}
                             </td>
                             <td className="py-2 pr-3 text-right font-semibold text-slate-700">{row.shipmentCount}</td>
                             <td className="py-2 pr-3 text-right font-semibold text-slate-700">{row.quantity}</td>

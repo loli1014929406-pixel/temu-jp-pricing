@@ -1,4 +1,9 @@
-import type { PricingResult, PricingSettings, ProductItem } from "../types";
+import type {
+  LogisticsMethodConfig,
+  PricingResult,
+  PricingSettings,
+  ProductItem,
+} from "../types";
 import {
   calculatePurchaseShippingRmb,
   calculateDynamicMethodCost,
@@ -7,6 +12,14 @@ import { resolveFirstLegMethods, resolveLastLegMethods } from "../lib/defaults";
 
 const round = (value: number, digits = 2) =>
   Math.round((value + Number.EPSILON) * Math.pow(10, digits)) / Math.pow(10, digits);
+
+function isKobeSmallParcelMethod(method: LogisticsMethodConfig) {
+  const normalizedName = method.name.toLowerCase().replace(/\s+/g, "");
+  return (
+    normalizedName.includes("神户") &&
+    (normalizedName.includes("小包") || normalizedName.includes("small"))
+  );
+}
 
 export function calculatePricing(
   packageWeightG: number,
@@ -85,9 +98,10 @@ export function calculatePricing(
   );
   const overseasLastLegs = activeLastLegs.filter(
     (m) =>
-      m.formula === "flat_jpy" ||
-      m.formula === "fixed_rmb" ||
-      m.formula === "quantity_tier",
+      !isKobeSmallParcelMethod(m) &&
+      (m.formula === "flat_jpy" ||
+        m.formula === "fixed_rmb" ||
+        m.formula === "quantity_tier"),
   );
 
   let maxLogisticsCost = 0;
