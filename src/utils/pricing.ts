@@ -1,25 +1,13 @@
-import type {
-  LogisticsMethodConfig,
-  PricingResult,
-  PricingSettings,
-  ProductItem,
-} from "../types";
+import type { PricingResult, PricingSettings, ProductItem } from "../types";
 import {
   calculatePurchaseShippingRmb,
   calculateDynamicMethodCost,
 } from "./shipping-costs";
 import { resolveFirstLegMethods, resolveLastLegMethods } from "../lib/defaults";
+import { getDefaultPricingLogisticsSelection } from "../lib/default-pricing-logistics";
 
 const round = (value: number, digits = 2) =>
   Math.round((value + Number.EPSILON) * Math.pow(10, digits)) / Math.pow(10, digits);
-
-function isKobeSmallParcelMethod(method: LogisticsMethodConfig) {
-  const normalizedName = method.name.toLowerCase().replace(/\s+/g, "");
-  return (
-    normalizedName.includes("神户") &&
-    (normalizedName.includes("小包") || normalizedName.includes("small"))
-  );
-}
 
 export function calculatePricing(
   packageWeightG: number,
@@ -89,42 +77,26 @@ export function calculatePricing(
   const planC = ocsCostRmb * ocsTariffMultiplier + osakaLastmileRmb;
   const planD = ocsCostRmb * ocsTariffMultiplier + fukuokaLastmileRmb;
 
-  // Calculate logisticsCostRmb as maximum of all active pairings of (overseas first leg) + (overseas last leg)
-  const overseasFirstLegs = activeFirstLegs.filter(
-    (m) =>
-      m.formula === "flat_rmb" ||
-      m.formula === "flat_rmb_tariff" ||
-      m.formula === "fixed_rmb",
-  );
-  const overseasLastLegs = activeLastLegs.filter(
-    (m) =>
-      !isKobeSmallParcelMethod(m) &&
-      (m.formula === "flat_jpy" ||
-        m.formula === "fixed_rmb" ||
-        m.formula === "quantity_tier"),
-  );
-
-  let maxLogisticsCost = 0;
-  let pairingsCount = 0;
-
-  for (const fl of overseasFirstLegs) {
-    for (const ll of overseasLastLegs) {
-      const flCost = calculateDynamicMethodCost(
-        fl,
-        packageWeightG,
-        settings.exchange_rate_rmb_per_jpy,
-      );
-      const llCost = calculateDynamicMethodCost(
-        ll,
-        packageWeightG,
-        settings.exchange_rate_rmb_per_jpy,
-      );
-      maxLogisticsCost = Math.max(maxLogisticsCost, flCost + llCost);
-      pairingsCount++;
-    }
+  const defaultSelection = getDefaultPricingLogisticsSelection(settings);
+  if (
+    !defaultSelection ||
+    !defaultSelection.firstLegMethod.isActive ||
+    !defaultSelection.lastLegMethod.isActive
+  ) {
+    throw new Error("默认核价物流方式无效，请到参数设置重新选择。");
   }
 
-  const logisticsCostRmb = pairingsCount > 0 ? maxLogisticsCost : Math.max(planA, planB, planC, planD);
+  const logisticsCostRmb =
+    calculateDynamicMethodCost(
+      defaultSelection.firstLegMethod,
+      packageWeightG,
+      settings.exchange_rate_rmb_per_jpy,
+    ) +
+    calculateDynamicMethodCost(
+      defaultSelection.lastLegMethod,
+      packageWeightG,
+      settings.exchange_rate_rmb_per_jpy,
+    );
   const totalCostRmb =
     purchaseCostRmb +
     purchaseShippingRmb +

@@ -46,6 +46,7 @@ export const defaultFirstLegMethods: LogisticsMethodConfig[] = [
       billingUnit: "kg",
     },
     isActive: true,
+    isDefault: true,
   },
 ];
 
@@ -62,6 +63,7 @@ export const defaultLastLegMethods: LogisticsMethodConfig[] = [
       billingUnit: "100g",
     },
     isActive: true,
+    isDefault: true,
   },
   {
     id: "ocs-small-last-leg",

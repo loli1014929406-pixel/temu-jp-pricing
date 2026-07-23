@@ -23,6 +23,11 @@ import {
   resolveSettingsDraft,
   type SettingsDraftState,
 } from "../lib/settings-draft";
+import {
+  getDefaultFirstLegMethod,
+  getDefaultLastLegMethod,
+  validateDefaultLogisticsSelections,
+} from "../lib/default-pricing-logistics";
 
 type SettingsPageProps = {
   user: User;
@@ -719,6 +724,11 @@ export function SettingsPage({ user }: SettingsPageProps) {
       setErrorMessage("当前账号没有编辑权限，不能保存参数设置。");
       return;
     }
+    const defaultSelectionError = validateDefaultLogisticsSelections(settings);
+    if (defaultSelectionError) {
+      setErrorMessage(defaultSelectionError);
+      return;
+    }
     if (!(await confirmSave())) return;
 
     setBusy(true);
@@ -827,6 +837,26 @@ export function SettingsPage({ user }: SettingsPageProps) {
       last_leg_methods: resolveLastLegMethods(settings).map((method) =>
         method.id === id ? { ...method, ...updates } : method,
       ),
+    });
+  }
+
+  function handleDefaultFirstLegChange(id: string) {
+    if (!settings) return;
+    updateSettings({
+      first_leg_methods: resolveFirstLegMethods(settings).map((method) => ({
+        ...method,
+        isDefault: method.id === id,
+      })),
+    });
+  }
+
+  function handleDefaultLastLegChange(id: string) {
+    if (!settings) return;
+    updateSettings({
+      last_leg_methods: resolveLastLegMethods(settings).map((method) => ({
+        ...method,
+        isDefault: method.id === id,
+      })),
     });
   }
 
@@ -940,6 +970,57 @@ export function SettingsPage({ user }: SettingsPageProps) {
             ))}
           </div>
         </div>
+
+        <section className="section-card">
+          <div className="border-b border-line pb-4">
+            <h2 className="text-base font-bold text-ink">默认核价物流方案</h2>
+            <p className="mt-1 text-sm leading-6 text-slate-500">
+              核价、利润测算和推荐默认使用这里选择的头程与尾程组合；其他物流方案仍会保留用于对比。
+            </p>
+          </div>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <Field label="默认头程物流方式">
+              <select
+                required
+                disabled={!canEdit || !isEditing}
+                className="h-10 w-full rounded-md border border-line bg-white px-3 text-sm text-ink disabled:bg-slate-50 disabled:text-slate-500"
+                value={getDefaultFirstLegMethod(settings)?.id ?? ""}
+                onChange={(event) => handleDefaultFirstLegChange(event.target.value)}
+              >
+                <option value="">请选择默认头程</option>
+                {resolveFirstLegMethods(settings).map((method) => (
+                  <option
+                    key={method.id}
+                    value={method.id}
+                    disabled={!method.isActive}
+                  >
+                    {method.name}{method.isActive ? "" : "（已停用）"}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="默认尾程物流方式">
+              <select
+                required
+                disabled={!canEdit || !isEditing}
+                className="h-10 w-full rounded-md border border-line bg-white px-3 text-sm text-ink disabled:bg-slate-50 disabled:text-slate-500"
+                value={getDefaultLastLegMethod(settings)?.id ?? ""}
+                onChange={(event) => handleDefaultLastLegChange(event.target.value)}
+              >
+                <option value="">请选择默认尾程</option>
+                {resolveLastLegMethods(settings).map((method) => (
+                  <option
+                    key={method.id}
+                    value={method.id}
+                    disabled={!method.isActive}
+                  >
+                    {method.name}{method.isActive ? "" : "（已停用）"}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+        </section>
 
         <div className="grid gap-6 xl:grid-cols-2 items-start">
           <LogisticsSection

@@ -20,6 +20,7 @@ import { calculatePricing, formatCurrency, formatPercent } from "../utils/pricin
 import {
   calculateAdFeeRmb,
   calculateProfitProjection,
+  getProfitSummaryPlanKey,
 } from "../utils/profit-calculation";
 
 type PromotionRecommendationsPageProps = {
@@ -179,10 +180,14 @@ function ceilToStep(value: number, step: number) {
   return Number((Math.ceil(value / step) * step).toFixed(2));
 }
 
-function pickConservativePlan(plans: ProfitLogisticsPlanResult[]) {
-  return plans.reduce((selected, plan) =>
-    plan.maxAdSpendRmb < selected.maxAdSpendRmb ? plan : selected,
-  );
+function pickDefaultPlan(
+  plans: ProfitLogisticsPlanResult[],
+  settings: PricingSettings,
+) {
+  const planKey = getProfitSummaryPlanKey(settings);
+  return planKey
+    ? plans.find((plan) => plan.planKey === planKey) ?? null
+    : null;
 }
 
 function getAdRecommendation({
@@ -205,7 +210,16 @@ function getAdRecommendation({
     };
   }
 
-  const plan = pickConservativePlan(result.plans);
+  const plan = pickDefaultPlan(result.plans, settings);
+  if (!plan) {
+    return {
+      result,
+      plan: null,
+      minimumRoas: null,
+      roasValue: null,
+      enabled: false,
+    };
+  }
   const minimumRoas = plan.recommendedMinRoas;
   const roasValue =
     minimumRoas === null ? null : ceilToStep(minimumRoas * ROAS_SAFETY_MULTIPLIER, 0.01);
@@ -332,7 +346,8 @@ function buildRecommendation({
   const baseResult = calculateProfitProjection(pricing, settings, baseInput);
   if (!baseResult.isValid || baseResult.plans.length === 0) return null;
 
-  const basePlan = pickConservativePlan(baseResult.plans);
+  const basePlan = pickDefaultPlan(baseResult.plans, settings);
+  if (!basePlan) return null;
   const trafficMin = roundMoney(temuPriceRmb * TRAFFIC_MIN_RATE);
   const trafficMax = roundMoney(temuPriceRmb * TRAFFIC_MAX_RATE);
   const couponMax = roundMoney(temuPriceRmb * COUPON_MAX_RATE);
@@ -771,7 +786,8 @@ export function PromotionRecommendationsPage({
               couponDiscountRate: 0,
             });
             if (!baseResult.isValid || baseResult.plans.length === 0) return [];
-            const basePlan = pickConservativePlan(baseResult.plans);
+            const basePlan = pickDefaultPlan(baseResult.plans, settings);
+            if (!basePlan) return [];
 
             return [
               {

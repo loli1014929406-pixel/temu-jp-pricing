@@ -102,6 +102,7 @@ export type LogisticsMethodConfig = {
     extraPrice?: number;   // sf, ocs_3cm, ocs_small
   };
   isActive: boolean;
+  isDefault?: boolean;
 };
 
 export type PricingSettings = {

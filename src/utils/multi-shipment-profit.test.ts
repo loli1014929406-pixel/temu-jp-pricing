@@ -29,6 +29,53 @@ function buildSettings(overrides: Partial<PricingSettings> = {}): PricingSetting
     test_ocs_small_parcel_extra_price_per_500g_rmb: 0,
     target_profit_rate: 0.2,
     target_post_ad_profit_rate: 0.1,
+    first_leg_methods: [
+      {
+        id: "ocs-first-leg",
+        name: "OCS RMB/kg",
+        type: "first_leg",
+        formula: "flat_rmb",
+        params: { price: 0 },
+        isActive: true,
+        isDefault: true,
+      },
+    ],
+    last_leg_methods: [
+      {
+        id: "ocs-yamato-last-leg",
+        name: "OCS Yamato",
+        type: "last_leg",
+        formula: "ocs_3cm",
+        params: {
+          firstPrice: overrides.test_ocs_3cm_first_price_rmb ?? 10,
+          extraPrice:
+            overrides.test_ocs_3cm_extra_price_per_100g_rmb ?? 0,
+        },
+        isActive: true,
+      },
+      {
+        id: "ocs-small-last-leg",
+        name: "OCS 小包",
+        type: "last_leg",
+        formula: "ocs_small",
+        params: {
+          firstPrice:
+            overrides.test_ocs_small_parcel_first_price_rmb ?? 36,
+          extraPrice:
+            overrides.test_ocs_small_parcel_extra_price_per_500g_rmb ?? 0,
+        },
+        isActive: true,
+      },
+      {
+        id: "osaka-jp-last-leg",
+        name: "大阪Japan Post",
+        type: "last_leg",
+        formula: "flat_jpy",
+        params: { price: overrides.osaka_lastmile_jpy ?? 260 },
+        isActive: true,
+        isDefault: true,
+      },
+    ],
     ...overrides,
   };
 }
@@ -119,7 +166,7 @@ describe("multi-shipment profit", () => {
     expect(row.logisticsCostRmb).toBe(36);
   });
 
-  it("uses the highest referenced profit logistics cost for standard shipping", () => {
+  it("uses the configured default logistics cost for standard shipping", () => {
     const row = calculateMultiShipmentProfitRow(
       "standard",
       buildProduct(),
@@ -133,7 +180,7 @@ describe("multi-shipment profit", () => {
       2,
     );
 
-    expect(row.selectedMethodName).toBe("利润页物流成本");
+    expect(row.selectedMethodName).toBe("默认核价物流方案");
     expect(row.selectedPackageCount).toBe(1);
     expect(row.logisticsCostRmb).toBe(13);
   });

@@ -30,6 +30,7 @@ import { calculatePricing, formatCurrency, formatPercent } from "../utils/pricin
 import {
   buildProfitCalculationInputFromSaved,
   calculateProfitProjection,
+  getProfitSummaryPlanKey,
   resolveProfitCalculationResult,
 } from "../utils/profit-calculation";
 import {
@@ -554,9 +555,22 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
                             </tr>
                           </thead>
                           <tbody>
-                            {result.plans.map((plan) => (
-                              <tr key={plan.planKey} className="border-t border-line">
-                                <td className="px-3 py-3">{plan.planName}</td>
+                            {result.plans.map((plan) => {
+                              const isDefault =
+                                plan.planKey === getProfitSummaryPlanKey(settings!);
+                              return (
+                              <tr
+                                key={plan.planKey}
+                                className={`border-t border-line ${isDefault ? "bg-sky-50/70" : ""}`}
+                              >
+                                <td className="px-3 py-3">
+                                  <span>{plan.planName}</span>
+                                  {isDefault && (
+                                    <span className="ml-2 rounded-full bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-700">
+                                      默认
+                                    </span>
+                                  )}
+                                </td>
                                 <td className="px-3 py-3">{formatCurrency(plan.effectiveSubsidyRmb)}</td>
                                 <td className="px-3 py-3">{formatCurrency(plan.logisticsCostRmb)}</td>
                                 <td className="px-3 py-3">{formatCurrency(plan.totalCostRmb)}</td>
@@ -585,7 +599,8 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
                                   {result.freeShippingThresholdQty ?? "--"}
                                 </td>
                               </tr>
-                            ))}
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>

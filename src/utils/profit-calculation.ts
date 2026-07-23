@@ -1,5 +1,4 @@
 import type {
-  LogisticsMethodConfig,
   PricingResult,
   PricingSettings,
   ProfitCalculationInput,
@@ -8,51 +7,15 @@ import type {
 } from "../types";
 import { calculateDynamicMethodCost } from "./shipping-costs";
 import { resolveFirstLegMethods, resolveLastLegMethods } from "../lib/defaults";
+import { getDefaultPricingPlanKey } from "../lib/default-pricing-logistics";
 
 const round = (value: number, digits = 2) =>
   Math.round((value + Number.EPSILON) * Math.pow(10, digits)) / Math.pow(10, digits);
 
-export const PROFIT_CALCULATION_VERSION = 6;
-
-const profitSummaryFirstLegMethodDbId = "287baa57-4cab-46e3-8cfe-d00dc274bedd";
-const profitSummaryLastLegMethodDbId = "4712d2ae-5d3d-42fd-ae7a-d5468a375e22";
-
-function normalizeLogisticsMethodName(value: string) {
-  return value.trim().toLowerCase().replace(/\s+/g, "");
-}
-
-function findProfitSummaryMethod(
-  methods: LogisticsMethodConfig[],
-  dbMethodId: string,
-  fallbackName: string,
-) {
-  const normalizedFallbackName = normalizeLogisticsMethodName(fallbackName);
-
-  return (
-    methods.find((method) => method.isActive && method.db_method_id === dbMethodId) ??
-    methods.find(
-      (method) =>
-        method.isActive &&
-        normalizeLogisticsMethodName(method.name) === normalizedFallbackName,
-    )
-  );
-}
+export const PROFIT_CALCULATION_VERSION = 7;
 
 export function getProfitSummaryPlanKey(settings: PricingSettings) {
-  const firstLegMethod = findProfitSummaryMethod(
-    resolveFirstLegMethods(settings),
-    profitSummaryFirstLegMethodDbId,
-    "OCS RMB/kg",
-  );
-  const lastLegMethod = findProfitSummaryMethod(
-    resolveLastLegMethods(settings),
-    profitSummaryLastLegMethodDbId,
-    "神户 Yamato3cm",
-  );
-
-  return firstLegMethod && lastLegMethod
-    ? `${firstLegMethod.id}_${lastLegMethod.id}`
-    : null;
+  return getDefaultPricingPlanKey(settings);
 }
 
 export function selectProfitSummaryProjection<
@@ -181,20 +144,8 @@ export function calculateProfitProjection(
   const firstLegs = resolveFirstLegMethods(settings);
   const lastLegs = resolveLastLegMethods(settings);
 
-  const activeFirstLegs = firstLegs.filter(
-    (m) =>
-      m.isActive &&
-      (m.formula === "flat_rmb" ||
-        m.formula === "flat_rmb_tariff" ||
-        m.formula === "fixed_rmb"),
-  );
-  const activeLastLegs = lastLegs.filter(
-    (m) =>
-      m.isActive &&
-      (m.formula === "flat_jpy" ||
-        m.formula === "fixed_rmb" ||
-        m.formula === "quantity_tier"),
-  );
+  const activeFirstLegs = firstLegs.filter((method) => method.isActive);
+  const activeLastLegs = lastLegs.filter((method) => method.isActive);
 
   const plansList = [];
   if (activeFirstLegs.length > 0 && activeLastLegs.length > 0) {

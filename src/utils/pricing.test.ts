@@ -21,6 +21,28 @@ function buildSettings(overrides: Partial<PricingSettings> = {}): PricingSetting
     test_ocs_small_parcel_extra_price_per_500g_rmb: 0,
     target_profit_rate: 0.2,
     target_post_ad_profit_rate: 0.1,
+    first_leg_methods: [
+      {
+        id: "ocs-first-leg",
+        name: "OCS RMB/kg",
+        type: "first_leg",
+        formula: "flat_rmb_tariff",
+        params: { price: 0, tariffRate: 0 },
+        isActive: true,
+        isDefault: true,
+      },
+    ],
+    last_leg_methods: [
+      {
+        id: "osaka-jp-last-leg",
+        name: "大阪Japan Post",
+        type: "last_leg",
+        formula: "flat_jpy",
+        params: { price: 0 },
+        isActive: true,
+        isDefault: true,
+      },
+    ],
     ...overrides,
   };
 }
@@ -79,6 +101,17 @@ describe("calculatePricing", () => {
       buildSettings({
         ocs_price_per_kg_rmb: 100,
         ocs_tariff_rate: 0.2,
+        first_leg_methods: [
+          {
+            id: "ocs-first-leg",
+            name: "OCS RMB/kg",
+            type: "first_leg",
+            formula: "flat_rmb_tariff",
+            params: { price: 100, tariffRate: 0.2 },
+            isActive: true,
+            isDefault: true,
+          },
+        ],
       }),
     );
 
@@ -88,7 +121,7 @@ describe("calculatePricing", () => {
     expect(result.logisticsCostRmb).toBe(120);
   });
 
-  it("excludes Kobe small parcel from normal single-item pricing", () => {
+  it("uses the selected default pair instead of the most expensive pair", () => {
     const result = calculatePricing(
       60,
       [],
@@ -102,6 +135,7 @@ describe("calculatePricing", () => {
             formula: "flat_rmb",
             params: { price: 25, currency: "RMB", billingUnit: "kg" },
             isActive: true,
+            isDefault: true,
           },
         ],
         last_leg_methods: [
@@ -112,6 +146,7 @@ describe("calculatePricing", () => {
             formula: "flat_jpy",
             params: { price: 260, currency: "JPY", billingUnit: "ticket" },
             isActive: true,
+            isDefault: true,
           },
           {
             id: "kobe-yamato-small-parcel",
@@ -129,7 +164,7 @@ describe("calculatePricing", () => {
     expect(result.logisticsCostRmb).toBe(12.16);
   });
 
-  it("includes OCS RMB/kg with Kobe Yamato 3cm in normal pricing", () => {
+  it("uses OCS RMB/kg with Kobe Yamato 3cm when selected", () => {
     const result = calculatePricing(
       60,
       [],
@@ -148,6 +183,7 @@ describe("calculatePricing", () => {
               billingUnit: "kg",
             },
             isActive: true,
+            isDefault: true,
           },
         ],
         last_leg_methods: [
@@ -170,6 +206,7 @@ describe("calculatePricing", () => {
               billingUnit: "ticket",
             },
             isActive: true,
+            isDefault: true,
           },
           {
             id: "kobe-yamato-small-parcel",
@@ -184,5 +221,38 @@ describe("calculatePricing", () => {
     );
 
     expect(result.logisticsCostRmb).toBe(10.43);
+  });
+
+  it("allows Kobe small parcel to be selected as the default last leg", () => {
+    const result = calculatePricing(
+      60,
+      [],
+      buildSettings({
+        first_leg_methods: [
+          {
+            id: "ocs-first-leg",
+            name: "OCS RMB/kg",
+            type: "first_leg",
+            formula: "flat_rmb",
+            params: { price: 20 },
+            isActive: true,
+            isDefault: true,
+          },
+        ],
+        last_leg_methods: [
+          {
+            id: "kobe-small",
+            name: "神户 Yamato小包",
+            type: "last_leg",
+            formula: "fixed_rmb",
+            params: { price: 30 },
+            isActive: true,
+            isDefault: true,
+          },
+        ],
+      }),
+    );
+
+    expect(result.logisticsCostRmb).toBe(31.2);
   });
 });

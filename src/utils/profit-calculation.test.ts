@@ -18,6 +18,7 @@ const firstLegMethod: LogisticsMethodConfig = {
   formula: "flat_rmb_tariff",
   params: { price: 20 },
   isActive: true,
+  isDefault: true,
 };
 
 const lastLegMethod: LogisticsMethodConfig = {
@@ -28,6 +29,7 @@ const lastLegMethod: LogisticsMethodConfig = {
   formula: "quantity_tier",
   params: { quantityPrices: [225, 269] },
   isActive: true,
+  isDefault: true,
 };
 
 function buildSettings(): PricingSettings {
@@ -75,7 +77,7 @@ function buildPlan(planKey: string, totalCostRmb: number): ProfitLogisticsPlanRe
 
 function buildResult(plans: ProfitLogisticsPlanResult[]): ProfitCalculationResult {
   return {
-    calculationVersion: 6,
+    calculationVersion: 7,
     isValid: true,
     finalDiscountRate: 1,
     adRoas: 0,
@@ -89,7 +91,7 @@ function buildResult(plans: ProfitLogisticsPlanResult[]): ProfitCalculationResul
 }
 
 describe("profit analysis summary plan", () => {
-  it("resolves OCS plus Kobe Yamato 3cm by stable database ids", () => {
+  it("resolves the user-selected default logistics pair", () => {
     expect(getProfitSummaryPlanKey(buildSettings())).toBe(
       "current-ocs-first-leg_current-kobe-yamato-3cm",
     );

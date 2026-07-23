@@ -17,6 +17,7 @@ import type { PricingResult, Product, ProductSku } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { BackToParentAction, PageHeader } from "../components/ui";
 import { confirmSave } from "../utils/confirmations";
+import { getDefaultPricingLogisticsSelection } from "../lib/default-pricing-logistics";
 
 type PricingResultPageProps = {
   user: User;
@@ -34,6 +35,7 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
   const [savedMessage, setSavedMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [emptyItems, setEmptyItems] = useState(false);
+  const [defaultLogisticsPlanName, setDefaultLogisticsPlanName] = useState("");
   useAutoDismiss(errorMessage, () => setErrorMessage(""));
   useAutoDismiss(savedMessage, () => setSavedMessage(""));
 
@@ -85,6 +87,12 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
         if (active) {
           setProduct(nextProduct);
           setSkuResults(nextSkuResults);
+          const defaultSelection = getDefaultPricingLogisticsSelection(settings);
+          setDefaultLogisticsPlanName(
+            defaultSelection
+              ? `${defaultSelection.firstLegMethod.name} + ${defaultSelection.lastLegMethod.name}`
+              : "",
+          );
         }
 
       } catch (error) {
@@ -195,7 +203,12 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
             ["方案 B：淮安空运 + 福冈海外仓", formatCurrency(result.planB)],
             ["方案 C：OCS + 大阪海外仓", formatCurrency(result.planC)],
             ["方案 D：OCS + 福冈海外仓", formatCurrency(result.planD)],
-            ["物流成本", formatCurrency(result.logisticsCostRmb)],
+            [
+              defaultLogisticsPlanName
+                ? `默认方案：${defaultLogisticsPlanName}`
+                : "默认物流成本",
+              formatCurrency(result.logisticsCostRmb),
+            ],
             ["总成本", formatCurrency(result.totalCostRmb)],
             ["运费补贴", formatCurrency(result.subsidyRmb)],
             ["核算定价", formatCurrency(result.temuDeclarationPriceRmb)],

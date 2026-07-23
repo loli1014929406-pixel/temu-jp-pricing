@@ -167,7 +167,7 @@ function buildDirectThreeCmCandidate(
   };
 }
 
-function getHighestNormalLogisticsCostRmb(
+function getDefaultNormalLogisticsCostRmb(
   product: Product,
   skuItems: ProductItem[],
   settings: PricingSettings,
@@ -186,7 +186,7 @@ function buildStandardReferencedLogisticsCandidate(
   if (dimensionIssue) {
     return {
       key: "standard_referenced_logistics",
-      name: "利润页物流成本",
+      name: "默认核价物流方案",
       available: false,
       logisticsCostRmb: null,
       packageCount: null,
@@ -198,7 +198,7 @@ function buildStandardReferencedLogisticsCandidate(
   if (parcelUnitCounts.length === 0) {
     return {
       key: "standard_referenced_logistics",
-      name: "利润页物流成本",
+      name: "默认核价物流方案",
       available: false,
       logisticsCostRmb: null,
       packageCount: null,
@@ -206,7 +206,7 @@ function buildStandardReferencedLogisticsCandidate(
     };
   }
 
-  const referencedLogisticsCostRmb = getHighestNormalLogisticsCostRmb(
+  const referencedLogisticsCostRmb = getDefaultNormalLogisticsCostRmb(
     product,
     skuItems,
     settings,
@@ -214,7 +214,7 @@ function buildStandardReferencedLogisticsCandidate(
 
   return {
     key: "standard_referenced_logistics",
-    name: "利润页物流成本",
+    name: "默认核价物流方案",
     available: true,
     logisticsCostRmb: round(parcelUnitCounts.length * referencedLogisticsCostRmb),
     packageCount: parcelUnitCounts.length,

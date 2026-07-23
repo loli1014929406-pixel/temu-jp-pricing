@@ -6,6 +6,10 @@ import {
   fetchCurrentAccountPermission,
   getPermissionCapabilities,
 } from "./permissions";
+import {
+  initializeDefaultLogisticsSelections,
+  validateDefaultLogisticsSelections,
+} from "./default-pricing-logistics";
 
 type FetchSettingsOptions = {
   createIfMissing?: boolean;
@@ -101,6 +105,7 @@ function normalizeLogisticsMethodConfigs(
           extraPrice: typeof params.extraPrice === "number" ? params.extraPrice : undefined,
         },
         isActive: item.isActive ?? true,
+        isDefault: item.isDefault === true,
       };
     })
     .filter((method): method is LogisticsMethodConfig => Boolean(method));
@@ -173,16 +178,20 @@ function writeCachedDynamicLogisticsSettings(userId: string, settings: PricingSe
 
 function applyCachedDynamicLogisticsSettings(userId: string, settings: unknown) {
   if (hasOwnField(settings, "first_leg_methods") && hasOwnField(settings, "last_leg_methods")) {
-    const normalized = normalizeSettings(settings as Partial<PricingSettings>);
+    const normalized = initializeDefaultLogisticsSelections(
+      normalizeSettings(settings as Partial<PricingSettings>),
+    );
     writeCachedDynamicLogisticsSettings(userId, normalized);
     return normalized;
   }
 
   const cached = readCachedDynamicLogisticsSettings(userId);
-  return normalizeSettings({
-    ...(settings as Partial<PricingSettings>),
-    ...cached,
-  });
+  return initializeDefaultLogisticsSelections(
+    normalizeSettings({
+      ...(settings as Partial<PricingSettings>),
+      ...cached,
+    }),
+  );
 }
 
 function normalizeSettings(settings: Partial<PricingSettings>): PricingSettings {
@@ -317,6 +326,9 @@ export async function fetchSettings(
 }
 
 export async function saveSettings(userId: string, settings: PricingSettings) {
+  const defaultSelectionError = validateDefaultLogisticsSelections(settings);
+  if (defaultSelectionError) throw new Error(defaultSelectionError);
+
   const supabase = getSupabaseClient();
   const previousSettings = await fetchSettings(userId, { createIfMissing: false });
   const normalizedSettings = normalizeSettings(settings);
