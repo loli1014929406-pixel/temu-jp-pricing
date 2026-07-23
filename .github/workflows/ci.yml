@@ -55,7 +55,7 @@ jobs:
         run: npm run check:team-scope
 
       - name: Audit production dependencies
-        run: npm audit --audit-level=high
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Build application
         run: npm run build
