@@ -403,6 +403,15 @@ export type OrderCustomerHistoryStatus =
   | "refund_order"
   | "refund_customer";
 
+export type TrackingCategory =
+  | "pending"
+  | "in_transit"
+  | "out_for_delivery"
+  | "delivered"
+  | "available_for_pickup"
+  | "failed_attempt"
+  | "exception";
+
 export type TemuOrderRecord = {
   id: string;
   owner_id: string;
@@ -418,6 +427,17 @@ export type TemuOrderRecord = {
   label_printed_at: string;
   logistics_tracking_no: string;
   logistics_status: string;
+  logistics_status_detail: string;
+  tracking_category: TrackingCategory;
+  tracking_event_time: string;
+  tracking_last_checked_at: string;
+  tracking_last_query_error: string;
+  tracking_last_query_error_at: string;
+  tracking_is_exception: boolean;
+  tracking_exception_reason: string;
+  tracking_exception_fingerprint: string;
+  tracking_exception_handled_at: string;
+  tracking_exception_handled_by: string | null;
   fulfillment_quantity: number;
   product_attributes: string;
   recipient_name: string;

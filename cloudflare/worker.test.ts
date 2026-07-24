@@ -56,6 +56,35 @@ describe("tracking worker", () => {
     expect(String(fetchMock.mock.calls[1]?.[0])).toContain("trackings.post.japanpost.jp");
   });
 
+  it("accepts the scoped internal secret for a Yamato request", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json(true))
+      .mockResolvedValueOnce(new Response("<html>yamato tracking</html>", {
+        status: 200,
+        headers: { "Content-Type": "text/html; charset=UTF-8" },
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await proxyYamato(
+      new Request("https://example.com/yamato-tracking/cgi-bin/tneko", {
+        method: "POST",
+        headers: { "x-tracking-proxy-secret": "scoped-secret" },
+        body: new URLSearchParams({ number01: "766081370725" }),
+      }),
+      authEnv,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("yamato tracking");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      "verify_temu_tracking_proxy_secret",
+    );
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain(
+      "toi.kuronekoyamato.co.jp",
+    );
+  });
+
   it("adds browser security headers", () => {
     const response = withSecurityHeaders(new Response("ok"));
 

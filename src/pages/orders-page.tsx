@@ -8,6 +8,8 @@ import {
   OrderDataHeader,
   OrderFileActions,
   OrderPageNotices,
+  OrderTrackingAlerts,
+  type TrackingAlertFilter,
 } from "../components/orders/OrderPageChrome";
 import { ReshipOrderModal } from "../components/orders/ReshipOrderModal";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -42,14 +44,18 @@ import {
   getWarehouseLogisticsConfigStatus,
   isLastLegMethodAllowedForWarehouse,
 } from "../lib/warehouse-logistics";
-import { getSupabaseClient } from "../lib/supabase";
-import { mapWithConcurrency } from "../lib/concurrency";
 import {
   deleteTemuOrder,
   importTemuOrders,
   updateTemuOrder,
   type TemuOrderImportRow,
 } from "../lib/orders";
+import {
+  fetchTemuTrackingAlerts,
+  markTemuTrackingAlertHandled,
+  refreshTemuTrackingForOrderIds,
+  type TemuTrackingAlert,
+} from "../lib/order-tracking";
 import type {
   Product,
   ProductSku,
@@ -88,7 +94,6 @@ import {
   OrderSortKey,
   OrderSort,
   TrackingImportRecord,
-  TrackingStatusResult,
   OrderStockDeduction,
   TemuOrderImportField,
   importColumnAliases,
@@ -97,7 +102,6 @@ import {
   trackingNoImportColumnAliases,
   rmbPerUsdForDeclaration,
   defaultOrderSort,
-  japanPostTrackingProxyPath,
   temuUploadWarehouseName,
   temuUploadColumns,
   visibleColumns,
@@ -144,10 +148,7 @@ import {
   formatRecipientName,
   hasAnyRecipientInfo,
   hasCompleteRecipientInfo,
-  isDeliveredTrackingStatus,
   getTrackingStatusLabel,
-  isJapanPostTrackingStatus,
-  getOrderTrackingCarrier,
   getTemuUploadCarrier,
   formatLocalDateTime,
   formatFileTimestamp,
@@ -209,6 +210,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
     clearDrafts,
     applyWarehouseSkuStockUpdates,
     fetchLatestProductsAndSkus,
+    reloadOrders,
   } = useOrders(user, {
     page,
     pageSize,
@@ -231,6 +233,12 @@ export function OrdersPage({ user }: OrdersPageProps) {
   );
   const [busyKey, setBusyKey] = useState("");
   const [noticeMessage, setNoticeMessage] = useState("");
+  const [trackingAlerts, setTrackingAlerts] = useState<TemuTrackingAlert[]>([]);
+  const [trackingAlertFilter, setTrackingAlertFilter] =
+    useState<TrackingAlertFilter>("unhandled");
+  const [trackingAlertRefreshVersion, setTrackingAlertRefreshVersion] =
+    useState(0);
+  const [handlingTrackingOrderNo, setHandlingTrackingOrderNo] = useState("");
   const [detailOrder, setDetailOrder] = useState<TemuOrderRecord | null>(null);
   const [reshipTargetOrder, setReshipTargetOrder] = useState<TemuOrderRecord | null>(null);
 
@@ -246,6 +254,43 @@ export function OrdersPage({ user }: OrdersPageProps) {
     setDetailOrder(null);
   };
   useAutoDismiss(noticeMessage, () => setNoticeMessage(""));
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadTrackingAlerts() {
+      try {
+        const nextAlerts = await fetchTemuTrackingAlerts();
+        if (active) setTrackingAlerts(nextAlerts);
+      } catch (error) {
+        if (active) {
+          setErrorMessage(
+            getOrdersErrorMessage(error, "加载物流异常提醒失败"),
+          );
+        }
+      }
+    }
+
+    void loadTrackingAlerts();
+    return () => {
+      active = false;
+    };
+  }, [setErrorMessage, trackingAlertRefreshVersion, user.id]);
+
+  useEffect(() => {
+    const refreshTrackingAlerts = () => {
+      if (document.visibilityState === "visible") {
+        setTrackingAlertRefreshVersion((current) => current + 1);
+      }
+    };
+    const intervalId = window.setInterval(refreshTrackingAlerts, 5 * 60 * 1000);
+
+    document.addEventListener("visibilitychange", refreshTrackingAlerts);
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", refreshTrackingAlerts);
+    };
+  }, []);
 
   const logisticsMethodOptions = useMemo(
     () =>
@@ -487,14 +532,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
     paginatedOrderRows.every((row) =>
       row.orders.every((order) => selectedOrderIdSet.has(order.id)),
     );
-
-  useEffect(() => {
-    if (!canEdit || loading || !isShippingTrackingStage(activeStage) || busyKey) return;
-  }, [activeStage, busyKey, canEdit, loading, shippedOrdersWithTrackingInView]);
-
-  useEffect(() => {
-    if (!canEdit || loading || busyKey) return;
-  }, [allOrders, busyKey, canEdit, loading]);
 
   function getOrderWarehouseLogisticsIssue(order: TemuOrderRecord) {
     const assignmentIssue = getOrderFulfillmentAssignmentIssue(order);
@@ -806,200 +843,10 @@ export function OrdersPage({ user }: OrdersPageProps) {
   }
 
   function canQueryTrackingStatus(order: TemuOrderRecord) {
-    return Boolean(order.logistics_tracking_no.trim());
-  }
-
-  function cleanTrackingText(value: string) {
-    return value.replace(/▶/g, " ").replace(/\s+/g, " ").trim();
-  }
-
-  function formatJapanPostDateTime(value: string) {
-    const match = value.match(
-      /(\d{4})[/年](\d{1,2})[/月](\d{1,2})日?\s+(\d{1,2}):(\d{2})/,
+    return Boolean(
+      order.logistics_tracking_no.trim() &&
+        isShippingTrackingStage(getOrderStage(order)),
     );
-    if (!match) return "";
-
-    const [, year, month, day, hour, minute] = match;
-    return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")} ${hour.padStart(2, "0")}:${minute}`;
-  }
-
-  function parseJapanPostDateTime(value: string) {
-    const formatted = formatJapanPostDateTime(value);
-    if (!formatted) return null;
-
-    const timestamp = parseOrderDateTime(formatted)?.getTime() ?? Number.NaN;
-    return Number.isNaN(timestamp) ? null : timestamp;
-  }
-
-  function getJapanPostHistoryStatus(document: Document): TrackingStatusResult | null {
-    const historyRows = Array.from(
-      document.querySelectorAll('table[summary="履歴情報"] tr'),
-    );
-    const candidates: Array<{
-      status: string;
-      actualSignedTime?: string;
-      timestamp: number | null;
-      index: number;
-    }> = [];
-
-    historyRows.forEach((row) => {
-      const cells = Array.from(row.querySelectorAll("td")).map((cell) =>
-        cleanTrackingText(cell.textContent ?? ""),
-      );
-      if (cells.length < 2) return;
-
-      const status = getTrackingStatusLabel(cells[1]);
-      if (!isJapanPostTrackingStatus(status)) return;
-
-      candidates.push({
-        status,
-        actualSignedTime: formatJapanPostDateTime(cells[0]) || undefined,
-        timestamp: parseJapanPostDateTime(cells[0]),
-        index: candidates.length,
-      });
-    });
-
-    const latest = candidates.sort((left, right) => {
-      const timestampComparison =
-        (right.timestamp ?? Number.NEGATIVE_INFINITY) -
-        (left.timestamp ?? Number.NEGATIVE_INFINITY);
-      return timestampComparison || right.index - left.index;
-    })[0];
-
-    if (!latest) return null;
-
-    return {
-      status: latest.status,
-      actualSignedTime: isDeliveredTrackingStatus(latest.status)
-        ? latest.actualSignedTime
-        : undefined,
-    };
-  }
-
-  function getJapanPostResultStatus(document: Document) {
-    const resultRows = Array.from(
-      document.querySelectorAll('table[summary="照会結果"] tr'),
-    );
-
-    for (const row of resultRows) {
-      const status = Array.from(row.querySelectorAll("td"))
-        .map((cell) => getTrackingStatusLabel(cleanTrackingText(cell.textContent ?? "")))
-        .find((cellText) => isJapanPostTrackingStatus(cellText));
-      if (status) return status;
-    }
-
-    return "";
-  }
-
-  function parseYamatoTrackingStatus(html: string): TrackingStatusResult {
-    const document = new DOMParser().parseFromString(html, "text/html");
-    const statusTitle = cleanTrackingText(
-      document.querySelector(".tracking-invoice-block-state-title")?.textContent ?? "",
-    );
-    const latestDetailRow = Array.from(
-      document.querySelectorAll(".tracking-invoice-block-detail li"),
-    ).at(-1);
-    const latestStatus = cleanTrackingText(
-      latestDetailRow?.querySelector(".item")?.textContent ?? "",
-    );
-    const listStatus = cleanTrackingText(
-      document.querySelector(".tracking-box-area:not(.no-item) .data.state")
-        ?.textContent ?? "",
-    );
-    const displayStatus = statusTitle || latestStatus || listStatus;
-    return { status: getTrackingStatusLabel(displayStatus) || "暂无轨迹" };
-  }
-
-  async function getTrackingAuthorization() {
-    const { data: { session } } = await getSupabaseClient().auth.getSession();
-    if (!session?.access_token) throw new Error("登录状态已失效，请重新登录");
-    return `Bearer ${session.access_token}`;
-  }
-
-  async function fetchYamatoTrackingStatus(trackingNo: string) {
-    const authorization = await getTrackingAuthorization();
-    const body = new URLSearchParams({
-      number01: trackingNo.trim(),
-      category: "0",
-    });
-    const response = await fetch(
-      "/yamato-tracking/cgi-bin/tneko",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-          Authorization: authorization,
-        },
-        body,
-        cache: "no-store",
-      },
-    );
-    if (!response.ok) {
-      throw new Error(`Yamato 查询失败：HTTP ${response.status}`);
-    }
-    return parseYamatoTrackingStatus(await response.text());
-  }
-
-  function parseJapanPostTrackingStatus(html: string): TrackingStatusResult {
-    const document = new DOMParser().parseFromString(html, "text/html");
-    const bodyText = cleanTrackingText(document.body?.textContent ?? "");
-    if (bodyText.includes("お問い合わせ番号が見つかりません")) {
-      return { status: "暂无轨迹" };
-    }
-
-    const historyStatus = getJapanPostHistoryStatus(document);
-    if (historyStatus) return historyStatus;
-
-    return {
-      status:
-        getTrackingStatusLabel(getJapanPostResultStatus(document)) ||
-        "暂无轨迹",
-    };
-  }
-
-  async function fetchJapanPostTrackingStatus(trackingNo: string) {
-    const authorization = await getTrackingAuthorization();
-    const params = new URLSearchParams({
-      reqCodeNo1: trackingNo.trim(),
-      searchKind: "S002",
-      locale: "ja",
-    });
-    const response = await fetch(`${japanPostTrackingProxyPath}?${params.toString()}`, {
-      headers: { Authorization: authorization },
-      cache: "no-store",
-    });
-    if (!response.ok) {
-      throw new Error(`Japan Post 查询失败：HTTP ${response.status}`);
-    }
-    return parseJapanPostTrackingStatus(await response.text());
-  }
-
-  async function fetchTrackingStatus(order: TemuOrderRecord) {
-    if (getOrderTrackingCarrier(order) === "japan_post") {
-      return fetchJapanPostTrackingStatus(order.logistics_tracking_no);
-    }
-    return fetchYamatoTrackingStatus(order.logistics_tracking_no);
-  }
-
-  function buildTrackingStatusUpdates(
-    order: TemuOrderRecord,
-    trackingResult: TrackingStatusResult,
-  ) {
-    const logisticsStatus = trackingResult.status;
-    const updates: Parameters<typeof updateTemuOrder>[1] = {
-      logistics_status: logisticsStatus,
-    };
-
-    if (isDeliveredTrackingStatus(logisticsStatus)) {
-      const draft = drafts[order.id] ?? toDraft(order);
-      updates.order_status = "已完成";
-      updates.actual_signed_time =
-        trackingResult.actualSignedTime ||
-        draft.actual_signed_time.trim() ||
-        formatLocalDateTime();
-    }
-
-    return updates;
   }
 
   function getTrackingMatchScore(order: TemuOrderRecord, record: TrackingImportRecord) {
@@ -1493,11 +1340,19 @@ export function OrdersPage({ user }: OrdersPageProps) {
     }
 
     const queryableOrders = targetOrders.filter(canQueryTrackingStatus);
+    const queryableOrderCount = new Set(
+      queryableOrders.map((order) => getOrderNoKey(order.order_no)),
+    ).size;
     if (queryableOrders.length === 0) {
       if (showNotice) setNoticeMessage("当前没有可查询的物流单号。");
       return;
     }
-    if (showNotice && !(await confirmAction(`确认查询并保存 ${queryableOrders.length} 条物流状态吗？`))) {
+    if (
+      showNotice &&
+      !(await confirmAction(
+        `确认查询当前页面 ${queryableOrderCount} 个订单的物流状态吗？`,
+      ))
+    ) {
       return;
     }
 
@@ -1508,53 +1363,65 @@ export function OrdersPage({ user }: OrdersPageProps) {
     }
 
     try {
-      const statusResults = await mapWithConcurrency(
-        queryableOrders,
-        5,
-        async (order) => {
-          try {
-            const trackingResult = await fetchTrackingStatus(order);
-            return { order, trackingResult };
-          } catch {
-            return { order, trackingResult: { status: "查询失败" } };
-          }
-        },
-        (completed, total) => {
-          if (showNotice) setNoticeMessage(`正在查询物流状态 ${completed} / ${total}`);
-        },
-      );
-
-      const saveEntries = statusResults.map(({ order, trackingResult }) => {
-        const updates = buildTrackingStatusUpdates(order, trackingResult);
-        return { order, updates, nextOrder: { ...order, ...updates } };
-      });
-      const { nextOrders, inventoryChanges, failures } =
-        await saveOrderEntriesWithInventory(saveEntries);
-      if (nextOrders.length === 0 && failures.length > 0) {
-        throw failures[0].error;
-      }
-
-      updateOrdersState(nextOrders);
       if (showNotice) {
-        const completedCount = statusResults.filter(({ trackingResult }) =>
-          isDeliveredTrackingStatus(trackingResult.status),
-        ).length;
+        setNoticeMessage(
+          `正在查询当前页面 ${queryableOrderCount} 个订单的物流状态...`,
+        );
+      }
+      const result = await refreshTemuTrackingForOrderIds(
+        queryableOrders.map((order) => order.id),
+      );
+      reloadOrders();
+      setTrackingAlertRefreshVersion((current) => current + 1);
+
+      if (showNotice) {
         setNoticeMessage(
           [
-            completedCount > 0
-              ? `已查询 ${nextOrders.length} 条物流状态，自动完成 ${completedCount} 条订单`
-              : `已查询 ${nextOrders.length} 条物流状态`,
-            inventoryChanges.length > 0
-              ? `扣减 ${inventoryChanges.length} 项 SKU 库存`
+            `已查询 ${result.queriedOrderCount} 个订单`,
+            result.exceptionOrderCount > 0
+              ? `发现 ${result.exceptionOrderCount} 个物流异常`
               : "",
-            failures.length > 0 ? `${failures.length} 条更新失败` : "",
-          ].filter(Boolean).join("，"),
+            result.deliveredOrderCount > 0
+              ? `${result.deliveredOrderCount} 个订单已签收`
+              : "",
+            result.failedOrderCount > 0
+              ? `${result.failedOrderCount} 个订单查询失败（保留原物流状态）`
+              : "",
+          ]
+            .filter(Boolean)
+            .join("，"),
         );
       }
     } catch (error) {
       setErrorMessage(getOrdersErrorMessage(error, "查询物流状态失败"));
     } finally {
       setBusyKey("");
+    }
+  }
+
+  async function handleMarkTrackingAlertHandled(alert: TemuTrackingAlert) {
+    if (!canEdit) {
+      setErrorMessage("当前账号没有编辑权限，不能处理物流异常。");
+      return;
+    }
+
+    setHandlingTrackingOrderNo(alert.order_no);
+    setErrorMessage("");
+    try {
+      const updatedCount = await markTemuTrackingAlertHandled(
+        alert.order_no,
+        alert.tracking_exception_fingerprint,
+      );
+      if (updatedCount === 0) {
+        throw new Error("物流异常已发生变化，请刷新后重新处理。");
+      }
+      reloadOrders();
+      setTrackingAlertRefreshVersion((current) => current + 1);
+      setNoticeMessage(`订单 ${alert.order_no} 的物流异常已标记为已处理。`);
+    } catch (error) {
+      setErrorMessage(getOrdersErrorMessage(error, "处理物流异常失败"));
+    } finally {
+      setHandlingTrackingOrderNo("");
     }
   }
 
@@ -2916,6 +2783,17 @@ export function OrdersPage({ user }: OrdersPageProps) {
               shippedOrdersWithTrackingInView,
               "tracking-status-refresh",
             )
+          }
+        />
+
+        <OrderTrackingAlerts
+          alerts={trackingAlerts}
+          filter={trackingAlertFilter}
+          canEdit={canEdit}
+          handlingOrderNo={handlingTrackingOrderNo}
+          onFilterChange={setTrackingAlertFilter}
+          onMarkHandled={(alert) =>
+            void handleMarkTrackingAlertHandled(alert)
           }
         />
 

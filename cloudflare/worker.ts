@@ -66,6 +66,29 @@ async function verifySupabaseUser(request: Request, env: TrackingAuthEnv) {
   if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) {
     return { ok: false, response: textResponse("Tracking proxy authentication is not configured", 500) };
   }
+
+  const proxySecret = request.headers.get("x-tracking-proxy-secret") || "";
+  if (proxySecret) {
+    const secretResponse = await fetch(
+      `${env.SUPABASE_URL.replace(/\/$/, "")}/rest/v1/rpc/verify_temu_tracking_proxy_secret`,
+      {
+        method: "POST",
+        headers: {
+          apikey: env.SUPABASE_ANON_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ p_secret: proxySecret }),
+        signal: AbortSignal.timeout(requestTimeoutMs),
+      },
+    );
+    if (secretResponse.ok) {
+      const isValidProxySecret = await secretResponse.json<unknown>();
+      if (isValidProxySecret === true) return { ok: true as const };
+    } else {
+      await secretResponse.body?.cancel();
+    }
+  }
+
   if (!authorization.startsWith("Bearer ")) {
     return { ok: false, response: textResponse("Unauthorized", 401) };
   }

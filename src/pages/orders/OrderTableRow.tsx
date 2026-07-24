@@ -8,7 +8,12 @@ import {
   type MouseEvent,
   type ReactNode,
 } from "react";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+} from "lucide-react";
 import { Badge } from "../../components/ui";
 import {
   getOrderCustomerHistoryMeta,
@@ -981,19 +986,78 @@ export const OrderTableRow = memo(function OrderTableRow({
           </td>
           <td className="order-tracking-status-col">
             {mergedOrder.logistics_tracking_no ? (
-              trackingStatusUrl ? (
-                <a
-                  href={trackingStatusUrl}
-                  onClick={(event) => openTrackingStatus(event, mergedOrder)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-semibold text-sky-700 hover:text-sky-900"
-                >
-                  {trackingStatusLabel}
-                </a>
-              ) : (
-                trackingStatusLabel
-              )
+              <div
+                className="flex min-w-0 flex-col gap-1"
+                title={
+                  mergedOrder.logistics_status_detail ||
+                  mergedOrder.tracking_exception_reason ||
+                  undefined
+                }
+              >
+                <div className="flex min-w-0 items-center gap-1.5">
+                  {mergedOrder.tracking_is_exception &&
+                    !mergedOrder.tracking_exception_handled_at && (
+                      <AlertTriangle
+                        size={14}
+                        className="shrink-0 text-rose-600"
+                        aria-label="物流异常"
+                      />
+                    )}
+                  {mergedOrder.tracking_is_exception &&
+                    mergedOrder.tracking_exception_handled_at && (
+                      <CheckCircle2
+                        size={14}
+                        className="shrink-0 text-slate-500"
+                        aria-label="物流异常已处理"
+                      />
+                    )}
+                  {trackingStatusUrl ? (
+                    <a
+                      href={trackingStatusUrl}
+                      onClick={(event) => openTrackingStatus(event, mergedOrder)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className={`min-w-0 truncate font-semibold hover:underline ${
+                        mergedOrder.tracking_is_exception &&
+                        !mergedOrder.tracking_exception_handled_at
+                          ? "text-rose-700"
+                          : "text-sky-700 hover:text-sky-900"
+                      }`}
+                    >
+                      {trackingStatusLabel}
+                    </a>
+                  ) : (
+                    <span
+                      className={
+                        mergedOrder.tracking_is_exception &&
+                        !mergedOrder.tracking_exception_handled_at
+                          ? "font-semibold text-rose-700"
+                          : ""
+                      }
+                    >
+                      {trackingStatusLabel}
+                    </span>
+                  )}
+                </div>
+                {mergedOrder.logistics_status_detail && (
+                  <span className="block max-w-[12rem] truncate text-xs font-medium text-slate-500">
+                    {mergedOrder.logistics_status_detail}
+                  </span>
+                )}
+                {mergedOrder.tracking_is_exception && (
+                  <span
+                    className={`w-fit rounded-full px-1.5 py-0.5 text-[11px] font-semibold ${
+                      mergedOrder.tracking_exception_handled_at
+                        ? "bg-slate-100 text-slate-600"
+                        : "bg-rose-100 text-rose-700"
+                    }`}
+                  >
+                    {mergedOrder.tracking_exception_handled_at
+                      ? "异常已处理"
+                      : "物流异常"}
+                  </span>
+                )}
+              </div>
             ) : (
               "--"
             )}

@@ -36,6 +36,14 @@ const textOrderFields = [
   "label_printed_at",
   "logistics_tracking_no",
   "logistics_status",
+  "logistics_status_detail",
+  "tracking_event_time",
+  "tracking_last_checked_at",
+  "tracking_last_query_error",
+  "tracking_last_query_error_at",
+  "tracking_exception_reason",
+  "tracking_exception_fingerprint",
+  "tracking_exception_handled_at",
   "product_attributes",
   "recipient_name",
   "recipient_phone",
@@ -58,7 +66,8 @@ const temuOrderLegacySelectFields =
   "id, owner_id, order_no, sub_order_no, order_status, sku_code, warehouse_name, logistics_method, label_printed_at, logistics_tracking_no, logistics_status, product_attributes, recipient_name, recipient_phone, email, province, city, district, address_line1, address_line2, postal_code, latest_ship_time, actual_ship_time, estimated_delivery_time, actual_signed_time, created_at, updated_at, warehouse_id, fulfillment_quantity";
 
 const temuOrderActualFeeSelectFields = `${temuOrderLegacySelectFields}, actual_shipping_fee_rmb`;
-const temuOrderSelectFields = `${temuOrderActualFeeSelectFields}, logistics_method_id`;
+const temuOrderLogisticsMethodSelectFields = `${temuOrderActualFeeSelectFields}, logistics_method_id`;
+const temuOrderSelectFields = `${temuOrderLogisticsMethodSelectFields}, logistics_status_detail, tracking_category, tracking_event_time, tracking_last_checked_at, tracking_last_query_error, tracking_last_query_error_at, tracking_is_exception, tracking_exception_reason, tracking_exception_fingerprint, tracking_exception_handled_at, tracking_exception_handled_by`;
 
 function isMissingActualShippingFeeColumnError(error: unknown) {
   if (!error || typeof error !== "object") return false;
@@ -152,6 +161,9 @@ function normalizeTemuOrder(row: Partial<TemuOrderRecord>): TemuOrderRecord {
     | "logistics_method_id"
     | "logistics_method_is_unmatched"
     | "actual_shipping_fee_rmb"
+    | "tracking_category"
+    | "tracking_is_exception"
+    | "tracking_exception_handled_by"
     | "customer_history_status"
     | "customer_sales_reversal"
     | "customer_freight_reversal"
@@ -168,6 +180,18 @@ function normalizeTemuOrder(row: Partial<TemuOrderRecord>): TemuOrderRecord {
       !row.logistics_method_id,
     fulfillment_quantity: Number(row.fulfillment_quantity ?? 0),
     actual_shipping_fee_rmb: Number(row.actual_shipping_fee_rmb ?? 0),
+    tracking_category:
+      row.tracking_category === "in_transit" ||
+      row.tracking_category === "out_for_delivery" ||
+      row.tracking_category === "delivered" ||
+      row.tracking_category === "available_for_pickup" ||
+      row.tracking_category === "failed_attempt" ||
+      row.tracking_category === "exception"
+        ? row.tracking_category
+        : "pending",
+    tracking_is_exception: Boolean(row.tracking_is_exception),
+    tracking_exception_handled_by:
+      row.tracking_exception_handled_by ?? null,
     customer_history_status: normalizeOrderCustomerHistoryStatus(
       row.customer_history_status,
     ),
