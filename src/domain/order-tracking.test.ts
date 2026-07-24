@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyTrackingStageRules,
   classifyTrackingStatus,
   parseJapanPostTrackingHtml,
   parseYamatoTrackingHtml,
@@ -75,6 +76,28 @@ describe("Yamato tracking parsing", () => {
 describe("tracking status classification", () => {
   it("does not classify missing tracking data as a carrier exception", () => {
     expect(classifyTrackingStatus("伝票番号未登録")).toEqual({
+      category: "pending",
+      isException: false,
+      exceptionReason: "",
+    });
+  });
+
+  it("treats missing tracking data as an exception after uploading to Temu", () => {
+    const result = parseYamatoTrackingHtml("<html></html>");
+
+    expect(applyTrackingStageRules(result, "uploaded_temu")).toMatchObject({
+      status: "暂无轨迹",
+      category: "pending",
+      isException: true,
+      exceptionReason: "暂无轨迹",
+    });
+  });
+
+  it("does not treat missing tracking data as an exception while shipped", () => {
+    const result = parseYamatoTrackingHtml("<html></html>");
+
+    expect(applyTrackingStageRules(result, "shipped")).toMatchObject({
+      status: "暂无轨迹",
       category: "pending",
       isException: false,
       exceptionReason: "",

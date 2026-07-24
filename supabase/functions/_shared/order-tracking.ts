@@ -168,6 +168,24 @@ export function classifyTrackingStatus(
   };
 }
 
+export function applyTrackingStageRules(
+  result: ParsedTrackingResult,
+  stage: "shipped" | "uploaded_temu",
+): ParsedTrackingResult {
+  if (result.category !== "pending" || stage !== "uploaded_temu") {
+    return result;
+  }
+
+  return {
+    ...result,
+    isException: true,
+    exceptionReason:
+      result.detail || result.status
+        ? [result.status, result.detail].filter(Boolean).join("：")
+        : "暂无物流轨迹",
+  };
+}
+
 export function parseJapanPostTrackingHtml(html: string): ParsedTrackingResult {
   const bodyText = cleanTrackingText(html);
   if (

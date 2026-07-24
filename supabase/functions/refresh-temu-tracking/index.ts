@@ -1,5 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2.49.4";
 import {
+  applyTrackingStageRules,
   buildTrackingEventIdentity,
   parseJapanPostTrackingHtml,
   parseYamatoTrackingHtml,
@@ -206,10 +207,11 @@ async function refreshOrderGroup(
   const checkedAt = new Date().toISOString();
 
   try {
-    const trackingResult = await fetchTrackingStatus(
-      carrier,
-      trackingNo,
-      trackingProxySecret,
+    const trackingResult = applyTrackingStageRules(
+      await fetchTrackingStatus(carrier, trackingNo, trackingProxySecret),
+      group.some((order) => isUploadedTemuStatus(order.order_status))
+        ? "uploaded_temu"
+        : "shipped",
     );
     const fingerprint = trackingResult.isException
       ? await sha256(
