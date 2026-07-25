@@ -1243,6 +1243,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
         <div className="overflow-x-auto">
           <StandardTable 
             minWidth="min-w-max"
+            tableClassName="profit-calculations-table"
             page={paginatedProducts.page}
             pageSize={pageSize}
             totalPages={paginatedProducts.totalPages}
@@ -1260,7 +1261,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
                     onSort={handleSort}
                   />
                 </th>
-                <th className="bg-slate-50 px-3 py-2 font-medium">产品名称</th>
+                <th className="product-name-col bg-slate-50 px-3 py-2 font-medium">产品名称</th>
                 <th className="bg-slate-50 px-3 py-2 font-medium">
                   <SortableHeader
                     label="销量"

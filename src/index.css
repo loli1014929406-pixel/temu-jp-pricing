@@ -447,6 +447,21 @@ a {
     line-break: strict;
   }
 
+  .data-table.profit-calculations-table th.product-name-col,
+  .data-table.profit-calculations-table td.product-name-col {
+    width: 7.5rem;
+    min-width: 7.5rem;
+    max-width: 7.5rem;
+  }
+
+  .data-table.profit-calculations-table th:nth-child(n + 6):nth-child(-n + 9),
+  .data-table.profit-calculations-table td:nth-child(n + 6):nth-child(-n + 9) {
+    width: 6rem;
+    min-width: 6rem;
+    max-width: 6rem;
+    text-align: center !important;
+  }
+
   .data-table.orders-table th.order-no-col,
   .data-table.orders-table td.order-no-col {
     width: 1%;
@@ -584,6 +599,10 @@ a {
     font-size: 13px;
     line-height: 1.35;
     text-align: left !important;
+  }
+
+  .data-table.profit-calculations-table input[type="number"] {
+    text-align: center !important;
   }
 
   .data-table button,
