@@ -185,9 +185,9 @@ function groupTrackingOrders(rows: TrackingOrder[]) {
   const groups = new Map<string, TrackingOrder[]>();
 
   rows.forEach((row) => {
-    const orderNo = row.order_no.trim();
-    if (!orderNo) return;
-    const key = orderNo.toLowerCase();
+    const trackingNo = row.logistics_tracking_no.trim();
+    if (!trackingNo) return;
+    const key = row.id || `${row.order_no.trim().toLowerCase()}\u0000${trackingNo}`;
     const group = groups.get(key) ?? [];
     group.push(row);
     groups.set(key, group);

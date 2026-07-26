@@ -218,6 +218,11 @@ export function OrderTrackingAlerts({
                     <span className="font-mono text-xs font-semibold text-slate-900">
                       {alert.order_no}
                     </span>
+                    {alert.package_count > 1 && (
+                      <Badge tone="info">
+                        包裹 {alert.package_sequence}/{alert.package_count}
+                      </Badge>
+                    )}
                     <Badge tone={alert.stage === "uploaded_temu" ? "info" : "success"}>
                       {alert.stage === "uploaded_temu" ? "上传Temu" : "已发货"}
                     </Badge>

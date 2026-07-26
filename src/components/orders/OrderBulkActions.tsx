@@ -5,8 +5,10 @@ import {
   Download,
   Eye,
   Save,
+  Scissors,
   Sparkles,
   Trash2,
+  Undo2,
   X,
 } from "lucide-react";
 import type { Warehouse } from "../../types";
@@ -27,6 +29,8 @@ type OrderBulkActionsProps = {
   selectedPendingShippingOrdersInViewCount: number;
   selectedCompletableOrdersInViewCount: number;
   selectedSingleOrderInView: boolean;
+  canSplitSelectedOrder: boolean;
+  selectedOrderIsSplit: boolean;
   canManageSelectedShippedOrders: boolean;
   hasSelectedCompletedOrders: boolean;
   bulkWarehouseId: string;
@@ -36,6 +40,8 @@ type OrderBulkActionsProps = {
   filteredOrdersCount: number;
   onClearSelection: () => void;
   onShowSelectedDetail: () => void;
+  onOpenSplitOrder: () => void;
+  onCancelSplitOrder: () => void;
   onMoveNewOrdersToPendingAssignment: () => void;
   onMovePendingShippingOrdersToNewOrder: () => void;
   onMoveNewOrdersToPendingShipping: () => void;
@@ -68,6 +74,8 @@ export function OrderBulkActions({
   selectedPendingShippingOrdersInViewCount,
   selectedCompletableOrdersInViewCount,
   selectedSingleOrderInView,
+  canSplitSelectedOrder,
+  selectedOrderIsSplit,
   canManageSelectedShippedOrders,
   hasSelectedCompletedOrders,
   bulkWarehouseId,
@@ -77,6 +85,8 @@ export function OrderBulkActions({
   filteredOrdersCount,
   onClearSelection,
   onShowSelectedDetail,
+  onOpenSplitOrder,
+  onCancelSplitOrder,
   onMoveNewOrdersToPendingAssignment,
   onMovePendingShippingOrdersToNewOrder,
   onMoveNewOrdersToPendingShipping,
@@ -145,6 +155,30 @@ export function OrderBulkActions({
               <Eye size={16} />
               详情
             </button>
+            {canEdit && activeStage === "pending_assignment" && canSplitSelectedOrder && (
+              <>
+                <button
+                  type="button"
+                  disabled={Boolean(busyKey)}
+                  onClick={onOpenSplitOrder}
+                  className="btn-secondary h-9 px-3"
+                >
+                  <Scissors size={16} />
+                  {selectedOrderIsSplit ? "编辑拆单" : "拆单"}
+                </button>
+                {selectedOrderIsSplit && (
+                  <button
+                    type="button"
+                    disabled={Boolean(busyKey)}
+                    onClick={onCancelSplitOrder}
+                    className="btn-secondary h-9 px-3"
+                  >
+                    <Undo2 size={16} />
+                    取消拆单
+                  </button>
+                )}
+              </>
+            )}
             {canEdit && selectedSingleOrderInView && onCreateReshipOrder && (
               <button
                 type="button"

@@ -35,6 +35,8 @@ const uploadedTemuOrderStatuses = new Set([
 type OrderFulfillmentAssignment = Pick<
   TemuOrderRecord,
   | "order_no"
+  | "shipment_id"
+  | "package_sequence"
   | "warehouse_id"
   | "warehouse_name"
   | "logistics_method_id"
@@ -111,18 +113,23 @@ function getAssignmentKey(id: string | null, name: string) {
 export function getSplitOrderFulfillmentIssue(
   orders: OrderFulfillmentAssignment[],
 ) {
-  const ordersByMainOrderNo = new Map<string, OrderFulfillmentAssignment[]>();
+  const ordersByShipment = new Map<string, OrderFulfillmentAssignment[]>();
 
   orders.forEach((order) => {
     const orderNo = order.order_no.trim();
     if (!orderNo) return;
-    const group = ordersByMainOrderNo.get(orderNo) ?? [];
+    const shipmentKey = order.shipment_id || orderNo;
+    const group = ordersByShipment.get(shipmentKey) ?? [];
     group.push(order);
-    ordersByMainOrderNo.set(orderNo, group);
+    ordersByShipment.set(shipmentKey, group);
   });
 
-  for (const [orderNo, group] of ordersByMainOrderNo) {
+  for (const group of ordersByShipment.values()) {
     if (group.length < 2) continue;
+    const primaryOrder = group[0];
+    const packageLabel = primaryOrder.package_sequence
+      ? `订单 ${primaryOrder.order_no} 的包裹 ${primaryOrder.package_sequence}`
+      : `订单 ${primaryOrder.order_no}`;
 
     const warehouseKeys = new Set(
       group.map((order) => getAssignmentKey(order.warehouse_id, order.warehouse_name)),
@@ -134,10 +141,10 @@ export function getSplitOrderFulfillmentIssue(
     );
 
     if (warehouseKeys.size > 1) {
-      return `主订单 ${orderNo} 含 ${group.length} 个子单，必须使用同一发货仓库，严禁拆单分仓。`;
+      return `${packageLabel} 内的商品必须使用同一发货仓库。`;
     }
     if (logisticsMethodKeys.size > 1) {
-      return `主订单 ${orderNo} 含 ${group.length} 个子单，必须使用同一发货方式，严禁拆单发货。`;
+      return `${packageLabel} 内的商品必须使用同一发货方式。`;
     }
   }
 

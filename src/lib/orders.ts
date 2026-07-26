@@ -1,6 +1,10 @@
 import { withTimeout, requireSession } from "./supabase-helpers";
 import { fetchAllPages } from "./paginated-fetch";
-import type { OrderCustomerHistoryStatus, TemuOrderRecord } from "../types";
+import type {
+  OrderCustomerHistoryStatus,
+  TemuOrderRecord,
+  WarehouseSku,
+} from "../types";
 
 export type TemuOrderImportRow = Pick<
   TemuOrderRecord,
@@ -26,6 +30,9 @@ export type TemuOrderImportRow = Pick<
 
 const textOrderFields = [
   "id",
+  "source_order_id",
+  "shipment_id",
+  "shipment_item_id",
   "owner_id",
   "order_no",
   "sub_order_no",
@@ -68,6 +75,7 @@ const temuOrderLegacySelectFields =
 const temuOrderActualFeeSelectFields = `${temuOrderLegacySelectFields}, actual_shipping_fee_rmb`;
 const temuOrderLogisticsMethodSelectFields = `${temuOrderActualFeeSelectFields}, logistics_method_id`;
 const temuOrderSelectFields = `${temuOrderLogisticsMethodSelectFields}, logistics_status_detail, tracking_category, tracking_event_time, tracking_last_checked_at, tracking_last_query_error, tracking_last_query_error_at, tracking_is_exception, tracking_exception_reason, tracking_exception_fingerprint, tracking_exception_handled_at, tracking_exception_handled_by`;
+const temuOrderFulfillmentSelectFields = `${temuOrderSelectFields}, source_order_id, shipment_id, shipment_item_id, package_sequence, package_count, is_split`;
 
 function isMissingActualShippingFeeColumnError(error: unknown) {
   if (!error || typeof error !== "object") return false;
@@ -167,6 +175,9 @@ function normalizeTemuOrder(row: Partial<TemuOrderRecord>): TemuOrderRecord {
     | "customer_history_status"
     | "customer_sales_reversal"
     | "customer_freight_reversal"
+    | "package_sequence"
+    | "package_count"
+    | "is_split"
   >;
 
   return {
@@ -192,6 +203,9 @@ function normalizeTemuOrder(row: Partial<TemuOrderRecord>): TemuOrderRecord {
     tracking_is_exception: Boolean(row.tracking_is_exception),
     tracking_exception_handled_by:
       row.tracking_exception_handled_by ?? null,
+    package_sequence: Math.max(1, Number(row.package_sequence ?? 1)),
+    package_count: Math.max(1, Number(row.package_count ?? 1)),
+    is_split: Boolean(row.is_split ?? Number(row.package_count ?? 1) > 1),
     customer_history_status: normalizeOrderCustomerHistoryStatus(
       row.customer_history_status,
     ),
@@ -200,38 +214,52 @@ function normalizeTemuOrder(row: Partial<TemuOrderRecord>): TemuOrderRecord {
   };
 }
 
+async function fetchFulfillmentLinesBySourceOrderIds(
+  supabase: Awaited<ReturnType<typeof requireSession>>["supabase"],
+  sourceOrderIds: string[],
+) {
+  const uniqueIds = Array.from(new Set(sourceOrderIds.filter(Boolean)));
+  const rows: Partial<TemuOrderRecord>[] = [];
+
+  for (let index = 0; index < uniqueIds.length; index += 100) {
+    const chunk = uniqueIds.slice(index, index + 100);
+    const { data, error } = await withTimeout(
+      supabase
+        .from("temu_order_fulfillment_lines")
+        .select(temuOrderFulfillmentSelectFields)
+        .in("source_order_id", chunk)
+        .order("package_sequence", { ascending: true })
+        .order("id", { ascending: true }),
+      "加载订单包裹",
+    );
+    if (error) throw error;
+    rows.push(...((data ?? []) as Partial<TemuOrderRecord>[]));
+  }
+
+  return rows.map(normalizeTemuOrder);
+}
+
 export async function fetchTemuOrders() {
   const { supabase } = await requireSession();
-  const fetchByFields = (fields: string) =>
-    fetchAllPages<Partial<TemuOrderRecord>>(async (from, to) => {
-      const { data, error } = await withTimeout(
+  const { data, error } = await fetchAllPages<Partial<TemuOrderRecord>>(
+    async (from, to) => {
+      const { data: pageData, error: pageError } = await withTimeout(
         supabase
-          .from("temu_orders")
-          .select(fields)
+          .from("temu_order_fulfillment_lines")
+          .select(temuOrderFulfillmentSelectFields)
           .order("latest_ship_time", { ascending: true })
           .order("created_at", { ascending: false })
+          .order("package_sequence", { ascending: true })
           .order("id", { ascending: true })
           .range(from, to),
         "加载订单",
       );
-      return { data: (data ?? []) as Partial<TemuOrderRecord>[], error };
-    });
-
-  const { data, error } = await fetchByFields(temuOrderSelectFields);
-  if (error && isMissingLogisticsMethodIdColumnError(error)) {
-    const { data: compatibleData, error: compatibleError } = await fetchByFields(
-      temuOrderActualFeeSelectFields,
-    );
-    if (compatibleError) throw compatibleError;
-    return (compatibleData ?? []).map(normalizeTemuOrder);
-  }
-  if (error && isMissingActualShippingFeeColumnError(error)) {
-    const { data: legacyData, error: legacyError } = await fetchByFields(
-      temuOrderLegacySelectFields,
-    );
-    if (legacyError) throw legacyError;
-    return (legacyData ?? []).map(normalizeTemuOrder);
-  }
+      return {
+        data: (pageData ?? []) as Partial<TemuOrderRecord>[],
+        error: pageError,
+      };
+    },
+  );
   if (error) throw error;
   return (data ?? []).map(normalizeTemuOrder);
 }
@@ -549,7 +577,10 @@ export async function importTemuOrders(rows: TemuOrderImportRow[]) {
     }
     throw error;
   }
-  return ((data ?? []) as Partial<TemuOrderRecord>[]).map(normalizeTemuOrder);
+  return fetchFulfillmentLinesBySourceOrderIds(
+    supabase,
+    ((data ?? []) as Array<{ id?: string }>).map((row) => String(row.id ?? "")),
+  );
 }
 
 export async function updateTemuOrder(
@@ -572,64 +603,201 @@ export async function updateTemuOrder(
   >,
 ) {
   const { supabase } = await requireSession();
-  const normalizedUpdates = {
-    ...updates,
-    logistics_method:
-      updates.logistics_method === undefined
-        ? undefined
-        : normalizeLogisticsMethod(updates.logistics_method),
-  };
-  const { data, error } = await withTimeout(
+  const {
+    warehouse_id,
+    warehouse_name,
+    logistics_method_id,
+    logistics_method,
+    ...shipmentUpdates
+  } = updates;
+  void warehouse_id;
+  void warehouse_name;
+  void logistics_method;
+
+  if (logistics_method_id) {
+    const { error } = await withTimeout(
+      supabase.rpc("correct_temu_order_shipment_logistics_method", {
+        p_shipment_item_id: orderId,
+        p_logistics_method_id: logistics_method_id,
+      }),
+      "修正订单物流方式",
+      { requestKind: "rpc" },
+    );
+    if (error) throw error;
+  }
+
+  if (Object.keys(shipmentUpdates).length > 0) {
+    const { error } = await withTimeout(
+      supabase.rpc("update_temu_order_shipment", {
+        p_shipment_item_id: orderId,
+        p_updates: shipmentUpdates,
+      }),
+      "更新订单",
+      { requestKind: "rpc" },
+    );
+    if (error) throw error;
+  }
+
+  const { data: updated, error: fetchError } = await withTimeout(
     supabase
-      .from("temu_orders")
-      .update(normalizedUpdates)
+      .from("temu_order_fulfillment_lines")
+      .select(temuOrderFulfillmentSelectFields)
       .eq("id", orderId)
-      .select(temuOrderSelectFields)
       .single(),
-    "更新订单",
+    "加载更新后的订单包裹",
   );
-  if (error && isMissingActualShippingFeeColumnError(error)) {
-    if (Object.prototype.hasOwnProperty.call(updates, "actual_shipping_fee_rmb")) {
-      throw new Error("订单数据库还没有新增“实际运费”字段，请先执行最新订单迁移。");
-    }
-    const { data: legacyData, error: legacyError } = await withTimeout(
-      supabase
-        .from("temu_orders")
-        .update(normalizedUpdates)
-        .eq("id", orderId)
-        .select(temuOrderLegacySelectFields)
-        .single(),
-      "更新订单",
-    );
-    if (legacyError) throw legacyError;
-    return normalizeTemuOrder(legacyData as Partial<TemuOrderRecord>);
-  }
-  if (error && isMissingLogisticsMethodIdColumnError(error)) {
-    const { logistics_method_id, ...compatibleUpdates } = normalizedUpdates;
-    void logistics_method_id;
-    const { data: compatibleData, error: compatibleError } = await withTimeout(
-      supabase
-        .from("temu_orders")
-        .update(compatibleUpdates)
-        .eq("id", orderId)
-        .select(temuOrderActualFeeSelectFields)
-        .single(),
-      "更新订单",
-    );
-    if (compatibleError) throw compatibleError;
-    return normalizeTemuOrder(compatibleData as Partial<TemuOrderRecord>);
-  }
-  if (error) throw error;
-  return normalizeTemuOrder(data as Partial<TemuOrderRecord>);
+  if (fetchError) throw fetchError;
+  return normalizeTemuOrder(updated as Partial<TemuOrderRecord>);
 }
 
 export async function deleteTemuOrder(orderId: string) {
   const { supabase } = await requireSession();
-  const { error } = await withTimeout(
-    supabase.from("temu_orders").delete().eq("id", orderId),
+  const { data, error } = await withTimeout(
+    supabase.rpc("delete_temu_order_group", {
+      p_shipment_item_id: orderId,
+    }),
     "删除订单",
+    { requestKind: "rpc" },
   );
   if (error) throw error;
+  return data as {
+    deleted_order_no?: string;
+    released_changes?: Array<{
+      sku: WarehouseSku;
+      previous_quantity: number;
+      change_quantity: number;
+    }>;
+  } | null;
+}
+
+export type TemuShipmentInventoryChange = {
+  sku: WarehouseSku;
+  previous_quantity: number;
+  change_quantity: number;
+};
+
+async function fetchShipmentLines(
+  supabase: Awaited<ReturnType<typeof requireSession>>["supabase"],
+  shipmentId: string,
+) {
+  const { data, error } = await withTimeout(
+    supabase
+      .from("temu_order_fulfillment_lines")
+      .select(temuOrderFulfillmentSelectFields)
+      .eq("shipment_id", shipmentId)
+      .order("id", { ascending: true }),
+    "加载包裹明细",
+  );
+  if (error) throw error;
+  return ((data ?? []) as Partial<TemuOrderRecord>[]).map(normalizeTemuOrder);
+}
+
+export async function fetchTemuOrderFulfillmentByOrderNo(orderNo: string) {
+  const { supabase } = await requireSession();
+  const { data, error } = await withTimeout(
+    supabase
+      .from("temu_order_fulfillment_lines")
+      .select(temuOrderFulfillmentSelectFields)
+      .eq("order_no", orderNo)
+      .order("package_sequence", { ascending: true })
+      .order("id", { ascending: true }),
+    "加载订单全部包裹",
+  );
+  if (error) throw error;
+  return ((data ?? []) as Partial<TemuOrderRecord>[]).map(normalizeTemuOrder);
+}
+
+export async function assignTemuOrderShipment(input: {
+  shipmentId: string;
+  warehouseId: string;
+  logisticsMethodId: string;
+  reservations: Array<{
+    shipmentItemId: string;
+    warehouseSkuId: string;
+  }>;
+  reason?: string;
+}) {
+  const { supabase } = await requireSession();
+  const { data, error } = await withTimeout(
+    supabase.rpc("assign_temu_order_shipment", {
+      p_shipment_id: input.shipmentId,
+      p_warehouse_id: input.warehouseId,
+      p_logistics_method_id: input.logisticsMethodId,
+      p_reservations: input.reservations.map((reservation) => ({
+        shipment_item_id: reservation.shipmentItemId,
+        warehouse_sku_id: reservation.warehouseSkuId,
+      })),
+      p_reason: input.reason ?? "",
+    }),
+    "分配订单包裹",
+    { requestKind: "rpc" },
+  );
+  if (error) throw error;
+  const payload = (data ?? {}) as { changes?: TemuShipmentInventoryChange[] };
+  return {
+    orders: await fetchShipmentLines(supabase, input.shipmentId),
+    changes: Array.isArray(payload.changes) ? payload.changes : [],
+  };
+}
+
+export async function releaseTemuOrderShipmentInventory(
+  shipmentId: string,
+  reason = "",
+) {
+  const { supabase } = await requireSession();
+  const { data, error } = await withTimeout(
+    supabase.rpc("release_temu_order_shipment_inventory", {
+      p_shipment_id: shipmentId,
+      p_reason: reason,
+    }),
+    "释放订单包裹库存",
+    { requestKind: "rpc" },
+  );
+  if (error) throw error;
+  const payload = (data ?? {}) as { changes?: TemuShipmentInventoryChange[] };
+  return {
+    orders: await fetchShipmentLines(supabase, shipmentId),
+    changes: Array.isArray(payload.changes) ? payload.changes : [],
+  };
+}
+
+export type TemuOrderSplitPackageInput = {
+  items: Array<{ orderId: string; quantity: number }>;
+};
+
+export async function saveTemuOrderSplit(
+  orderNo: string,
+  packages: TemuOrderSplitPackageInput[],
+) {
+  const { supabase } = await requireSession();
+  const { data, error } = await withTimeout(
+    supabase.rpc("save_temu_order_split", {
+      p_order_no: orderNo,
+      p_packages: packages.map((shipmentPackage) => ({
+        items: shipmentPackage.items.map((item) => ({
+          order_id: item.orderId,
+          quantity: item.quantity,
+        })),
+      })),
+    }),
+    "保存拆单",
+    { requestKind: "rpc" },
+  );
+  if (error) throw error;
+  return data;
+}
+
+export async function cancelTemuOrderSplit(orderNo: string) {
+  const { supabase } = await requireSession();
+  const { data, error } = await withTimeout(
+    supabase.rpc("cancel_temu_order_split", {
+      p_order_no: orderNo,
+    }),
+    "取消拆单",
+    { requestKind: "rpc" },
+  );
+  if (error) throw error;
+  return data;
 }
 
 export async function createReshipmentOrder(
@@ -724,5 +892,8 @@ export async function createReshipmentOrder(
     }
     throw error;
   }
-  return ((data ?? []) as Partial<TemuOrderRecord>[]).map(normalizeTemuOrder);
+  return fetchFulfillmentLinesBySourceOrderIds(
+    supabase,
+    ((data ?? []) as Array<{ id?: string }>).map((row) => String(row.id ?? "")),
+  );
 }

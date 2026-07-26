@@ -514,7 +514,7 @@ export function getOrderExactSkuGroupKey(order: TemuOrderRecord) {
 }
 
 export function getOrderDisplayGroupKey(order: TemuOrderRecord) {
-  return getDisplayOrderNoKey(order.order_no) || order.id;
+  return order.shipment_id || getDisplayOrderNoKey(order.order_no) || order.id;
 }
 
 export function mergeOrderWithDraft(

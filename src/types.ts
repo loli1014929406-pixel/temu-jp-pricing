@@ -414,6 +414,12 @@ export type TrackingCategory =
 
 export type TemuOrderRecord = {
   id: string;
+  source_order_id: string;
+  shipment_id: string;
+  shipment_item_id: string;
+  package_sequence: number;
+  package_count: number;
+  is_split: boolean;
   owner_id: string;
   order_no: string;
   sub_order_no: string;

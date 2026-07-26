@@ -12,6 +12,7 @@ import {
   type TrackingAlertFilter,
 } from "../components/orders/OrderPageChrome";
 import { ReshipOrderModal } from "../components/orders/ReshipOrderModal";
+import { SplitOrderModal } from "../components/orders/SplitOrderModal";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PageHeader } from "../components/ui";
 import { StandardTable, type StandardTableColumn } from "../components/ui/StandardTable";
@@ -31,10 +32,6 @@ import {
   readTabularFileObjects,
 } from "../lib/excel";
 import {
-  releaseWarehouseSkuStockForOrder,
-  reserveWarehouseSkuStockForOrder,
-} from "../lib/inventory";
-import {
   dedupeLogisticsMethodNames,
   getLogisticsMethodIdByName,
 } from "../lib/logistics-methods";
@@ -45,10 +42,16 @@ import {
   isLastLegMethodAllowedForWarehouse,
 } from "../lib/warehouse-logistics";
 import {
+  assignTemuOrderShipment,
+  cancelTemuOrderSplit,
   deleteTemuOrder,
+  fetchTemuOrderFulfillmentByOrderNo,
   importTemuOrders,
+  releaseTemuOrderShipmentInventory,
+  saveTemuOrderSplit,
   updateTemuOrder,
   type TemuOrderImportRow,
+  type TemuShipmentInventoryChange,
 } from "../lib/orders";
 import {
   fetchTemuTrackingAlerts,
@@ -74,7 +77,6 @@ import {
   getOrderFulfillmentAssignmentIssue,
   getOrderStage,
   getOrderStageDefinition as getStageDefinition,
-  getSplitOrderFulfillmentIssue,
   isShippingTrackingStage,
   orderStageDefinitions as stageDefinitions,
   shouldReserveOrderInventory,
@@ -241,6 +243,12 @@ export function OrdersPage({ user }: OrdersPageProps) {
   const [handlingTrackingOrderNo, setHandlingTrackingOrderNo] = useState("");
   const [detailOrder, setDetailOrder] = useState<TemuOrderRecord | null>(null);
   const [reshipTargetOrder, setReshipTargetOrder] = useState<TemuOrderRecord | null>(null);
+  const [reshipRelatedOrders, setReshipRelatedOrders] = useState<
+    TemuOrderRecord[]
+  >([]);
+  const [splitOrderLines, setSplitOrderLines] = useState<TemuOrderRecord[] | null>(
+    null,
+  );
 
   const handleReshipSuccess = (newOrders: TemuOrderRecord[]) => {
     updateOrdersState(newOrders);
@@ -251,6 +259,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
     setSearch("");
     setSelectedOrderIds([]);
     setReshipTargetOrder(null);
+    setReshipRelatedOrders([]);
     setDetailOrder(null);
   };
   useAutoDismiss(noticeMessage, () => setNoticeMessage(""));
@@ -516,6 +525,14 @@ export function OrdersPage({ user }: OrdersPageProps) {
   const hasSelectedCompletedOrders = selectedCompletedOrdersInView.length > 0;
   const selectedSingleOrderInView =
     selectedOrderRowsInView.length === 1 ? selectedOrderRowsInView[0].primaryOrder : null;
+  const selectedSingleOrderRow =
+    selectedOrderRowsInView.length === 1 ? selectedOrderRowsInView[0] : null;
+  const canSplitSelectedOrder = Boolean(
+    selectedSingleOrderInView &&
+      getOrderStage(selectedSingleOrderInView) === "pending_assignment" &&
+      (selectedSingleOrderInView.is_split ||
+        (selectedSingleOrderRow?.quantity ?? 0) > 1),
+  );
   const canManageSelectedShippedOrders =
     selectedShippedOrdersInView.length > 0 &&
     (activeStage === "shipped" || showUrgentUnuploadedOnly);
@@ -1027,7 +1044,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
 
   function getOrderDetailRows(order: TemuOrderRecord) {
     const merged = mergeOrderDraft(order);
-    return [
+    const rows: Array<readonly [string, string]> = [
       ["订单号", merged.order_no],
       ["子订单号", merged.sub_order_no],
       ["订单状态", merged.order_status],
@@ -1053,7 +1070,14 @@ export function OrdersPage({ user }: OrdersPageProps) {
       ["物流状态", getTrackingStatusLabel(merged.logistics_status)],
       ["面单打印时间", merged.label_printed_at],
       ["完整地址", getFullAddress(merged)],
-    ] as const;
+    ];
+    if (merged.is_split) {
+      rows.splice(1, 0, [
+        "拆单包裹",
+        `${merged.package_sequence}/${merged.package_count}`,
+      ]);
+    }
+    return rows;
   }
 
   function toggleOrderRowSelection(rowIds: string[], checked: boolean) {
@@ -1468,108 +1492,132 @@ export function OrdersPage({ user }: OrdersPageProps) {
   ) {
     assertOrdersWarehouseLogisticsComplete(entries.map((entry) => entry.nextOrder));
 
-    const updatesByOrderId = new Map(
-      entries.map((entry) => [entry.order.id, entry.nextOrder]),
-    );
-    const affectedMainOrderNos = new Set(
-      entries.map((entry) => entry.order.order_no.trim()).filter(Boolean),
-    );
-    const projectedAffectedOrders = allOrders
-      .filter((order) => affectedMainOrderNos.has(order.order_no.trim()))
-      .map((order) => updatesByOrderId.get(order.id) ?? order);
-    const splitOrderIssue = getSplitOrderFulfillmentIssue(projectedAffectedOrders);
-    if (splitOrderIssue) throw new Error(splitOrderIssue);
-
     const nextOrders: TemuOrderRecord[] = [];
-    const inventoryChanges: Awaited<ReturnType<typeof deductInventoryForOrders>> = [];
-    const deductedInventoryChanges: Awaited<ReturnType<typeof deductInventoryForOrders>> = [];
-    const restoredInventoryChanges: Awaited<ReturnType<typeof deductInventoryForOrders>> = [];
+    const inventoryChanges: TemuShipmentInventoryChange[] = [];
+    const deductedInventoryChanges: TemuShipmentInventoryChange[] = [];
+    const restoredInventoryChanges: TemuShipmentInventoryChange[] = [];
     const failures: Array<{ order: TemuOrderRecord; error: unknown }> = [];
 
     const collectInventoryChanges = (
-      changes: Awaited<ReturnType<typeof deductInventoryForOrders>>,
+      changes: TemuShipmentInventoryChange[],
     ) => {
       inventoryChanges.push(...changes);
       deductedInventoryChanges.push(...changes.filter((change) => change.change_quantity < 0));
       restoredInventoryChanges.push(...changes.filter((change) => change.change_quantity > 0));
     };
 
-    for (const entry of entries) {
+    const entriesByShipment = new Map<string, typeof entries>();
+    entries.forEach((entry) => {
+      const shipmentKey = entry.order.shipment_id || entry.order.id;
+      entriesByShipment.set(shipmentKey, [
+        ...(entriesByShipment.get(shipmentKey) ?? []),
+        entry,
+      ]);
+    });
+
+    const shipmentDraftFields = [
+      "order_status",
+      "label_printed_at",
+      "logistics_tracking_no",
+      "logistics_status",
+      "actual_ship_time",
+      "actual_signed_time",
+      "actual_shipping_fee_rmb",
+    ] as const;
+
+    for (const shipmentEntries of entriesByShipment.values()) {
+      const entry = shipmentEntries[0];
+      if (!entry) continue;
+
       const previousStage = getOrderStage(entry.order);
       const nextStage = getOrderStage(entry.nextOrder);
       const hadReservedInventory = shouldReserveOrderInventory(previousStage);
       const shouldReserveInventory = shouldReserveOrderInventory(nextStage);
       const shouldReleaseInventory = hadReservedInventory && !shouldReserveInventory;
-      let entryReservationChanges: Awaited<ReturnType<typeof deductInventoryForOrders>> = [];
-      let entryReleaseChanges: Awaited<ReturnType<typeof deductInventoryForOrders>> = [];
+      const assignmentChanged =
+        entry.order.warehouse_id !== entry.nextOrder.warehouse_id ||
+        normalizeLogisticsMethod(entry.order.logistics_method) !==
+          normalizeLogisticsMethod(entry.nextOrder.logistics_method) ||
+        entry.order.logistics_method_id !== entry.nextOrder.logistics_method_id;
 
       try {
-        if (shouldReserveInventory) {
-          entryReservationChanges = await deductInventoryForOrders([entry.nextOrder]);
+        let nextShipmentOrders: TemuOrderRecord[] = [];
+        let shipmentInventoryChanges: TemuShipmentInventoryChange[] = [];
+
+        if (shouldReserveInventory && (!hadReservedInventory || assignmentChanged)) {
+          const nextShipmentLines = shipmentEntries.map(
+            (shipmentEntry) => shipmentEntry.nextOrder,
+          );
+          const stockDeductionResult = buildOrderStockDeductions(nextShipmentLines);
+          if (stockDeductionResult.errorMessage) {
+            throw new Error(stockDeductionResult.errorMessage);
+          }
+
+          const warehouseId = entry.nextOrder.warehouse_id;
+          const logisticsMethodId =
+            entry.nextOrder.logistics_method_id ||
+            getLogisticsMethodIdByName(
+              normalizeLogisticsMethod(entry.nextOrder.logistics_method),
+              logisticsMethods,
+            );
+          if (!warehouseId || !logisticsMethodId) {
+            throw new Error("仓库和尾程发货方式必须同时选择。");
+          }
+
+          const result = await assignTemuOrderShipment({
+            shipmentId: entry.order.shipment_id,
+            warehouseId,
+            logisticsMethodId,
+            reservations: stockDeductionResult.deductions.map((deduction) => ({
+              shipmentItemId: deduction.orderId,
+              warehouseSkuId: deduction.stock.id,
+            })),
+            reason: `订单包裹库存占用：${getOrderLineLabel(entry.order)}`,
+          });
+          nextShipmentOrders = result.orders;
+          shipmentInventoryChanges = result.changes;
         } else if (shouldReleaseInventory) {
-          entryReleaseChanges = await releaseInventoryForOrders(
-            [entry.order],
+          const result = await releaseTemuOrderShipmentInventory(
+            entry.order.shipment_id,
             `订单库存释放：${getOrderLineLabel(entry.order)}`,
           );
+          nextShipmentOrders = result.orders;
+          shipmentInventoryChanges = result.changes;
         }
 
-        const logisticsMethod = Object.prototype.hasOwnProperty.call(
-          entry.updates,
-          "logistics_method",
-        )
-          ? normalizeLogisticsMethod(entry.updates.logistics_method ?? "")
-          : undefined;
-        const updatesWithReference =
-          logisticsMethod === undefined
-            ? entry.updates
-            : {
-                ...entry.updates,
-                logistics_method: logisticsMethod,
-                logistics_method_id: logisticsMethod
-                  ? getLogisticsMethodIdByName(logisticsMethod, logisticsMethods)
-                  : null,
-              };
-        const nextOrder = await updateTemuOrder(
-          entry.order.id,
-          sanitizeOrderUpdatesForSave(entry.order, updatesWithReference),
+        const shipmentUpdates = Object.fromEntries(
+          shipmentDraftFields
+            .filter((field) => Object.prototype.hasOwnProperty.call(entry.updates, field))
+            .map((field) => [field, entry.updates[field]]),
+        ) as Parameters<typeof updateTemuOrder>[1];
+        const sanitizedUpdates = sanitizeOrderUpdatesForSave(
+          entry.order,
+          shipmentUpdates,
         );
-        nextOrders.push(nextOrder);
-        collectInventoryChanges(entryReservationChanges);
-        collectInventoryChanges(entryReleaseChanges);
-      } catch (error) {
-        if (shouldReserveInventory && entryReservationChanges.length > 0) {
-          try {
-            if (hadReservedInventory) {
-              await deductInventoryForOrders([entry.order]);
-            } else {
-              await releaseInventoryForOrders(
-                [entry.nextOrder],
-                `订单保存失败释放库存：${getOrderLineLabel(entry.nextOrder)}`,
-              );
-            }
-          } catch (rollbackError) {
-            throw new Error(
-              `${getOrdersErrorMessage(error, "保存订单失败")}；库存占用已变更但订单保存失败，且库存回滚失败：${getOrdersErrorMessage(
-                rollbackError,
-                "库存回滚失败",
-              )}`,
-              { cause: rollbackError },
-            );
-          }
-        } else if (shouldReleaseInventory && entryReleaseChanges.length > 0) {
-          try {
-            await deductInventoryForOrders([entry.order]);
-          } catch (rollbackError) {
-            throw new Error(
-              `${getOrdersErrorMessage(error, "保存订单失败")}；库存已释放但订单保存失败，且库存回滚失败：${getOrdersErrorMessage(
-                rollbackError,
-                "库存回滚失败",
-              )}`,
-              { cause: rollbackError },
-            );
-          }
+        if (Object.keys(sanitizedUpdates).length > 0) {
+          const updated = await updateTemuOrder(entry.order.id, sanitizedUpdates);
+          const shipmentSource =
+            nextShipmentOrders.length > 0
+              ? nextShipmentOrders
+              : allOrders.filter(
+                  (order) => order.shipment_id === entry.order.shipment_id,
+                );
+          nextShipmentOrders = shipmentSource.map((order) => ({
+            ...order,
+            ...Object.fromEntries(
+              shipmentDraftFields.map((field) => [field, updated[field]]),
+            ),
+          }));
         }
 
+        if (nextShipmentOrders.length === 0) {
+          nextShipmentOrders = shipmentEntries.map(
+            (shipmentEntry) => shipmentEntry.nextOrder,
+          );
+        }
+        nextOrders.push(...nextShipmentOrders);
+        collectInventoryChanges(shipmentInventoryChanges);
+      } catch (error) {
         failures.push({ order: entry.order, error });
       }
     }
@@ -1819,6 +1867,116 @@ export function OrdersPage({ user }: OrdersPageProps) {
     }
   }
 
+  async function handleOpenSplitOrder() {
+    if (!canEdit || !selectedSingleOrderInView) return;
+    setBusyKey("load-split-order");
+    setErrorMessage("");
+    try {
+      const orderLines = await fetchTemuOrderFulfillmentByOrderNo(
+        selectedSingleOrderInView.order_no,
+      );
+      if (orderLines.length === 0) {
+        throw new Error("没有找到该订单的包裹明细。");
+      }
+      const totalQuantityBySource = new Map<string, number>();
+      orderLines.forEach((order) => {
+        const sourceId = order.source_order_id || order.id;
+        totalQuantityBySource.set(
+          sourceId,
+          (totalQuantityBySource.get(sourceId) ?? 0) +
+            order.fulfillment_quantity,
+        );
+      });
+      const totalQuantity = Array.from(totalQuantityBySource.values()).reduce(
+        (total, quantity) => total + quantity,
+        0,
+      );
+      if (totalQuantity < 2) {
+        throw new Error("订单商品总数不足 2 件，不能拆单。");
+      }
+      setSplitOrderLines(orderLines);
+    } catch (error) {
+      setErrorMessage(getOrdersErrorMessage(error, "加载拆单信息失败"));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
+  async function handleOpenReshipOrder(order: TemuOrderRecord) {
+    setBusyKey("load-reship-order");
+    setErrorMessage("");
+    try {
+      const fulfillmentLines = await fetchTemuOrderFulfillmentByOrderNo(
+        order.order_no,
+      );
+      const sourceLines = new Map<string, TemuOrderRecord>();
+      fulfillmentLines.forEach((line) => {
+        const sourceId = line.source_order_id || line.id;
+        const current = sourceLines.get(sourceId);
+        sourceLines.set(sourceId, {
+          ...(current ?? line),
+          fulfillment_quantity:
+            (current?.fulfillment_quantity ?? 0) +
+            line.fulfillment_quantity,
+        });
+      });
+      const relatedOrders = Array.from(sourceLines.values());
+      if (relatedOrders.length === 0) {
+        throw new Error("没有找到原订单商品明细。");
+      }
+      setReshipTargetOrder(order);
+      setReshipRelatedOrders(relatedOrders);
+    } catch (error) {
+      setErrorMessage(getOrdersErrorMessage(error, "加载补发订单明细失败"));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
+  async function handleSaveOrderSplit(
+    packages: Parameters<typeof saveTemuOrderSplit>[1],
+  ) {
+    if (!splitOrderLines?.[0]) return;
+    setBusyKey("save-order-split");
+    setErrorMessage("");
+    try {
+      await saveTemuOrderSplit(splitOrderLines[0].order_no, packages);
+      const packageCount = packages.length;
+      setSplitOrderLines(null);
+      setSelectedOrderIds([]);
+      reloadOrders();
+      setNoticeMessage(`拆单已保存，共 ${packageCount} 个待分配包裹。`);
+    } catch (error) {
+      setErrorMessage(getOrdersErrorMessage(error, "保存拆单失败"));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
+  async function handleCancelOrderSplit() {
+    if (!canEdit || !selectedSingleOrderInView?.is_split) return;
+    if (
+      !(await confirmAction(
+        `确认取消订单 ${selectedSingleOrderInView.order_no} 的拆单，并恢复为一个待分配订单吗？`,
+      ))
+    ) {
+      return;
+    }
+
+    setBusyKey("cancel-order-split");
+    setErrorMessage("");
+    try {
+      await cancelTemuOrderSplit(selectedSingleOrderInView.order_no);
+      setSelectedOrderIds([]);
+      reloadOrders();
+      setNoticeMessage("已取消拆单并恢复为一个待分配订单。");
+    } catch (error) {
+      setErrorMessage(getOrdersErrorMessage(error, "取消拆单失败"));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
   async function handleDeleteSelectedOrders() {
     if (!canDelete) {
       setErrorMessage("当前账号没有删除权限。");
@@ -1835,52 +1993,41 @@ export function OrdersPage({ user }: OrdersPageProps) {
 
     if (!(await confirmDelete(`当前列表中已选中的 ${selectedOrdersInView.length} 条订单`))) return;
 
-    const targetIds = new Set(selectedOrdersInView.map((order) => order.id));
     setBusyKey("delete-selected");
     setErrorMessage("");
     setNoticeMessage("");
 
     try {
-      const inventoryChanges: Awaited<ReturnType<typeof deductInventoryForOrders>> = [];
-
-      for (const order of selectedOrdersInView) {
-        const shouldReleaseInventory = shouldReserveOrderInventory(getOrderStage(order));
-        let entryReleaseChanges: Awaited<ReturnType<typeof deductInventoryForOrders>> = [];
-
-        try {
-          if (shouldReleaseInventory) {
-            entryReleaseChanges = await releaseInventoryForOrders(
-              [order],
-              `删除订单释放库存：${getOrderLineLabel(order)}`,
-            );
-          }
-          await deleteTemuOrder(order.id);
-          inventoryChanges.push(...entryReleaseChanges);
-        } catch (error) {
-          if (entryReleaseChanges.length > 0) {
-            try {
-              await deductInventoryForOrders([order]);
-            } catch (rollbackError) {
-              throw new Error(
-                `${getOrdersErrorMessage(error, "删除订单失败")}；库存已释放但订单删除失败，且库存回滚失败：${getOrdersErrorMessage(
-                  rollbackError,
-                  "库存回滚失败",
-                )}`,
-                { cause: rollbackError },
-              );
-            }
-          }
-          throw error;
+      const inventoryChanges: TemuShipmentInventoryChange[] = [];
+      const selectedOrderGroups = new Map<string, TemuOrderRecord>();
+      selectedOrdersInView.forEach((order) => {
+        const key = order.order_no.trim().toLowerCase();
+        if (key && !selectedOrderGroups.has(key)) {
+          selectedOrderGroups.set(key, order);
         }
+      });
+
+      for (const order of selectedOrderGroups.values()) {
+        const result = await deleteTemuOrder(order.id);
+        inventoryChanges.push(...(result?.released_changes ?? []));
       }
 
-      removeOrders(Array.from(targetIds));
-      setSelectedOrderIds((current) => current.filter((id) => !targetIds.has(id)));
-      clearDrafts(Array.from(targetIds));
+      applyWarehouseSkuStockUpdates(inventoryChanges.map((change) => change.sku));
+      const deletedOrderKeys = new Set(selectedOrderGroups.keys());
+      const deletedIds = allOrders
+        .filter((order) =>
+          deletedOrderKeys.has(order.order_no.trim().toLowerCase()),
+        )
+        .map((order) => order.id);
+      removeOrders(deletedIds);
+      setSelectedOrderIds((current) =>
+        current.filter((id) => !deletedIds.includes(id)),
+      );
+      clearDrafts(deletedIds);
       setNoticeMessage(
         inventoryChanges.length > 0
-          ? `已删除 ${targetIds.size} 条订单，并回补 ${inventoryChanges.length} 项 SKU 库存`
-          : `已删除 ${targetIds.size} 条订单`,
+          ? `已删除 ${selectedOrderGroups.size} 个订单，并回补 ${inventoryChanges.length} 项 SKU 库存`
+          : `已删除 ${selectedOrderGroups.size} 个订单`,
       );
     } catch (error) {
       setErrorMessage(getOrdersErrorMessage(error, "删除订单失败，请重试"));
@@ -2280,52 +2427,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
     }
 
     return { errorMessage: "", deductions };
-  }
-
-  async function deductInventoryForOrders(targetOrders: TemuOrderRecord[]) {
-    if (targetOrders.length === 0) return [];
-
-    const stockDeductionResult = buildOrderStockDeductions(targetOrders);
-    if (stockDeductionResult.errorMessage) {
-      throw new Error(stockDeductionResult.errorMessage);
-    }
-
-    const inventoryChanges: Array<{
-      sku: WarehouseSku;
-      previous_quantity: number;
-      change_quantity: number;
-    }> = [];
-
-    for (const deduction of stockDeductionResult.deductions) {
-      const entryChanges = await reserveWarehouseSkuStockForOrder({
-        orderId: deduction.orderId,
-        stockId: deduction.stock.id,
-        quantity: deduction.quantity,
-        reason: `订单库存占用：${deduction.orderLineLabel}`,
-      });
-      inventoryChanges.push(...entryChanges);
-    }
-
-    applyWarehouseSkuStockUpdates(inventoryChanges.map((change) => change.sku));
-    return inventoryChanges;
-  }
-
-  async function releaseInventoryForOrders(targetOrders: TemuOrderRecord[], reason: string) {
-    if (targetOrders.length === 0) return [];
-
-    const inventoryChanges: Array<{
-      sku: WarehouseSku;
-      previous_quantity: number;
-      change_quantity: number;
-    }> = [];
-
-    for (const order of targetOrders) {
-      const entryChanges = await releaseWarehouseSkuStockForOrder(order.id, reason);
-      inventoryChanges.push(...entryChanges);
-    }
-
-    applyWarehouseSkuStockUpdates(inventoryChanges.map((change) => change.sku));
-    return inventoryChanges;
   }
 
   function buildOcsSheet1Rows(targetOrders: TemuOrderRecord[]) {
@@ -2817,6 +2918,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
           selectedPendingShippingOrdersInViewCount={selectedPendingShippingOrdersInView.length}
           selectedCompletableOrdersInViewCount={selectedCompletableOrdersInView.length}
           selectedSingleOrderInView={Boolean(selectedSingleOrderInView)}
+          canSplitSelectedOrder={canSplitSelectedOrder}
+          selectedOrderIsSplit={Boolean(selectedSingleOrderInView?.is_split)}
           canManageSelectedShippedOrders={canManageSelectedShippedOrders}
           hasSelectedCompletedOrders={hasSelectedCompletedOrders}
           bulkWarehouseId={bulkWarehouseId}
@@ -2828,6 +2931,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
           onShowSelectedDetail={() => {
             if (selectedSingleOrderInView) setDetailOrder(selectedSingleOrderInView);
           }}
+          onOpenSplitOrder={() => void handleOpenSplitOrder()}
+          onCancelSplitOrder={() => void handleCancelOrderSplit()}
           onMoveNewOrdersToPendingAssignment={() =>
             void handleMoveSelectedNewOrdersToPendingAssignment()
           }
@@ -2888,7 +2993,11 @@ export function OrdersPage({ user }: OrdersPageProps) {
           onBulkLogisticsMethodChange={setBulkLogisticsMethod}
           onBulkAssign={() => void handleBulkAssign()}
           onAutoMatchPendingOrders={() => void handleAutoMatchPendingOrders()}
-          onCreateReshipOrder={() => setReshipTargetOrder(selectedSingleOrderInView)}
+          onCreateReshipOrder={() => {
+            if (selectedSingleOrderInView) {
+              void handleOpenReshipOrder(selectedSingleOrderInView);
+            }
+          }}
         />
 
         {loading ? (
@@ -2940,6 +3049,9 @@ export function OrdersPage({ user }: OrdersPageProps) {
                         </div>
                         <p className="mt-1 text-xs text-slate-500">
                           {orderRow.orders.length} 个明细 / {orderRow.quantity} 件
+                          {order.is_split
+                            ? ` · 包裹 ${order.package_sequence}/${order.package_count}`
+                            : ""}
                         </p>
                       </div>
                     </div>
@@ -3063,19 +3175,33 @@ export function OrdersPage({ user }: OrdersPageProps) {
           rows={getOrderDetailRows(detailOrder)}
           onClose={() => setDetailOrder(null)}
           canEdit={canEdit}
-          onCreateReshipOrder={() => setReshipTargetOrder(detailOrder)}
+          onCreateReshipOrder={() => void handleOpenReshipOrder(detailOrder)}
         />
       )}
 
       {reshipTargetOrder && (
         <ReshipOrderModal
           originalOrder={reshipTargetOrder}
-          relatedOrders={allOrders.filter(o => o.order_no === reshipTargetOrder.order_no)}
+          relatedOrders={reshipRelatedOrders}
           productSkus={productSkus}
           products={products}
-          onClose={() => setReshipTargetOrder(null)}
+          onClose={() => {
+            setReshipTargetOrder(null);
+            setReshipRelatedOrders([]);
+          }}
           onSuccess={handleReshipSuccess}
           setErrorMessage={setErrorMessage}
+        />
+      )}
+
+      {splitOrderLines && (
+        <SplitOrderModal
+          orders={splitOrderLines}
+          saving={busyKey === "save-order-split"}
+          onClose={() => {
+            if (busyKey !== "save-order-split") setSplitOrderLines(null);
+          }}
+          onSave={(packages) => void handleSaveOrderSplit(packages)}
         />
       )}
     </section>

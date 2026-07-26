@@ -91,6 +91,7 @@ describe("order workflow", () => {
     const orders = [
       order({
         order_no: "PO-1",
+        shipment_id: "shipment-1",
         warehouse_id: "warehouse-1",
         warehouse_name: "苏州",
         logistics_method_id: "method-1",
@@ -98,6 +99,7 @@ describe("order workflow", () => {
       }),
       order({
         order_no: "PO-1",
+        shipment_id: "shipment-1",
         warehouse_id: "warehouse-1",
         warehouse_name: "苏州",
         logistics_method_id: "method-1",
@@ -108,10 +110,12 @@ describe("order workflow", () => {
     expect(getSplitOrderFulfillmentIssue(orders)).toBe("");
   });
 
-  it("blocks a multi-line main order from being split across warehouses", () => {
+  it("allows different split packages to use different warehouses", () => {
     const orders = [
       order({
         order_no: "PO-1",
+        shipment_id: "shipment-1",
+        package_sequence: 1,
         warehouse_id: "warehouse-1",
         warehouse_name: "苏州",
         logistics_method_id: "method-1",
@@ -119,6 +123,8 @@ describe("order workflow", () => {
       }),
       order({
         order_no: "PO-1",
+        shipment_id: "shipment-2",
+        package_sequence: 2,
         warehouse_id: "warehouse-2",
         warehouse_name: "福冈",
         logistics_method_id: "method-1",
@@ -126,13 +132,15 @@ describe("order workflow", () => {
       }),
     ];
 
-    expect(getSplitOrderFulfillmentIssue(orders)).toContain("必须使用同一发货仓库");
+    expect(getSplitOrderFulfillmentIssue(orders)).toBe("");
   });
 
-  it("blocks a multi-line main order from using different shipping methods", () => {
+  it("blocks lines inside one package from using different shipping methods", () => {
     const orders = [
       order({
         order_no: "PO-1",
+        shipment_id: "shipment-1",
+        package_sequence: 1,
         warehouse_id: "warehouse-1",
         warehouse_name: "苏州",
         logistics_method_id: "method-1",
@@ -140,6 +148,8 @@ describe("order workflow", () => {
       }),
       order({
         order_no: "PO-1",
+        shipment_id: "shipment-1",
+        package_sequence: 1,
         warehouse_id: "warehouse-1",
         warehouse_name: "苏州",
         logistics_method_id: "method-2",

@@ -3,6 +3,8 @@ import type { TrackingCategory } from "../types";
 
 export type TemuTrackingAlert = {
   order_no: string;
+  package_sequence: number;
+  package_count: number;
   stage: "shipped" | "uploaded_temu";
   logistics_tracking_no: string;
   logistics_method: string;
@@ -37,6 +39,8 @@ export async function fetchTemuTrackingAlerts() {
   return ((data ?? []) as Array<Partial<TemuTrackingAlert>>).map(
     (row): TemuTrackingAlert => ({
       order_no: String(row.order_no ?? ""),
+      package_sequence: Math.max(1, Number(row.package_sequence ?? 1)),
+      package_count: Math.max(1, Number(row.package_count ?? 1)),
       stage: row.stage === "uploaded_temu" ? "uploaded_temu" : "shipped",
       logistics_tracking_no: String(row.logistics_tracking_no ?? ""),
       logistics_method: String(row.logistics_method ?? ""),

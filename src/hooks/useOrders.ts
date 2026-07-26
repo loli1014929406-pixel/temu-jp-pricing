@@ -141,39 +141,8 @@ type UseOrdersResult = {
   reloadOrders: () => void;
 };
 
-function normalizeSkuCode(value: string) {
-  return value.trim().toLowerCase();
-}
-
-function normalizeSalesSpec(value: string) {
-  return value.replace(/\s+/g, "").toLowerCase();
-}
-
 function normalizeLogisticsMethod(value: string) {
   return normalizeLogisticsMethodName(value);
-}
-
-function getOrderNoKey(value: string) {
-  return value.trim().toLowerCase();
-}
-
-function getOrderLineKey(
-  order: Pick<
-    TemuOrderRecord,
-    "order_no" | "sub_order_no" | "sku_code" | "product_attributes"
-  >,
-) {
-  const orderNo = getOrderNoKey(order.order_no);
-  if (!orderNo) return "";
-
-  const subOrderNo = order.sub_order_no.trim().toLowerCase();
-  if (subOrderNo) return `${orderNo}\u0000${subOrderNo}`;
-
-  return [
-    orderNo,
-    normalizeSkuCode(order.sku_code),
-    normalizeSalesSpec(order.product_attributes),
-  ].join("\u0000");
 }
 
 const uploadedTemuOrderStatus = "上传Temu";
@@ -214,7 +183,7 @@ function dedupeOrdersByOrderLine(orders: TemuOrderRecord[]) {
   const uniqueOrders = new Map<string, TemuOrderRecord>();
 
   orders.forEach((order) => {
-    const key = getOrderLineKey(order);
+    const key = order.id.trim();
     if (!key) return;
 
     const current = uniqueOrders.get(key);

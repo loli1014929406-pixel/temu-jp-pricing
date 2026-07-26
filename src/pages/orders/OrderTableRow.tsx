@@ -743,7 +743,14 @@ export const OrderTableRow = memo(function OrderTableRow({
           className="h-4 w-4 rounded border-slate-300 text-sky-700 focus:ring-sky-500"
         />
       </td>
-      <td className="order-no-col">{primaryOrder.order_no}</td>
+      <td className="order-no-col">
+        <span>{primaryOrder.order_no}</span>
+        {primaryOrder.is_split && (
+          <span className="mt-1 block w-fit rounded-md bg-sky-50 px-1.5 py-0.5 text-[11px] font-semibold text-sky-700 ring-1 ring-sky-200">
+            包裹 {primaryOrder.package_sequence}/{primaryOrder.package_count}
+          </span>
+        )}
+      </td>
       {activeStage === "all" && (
         <td className="order-stage-col">
           <Badge tone={stage.tone}>{stage.label}</Badge>
