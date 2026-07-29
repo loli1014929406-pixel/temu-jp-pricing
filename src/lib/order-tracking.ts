@@ -88,15 +88,69 @@ export async function markTemuTrackingAlertHandled(
 
 export async function refreshTemuTrackingForOrderIds(orderIds: string[]) {
   const { supabase } = await requireSession();
+  const {
+    data: { session },
+    error: refreshError,
+  } = await withTimeout(
+    supabase.auth.refreshSession(),
+    "刷新登录状态",
+    { requestKind: "auth" },
+  );
+  if (refreshError || !session?.access_token) {
+    throw new Error("当前登录已失效，请重新登录后再查询物流状态。");
+  }
+
   const { data, error } = await withTimeout(
     supabase.functions.invoke("refresh-temu-tracking", {
       body: { source: "manual", orderIds },
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+      },
     }),
     "查询物流状态",
   );
-  if (error) throw error;
+  if (error) {
+    throw new Error(
+      await getEdgeFunctionErrorMessage(error, "查询物流状态失败。"),
+    );
+  }
   if (!data || typeof data !== "object") {
     throw new Error("物流查询服务返回了无效结果。");
   }
   return data as TrackingRefreshResult;
+}
+
+export async function getEdgeFunctionErrorMessage(
+  error: unknown,
+  fallback: string,
+) {
+  const context =
+    error && typeof error === "object" && "context" in error
+      ? (error as { context?: unknown }).context
+      : null;
+
+  if (typeof Response !== "undefined" && context instanceof Response) {
+    try {
+      const body = await context.clone().text();
+      if (body.trim()) {
+        try {
+          const payload = JSON.parse(body) as {
+            error?: unknown;
+            message?: unknown;
+          };
+          const message = String(payload.error ?? payload.message ?? "").trim();
+          if (message) return message;
+        } catch {
+          return body.trim();
+        }
+      }
+    } catch {
+      // Fall back to the structured error message below.
+    }
+  }
+
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim();
+  }
+  return fallback;
 }

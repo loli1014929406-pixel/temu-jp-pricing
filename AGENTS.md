@@ -165,6 +165,7 @@ npm run sync:backend-context
   - Vite `server.proxy` 仅在开发服务器生效，生产必须配置并实际验证 `vercel.json` rewrite/API 路径。
   - SPA 的兜底 rewrite 顺序错误会吞掉物流 API 请求；大和运输 POST 的请求体或鉴权头丢失也会让本地成功、生产失败。
   - Supabase Edge Function 不经过 Vite/Vercel 开发代理；修改 Vercel rewrite 不会自动修复定时刷新链路。
+  - 页面仍能读取已缓存订单不代表 Edge Function 会话令牌仍有效。手动物流查询前需刷新会话并显式传入最新 Bearer JWT；`FunctionsHttpError` 还需读取响应体，不能只向用户显示 `Edge Function returned a non-2xx status code`。
   - 日本邮政和大和运输返回的是 HTML，页面结构或日文状态文案变化会导致“HTTP 成功但解析结果错误”。
   - `uploaded_temu` 的 pending 状态需触发业务异常，而普通 `shipped` pending 不应误报；不要把该规则塞进承运商事实解析器。
 
@@ -190,3 +191,4 @@ npm run sync:backend-context
 - 2026-07-28：新增变更影响地图、已知问题与历史坑点、文档维护规则。
 - 2026-07-28：自动匹配改为仓库唯一优先级、单 SKU 3cm 专用尾程和数据库二次校验；仓库身份统一使用精确 UUID。
 - 2026-07-29：修复自动匹配 RPC 使用 `min(uuid)` 导致生产调用失败，并补充事务内真实调用回滚验证要求。
+- 2026-07-29：手动物流查询改为刷新并显式携带最新会话 JWT，同时显示 Edge Function 返回的具体中文错误。
