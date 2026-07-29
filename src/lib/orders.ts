@@ -707,7 +707,7 @@ export async function fetchTemuOrderFulfillmentByOrderNo(orderNo: string) {
   return ((data ?? []) as Partial<TemuOrderRecord>[]).map(normalizeTemuOrder);
 }
 
-export async function assignTemuOrderShipment(input: {
+type AssignTemuOrderShipmentInput = {
   shipmentId: string;
   warehouseId: string;
   logisticsMethodId: string;
@@ -716,10 +716,16 @@ export async function assignTemuOrderShipment(input: {
     warehouseSkuId: string;
   }>;
   reason?: string;
-}) {
+};
+
+async function runAssignTemuOrderShipment(
+  rpcName: "assign_temu_order_shipment" | "auto_assign_temu_order_shipment",
+  operationLabel: string,
+  input: AssignTemuOrderShipmentInput,
+) {
   const { supabase } = await requireSession();
   const { data, error } = await withTimeout(
-    supabase.rpc("assign_temu_order_shipment", {
+    supabase.rpc(rpcName, {
       p_shipment_id: input.shipmentId,
       p_warehouse_id: input.warehouseId,
       p_logistics_method_id: input.logisticsMethodId,
@@ -729,7 +735,7 @@ export async function assignTemuOrderShipment(input: {
       })),
       p_reason: input.reason ?? "",
     }),
-    "分配订单包裹",
+    operationLabel,
     { requestKind: "rpc" },
   );
   if (error) throw error;
@@ -738,6 +744,24 @@ export async function assignTemuOrderShipment(input: {
     orders: await fetchShipmentLines(supabase, input.shipmentId),
     changes: Array.isArray(payload.changes) ? payload.changes : [],
   };
+}
+
+export async function assignTemuOrderShipment(input: AssignTemuOrderShipmentInput) {
+  return runAssignTemuOrderShipment(
+    "assign_temu_order_shipment",
+    "分配订单包裹",
+    input,
+  );
+}
+
+export async function autoAssignTemuOrderShipment(
+  input: AssignTemuOrderShipmentInput,
+) {
+  return runAssignTemuOrderShipment(
+    "auto_assign_temu_order_shipment",
+    "自动匹配订单包裹",
+    input,
+  );
 }
 
 export async function releaseTemuOrderShipmentInventory(

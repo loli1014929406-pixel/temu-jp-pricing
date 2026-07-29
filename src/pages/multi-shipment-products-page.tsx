@@ -7,6 +7,7 @@ import { getProductRouteKey } from "../lib/products";
 import { fetchProductWarehouseShippingLimitsByProductIds } from "../lib/product-warehouse-shipping-limits";
 import { loadCachedProducts } from "../lib/cached-products";
 import { loadCachedWarehouses } from "../lib/cached-warehouses";
+import { getPrimaryAutoMatchWarehouse } from "../lib/warehouse-identity";
 import { getPaginatedRows } from "./finance/shared";
 import type { Product } from "../types";
 import { getErrorMessage } from "../utils/errors";
@@ -73,9 +74,9 @@ export function MultiShipmentProductsPage({
           fetchProductWarehouseShippingLimitsByProductIds(productIds),
         ]);
 
-        const suzhouWarehouse = warehouses.find((w) => /苏州|suzhou/i.test(w.name));
+        const primaryWarehouse = getPrimaryAutoMatchWarehouse(warehouses);
         const limitsByProductId = shippingLimits.reduce<Record<string, number>>((acc, limit) => {
-          if (suzhouWarehouse && limit.product_id && limit.warehouse_id === suzhouWarehouse.id) {
+          if (primaryWarehouse && limit.product_id && limit.warehouse_id === primaryWarehouse.id) {
             acc[limit.product_id] = limit.max_units_per_parcel;
           }
           return acc;

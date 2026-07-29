@@ -21,19 +21,6 @@ export type InventoryDraft = {
   warehouseNameDrafts: Record<string, string>;
 };
 
-export const knownWarehouseSlugRules = [
-  { slug: "suzhou", names: ["苏州", "suzhou"] },
-  { slug: "fugang", names: ["福冈", "福岡", "fugang", "fukuoka"] },
-] as const;
-
-export function normalizeWarehouseRouteText(value: string) {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, "")
-    .replace(/[仓庫库]/g, "");
-}
-
 export function decodeRouteSegment(value: string) {
   try {
     return decodeURIComponent(value);
@@ -43,43 +30,15 @@ export function decodeRouteSegment(value: string) {
 }
 
 export function getWarehouseRouteSlug(warehouse: Pick<Warehouse, "name" | "id">) {
-  const normalizedName = normalizeWarehouseRouteText(warehouse.name);
-  const knownRule = knownWarehouseSlugRules.find((rule) =>
-    rule.names.some((name) => normalizeWarehouseRouteText(name) === normalizedName),
-  );
-  if (knownRule) return knownRule.slug;
-
-  const asciiSlug = warehouse.name
-    .trim()
-    .toLowerCase()
-    .replace(/['"]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-
-  return asciiSlug || encodeURIComponent(warehouse.name.trim() || warehouse.id);
+  return warehouse.id;
 }
 
 export function isWarehouseRouteMatch(warehouse: Warehouse, routeSlug: string) {
-  const decodedRouteSlug = decodeRouteSegment(routeSlug);
-  const normalizedRouteSlug = normalizeWarehouseRouteText(decodedRouteSlug);
-  const normalizedWarehouseName = normalizeWarehouseRouteText(warehouse.name);
-  const normalizedGeneratedSlug = normalizeWarehouseRouteText(
-    decodeRouteSegment(getWarehouseRouteSlug(warehouse)),
-  );
-
-  return (
-    normalizedRouteSlug === normalizedGeneratedSlug ||
-    normalizedRouteSlug === normalizedWarehouseName
-  );
+  return warehouse.id === decodeRouteSegment(routeSlug);
 }
 
 export function getWarehouseRouteLabel(routeSlug: string) {
-  const decodedRouteSlug = decodeRouteSegment(routeSlug);
-  const normalizedRouteSlug = normalizeWarehouseRouteText(decodedRouteSlug);
-  const knownRule = knownWarehouseSlugRules.find(
-    (rule) => normalizeWarehouseRouteText(rule.slug) === normalizedRouteSlug,
-  );
-  return knownRule?.names[0] ?? decodedRouteSlug;
+  return decodeRouteSegment(routeSlug);
 }
 
 export function hasInventoryDraft(
@@ -105,6 +64,14 @@ export function getInventoryErrorMessage(error: unknown, fallback: string) {
   if (typeof error === "object" && error !== null && "code" in error && "message" in error) {
     const code = String(error.code);
     const message = typeof error.message === "string" ? error.message : "";
+    if (
+      code === "23505" &&
+      (message.includes("warehouses_owner_normalized_name_unique") ||
+        message.includes("warehouses_owner_name") ||
+        message.includes("warehouses_name_exact_unique"))
+    ) {
+      return "仓库名称已存在。仓库名称必须唯一，不能创建或保存重名仓库。";
+    }
     if (code === "42P01") {
       if (
         message.includes("public.logistics_methods") ||

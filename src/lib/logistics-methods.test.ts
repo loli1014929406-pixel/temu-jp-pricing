@@ -19,6 +19,8 @@ const yamatoMethod: LogisticsMethod = {
   owner_id: "22222222-2222-4222-8222-222222222222",
   name: "OCS Yamato",
   is_active: true,
+  leg_type: "last_leg",
+  parcel_type: null,
   sort_order: 10,
   created_at: "2026-07-14T00:00:00.000Z",
   updated_at: "2026-07-14T00:00:00.000Z",

@@ -1,6 +1,7 @@
 import { Copy, Plus, Trash2 } from "lucide-react";
 import type { FormEvent } from "react";
 import { createEmptyItem, createEmptySpec } from "../lib/defaults";
+import { normalizeWarehouseShippingLimit } from "../lib/product-warehouse-shipping-limits";
 import type {
   ProductDraft,
   ProductItem,
@@ -107,7 +108,7 @@ export function ProductForm({
   const updateWarehouseShippingLimit = (warehouseId: string, value: number) => {
     if (!onWarehouseShippingLimitsChange) return;
 
-    const normalizedValue = Math.max(1, Math.trunc(Number(value) || 1));
+    const normalizedValue = normalizeWarehouseShippingLimit(value);
     const existingLimit = warehouseShippingLimits.find(
       (limit) => limit.warehouse_id === warehouseId,
     );
@@ -398,43 +399,48 @@ export function ProductForm({
               暂无仓库
             </div>
           ) : (
-            <div className="overflow-hidden rounded-md border border-line">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 text-xs font-semibold text-slate-500">
-                  <tr>
-                    <th className="px-4 py-3 text-left">渠道/仓库</th>
-                    <th className="w-40 px-4 py-3 text-left">3cm最大数</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line">
-                  {warehouses.map((warehouse) => {
-                    const limit = warehouseShippingLimits.find(
-                      (item) => item.warehouse_id === warehouse.id,
-                    );
-                    return (
-                      <tr key={warehouse.id}>
-                        <td className="px-4 py-3 font-medium text-slate-700">{warehouse.name}</td>
-                        <td className="px-4 py-3">
-                          <TextInput
-                            required
-                            min="1"
-                            step="1"
-                            type="number"
-                            value={limit?.max_units_per_parcel ?? 1}
-                            onChange={(event) =>
-                              updateWarehouseShippingLimit(
-                                warehouse.id,
-                                toNumber(event.target.value),
-                              )
-                            }
-                          />
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <>
+              <div className="overflow-hidden rounded-md border border-line">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 text-xs font-semibold text-slate-500">
+                    <tr>
+                      <th className="px-4 py-3 text-left">渠道/仓库</th>
+                      <th className="w-40 px-4 py-3 text-left">3cm最大数</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-line">
+                    {warehouses.map((warehouse) => {
+                      const limit = warehouseShippingLimits.find(
+                        (item) => item.warehouse_id === warehouse.id,
+                      );
+                      return (
+                        <tr key={warehouse.id}>
+                          <td className="px-4 py-3 font-medium text-slate-700">{warehouse.name}</td>
+                          <td className="px-4 py-3">
+                            <TextInput
+                              required
+                              min="0"
+                              step="1"
+                              type="number"
+                              value={limit?.max_units_per_parcel ?? 1}
+                              onChange={(event) =>
+                                updateWarehouseShippingLimit(
+                                  warehouse.id,
+                                  toNumber(event.target.value),
+                                )
+                              }
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-xs text-slate-500">
+                默认值为 1；填写 0 表示该商品在对应仓库不参与 3cm 自动匹配。
+              </p>
+            </>
           )}
         </div>
         <Field label="备注">

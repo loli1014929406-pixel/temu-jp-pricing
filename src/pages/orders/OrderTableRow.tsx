@@ -20,13 +20,12 @@ import {
   getOrderCustomerHistoryTitle,
 } from "../../domain/order-customer-history";
 import { createEmptyDraft, toDraft, type OrderDraft } from "../../hooks/useOrders";
-import { getWarehouseLastLegMethodNames } from "../../lib/warehouse-logistics";
+import { getWarehouseLastLegMethods } from "../../lib/warehouse-logistics";
 import type { TemuOrderImportRow } from "../../lib/orders";
 import type {
   Product,
   ProductSku,
   LogisticsMethod,
-  PricingSettings,
   TemuOrderRecord,
   Warehouse,
   WarehouseLogisticsMethod,
@@ -256,14 +255,6 @@ export function isJapanPostTrackingStatus(value: string) {
   return japanPostTrackingStatusKeywords.some((status) => value.includes(status));
 }
 
-export function hasFukuokaText(value: string) {
-  return /福[冈岡]|fukuoka/i.test(value);
-}
-
-export function hasSuzhouText(value: string) {
-  return /苏州|蘇州|suzhou/i.test(value);
-}
-
 export function hasJapanPostText(value: string) {
   return /japan\s*post|japanpost|日本[邮郵]便|邮便|郵便/i.test(value);
 }
@@ -272,20 +263,15 @@ export function hasOcsYamatoText(value: string) {
   return /ocs\s*yamato|yamato|ヤマト/i.test(value);
 }
 
-export function getOrderTrackingCarrier(order: Pick<TemuOrderRecord, "warehouse_name" | "logistics_method">): TrackingCarrier {
-  if (
-    hasJapanPostText(order.logistics_method) ||
-    hasJapanPostText(order.warehouse_name) ||
-    hasFukuokaText(order.logistics_method) ||
-    hasFukuokaText(order.warehouse_name)
-  ) {
+export function getOrderTrackingCarrier(order: Pick<TemuOrderRecord, "logistics_method">): TrackingCarrier {
+  if (hasJapanPostText(order.logistics_method)) {
     return "japan_post";
   }
 
   return "yamato";
 }
 
-export function getTemuUploadCarrier(order: Pick<TemuOrderRecord, "warehouse_name" | "logistics_method">) {
+export function getTemuUploadCarrier(order: Pick<TemuOrderRecord, "logistics_method">) {
   return getOrderTrackingCarrier(order) === "japan_post" ? "Japan Post" : "Yamato";
 }
 
@@ -317,10 +303,7 @@ export function getTrackingUrl(order: TemuOrderRecord) {
     return "";
   }
 
-  if (
-    hasSuzhouText(order.warehouse_name) &&
-    hasOcsYamatoText(order.logistics_method)
-  ) {
+  if (hasOcsYamatoText(order.logistics_method)) {
     return getOcsTrackingUrl(trackingNo);
   }
 
@@ -493,7 +476,6 @@ export type OrderTableRowProps = {
   activeStage: OrderStage;
   canEdit: boolean;
   logisticsMethods: LogisticsMethod[];
-  settings: PricingSettings | null;
   onHandleWarehouseChangeForOrders: (orderIds: string[], warehouseId: string) => void;
   onHandleLogisticsMethodChangeForOrders: (
     orderIds: string[],
@@ -525,7 +507,6 @@ export const OrderTableRow = memo(function OrderTableRow({
   activeStage,
   canEdit,
   logisticsMethods,
-  settings,
   getWarehouseStockIssueForOrders,
   onHandleWarehouseChangeForOrders,
   onHandleLogisticsMethodChangeForOrders,
@@ -608,14 +589,13 @@ export const OrderTableRow = memo(function OrderTableRow({
   const rowLogisticsOptions = useMemo(
     () =>
       draftWarehouse
-        ? getWarehouseLastLegMethodNames(
+        ? getWarehouseLastLegMethods(
             draftWarehouse.id,
-            settings,
             logisticsMethods,
             warehouseLogisticsMethods,
           )
         : [],
-    [draftWarehouse, logisticsMethods, settings, warehouseLogisticsMethods],
+    [draftWarehouse, logisticsMethods, warehouseLogisticsMethods],
   );
   const currentWarehouseMissing = useMemo(
     () =>
@@ -799,8 +779,8 @@ export const OrderTableRow = memo(function OrderTableRow({
         {canAssignOrder ? (
           <select
             value={
-              rowLogisticsOptions.includes(normalizedDraftLogisticsMethod)
-                ? normalizedDraftLogisticsMethod
+              rowLogisticsOptions.some((method) => method.id === draft.logistics_method_id)
+                ? draft.logistics_method_id ?? ""
                 : ""
             }
             disabled={!draft.warehouse_id}
@@ -814,8 +794,8 @@ export const OrderTableRow = memo(function OrderTableRow({
           >
             <option value="">未分配</option>
             {rowLogisticsOptions.map((method) => (
-              <option key={method} value={method}>
-                {method}
+              <option key={method.id} value={method.id}>
+                {method.name}
               </option>
             ))}
           </select>

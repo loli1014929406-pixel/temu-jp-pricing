@@ -197,6 +197,7 @@ function createLogisticsMethod(
     id: `${type}-${Date.now()}`,
     name,
     type,
+    parcelType: type === "last_leg" ? null : undefined,
     formula,
     params: { ...params },
     isActive: true,
@@ -424,6 +425,32 @@ function LogisticsMethodCard({
           )}
         </div>
       </div>
+
+      {method.type === "last_leg" ? (
+        <div className="grid gap-4 [grid-template-columns:minmax(220px,360px)]">
+          <Field label="3cm 发货属性">
+            <SelectInput
+              disabled={!canEdit}
+              value={method.parcelType ?? ""}
+              onChange={(value) =>
+                onUpdate(method.id, {
+                  parcelType:
+                    value === "three_cm_only" || value === "standard"
+                      ? value
+                      : null,
+                })
+              }
+            >
+              <option value="">未分类（不参与自动匹配）</option>
+              <option value="three_cm_only">仅限 3cm</option>
+              <option value="standard">普通尾程</option>
+            </SelectInput>
+          </Field>
+          <p className="text-xs leading-5 text-slate-500">
+            自动匹配只会使用“仅限 3cm”的尾程；系统不会根据物流名称自动判断。
+          </p>
+        </div>
+      ) : null}
 
       <LogisticsMetaFields
         disabled={!canEdit}

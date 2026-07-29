@@ -83,6 +83,10 @@ function normalizeLogisticsMethodConfigs(
             : undefined,
         name: String(item.name ?? ""),
         type,
+        parcelType:
+          item.parcelType === "three_cm_only" || item.parcelType === "standard"
+            ? item.parcelType
+            : null,
         formula,
         params: {
           price: typeof params.price === "number" ? params.price : undefined,

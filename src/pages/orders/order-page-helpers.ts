@@ -1,7 +1,7 @@
 import { toDraft, type OrderDraft } from "../../hooks/useOrders";
 import type { TemuOrderImportRow } from "../../lib/orders";
 import { normalizeLogisticsMethodName } from "../../lib/logistics-methods";
-import type { Product, ProductSku, TemuOrderRecord, Warehouse, WarehouseSku } from "../../types";
+import type { Product, ProductSku, TemuOrderRecord, WarehouseSku } from "../../types";
 import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../../utils/sku-code";
 import { TABLE_COLUMN_WIDTH } from "../../components/ui/table-layout";
 
@@ -468,34 +468,8 @@ export type OrderDeclarationGroup = {
   declaration: OrderDeclaration;
   quantity: number;
 };
-export type OrderFulfillmentMatch = {
-  warehouse: Warehouse;
-  logisticsMethod: string;
-  sku: ProductSku;
-  quantity: number;
-};
-export type OrderFulfillmentMatchResult =
-  | { status: "matched"; match: OrderFulfillmentMatch }
-  | { status: "blocked"; reason: string }
-  | { status: "unmatched" };
-
-export const fukuokaWarehouseAliases = ["福冈", "福岡", "fukuoka", "fugang"];
-export const suzhouWarehouseAliases = ["苏州", "suzhou"];
-export const fukuokaLastmileMethod = "福冈Japan Post";
-export const ocsThreeCmMethod = "OCS Yamato";
-export const ocsSmallParcelMethod = "OCS 小包";
-
 export function getOrderFulfillmentQuantity(order: TemuOrderRecord) {
   return Math.max(1, Math.trunc(order.fulfillment_quantity || 0));
-}
-
-export function isWarehouseMatchedByAlias(warehouse: Warehouse, aliases: string[]) {
-  const warehouseName = warehouse.name.trim().toLowerCase();
-  return aliases.some((alias) => warehouseName.includes(alias.toLowerCase()));
-}
-
-export function getWarehousesByAliases(warehouses: Warehouse[], aliases: string[]) {
-  return warehouses.filter((warehouse) => isWarehouseMatchedByAlias(warehouse, aliases));
 }
 
 export function formatAutoMatchBlockedReasons(reasons: string[]) {

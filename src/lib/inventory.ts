@@ -45,7 +45,7 @@ export async function fetchWarehouses() {
   const { data, error } = await withTimeout(
     supabase
       .from("warehouses")
-      .select("id, name, owner_id, created_at, updated_at")
+      .select("id, name, owner_id, auto_match_enabled, auto_match_priority, created_at, updated_at")
       .order("created_at", { ascending: true }),
     "加载仓库",
   );
@@ -55,14 +55,16 @@ export async function fetchWarehouses() {
 }
 
 export async function createWarehouse(name: string) {
+  const exactName = name.trim();
+  if (!exactName) throw new Error("请填写仓库名称");
   const { supabase } = await requireSession();
   const { data, error } = await withTimeout(
     supabase
       .from("warehouses")
       .insert({
-        name,
+        name: exactName,
       })
-      .select("id, name, owner_id, created_at, updated_at")
+      .select("id, name, owner_id, auto_match_enabled, auto_match_priority, created_at, updated_at")
       .single(),
     "新增仓库",
   );
@@ -77,13 +79,15 @@ export async function updateWarehouse(
   warehouseId: string,
   updates: Pick<Warehouse, "name">,
 ) {
+  const exactName = updates.name.trim();
+  if (!exactName) throw new Error("请填写仓库名称");
   const { supabase } = await requireSession();
   const { data, error } = await withTimeout(
     supabase
       .from("warehouses")
-      .update(updates)
+      .update({ name: exactName })
       .eq("id", warehouseId)
-      .select("id, name, owner_id, created_at, updated_at")
+      .select("id, name, owner_id, auto_match_enabled, auto_match_priority, created_at, updated_at")
       .single(),
     "更新仓库",
   );
@@ -92,6 +96,27 @@ export async function updateWarehouse(
   const warehouse = data as Warehouse;
   invalidateWarehouseReferenceCache();
   return warehouse;
+}
+
+export async function saveWarehouseAutoMatchRules(
+  rules: Array<{
+    warehouse_id: string;
+    auto_match_enabled: boolean;
+    auto_match_priority: number | null;
+  }>,
+) {
+  const { supabase } = await requireSession();
+  const { data, error } = await withTimeout(
+    supabase.rpc("save_warehouse_auto_match_rules", {
+      p_rules: rules,
+    }),
+    "保存仓库自动匹配规则",
+  );
+
+  if (error) throw error;
+  const warehouses = (data ?? []) as Warehouse[];
+  invalidateWarehouseReferenceCache();
+  return warehouses;
 }
 
 export async function deleteWarehouse(warehouseId: string) {

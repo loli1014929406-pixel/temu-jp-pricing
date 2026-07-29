@@ -9,10 +9,11 @@ import {
   fetchWarehouseInventoryPage,
   fetchWarehouseSkuCounts,
   removeWarehouseProduct,
+  saveWarehouseAutoMatchRules,
   updateWarehouse,
   updateWarehouseSkuStockQuantity,
 } from "../lib/inventory";
-import { normalizeLogisticsMethodName, replaceWarehouseLogisticsMethods } from "../lib/logistics-methods";
+import { replaceWarehouseLogisticsMethods } from "../lib/logistics-methods";
 import {
   fetchProductsByIds,
   fetchProductItemsByProductIds,
@@ -27,6 +28,7 @@ import type {
   WarehouseLogisticsMethod,
   WarehouseSku,
   LogisticsMethodConfig,
+  OrderAutoMatchSettings,
 } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { confirmAction, confirmDelete, confirmSave } from "../utils/confirmations";
@@ -48,9 +50,19 @@ import {
   loadCachedWarehouseLogisticsMethods,
 } from "../lib/cached-logistics";
 import { loadCachedWarehouses } from "../lib/cached-warehouses";
+import {
+  createDisabledOrderAutoMatchSettings,
+  fetchOrderAutoMatchSettings,
+  updateOrderAutoMatchEnabled,
+} from "../lib/order-auto-match-settings";
 
 type InventoryPageProps = {
   user: User;
+};
+
+type WarehouseAutoMatchDraft = {
+  enabled: boolean;
+  priority: string;
 };
 
 import {
@@ -85,6 +97,11 @@ export function InventoryPage({ user }: InventoryPageProps) {
     setWarehouseLogisticsDraftIdsByWarehouseId,
   ] = useState<Record<string, string[]>>({});
   const [warehouseSkus, setWarehouseSkus] = useState<WarehouseSku[]>([]);
+  const [orderAutoMatchSettings, setOrderAutoMatchSettings] =
+    useState<OrderAutoMatchSettings>(createDisabledOrderAutoMatchSettings);
+  const [warehouseAutoMatchDrafts, setWarehouseAutoMatchDrafts] = useState<
+    Record<string, WarehouseAutoMatchDraft>
+  >({});
   const [draftWarehouseName, setDraftWarehouseName] = useState(restoredDraft?.draftWarehouseName ?? "");
   const [draftLogisticsMethodName, setDraftLogisticsMethodName] = useState(
     restoredDraft?.draftLogisticsMethodName ?? "",
@@ -196,9 +213,10 @@ export function InventoryPage({ user }: InventoryPageProps) {
       setLoading(true);
       setErrorMessage("");
       try {
-        const [nextWarehouses, nextLogisticsMethods] = await Promise.all([
+        const [nextWarehouses, nextLogisticsMethods, nextAutoMatchSettings] = await Promise.all([
           loadCachedWarehouses(),
           loadCachedLogisticsMethods(),
+          fetchOrderAutoMatchSettings(),
         ]);
         const nextWarehouseLogisticsMethods = await loadCachedWarehouseLogisticsMethods(
           nextWarehouses.map((warehouse) => warehouse.id)
@@ -226,6 +244,21 @@ export function InventoryPage({ user }: InventoryPageProps) {
 
         if (active) {
           setWarehouses(nextWarehouses);
+          setOrderAutoMatchSettings(nextAutoMatchSettings);
+          setWarehouseAutoMatchDrafts(
+            Object.fromEntries(
+              nextWarehouses.map((warehouse) => [
+                warehouse.id,
+                {
+                  enabled: warehouse.auto_match_enabled,
+                  priority:
+                    warehouse.auto_match_priority === null
+                      ? ""
+                      : String(warehouse.auto_match_priority),
+                },
+              ]),
+            ),
+          );
           setLogisticsMethods(updatedDbLogisticsMethods);
           setWarehouseLogisticsMethods(nextWarehouseLogisticsMethods);
           setWarehouseLogisticsDraftIdsByWarehouseId(
@@ -427,10 +460,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
     ) => {
       if (!config.isActive) return false;
       if (config.db_method_id && config.db_method_id === selectedMethod.id) return true;
-      return (
-        normalizeLogisticsMethodName(config.name).toLowerCase() ===
-        normalizeLogisticsMethodName(selectedMethod.name).toLowerCase()
-      );
+      return config.name.trim() === selectedMethod.name.trim();
     };
     const hasFirstLeg = selectedMethods.some((selectedMethod) =>
       settingsFirstLegs.some((config) => matchesConfig(selectedMethod, config)),
@@ -473,6 +503,51 @@ export function InventoryPage({ user }: InventoryPageProps) {
     });
   }
 
+  function isLastLegMethod(method: LogisticsMethod) {
+    if (method.leg_type === "last_leg") return true;
+    return settingsLastLegs.some(
+      (config) =>
+        config.db_method_id === method.id ||
+        (!config.db_method_id && config.name.trim() === method.name.trim()),
+    );
+  }
+
+  function handleMoveWarehouseLastLegMethod(
+    warehouse: Warehouse,
+    methodId: string,
+    direction: -1 | 1,
+  ) {
+    if (!canEdit) return;
+    setWarehouseLogisticsDraftIdsByWarehouseId((current) => {
+      const nextMethodIds = [
+        ...(current[warehouse.id] ??
+          warehouseLogisticsMethodIdsByWarehouseId[warehouse.id] ??
+          []),
+      ];
+      const lastLegIds = nextMethodIds.filter((candidateId) => {
+        const method = logisticsMethods.find((item) => item.id === candidateId);
+        return method ? isLastLegMethod(method) : false;
+      });
+      const currentIndex = lastLegIds.indexOf(methodId);
+      const targetIndex = currentIndex + direction;
+      if (
+        currentIndex < 0 ||
+        targetIndex < 0 ||
+        targetIndex >= lastLegIds.length
+      ) {
+        return current;
+      }
+      const targetMethodId = lastLegIds[targetIndex];
+      const methodIndex = nextMethodIds.indexOf(methodId);
+      const targetMethodIndex = nextMethodIds.indexOf(targetMethodId);
+      [nextMethodIds[methodIndex], nextMethodIds[targetMethodIndex]] = [
+        nextMethodIds[targetMethodIndex],
+        nextMethodIds[methodIndex],
+      ];
+      return { ...current, [warehouse.id]: nextMethodIds };
+    });
+  }
+
   async function handleSaveWarehouseLogisticsMethods(warehouse: Warehouse) {
     if (!canEdit) return;
 
@@ -507,6 +582,145 @@ export function InventoryPage({ user }: InventoryPageProps) {
     }
   }
 
+  function getWarehouseAutoMatchDraft(warehouse: Warehouse): WarehouseAutoMatchDraft {
+    return (
+      warehouseAutoMatchDrafts[warehouse.id] ?? {
+        enabled: warehouse.auto_match_enabled,
+        priority:
+          warehouse.auto_match_priority === null
+            ? ""
+            : String(warehouse.auto_match_priority),
+      }
+    );
+  }
+
+  function buildWarehouseAutoMatchRules() {
+    const priorities = new Set<number>();
+    return warehouses.map((warehouse) => {
+      const draft = getWarehouseAutoMatchDraft(warehouse);
+      if (!draft.enabled) {
+        return {
+          warehouse_id: warehouse.id,
+          auto_match_enabled: false,
+          auto_match_priority: null,
+        };
+      }
+
+      const priority = Number(draft.priority);
+      if (!Number.isInteger(priority) || priority <= 0) {
+        throw new Error(`仓库“${warehouse.name}”参与自动匹配时必须填写大于 0 的整数优先级。`);
+      }
+      if (priorities.has(priority)) {
+        throw new Error(`自动匹配优先级 ${priority} 重复。每个参与仓库必须使用唯一优先级。`);
+      }
+      priorities.add(priority);
+      return {
+        warehouse_id: warehouse.id,
+        auto_match_enabled: true,
+        auto_match_priority: priority,
+      };
+    });
+  }
+
+  async function handleSaveWarehouseAutoMatchRules() {
+    if (!canEdit) return;
+
+    let rules: ReturnType<typeof buildWarehouseAutoMatchRules>;
+    try {
+      rules = buildWarehouseAutoMatchRules();
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, "自动匹配仓库规则填写不完整"));
+      return;
+    }
+    if (!(await confirmSave("确认保存仓库自动匹配参与状态和优先级吗？"))) return;
+
+    setBusyKey("warehouse-auto-match-rules");
+    setErrorMessage("");
+    try {
+      const nextWarehouses = await saveWarehouseAutoMatchRules(rules);
+      setWarehouses(nextWarehouses);
+      setWarehouseAutoMatchDrafts(
+        Object.fromEntries(
+          nextWarehouses.map((warehouse) => [
+            warehouse.id,
+            {
+              enabled: warehouse.auto_match_enabled,
+              priority:
+                warehouse.auto_match_priority === null
+                  ? ""
+                  : String(warehouse.auto_match_priority),
+            },
+          ]),
+        ),
+      );
+      setDraftNotice("仓库自动匹配优先级已保存。");
+    } catch (error) {
+      setErrorMessage(getInventoryErrorMessage(error, "保存仓库自动匹配规则失败"));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
+  function getAutoMatchEnableIssue() {
+    const participatingWarehouses = warehouses.filter(
+      (warehouse) =>
+        warehouse.auto_match_enabled &&
+        warehouse.auto_match_priority !== null &&
+        warehouse.auto_match_priority > 0,
+    );
+    if (participatingWarehouses.length === 0) {
+      return "至少需要一个已参与并设置优先级的仓库。";
+    }
+
+    for (const warehouse of participatingWarehouses) {
+      const linkedMethodIds = new Set(
+        warehouseLogisticsMethods
+          .filter((link) => link.warehouse_id === warehouse.id)
+          .map((link) => link.logistics_method_id),
+      );
+      const activeLastLegMethods = logisticsMethods.filter(
+        (method) =>
+          linkedMethodIds.has(method.id) &&
+          method.is_active &&
+          method.leg_type === "last_leg",
+      );
+      const unclassified = activeLastLegMethods.find((method) => !method.parcel_type);
+      if (unclassified) {
+        return `仓库“${warehouse.name}”绑定的尾程“${unclassified.name}”尚未分类为“仅限3cm”或“普通尾程”。`;
+      }
+      if (!activeLastLegMethods.some((method) => method.parcel_type === "three_cm_only")) {
+        return `仓库“${warehouse.name}”没有绑定已启用且标记为“仅限3cm”的尾程。`;
+      }
+    }
+    return "";
+  }
+
+  async function handleToggleOrderAutoMatch() {
+    if (!canEdit) return;
+    const nextEnabled = !orderAutoMatchSettings.enabled;
+    if (nextEnabled) {
+      const issue = getAutoMatchEnableIssue();
+      if (issue) {
+        setErrorMessage(`自动匹配尚不能启用：${issue}`);
+        return;
+      }
+    }
+    const actionLabel = nextEnabled ? "启用" : "暂停";
+    if (!(await confirmAction(`确认${actionLabel}订单自动匹配吗？`))) return;
+
+    setBusyKey("order-auto-match-toggle");
+    setErrorMessage("");
+    try {
+      const nextSettings = await updateOrderAutoMatchEnabled(nextEnabled);
+      setOrderAutoMatchSettings(nextSettings);
+      setDraftNotice(`订单自动匹配已${nextEnabled ? "启用" : "暂停"}。`);
+    } catch (error) {
+      setErrorMessage(getInventoryErrorMessage(error, `${actionLabel}订单自动匹配失败`));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
   async function handleCreateWarehouse() {
     if (!canEdit) {
       setErrorMessage("当前账号没有编辑权限，不能新增仓库。");
@@ -515,6 +729,15 @@ export function InventoryPage({ user }: InventoryPageProps) {
 
     const name = draftWarehouseName.trim();
     if (!name) return;
+    if (
+      warehouses.some(
+        (warehouse) =>
+          warehouse.name.trim().toLocaleLowerCase() === name.toLocaleLowerCase(),
+      )
+    ) {
+      setErrorMessage("仓库名称已存在，不能创建重名仓库。");
+      return;
+    }
     if (!(await confirmSave(`确认新增仓库“${name}”吗？`))) return;
 
     setBusyKey("create-warehouse");
@@ -541,6 +764,17 @@ export function InventoryPage({ user }: InventoryPageProps) {
     updates: Pick<Warehouse, "name">,
   ) {
     if (!canEdit) return;
+    const nextName = updates.name.trim();
+    if (
+      warehouses.some(
+        (item) =>
+          item.id !== warehouse.id &&
+          item.name.trim().toLocaleLowerCase() === nextName.toLocaleLowerCase(),
+      )
+    ) {
+      setErrorMessage("仓库名称已存在，不能保存重名仓库。");
+      return;
+    }
     if (!(await confirmSave(`确认保存仓库“${warehouse.name}”的修改吗？`))) return;
 
     setBusyKey(`warehouse-${warehouse.id}`);
@@ -755,10 +989,15 @@ export function InventoryPage({ user }: InventoryPageProps) {
   }
 
   const findDbMethod = useCallback(
-    (name: string) => {
-      const normalizedName = normalizeLogisticsMethodName(name).toLowerCase();
+    (config: LogisticsMethodConfig) => {
+      if (config.db_method_id) {
+        const exactMethod = logisticsMethods.find(
+          (method) => method.id === config.db_method_id,
+        );
+        if (exactMethod) return exactMethod;
+      }
       return logisticsMethods.find(
-        (m) => normalizeLogisticsMethodName(m.name).toLowerCase() === normalizedName
+        (method) => method.name.trim() === config.name.trim(),
       );
     },
     [logisticsMethods]
@@ -773,21 +1012,25 @@ export function InventoryPage({ user }: InventoryPageProps) {
       methodIds.forEach((methodId) => {
         const method = logisticsMethods.find((m) => m.id === methodId);
         if (!method) return;
-        const normalizedName = normalizeLogisticsMethodName(method.name).toLowerCase();
-
-        // Check if it exists in settingsFirstLegs
-        const isFirstLeg = settingsFirstLegs.some(
-          (m) => normalizeLogisticsMethodName(m.name).toLowerCase() === normalizedName
-        );
+        const isFirstLeg =
+          method.leg_type === "first_leg" ||
+          settingsFirstLegs.some(
+            (config) =>
+              config.db_method_id === method.id ||
+              (!config.db_method_id && config.name.trim() === method.name.trim()),
+          );
         if (isFirstLeg) {
           firstLegs.push(method.name);
           return;
         }
 
-        // Check if it exists in settingsLastLegs
-        const isLastLeg = settingsLastLegs.some(
-          (m) => normalizeLogisticsMethodName(m.name).toLowerCase() === normalizedName
-        );
+        const isLastLeg =
+          method.leg_type === "last_leg" ||
+          settingsLastLegs.some(
+            (config) =>
+              config.db_method_id === method.id ||
+              (!config.db_method_id && config.name.trim() === method.name.trim()),
+          );
         if (isLastLeg) {
           lastLegs.push(method.name);
           return;
@@ -798,6 +1041,67 @@ export function InventoryPage({ user }: InventoryPageProps) {
     },
     [warehouseLogisticsMethodIdsByWarehouseId, logisticsMethods, settingsFirstLegs, settingsLastLegs]
   );
+
+  function renderWarehouseLastLegPriority(warehouse: Warehouse) {
+    const methodIds =
+      warehouseLogisticsDraftIdsByWarehouseId[warehouse.id] ??
+      warehouseLogisticsMethodIdsByWarehouseId[warehouse.id] ??
+      [];
+    const selectedLastLegMethods = methodIds.flatMap((methodId) => {
+      const method = logisticsMethods.find((item) => item.id === methodId);
+      return method && isLastLegMethod(method) ? [method] : [];
+    });
+    if (selectedLastLegMethods.length === 0) return null;
+
+    return (
+      <div className="mt-3 rounded-lg border border-dashed border-[#b4e8cc] bg-white p-3">
+        <div className="mb-2 text-xs font-semibold text-[#0c5132]">
+          尾程匹配顺序（从上到下）
+        </div>
+        <div className="grid gap-1.5">
+          {selectedLastLegMethods.map((method, index) => (
+            <div
+              key={method.id}
+              className="flex items-center justify-between gap-2 rounded-md bg-[#f3fbf6] px-2.5 py-1.5 text-xs text-slate-700"
+            >
+              <span className="truncate">
+                {index + 1}. {method.name}
+                {method.parcel_type === "three_cm_only"
+                  ? "（仅限3cm）"
+                  : method.parcel_type === "standard"
+                    ? "（普通尾程）"
+                    : "（未分类）"}
+              </span>
+              <span className="flex shrink-0 gap-1">
+                <button
+                  type="button"
+                  disabled={!canEdit || index === 0}
+                  onClick={() =>
+                    handleMoveWarehouseLastLegMethod(warehouse, method.id, -1)
+                  }
+                  className="rounded border border-line bg-white p-1 text-slate-500 disabled:opacity-30"
+                  title="上移"
+                >
+                  <ChevronUp size={13} />
+                </button>
+                <button
+                  type="button"
+                  disabled={!canEdit || index === selectedLastLegMethods.length - 1}
+                  onClick={() =>
+                    handleMoveWarehouseLastLegMethod(warehouse, method.id, 1)
+                  }
+                  className="rounded border border-line bg-white p-1 text-slate-500 disabled:opacity-30"
+                  title="下移"
+                >
+                  <ChevronDown size={13} />
+                </button>
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   const filteredWarehouseSkusByWarehouseId = useMemo(() => {
     const result: Record<string, WarehouseSku[]> = {};
@@ -902,6 +1206,132 @@ export function InventoryPage({ user }: InventoryPageProps) {
             </div>
           </div>
         </div>
+      )}
+
+      {!warehouseSlug && !loading && warehouses.length > 0 && (
+        <section className="section-card space-y-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-base font-bold text-ink">订单自动匹配</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                仅处理单 SKU 且数量不超过商品 3cm 最大数的包裹；按唯一优先级依次检查库存和“仅限3cm”尾程。
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span
+                className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                  orderAutoMatchSettings.enabled
+                    ? "bg-emerald-100 text-emerald-700"
+                    : "bg-amber-100 text-amber-700"
+                }`}
+              >
+                {orderAutoMatchSettings.enabled ? "运行中" : "已暂停"}
+              </span>
+              {canEdit && (
+                <button
+                  type="button"
+                  disabled={busyKey === "order-auto-match-toggle"}
+                  onClick={() => void handleToggleOrderAutoMatch()}
+                  className={
+                    orderAutoMatchSettings.enabled
+                      ? "btn-secondary h-9 px-3"
+                      : "btn-primary h-9 px-3"
+                  }
+                >
+                  {orderAutoMatchSettings.enabled ? "暂停自动匹配" : "启用自动匹配"}
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="overflow-hidden rounded-xl border border-line">
+            <div className="grid grid-cols-[minmax(0,1fr)_120px_150px] gap-3 bg-slate-50 px-4 py-2 text-xs font-semibold text-slate-500">
+              <span>仓库</span>
+              <span>参与</span>
+              <span>唯一优先级</span>
+            </div>
+            {warehouses
+              .slice()
+              .sort((left, right) => {
+                const leftPriority = Number(getWarehouseAutoMatchDraft(left).priority);
+                const rightPriority = Number(getWarehouseAutoMatchDraft(right).priority);
+                if (
+                  Number.isInteger(leftPriority) &&
+                  Number.isInteger(rightPriority) &&
+                  leftPriority !== rightPriority
+                ) {
+                  return leftPriority - rightPriority;
+                }
+                return left.created_at.localeCompare(right.created_at);
+              })
+              .map((warehouse) => {
+                const draft = getWarehouseAutoMatchDraft(warehouse);
+                return (
+                  <div
+                    key={warehouse.id}
+                    className="grid grid-cols-[minmax(0,1fr)_120px_150px] items-center gap-3 border-t border-line px-4 py-3"
+                  >
+                    <span className="truncate text-sm font-semibold text-slate-700">
+                      {warehouse.name}
+                    </span>
+                    <label className="inline-flex items-center gap-2 text-sm text-slate-600">
+                      <input
+                        type="checkbox"
+                        checked={draft.enabled}
+                        disabled={!canEdit}
+                        onChange={(event) =>
+                          setWarehouseAutoMatchDrafts((current) => ({
+                            ...current,
+                            [warehouse.id]: {
+                              enabled: event.target.checked,
+                              priority: event.target.checked
+                                ? current[warehouse.id]?.priority ??
+                                  (warehouse.auto_match_priority === null
+                                    ? ""
+                                    : String(warehouse.auto_match_priority))
+                                : "",
+                            },
+                          }))
+                        }
+                        className="h-4 w-4 rounded border-slate-300 text-accent"
+                      />
+                      {draft.enabled ? "是" : "否"}
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={draft.priority}
+                      disabled={!canEdit || !draft.enabled}
+                      placeholder={draft.enabled ? "例如 1" : "不参与"}
+                      onChange={(event) =>
+                        setWarehouseAutoMatchDrafts((current) => ({
+                          ...current,
+                          [warehouse.id]: {
+                            enabled: current[warehouse.id]?.enabled ?? draft.enabled,
+                            priority: event.target.value,
+                          },
+                        }))
+                      }
+                      className="h-9 rounded-md border border-line bg-white px-3 text-sm outline-none focus:border-accent disabled:bg-slate-100 disabled:text-slate-400"
+                    />
+                  </div>
+                );
+              })}
+          </div>
+          {canEdit && (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                disabled={busyKey === "warehouse-auto-match-rules"}
+                onClick={() => void handleSaveWarehouseAutoMatchRules()}
+                className="btn-primary h-9 px-4"
+              >
+                保存仓库匹配规则
+              </button>
+            </div>
+          )}
+        </section>
       )}
 
       {loading ? (
@@ -1046,7 +1476,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                             ) : (
                               <div className="flex flex-wrap gap-1.5">
                                 {settingsFirstLegs.map((config) => {
-                                  const dbMethod = findDbMethod(config.name);
+                                  const dbMethod = findDbMethod(config);
                                   if (!dbMethod) return null;
                                   const methodIds =
                                     warehouseLogisticsDraftIdsByWarehouseId[warehouse.id] ??
@@ -1095,7 +1525,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                             ) : (
                               <div className="flex flex-wrap gap-1.5">
                                 {settingsLastLegs.map((config) => {
-                                  const dbMethod = findDbMethod(config.name);
+                                  const dbMethod = findDbMethod(config);
                                   if (!dbMethod) return null;
                                   const methodIds =
                                     warehouseLogisticsDraftIdsByWarehouseId[warehouse.id] ??
@@ -1132,6 +1562,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                 })}
                               </div>
                             )}
+                            {renderWarehouseLastLegPriority(warehouse)}
                           </div>
                         </div>
                         <div className="flex justify-end">
@@ -1301,7 +1732,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                             ) : (
                               <div className="flex flex-wrap gap-2">
                                 {settingsFirstLegs.map((config) => {
-                                  const dbMethod = findDbMethod(config.name);
+                                  const dbMethod = findDbMethod(config);
                                   if (!dbMethod) return null;
                                   const methodIds =
                                     warehouseLogisticsDraftIdsByWarehouseId[warehouse.id] ??
@@ -1351,7 +1782,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                             ) : (
                               <div className="flex flex-wrap gap-2">
                                 {settingsLastLegs.map((config) => {
-                                  const dbMethod = findDbMethod(config.name);
+                                  const dbMethod = findDbMethod(config);
                                   if (!dbMethod) return null;
                                   const methodIds =
                                     warehouseLogisticsDraftIdsByWarehouseId[warehouse.id] ??
@@ -1388,6 +1819,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                 })}
                               </div>
                             )}
+                            {renderWarehouseLastLegPriority(warehouse)}
                           </div>
                         </div>
                         <div className="flex justify-end">

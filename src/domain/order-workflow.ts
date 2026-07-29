@@ -79,12 +79,10 @@ export function isUploadedTemuStatus(value: string) {
 export function getOrderFulfillmentAssignmentIssue(
   order: OrderFulfillmentAssignment,
 ) {
-  const hasWarehouse = Boolean(order.warehouse_id || order.warehouse_name.trim());
+  const hasWarehouse = Boolean(order.warehouse_id);
   if (!hasWarehouse) return "还没有分配发货仓库。";
 
-  const hasLogisticsMethod = Boolean(
-    order.logistics_method_id || order.logistics_method.trim(),
-  );
+  const hasLogisticsMethod = Boolean(order.logistics_method_id);
   if (!hasLogisticsMethod) return "还没有分配发货方式。";
   return "";
 }
@@ -107,7 +105,7 @@ export function shouldReserveOrderInventory(stage: PersistedOrderStage) {
 }
 
 function getAssignmentKey(id: string | null, name: string) {
-  return name.trim().toLocaleLowerCase() || id?.trim() || "";
+  return id?.trim() || name.trim();
 }
 
 export function getSplitOrderFulfillmentIssue(

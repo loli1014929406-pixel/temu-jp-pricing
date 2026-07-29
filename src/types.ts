@@ -77,11 +77,14 @@ export type ProductSpec = {
   values: string[];
 };
 
+export type LogisticsParcelType = "three_cm_only" | "standard";
+
 export type LogisticsMethodConfig = {
   id: string;
   db_method_id?: string;
   name: string;
   type: "first_leg" | "last_leg";
+  parcelType?: LogisticsParcelType | null;
   formula:
     | "sf"
     | "flat_rmb"
@@ -242,6 +245,8 @@ export type Warehouse = {
   id: string;
   owner_id: string;
   name: string;
+  auto_match_enabled: boolean;
+  auto_match_priority: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -262,6 +267,16 @@ export type LogisticsMethod = {
   name: string;
   is_active: boolean;
   sort_order: number;
+  leg_type: LogisticsMethodConfig["type"] | null;
+  parcel_type: LogisticsParcelType | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type OrderAutoMatchSettings = {
+  id: boolean;
+  enabled: boolean;
+  updated_by: string | null;
   created_at: string;
   updated_at: string;
 };

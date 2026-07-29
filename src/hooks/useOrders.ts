@@ -19,6 +19,11 @@ import {
   type TemuOrderStageCounts,
 } from "../lib/orders";
 import { fetchSettings } from "../lib/settings";
+import {
+  createDisabledOrderAutoMatchSettings,
+  fetchOrderAutoMatchSettings,
+} from "../lib/order-auto-match-settings";
+import { fetchProductWarehouseShippingLimitsByProductIds } from "../lib/product-warehouse-shipping-limits";
 import type {
   Product,
   ProductItem,
@@ -29,6 +34,8 @@ import type {
   WarehouseLogisticsMethod,
   WarehouseSku,
   PricingSettings,
+  OrderAutoMatchSettings,
+  ProductWarehouseShippingLimit,
 } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { isSameDraft, readDraft, useDraftPersistence } from "./use-draft-persistence";
@@ -111,6 +118,8 @@ type UseOrdersResult = {
   logisticsMethods: LogisticsMethod[];
   warehouseLogisticsMethods: WarehouseLogisticsMethod[];
   warehouseSkus: WarehouseSku[];
+  productWarehouseShippingLimits: ProductWarehouseShippingLimit[];
+  orderAutoMatchSettings: OrderAutoMatchSettings;
   settings: PricingSettings | null;
   drafts: Record<string, OrderDraft>;
   selectedOrderIds: string[];
@@ -399,6 +408,11 @@ export function useOrders(user: User, orderQuery: FetchTemuOrdersPageOptions) {
     WarehouseLogisticsMethod[]
   >([]);
   const [warehouseSkus, setWarehouseSkus] = useState<WarehouseSku[]>([]);
+  const [productWarehouseShippingLimits, setProductWarehouseShippingLimits] = useState<
+    ProductWarehouseShippingLimit[]
+  >([]);
+  const [orderAutoMatchSettings, setOrderAutoMatchSettings] =
+    useState<OrderAutoMatchSettings>(createDisabledOrderAutoMatchSettings());
   const [settings, setSettings] = useState<PricingSettings | null>(null);
   const [drafts, setDrafts] = useState<Record<string, OrderDraft>>(restoredDraft?.drafts ?? {});
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
@@ -438,12 +452,14 @@ export function useOrders(user: User, orderQuery: FetchTemuOrdersPageOptions) {
           nextProducts,
           nextLogisticsMethods,
           fetchedSettings,
+          fetchedOrderAutoMatchSettings,
         ] =
           await Promise.all([
             loadCachedWarehouses(),
             loadCachedProducts({ includeNotSelling: true }),
             loadCachedLogisticsMethods(),
             fetchSettings(user.id).catch(() => null),
+            fetchOrderAutoMatchSettings(),
           ]);
         const productIds = nextProducts.map((product) => product.id);
         const warehouseIds = nextWarehouses.map((warehouse) => warehouse.id);
@@ -451,10 +467,12 @@ export function useOrders(user: User, orderQuery: FetchTemuOrdersPageOptions) {
           [nextProductItems, nextProductSkus],
           nextWarehouseSkus,
           nextWarehouseLogisticsMethods,
+          nextProductWarehouseShippingLimits,
         ] = await Promise.all([
           loadCachedProductDetails(productIds),
           fetchWarehouseSkus(warehouseIds),
           loadCachedWarehouseLogisticsMethods(warehouseIds),
+          fetchProductWarehouseShippingLimitsByProductIds(productIds),
         ]);
 
         if (!active) return;
@@ -466,6 +484,8 @@ export function useOrders(user: User, orderQuery: FetchTemuOrdersPageOptions) {
         setLogisticsMethods(nextLogisticsMethods);
         setWarehouseLogisticsMethods(nextWarehouseLogisticsMethods);
         setWarehouseSkus(nextWarehouseSkus);
+        setProductWarehouseShippingLimits(nextProductWarehouseShippingLimits);
+        setOrderAutoMatchSettings(fetchedOrderAutoMatchSettings);
         setSettings(fetchedSettings);
 
         setBulkWarehouseId("");
@@ -712,6 +732,8 @@ export function useOrders(user: User, orderQuery: FetchTemuOrdersPageOptions) {
     logisticsMethods,
     warehouseLogisticsMethods,
     warehouseSkus,
+    productWarehouseShippingLimits,
+    orderAutoMatchSettings,
     settings,
     drafts,
     selectedOrderIds,

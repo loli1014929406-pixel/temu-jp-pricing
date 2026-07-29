@@ -11,7 +11,10 @@ import type {
   ProductTransferRecord,
 } from "../types";
 import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../utils/sku-code";
-import { upsertProductWarehouseShippingLimits } from "./product-warehouse-shipping-limits";
+import {
+  normalizeWarehouseShippingLimit,
+  upsertProductWarehouseShippingLimits,
+} from "./product-warehouse-shipping-limits";
 import { withTimeout } from "./supabase-helpers";
 import { invalidateProductReferenceCache } from "./operational-cache";
 
@@ -40,9 +43,8 @@ function normalizeProductDraft(product: ProductDraft): ProductDraft {
   const comboName = product.combo_name.trim() || productNameCn;
   const comboDescription = product.combo_description.trim() || comboName || productNameCn;
   const titleJp = product.title_jp.trim() || productNameCn;
-  const maxUnitsPerParcel = Math.max(
-    1,
-    Math.trunc(Number(product.max_units_per_parcel) || 1),
+  const maxUnitsPerParcel = normalizeWarehouseShippingLimit(
+    product.max_units_per_parcel,
   );
 
   return {
@@ -76,9 +78,8 @@ function normalizeProductRow(row: Partial<Product>): Product {
     package_width_cm: Number(row.package_width_cm ?? 0),
     package_height_cm: Number(row.package_height_cm ?? 0),
     package_weight_g: Number(row.package_weight_g ?? 0),
-    max_units_per_parcel: Math.max(
-      1,
-      Math.trunc(Number(row.max_units_per_parcel) || 1),
+    max_units_per_parcel: normalizeWarehouseShippingLimit(
+      row.max_units_per_parcel,
     ),
     is_selling: row.is_selling !== false,
     notes: row.notes ?? "",
@@ -924,7 +925,9 @@ export async function updateProduct(
       p_skus: skuRows,
       p_limits: warehouseShippingLimits.map((limit) => ({
         warehouse_id: limit.warehouse_id,
-        max_units_per_parcel: Math.max(1, Math.trunc(Number(limit.max_units_per_parcel) || 1)),
+        max_units_per_parcel: normalizeWarehouseShippingLimit(
+          limit.max_units_per_parcel,
+        ),
       })),
     }),
     "事务保存商品结构",

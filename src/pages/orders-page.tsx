@@ -17,7 +17,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { PageHeader } from "../components/ui";
 import { StandardTable, type StandardTableColumn } from "../components/ui/StandardTable";
 import {
-  createEmptyDraft,
   getOrdersErrorMessage,
   toDraft,
   type OrderDraft,
@@ -33,16 +32,15 @@ import {
 } from "../lib/excel";
 import {
   dedupeLogisticsMethodNames,
-  getLogisticsMethodIdByName,
 } from "../lib/logistics-methods";
-import { resolveLastLegMethods } from "../lib/defaults";
 import {
-  getWarehouseLastLegMethodNames,
+  getWarehouseLastLegMethods,
   getWarehouseLogisticsConfigStatus,
-  isLastLegMethodAllowedForWarehouse,
+  isLastLegMethodIdAllowedForWarehouse,
 } from "../lib/warehouse-logistics";
 import {
   assignTemuOrderShipment,
+  autoAssignTemuOrderShipment,
   cancelTemuOrderSplit,
   deleteTemuOrder,
   fetchTemuOrderFulfillmentByOrderNo,
@@ -60,16 +58,14 @@ import {
   type TemuTrackingAlert,
 } from "../lib/order-tracking";
 import type {
+  LogisticsMethod,
   Product,
   ProductSku,
-  LogisticsMethodConfig,
   TemuOrderRecord,
   Warehouse,
-  WarehouseSku,
 } from "../types";
 import {
   calculatePurchaseShippingRmb,
-  getThreeCmDimensionIssue,
 } from "../utils/shipping-costs";
 import { confirmAction, confirmDelete, confirmSave } from "../utils/confirmations";
 import {
@@ -83,6 +79,9 @@ import {
   type OrderStage,
   uploadedTemuOrderStatus,
 } from "../domain/order-workflow";
+import {
+  matchSingleSkuThreeCmShipment,
+} from "../domain/order-auto-match";
 import {
   getOrderCustomerHistoryMeta,
   getOrderCustomerHistoryTitle,
@@ -118,15 +117,7 @@ import {
   formatStyleColorForDeclaration,
   normalizeLogisticsMethod,
   buildSkuOrderLookup,
-  OrderFulfillmentMatch,
-  OrderFulfillmentMatchResult,
-  fukuokaWarehouseAliases,
-  suzhouWarehouseAliases,
-  fukuokaLastmileMethod,
-  ocsThreeCmMethod,
-  ocsSmallParcelMethod,
   getOrderFulfillmentQuantity,
-  getWarehousesByAliases,
   formatAutoMatchBlockedReasons,
   getOrderDisplayGroupKey,
   mergeOrderWithDraft,
@@ -193,6 +184,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
     logisticsMethods,
     warehouseLogisticsMethods,
     warehouseSkus,
+    productWarehouseShippingLimits,
+    orderAutoMatchSettings,
     settings,
     drafts,
     selectedOrderIds,
@@ -366,9 +359,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
   const bulkLogisticsMethodOptions = useMemo(
     () =>
       selectedBulkWarehouse
-        ? getWarehouseLastLegMethodNames(
+        ? getWarehouseLastLegMethods(
             selectedBulkWarehouse.id,
-            settings,
             logisticsMethods,
             warehouseLogisticsMethods,
           )
@@ -376,7 +368,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
     [
       logisticsMethods,
       selectedBulkWarehouse,
-      settings,
       warehouseLogisticsMethods,
     ],
   );
@@ -616,26 +607,12 @@ export function OrdersPage({ user }: OrdersPageProps) {
       }
     }
 
-    const currentDraft = drafts[orderIds[0]] ?? createEmptyDraft();
     const nextWarehouseName = warehouse?.name ?? "";
-    const nextLogisticsMethod =
-      warehouse &&
-      isLastLegMethodAllowedForWarehouse(
-        warehouse.id,
-        currentDraft.logistics_method,
-        settings,
-        logisticsMethods,
-        warehouseLogisticsMethods,
-      )
-      ? currentDraft.logistics_method
-      : "";
     updateDraftFieldsForOrders(orderIds, {
       warehouse_id: warehouse?.id ?? warehouseId,
       warehouse_name: nextWarehouseName,
-      logistics_method_id: nextLogisticsMethod
-        ? getLogisticsMethodIdByName(nextLogisticsMethod, logisticsMethods)
-        : null,
-      logistics_method: nextLogisticsMethod,
+      logistics_method_id: null,
+      logistics_method: "",
     });
   }
 
@@ -643,8 +620,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
     orderIds: string[],
     value: string,
   ) {
-    const logisticsMethod = normalizeLogisticsMethod(value);
-    if (!logisticsMethod) {
+    const logisticsMethodId = value.trim();
+    if (!logisticsMethodId) {
       updateDraftFieldsForOrders(orderIds, {
         logistics_method_id: null,
         logistics_method: "",
@@ -680,16 +657,22 @@ export function OrdersPage({ user }: OrdersPageProps) {
       setErrorMessage("选择的仓库不存在，请重新选择。");
       return;
     }
+    const logisticsMethod = logisticsMethods.find(
+      (method) => method.id === logisticsMethodId && method.is_active,
+    );
+    if (!logisticsMethod) {
+      setErrorMessage("选择的发货方式不存在或已停用，请刷新后重试。");
+      return;
+    }
     if (
-      !isLastLegMethodAllowedForWarehouse(
+      !isLastLegMethodIdAllowedForWarehouse(
         warehouse.id,
-        logisticsMethod,
-        settings,
+        logisticsMethod.id,
         logisticsMethods,
         warehouseLogisticsMethods,
       )
     ) {
-      setErrorMessage(`${warehouse.name} 不能使用“${logisticsMethod}”发货方式。`);
+      setErrorMessage(`${warehouse.name} 不能使用“${logisticsMethod.name}”发货方式。`);
       return;
     }
 
@@ -699,18 +682,9 @@ export function OrdersPage({ user }: OrdersPageProps) {
       return;
     }
 
-    const logisticsMethodId = getLogisticsMethodIdByName(
-      logisticsMethod,
-      logisticsMethods,
-    );
-    if (!logisticsMethodId) {
-      setErrorMessage(`发货方式“${logisticsMethod}”没有匹配到有效资料，请刷新后重试。`);
-      return;
-    }
-
     updateDraftFieldsForOrders(orderIds, {
       logistics_method_id: logisticsMethodId,
-      logistics_method: logisticsMethod,
+      logistics_method: logisticsMethod.name,
     });
     setBusyKey(`assign-${orderIds.join("|")}`);
     setErrorMessage("");
@@ -724,7 +698,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
           warehouse_id: warehouse.id,
           warehouse_name: warehouse.name,
           logistics_method_id: logisticsMethodId,
-          logistics_method: logisticsMethod,
+          logistics_method: logisticsMethod.name,
           order_status: draft.order_status.trim() || "新订单",
         };
         return { order, updates, nextOrder: { ...order, ...updates } };
@@ -809,56 +783,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
     return "";
   }
 
-  function getAllowedWarehouseLogisticsMethod(
-    warehouse: Warehouse,
-    logisticsMethod: string,
-  ) {
-    const normalizedMethod = normalizeLogisticsMethod(logisticsMethod);
-    const methods = getWarehouseLastLegMethodNames(
-      warehouse.id,
-      settings,
-      logisticsMethods,
-      warehouseLogisticsMethods,
-    );
-    return methods.includes(normalizedMethod) ? normalizedMethod : "";
-  }
-
-  function getAllowedWarehouseLogisticsMethodByFormula(
-    warehouse: Warehouse,
-    formula: LogisticsMethodConfig["formula"],
-    fallbackName: string,
-  ) {
-    const allowedMethodIds = new Set(
-      warehouseLogisticsMethods
-        .filter((link) => link.warehouse_id === warehouse.id)
-        .map((link) => link.logistics_method_id),
-    );
-    const allowedMethods = logisticsMethods.filter((method) =>
-      allowedMethodIds.has(method.id),
-    );
-    const config = settings
-      ? resolveLastLegMethods(settings).find(
-          (method) =>
-            method.isActive &&
-            method.formula === formula &&
-            (method.db_method_id
-              ? allowedMethodIds.has(method.db_method_id)
-              : allowedMethods.some(
-                  (allowedMethod) =>
-                    normalizeLogisticsMethod(allowedMethod.name) ===
-                    normalizeLogisticsMethod(method.name),
-                )),
-        )
-      : null;
-    const masterMethod = config?.db_method_id
-      ? logisticsMethods.find((method) => method.id === config.db_method_id)
-      : null;
-    return getAllowedWarehouseLogisticsMethod(
-      warehouse,
-      masterMethod?.name ?? config?.name ?? fallbackName,
-    );
-  }
-
   function canQueryTrackingStatus(order: TemuOrderRecord) {
     return Boolean(
       order.logistics_tracking_no.trim() &&
@@ -928,19 +852,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
     return best.record;
   }
 
-  function getSkuAvailableStock(
-    warehouseId: string,
-    sku: ProductSku,
-    availableStockByKey?: Map<string, number>,
-  ) {
-    if (!sku.id) return 0;
-    const stockKey = `${warehouseId}:${sku.id}`;
-    if (availableStockByKey) {
-      return availableStockByKey.get(stockKey) ?? 0;
-    }
-    return warehouseSkusByKey.get(stockKey)?.stock_quantity ?? 0;
-  }
-
   function reserveOrderInventory(
     warehouseId: string,
     sku: ProductSku,
@@ -952,94 +863,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
     if ((availableStockByKey.get(stockKey) ?? 0) < orderQuantity) return false;
     availableStockByKey.set(stockKey, (availableStockByKey.get(stockKey) ?? 0) - orderQuantity);
     return true;
-  }
-
-  function getWarehouseWithSkuStock(
-    candidateWarehouses: Warehouse[],
-    sku: ProductSku,
-    quantity: number,
-    availableStockByKey?: Map<string, number>,
-  ) {
-    return candidateWarehouses.find(
-      (warehouse) => getSkuAvailableStock(warehouse.id, sku, availableStockByKey) >= quantity,
-    );
-  }
-
-  function getThreeCmDimensionIssueForSku(sku: ProductSku) {
-    const product = sku.product_id ? productsById.get(sku.product_id) ?? null : null;
-    if (!product) return "商品资料缺少包裹尺寸";
-    return getThreeCmDimensionIssue(product);
-  }
-
-  function matchOrderFulfillment(
-    order: TemuOrderRecord,
-    availableStockByKey?: Map<string, number>,
-  ): OrderFulfillmentMatchResult {
-    const sku = getOrderSku(order);
-    if (!sku?.id) return { status: "unmatched" };
-
-    const quantity = getOrderFulfillmentQuantity(order);
-    const warehouseIdsWithSku = new Set(
-      warehouseSkus
-        .filter((stock) => stock.sku_id === sku.id)
-        .map((stock) => stock.warehouse_id),
-    );
-    const warehousesWithSku = warehouses.filter((warehouse) =>
-      warehouseIdsWithSku.has(warehouse.id),
-    );
-    const fukuokaWarehouse = getWarehouseWithSkuStock(
-      getWarehousesByAliases(warehousesWithSku, fukuokaWarehouseAliases),
-      sku,
-      quantity,
-      availableStockByKey,
-    );
-    if (fukuokaWarehouse) {
-      const fukuokaMethod = getAllowedWarehouseLogisticsMethodByFormula(
-        fukuokaWarehouse,
-        "flat_jpy",
-        fukuokaLastmileMethod,
-      );
-      const dimensionIssue = getThreeCmDimensionIssueForSku(sku);
-      if (dimensionIssue) {
-        return {
-          status: "blocked",
-          reason: `订单 ${getOrderLineLabel(order)}：福冈仓有库存，但${dimensionIssue}，不能发${fukuokaMethod || "该尾程方式"}。`,
-        };
-      }
-
-      const logisticsMethod = fukuokaMethod;
-      if (!logisticsMethod) {
-        return {
-          status: "blocked",
-          reason: `${fukuokaWarehouse.name} 没有配置对应的尾程发货方式。`,
-        };
-      }
-      return {
-        status: "matched",
-        match: { warehouse: fukuokaWarehouse, logisticsMethod, sku, quantity },
-      };
-    }
-
-    const suzhouWarehouse = getWarehouseWithSkuStock(
-      getWarehousesByAliases(warehousesWithSku, suzhouWarehouseAliases),
-      sku,
-      quantity,
-      availableStockByKey,
-    );
-    if (!suzhouWarehouse) return { status: "unmatched" };
-
-    const dimensionIssue = getThreeCmDimensionIssueForSku(sku);
-    const logisticsMethod = getAllowedWarehouseLogisticsMethodByFormula(
-      suzhouWarehouse,
-      dimensionIssue ? "ocs_small" : "ocs_3cm",
-      dimensionIssue ? ocsSmallParcelMethod : ocsThreeCmMethod,
-    );
-    if (!logisticsMethod) return { status: "unmatched" };
-
-    return {
-      status: "matched",
-      match: { warehouse: suzhouWarehouse, logisticsMethod, sku, quantity },
-    };
   }
 
   function getOrderDetailRows(order: TemuOrderRecord) {
@@ -1489,6 +1312,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
       updates: Parameters<typeof updateTemuOrder>[1];
       nextOrder: TemuOrderRecord;
     }>,
+    options: { autoMatch?: boolean } = {},
   ) {
     assertOrdersWarehouseLogisticsComplete(entries.map((entry) => entry.nextOrder));
 
@@ -1554,17 +1378,15 @@ export function OrdersPage({ user }: OrdersPageProps) {
           }
 
           const warehouseId = entry.nextOrder.warehouse_id;
-          const logisticsMethodId =
-            entry.nextOrder.logistics_method_id ||
-            getLogisticsMethodIdByName(
-              normalizeLogisticsMethod(entry.nextOrder.logistics_method),
-              logisticsMethods,
-            );
+          const logisticsMethodId = entry.nextOrder.logistics_method_id;
           if (!warehouseId || !logisticsMethodId) {
             throw new Error("仓库和尾程发货方式必须同时选择。");
           }
 
-          const result = await assignTemuOrderShipment({
+          const assignShipment = options.autoMatch
+            ? autoAssignTemuOrderShipment
+            : assignTemuOrderShipment;
+          const result = await assignShipment({
             shipmentId: entry.order.shipment_id,
             warehouseId,
             logisticsMethodId,
@@ -1668,12 +1490,12 @@ export function OrdersPage({ user }: OrdersPageProps) {
     const invalidPendingOrder = pendingOrderAssignments
       .find(
         ({ nextOrder }) =>
-          Boolean(nextOrder.logistics_method.trim()) &&
+          Boolean(nextOrder.logistics_method_id || nextOrder.logistics_method.trim()) &&
           (!nextOrder.warehouse_id ||
-            !isLastLegMethodAllowedForWarehouse(
+            !nextOrder.logistics_method_id ||
+            !isLastLegMethodIdAllowedForWarehouse(
               nextOrder.warehouse_id,
-              nextOrder.logistics_method,
-              settings,
+              nextOrder.logistics_method_id,
               logisticsMethods,
               warehouseLogisticsMethods,
             )),
@@ -2059,27 +1881,28 @@ export function OrdersPage({ user }: OrdersPageProps) {
       return;
     }
 
-    const logisticsMethod = normalizeLogisticsMethod(bulkLogisticsMethod);
+    const logisticsMethodId = bulkLogisticsMethod.trim();
+    const logisticsMethod = logisticsMethods.find(
+      (method) => method.id === logisticsMethodId && method.is_active,
+    );
     if (!selectedWarehouse) {
       setNoticeMessage("请选择仓库后再批量分配。");
       return;
     }
-    if (!logisticsMethod) {
+    if (!logisticsMethodId || !logisticsMethod) {
       setNoticeMessage("请选择发货方式后再批量分配。");
       return;
     }
     if (
       selectedWarehouse &&
-      logisticsMethod &&
-      !isLastLegMethodAllowedForWarehouse(
+      !isLastLegMethodIdAllowedForWarehouse(
         selectedWarehouse.id,
-        logisticsMethod,
-        settings,
+        logisticsMethod.id,
         logisticsMethods,
         warehouseLogisticsMethods,
       )
     ) {
-      setErrorMessage(`${selectedWarehouse.name} 不能使用“${logisticsMethod}”发货方式。`);
+      setErrorMessage(`${selectedWarehouse.name} 不能使用“${logisticsMethod.name}”发货方式。`);
       return;
     }
     if (selectedWarehouse) {
@@ -2107,32 +1930,18 @@ export function OrdersPage({ user }: OrdersPageProps) {
         const nextWarehouseId = selectedWarehouse
           ? selectedWarehouse.id
           : draft.warehouse_id;
-        const nextLogisticsMethod = logisticsMethod;
         const nextDraft: OrderDraft = {
           ...draft,
           warehouse_id: nextWarehouseId,
           warehouse_name: nextWarehouseName,
-          logistics_method:
-            nextWarehouseId &&
-            isLastLegMethodAllowedForWarehouse(
-              nextWarehouseId,
-              nextLogisticsMethod,
-              settings,
-              logisticsMethods,
-              warehouseLogisticsMethods,
-            )
-              ? nextLogisticsMethod
-              : "",
-          logistics_method_id: getLogisticsMethodIdByName(
-            nextLogisticsMethod,
-            logisticsMethods,
-          ),
+          logistics_method: logisticsMethod.name,
+          logistics_method_id: logisticsMethod.id,
         };
         const updates = {
           ...nextDraft,
           order_status:
             nextDraft.order_status.trim() ||
-            (nextDraft.warehouse_id || nextDraft.warehouse_name.trim() ? "新订单" : ""),
+            (nextDraft.warehouse_id && nextDraft.logistics_method_id ? "新订单" : ""),
         };
         return { order, updates, nextOrder: { ...order, ...updates } };
       });
@@ -2171,6 +1980,10 @@ export function OrdersPage({ user }: OrdersPageProps) {
       setNoticeMessage("请先切换到待分配页面再自动匹配。");
       return;
     }
+    if (!orderAutoMatchSettings.enabled) {
+      setNoticeMessage("自动匹配当前已暂停，请先完成仓库和尾程配置后再启用。");
+      return;
+    }
     if (warehouses.length === 0) {
       setNoticeMessage("没有读取到可用仓库，请先确认仓库资料或执行库存共享迁移。");
       return;
@@ -2200,7 +2013,11 @@ export function OrdersPage({ user }: OrdersPageProps) {
     const targetOrderGroups = buildOrderDisplayRows(
       allOrders.filter((order) => targetGroupKeys.has(getOrderDisplayGroupKey(order))),
     );
-    const matchedOrders: Array<{ order: TemuOrderRecord } & OrderFulfillmentMatch> = [];
+    const matchedOrders: Array<{
+      order: TemuOrderRecord;
+      warehouse: Warehouse;
+      logisticsMethod: LogisticsMethod;
+    }> = [];
     let matchedOrderGroupCount = 0;
 
     targetOrderGroups.forEach((orderGroup) => {
@@ -2218,53 +2035,46 @@ export function OrdersPage({ user }: OrdersPageProps) {
       }
 
       const groupAvailableStockByKey = new Map(availableStockByKey);
-      const groupMatches: Array<{ order: TemuOrderRecord } & OrderFulfillmentMatch> = [];
-
-      for (const order of groupOrders) {
-        const matchResult = matchOrderFulfillment(order, groupAvailableStockByKey);
-        if (matchResult.status === "blocked") {
-          blockedReasons.push(matchResult.reason);
-          return;
-        }
-        if (matchResult.status !== "matched") {
-          blockedReasons.push(
-            `订单 ${orderLabel} 含未匹配 SKU（${getOrderLineLabel(order)}），整单保持未匹配。`,
-          );
-          return;
-        }
-
-        const matched = matchResult.match;
-        const firstGroupMatch = groupMatches[0];
-        if (
-          firstGroupMatch &&
-          (firstGroupMatch.warehouse.id !== matched.warehouse.id ||
-            firstGroupMatch.logisticsMethod !== matched.logisticsMethod)
-        ) {
-          blockedReasons.push(
-            `主订单 ${orderLabel} 的所有子单必须使用同一仓库和同一发货方式，自动匹配不会拆单。`,
-          );
-          return;
-        }
-        const reserved = reserveOrderInventory(
-          matched.warehouse.id,
-          matched.sku,
-          matched.quantity,
-          groupAvailableStockByKey,
-        );
-        if (!reserved) {
-          blockedReasons.push(
-            `订单 ${orderLabel} 的 ${getOrderLineLabel(order)} SKU 库存不足，整单保持未匹配。`,
-          );
-          return;
-        }
-        groupMatches.push({ order, ...matched });
+      const matchResult = matchSingleSkuThreeCmShipment({
+        lines: groupOrders.map((order) => ({
+          label: getOrderLineLabel(order),
+          quantity: getOrderFulfillmentQuantity(order),
+          sku: getOrderSku(order),
+        })),
+        warehouses,
+        logisticsMethods,
+        warehouseLogisticsMethods,
+        warehouseSkus,
+        productWarehouseShippingLimits,
+        availableStockByKey: groupAvailableStockByKey,
+      });
+      if (matchResult.status !== "matched") {
+        blockedReasons.push(`订单 ${orderLabel}：${matchResult.reason}`);
+        return;
       }
 
+      const matched = matchResult.match;
+      const reserved = reserveOrderInventory(
+        matched.warehouse.id,
+        matched.sku,
+        matched.quantity,
+        groupAvailableStockByKey,
+      );
+      if (!reserved) {
+        blockedReasons.push(`订单 ${orderLabel}：匹配后的仓库库存不足，整单保持待分配。`);
+        return;
+      }
       availableStockByKey.clear();
       groupAvailableStockByKey.forEach((quantity, stockKey) => {
         availableStockByKey.set(stockKey, quantity);
       });
-      matchedOrders.push(...groupMatches);
+      matchedOrders.push(
+        ...groupOrders.map((order) => ({
+          order,
+          warehouse: matched.warehouse,
+          logisticsMethod: matched.logisticsMethod,
+        })),
+      );
       matchedOrderGroupCount += 1;
     });
 
@@ -2290,12 +2100,13 @@ export function OrdersPage({ user }: OrdersPageProps) {
           order_status: "新订单",
           warehouse_id: warehouse.id,
           warehouse_name: warehouse.name,
-          logistics_method: logisticsMethod,
+          logistics_method_id: logisticsMethod.id,
+          logistics_method: logisticsMethod.name,
         };
         return { order, updates, nextOrder: { ...order, ...updates } };
       });
       const { nextOrders, inventoryChanges, failures } =
-        await saveOrderEntriesWithInventory(matchedEntries);
+        await saveOrderEntriesWithInventory(matchedEntries, { autoMatch: true });
       if (nextOrders.length === 0 && failures.length > 0) {
         throw failures[0].error;
       }
@@ -2314,7 +2125,9 @@ export function OrdersPage({ user }: OrdersPageProps) {
           inventoryChanges.length > 0
             ? `扣减 ${inventoryChanges.length} 项 SKU 库存`
             : "",
-          skippedCount > 0 ? `${skippedCount} 条因 SKU、库存、尺寸或保存失败未匹配` : "",
+          skippedCount > 0
+            ? `${skippedCount} 条因 SKU、3cm 上限、库存、尾程或保存失败未匹配`
+            : "",
         ].filter(Boolean).join("，"),
       );
     } catch (error) {
@@ -2925,6 +2738,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
           bulkWarehouseId={bulkWarehouseId}
           bulkLogisticsMethod={bulkLogisticsMethod}
           bulkLogisticsMethodOptions={bulkLogisticsMethodOptions}
+          autoMatchEnabled={orderAutoMatchSettings.enabled}
           warehouses={warehouses}
           filteredOrdersCount={filteredOrders.length}
           onClearSelection={() => setSelectedOrderIds([])}
@@ -2976,19 +2790,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
               }
             }
             setBulkWarehouseId(warehouseId);
-            if (
-              !warehouse ||
-              (bulkLogisticsMethod &&
-                !isLastLegMethodAllowedForWarehouse(
-                  warehouse.id,
-                  bulkLogisticsMethod,
-                  settings,
-                  logisticsMethods,
-                  warehouseLogisticsMethods,
-                ))
-            ) {
-              setBulkLogisticsMethod("");
-            }
+            setBulkLogisticsMethod("");
           }}
           onBulkLogisticsMethodChange={setBulkLogisticsMethod}
           onBulkAssign={() => void handleBulkAssign()}
@@ -3144,7 +2946,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
                       canEdit={canEdit}
                       getWarehouseStockIssueForOrders={getWarehouseStockIssueForOrders}
                       logisticsMethods={logisticsMethods}
-                      settings={settings}
                       onHandleWarehouseChangeForOrders={handleWarehouseChangeForOrders}
                       onHandleLogisticsMethodChangeForOrders={handleLogisticsMethodChangeForOrders}
                       onSaveActualShipTimeForOrders={handleSaveActualShipTimeForOrders}

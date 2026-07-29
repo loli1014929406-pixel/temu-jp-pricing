@@ -7,7 +7,7 @@ import { requireSession, withTimeout } from "./supabase-helpers";
 import { invalidateLogisticsReferenceCache } from "./operational-cache";
 
 const logisticsMethodSelect =
-  "id, owner_id, name, is_active, sort_order, created_at, updated_at";
+  "id, owner_id, name, is_active, sort_order, leg_type, parcel_type, created_at, updated_at";
 const warehouseLogisticsMethodSelect =
   "id, warehouse_id, logistics_method_id, owner_id, is_default, sort_order, created_at, updated_at";
 
@@ -90,9 +90,19 @@ export async function createLogisticsMethod(name: string) {
 
 export async function updateLogisticsMethod(
   id: string,
-  updates: { name?: string; is_active?: boolean },
+  updates: {
+    name?: string;
+    is_active?: boolean;
+    leg_type?: LogisticsMethod["leg_type"];
+    parcel_type?: LogisticsMethod["parcel_type"];
+  },
 ) {
-  const nextUpdates: { name?: string; is_active?: boolean } = {};
+  const nextUpdates: {
+    name?: string;
+    is_active?: boolean;
+    leg_type?: LogisticsMethod["leg_type"];
+    parcel_type?: LogisticsMethod["parcel_type"];
+  } = {};
   if (typeof updates.name !== "undefined") {
     const normalizedName = normalizeLogisticsMethodName(updates.name);
     if (!normalizedName) throw new Error("请填写发货方式名称");
@@ -100,6 +110,12 @@ export async function updateLogisticsMethod(
   }
   if (typeof updates.is_active !== "undefined") {
     nextUpdates.is_active = updates.is_active;
+  }
+  if (typeof updates.leg_type !== "undefined") {
+    nextUpdates.leg_type = updates.leg_type;
+  }
+  if (typeof updates.parcel_type !== "undefined") {
+    nextUpdates.parcel_type = updates.parcel_type;
   }
 
   const { supabase } = await requireSession();
@@ -157,20 +173,29 @@ async function syncLogisticsMethodConfigs(
     const previousConfig = previousById.get(config.id);
     const existing = findLogisticsMethodForConfig(config, previousConfig, syncedMethods);
     const isActive = Boolean(config.isActive);
+    const parcelType = config.type === "last_leg" ? config.parcelType ?? null : null;
     let syncedMethod: LogisticsMethod;
 
     if (existing) {
       const shouldUpdateActive = existing.is_active !== isActive;
-      syncedMethod = shouldUpdateActive
-        ? await updateLogisticsMethod(existing.id, { is_active: isActive })
+      const shouldUpdateLegType = existing.leg_type !== config.type;
+      const shouldUpdateParcelType = existing.parcel_type !== parcelType;
+      syncedMethod = shouldUpdateActive || shouldUpdateLegType || shouldUpdateParcelType
+        ? await updateLogisticsMethod(existing.id, {
+            is_active: isActive,
+            leg_type: config.type,
+            parcel_type: parcelType,
+          })
         : existing;
       const index = syncedMethods.findIndex((method) => method.id === syncedMethod.id);
       if (index >= 0) syncedMethods[index] = syncedMethod;
     } else {
       syncedMethod = await createLogisticsMethod(name);
-      if (syncedMethod.is_active !== isActive) {
-        syncedMethod = await updateLogisticsMethod(syncedMethod.id, { is_active: isActive });
-      }
+      syncedMethod = await updateLogisticsMethod(syncedMethod.id, {
+        is_active: isActive,
+        leg_type: config.type,
+        parcel_type: parcelType,
+      });
       syncedMethods.push(syncedMethod);
     }
 
@@ -179,6 +204,7 @@ async function syncLogisticsMethodConfigs(
       db_method_id: syncedMethod.id,
       name: syncedMethod.name,
       isActive,
+      parcelType: syncedMethod.parcel_type,
     });
   }
 
@@ -295,29 +321,12 @@ export async function replaceWarehouseLogisticsMethods(
     new Set(logisticsMethodIds.map((methodId) => methodId.trim()).filter(Boolean)),
   );
   const { supabase } = await requireSession();
-  const { error: deleteError } = await withTimeout(
-    supabase.from("warehouse_logistics_methods").delete().eq("warehouse_id", warehouseId),
-    "保存仓库发货方式",
-  );
-
-  if (deleteError) throw deleteError;
-  if (methodIds.length === 0) {
-    invalidateLogisticsReferenceCache();
-    return [] as WarehouseLogisticsMethod[];
-  }
-
   const { data, error } = await withTimeout(
     supabase
-      .from("warehouse_logistics_methods")
-      .insert(
-        methodIds.map((methodId, index) => ({
-          warehouse_id: warehouseId,
-          logistics_method_id: methodId,
-          is_default: index === 0,
-          sort_order: index,
-        })),
-      )
-      .select(warehouseLogisticsMethodSelect),
+      .rpc("replace_warehouse_logistics_methods_atomic", {
+        p_warehouse_id: warehouseId,
+        p_logistics_method_ids: methodIds,
+      }),
     "保存仓库发货方式",
   );
 

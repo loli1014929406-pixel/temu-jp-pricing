@@ -60,16 +60,19 @@ npm run sync:backend-context
 
 以下内容基于当前代码依赖关系，说明“修改此处，已知会连带影响哪些地方”。涉及库存、订单、财务或数据库的改动，除前端调用点外，还必须检查对应 Supabase 迁移、RPC、视图、RLS、测试与本地数据同步脚本。
 
-### 库存扣减与苏州/福冈自动匹配（`src/pages/orders-page.tsx`、`src/lib/orders.ts`、`src/lib/inventory.ts`）
+### 库存扣减与仓库优先级自动匹配（`src/pages/orders-page.tsx`、`src/domain/order-auto-match.ts`、`src/lib/orders.ts`、`src/lib/inventory.ts`）
 
 - 影响范围：
-  - `matchOrderFulfillment`、`fukuokaWarehouseAliases`、`suzhouWarehouseAliases`、`fukuokaLastmileMethod` 决定自动匹配顺序和发货方式。当前先匹配福冈库存，再匹配苏州库存；福冈走 `flat_jpy`/“福冈Japan Post”，苏州根据 3cm 尺寸条件在 `ocs_3cm` 与 `ocs_small` 之间选择。
+  - `matchSingleSkuThreeCmShipment` 按 `warehouses.auto_match_priority` 从小到大匹配；只有 `auto_match_enabled=true` 且优先级为正整数的仓库参与。仓库身份只使用 `warehouse_id`，禁止别名、包含、相似或音译匹配。
+  - 自动匹配只处理单 SKU 包裹；同一 SKU 多明细会聚合数量。商品在各仓库的 `product_warehouse_shipping_limits.max_units_per_parcel` 默认 1、允许 0；0 表示该商品不在该仓库自动匹配 3cm。
+  - 自动匹配只选择仓库已绑定、启用、`leg_type=last_leg` 且 `parcel_type=three_cm_only` 的尾程，并按 `warehouse_logistics_methods.sort_order` 决定同仓库内优先顺序。数量超限时不回退普通尾程，整单保持待分配。
+  - `order_auto_match_settings.enabled` 是全局总开关；上线或配置不完整时必须保持关闭。`auto_assign_temu_order_shipment` 在数据库内再次校验总开关、单 SKU、仓库参与状态、3cm 上限和精确尾程 ID，再调用原子库存分配 RPC。
   - `saveOrderEntriesWithInventory` 按 `shipment_id` 聚合保存，结合 `getOrderStage` 和 `shouldReserveOrderInventory` 判断占用、换仓回补或释放库存；`buildOrderStockDeductions` 将包裹商品映射到 `warehouse_skus`。
   - `src/lib/orders.ts` 的 `assignTemuOrderShipment`、`releaseTemuOrderShipmentInventory` 分别调用 `assign_temu_order_shipment`、`release_temu_order_shipment_inventory`。RPC 会联动 `temu_order_shipments`、`temu_order_shipment_items`、`temu_order_sku_inventory_reservations`、`warehouse_skus` 和 `warehouse_sku_stock_adjustments`。
   - 拆单、取消拆单、删除订单也会释放或重建库存占用，需同时检查 `save_temu_order_split`、`cancel_temu_order_split`、`delete_temu_order_group`。
   - 同一 `warehouse_skus` 余额也被库存页、库存调拨、采购入库和库存一致性检查使用，订单扣减规则改变会影响这些页面显示和后续可分配数量。
 - 修改前需确认：
-  - 确认业务上是否仍为“福冈优先、苏州兜底”，以及福冈/苏州仓库别名、仓库绑定的 `logistics_method_id` 和物流公式是否仍有效。
+  - 确认参与仓库、唯一优先级、商品各仓 3cm 最大数、尾程全局分类和仓库尾程顺序；不得通过仓库名称推断仓库 ID 或物流能力。
   - 确认扣减粒度是包裹商品 `shipment_item_id`，每个包裹商品均完整分配且数量为正；同一包裹必须使用同一仓库和同一尾程方式。
   - 确认哪些阶段应占用库存。当前只有 `pending_assignment` 不占用，进入其他阶段即应保留占用；退回待分配时必须同步释放。
   - 确认库存余额、占用记录和调整流水在同一数据库事务中完成，并保留稳定顺序的行锁、库存不足校验、幂等检查和失败回滚。
@@ -77,7 +80,9 @@ npm run sync:backend-context
 - 常见陷阱：
   - 先在客户端查询库存或查询历史调整记录，再分步更新库存，会产生并发窗口。当前包裹分配 RPC 会锁定包裹及相关库存行；不要退回到“先查后扣”的非原子实现。
   - `availableStockByKey` 只是自动匹配时的前端批次内预占模拟，不能代替数据库最终校验。
-  - 当前福冈有库存但 SKU 不满足 3cm 条件时会直接返回阻塞，不会继续回退苏州；修改该行为属于业务规则变化，需先确认。
+  - 前端批次模拟成功不代表最终可占用；`auto_assign_temu_order_shipment` 必须保持服务端二次校验，并允许并发变化导致该包裹继续停留待分配。
+  - PostgreSQL 不提供 `min(uuid)` / `max(uuid)` 聚合。RPC 聚合 UUID 字段时应使用已经过唯一性校验的数据配合 `array_agg(...)[1]`，并通过事务内真实调用后回滚验证函数可执行。
+  - 多 SKU、数量超过全部仓库上限、无 3cm 尾程或所有参与仓库库存不足时都必须保持待分配，不能自动拆单或回退普通尾程。
   - 仅按 `order_no` 聚合会掩盖拆单后的包裹级库存归属；库存占用必须跟随 `shipment_id`/`shipment_item_id`。
   - `deductWarehouseItemStocksLegacy` 和旧的直接库存更新函数属于兼容路径，不应被重新用于当前订单履约主流程。
 
@@ -183,3 +188,5 @@ npm run sync:backend-context
 ### 更新记录
 
 - 2026-07-28：新增变更影响地图、已知问题与历史坑点、文档维护规则。
+- 2026-07-28：自动匹配改为仓库唯一优先级、单 SKU 3cm 专用尾程和数据库二次校验；仓库身份统一使用精确 UUID。
+- 2026-07-29：修复自动匹配 RPC 使用 `min(uuid)` 导致生产调用失败，并补充事务内真实调用回滚验证要求。

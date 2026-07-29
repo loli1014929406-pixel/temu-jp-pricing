@@ -99,6 +99,25 @@ const checks = [
       p_request_key: "00000000-0000-0000-0000-000000000001",
     },
   },
+  {
+    name: "replace_warehouse_logistics_methods_atomic",
+    args: {
+      p_warehouse_id: null,
+      p_logistics_method_ids: [],
+    },
+    expectedCodes: ["23503"],
+  },
+  {
+    name: "auto_assign_temu_order_shipment",
+    args: {
+      p_shipment_id: null,
+      p_warehouse_id: null,
+      p_logistics_method_id: null,
+      p_reservations: [],
+      p_reason: "",
+    },
+    expectedCodes: ["55000", "23514"],
+  },
 ];
 
 for (const check of checks) {
@@ -109,7 +128,8 @@ for (const check of checks) {
   if (error.code === "PGRST202" || error.code === "42883") {
     throw new Error(`${check.name} 未在 PostgREST 中找到：${error.message}`);
   }
-  if (error.code !== "22023") {
+  const expectedCodes = check.expectedCodes ?? ["22023"];
+  if (!expectedCodes.includes(error.code)) {
     throw new Error(`${check.name} 返回了非预期错误 ${error.code}: ${error.message}`);
   }
   console.log(`通过：${check.name}`);

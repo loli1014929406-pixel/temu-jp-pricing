@@ -20,16 +20,18 @@ function isMissingLimitsTableError(error: unknown) {
   );
 }
 
+export function normalizeWarehouseShippingLimit(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(0, Math.trunc(number)) : 1;
+}
+
 function normalizeLimit(row: Partial<ProductWarehouseShippingLimit>): ProductWarehouseShippingLimit {
   return {
     id: row.id,
     owner_id: row.owner_id,
     product_id: row.product_id,
     warehouse_id: String(row.warehouse_id ?? ""),
-    max_units_per_parcel: Math.max(
-      1,
-      Math.trunc(Number(row.max_units_per_parcel) || 1),
-    ),
+    max_units_per_parcel: normalizeWarehouseShippingLimit(row.max_units_per_parcel),
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -45,9 +47,8 @@ export function buildWarehouseShippingLimits(
 
   return warehouses.map<ProductWarehouseShippingLimit>((warehouse) => ({
     warehouse_id: warehouse.id,
-    max_units_per_parcel: Math.max(
-      1,
-      Math.trunc(Number(limitByWarehouseId.get(warehouse.id)) || 1),
+    max_units_per_parcel: normalizeWarehouseShippingLimit(
+      limitByWarehouseId.get(warehouse.id),
     ),
   }));
 }
@@ -104,9 +105,8 @@ export async function upsertProductWarehouseShippingLimits(
       owner_id: session.user.id,
       product_id: productId,
       warehouse_id: limit.warehouse_id,
-      max_units_per_parcel: Math.max(
-        1,
-        Math.trunc(Number(limit.max_units_per_parcel) || 1),
+      max_units_per_parcel: normalizeWarehouseShippingLimit(
+        limit.max_units_per_parcel,
       ),
     }));
 

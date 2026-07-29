@@ -6,10 +6,6 @@ import type {
 } from "../types";
 import { calculateDynamicMethodCost } from "../utils/shipping-costs";
 import { resolveFirstLegMethods, resolveLastLegMethods } from "./defaults";
-import {
-  dedupeLogisticsMethodNames,
-  normalizeLogisticsMethodName,
-} from "./logistics-methods";
 
 export type WarehouseLogisticsConfigStatus = {
   firstLegs: LogisticsMethodConfig[];
@@ -19,10 +15,6 @@ export type WarehouseLogisticsConfigStatus = {
   isComplete: boolean;
   issue: string;
 };
-
-function methodNameKey(value: string) {
-  return normalizeLogisticsMethodName(value).toLowerCase();
-}
 
 function sortWarehouseLinks(
   links: WarehouseLogisticsMethod[],
@@ -41,7 +33,7 @@ function findConfigForMethod(
   return configs.find((config) => {
     if (!config.isActive) return false;
     if (config.db_method_id && config.db_method_id === method.id) return true;
-    return methodNameKey(config.name) === methodNameKey(method.name);
+    return config.name.trim() === method.name.trim();
   });
 }
 
@@ -122,22 +114,30 @@ export function getWarehouseLastLegMethodNames(
   logisticsMethods: LogisticsMethod[],
   warehouseLogisticsMethods: WarehouseLogisticsMethod[],
 ) {
-  if (!warehouseId || !settings) return [];
+  return getWarehouseLastLegMethods(
+    warehouseId,
+    logisticsMethods,
+    warehouseLogisticsMethods,
+  ).map((method) => method.name);
+}
 
+export function getWarehouseLastLegMethods(
+  warehouseId: string | null | undefined,
+  logisticsMethods: LogisticsMethod[],
+  warehouseLogisticsMethods: WarehouseLogisticsMethod[],
+) {
+  if (!warehouseId) return [];
   const methodsById = new Map(
     logisticsMethods
-      .filter((method) => method.is_active)
+      .filter((method) => method.is_active && method.leg_type === "last_leg")
       .map((method) => [method.id, method]),
   );
-  const lastLegConfigs = resolveLastLegMethods(settings);
-  const methodNames = sortWarehouseLinks(
+  return sortWarehouseLinks(
     warehouseLogisticsMethods.filter((item) => item.warehouse_id === warehouseId),
   ).flatMap((link) => {
     const method = methodsById.get(link.logistics_method_id);
-    return method && findConfigForMethod(method, lastLegConfigs) ? [method.name] : [];
+    return method ? [method] : [];
   });
-
-  return dedupeLogisticsMethodNames(methodNames);
 }
 
 export function isLastLegMethodAllowedForWarehouse(
@@ -147,14 +147,27 @@ export function isLastLegMethodAllowedForWarehouse(
   logisticsMethods: LogisticsMethod[],
   warehouseLogisticsMethods: WarehouseLogisticsMethod[],
 ) {
-  const normalizedMethod = normalizeLogisticsMethodName(logisticsMethod);
-  if (!normalizedMethod) return true;
-  return getWarehouseLastLegMethodNames(
+  const exactMethodName = logisticsMethod.trim();
+  if (!exactMethodName) return true;
+  return getWarehouseLastLegMethods(
     warehouseId,
-    settings,
     logisticsMethods,
     warehouseLogisticsMethods,
-  ).includes(normalizedMethod);
+  ).some((method) => method.name.trim() === exactMethodName);
+}
+
+export function isLastLegMethodIdAllowedForWarehouse(
+  warehouseId: string | null | undefined,
+  logisticsMethodId: string | null | undefined,
+  logisticsMethods: LogisticsMethod[],
+  warehouseLogisticsMethods: WarehouseLogisticsMethod[],
+) {
+  if (!logisticsMethodId) return false;
+  return getWarehouseLastLegMethods(
+    warehouseId,
+    logisticsMethods,
+    warehouseLogisticsMethods,
+  ).some((method) => method.id === logisticsMethodId);
 }
 
 export function calculateHighestWarehouseFirstLegCostRmb({

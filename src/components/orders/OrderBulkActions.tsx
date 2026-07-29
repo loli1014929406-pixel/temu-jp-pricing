@@ -11,7 +11,7 @@ import {
   Undo2,
   X,
 } from "lucide-react";
-import type { Warehouse } from "../../types";
+import type { LogisticsMethod, Warehouse } from "../../types";
 
 type OrderBulkActionsProps = {
   activeStage: string;
@@ -35,7 +35,8 @@ type OrderBulkActionsProps = {
   hasSelectedCompletedOrders: boolean;
   bulkWarehouseId: string;
   bulkLogisticsMethod: string;
-  bulkLogisticsMethodOptions: string[];
+  bulkLogisticsMethodOptions: LogisticsMethod[];
+  autoMatchEnabled: boolean;
   warehouses: Warehouse[];
   filteredOrdersCount: number;
   onClearSelection: () => void;
@@ -81,6 +82,7 @@ export function OrderBulkActions({
   bulkWarehouseId,
   bulkLogisticsMethod,
   bulkLogisticsMethodOptions,
+  autoMatchEnabled,
   warehouses,
   filteredOrdersCount,
   onClearSelection,
@@ -310,8 +312,8 @@ export function OrderBulkActions({
                 {bulkWarehouseId ? "请选择发货方式" : "请先选择仓库"}
               </option>
               {bulkLogisticsMethodOptions.map((method) => (
-                <option key={method} value={method}>
-                  {method}
+                <option key={method.id} value={method.id}>
+                  {method.name}
                 </option>
               ))}
             </select>
@@ -331,7 +333,16 @@ export function OrderBulkActions({
           </button>
           <button
             type="button"
-            disabled={busyKey === "auto-match" || filteredOrdersCount === 0}
+            disabled={
+              busyKey === "auto-match" ||
+              filteredOrdersCount === 0 ||
+              !autoMatchEnabled
+            }
+            title={
+              autoMatchEnabled
+                ? "按仓库优先级匹配单 SKU 的 3cm 订单"
+                : "自动匹配已暂停，请先完成仓库和尾程配置后再启用"
+            }
             onClick={onAutoMatchPendingOrders}
             className="btn-secondary h-10 px-3"
           >

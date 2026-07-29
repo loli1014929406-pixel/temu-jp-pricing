@@ -7,9 +7,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectDir = path.resolve(__dirname, "..");
 const apply = process.argv.includes("--apply");
 
-const sourceWarehouseAliases = ["苏州", "suzhou"];
-const destinationWarehouseAliases = ["福冈", "福岡", "fukuoka", "fugang"];
 const transferMetadataPartPrefix = "调拨数据：";
+
+function getArgumentValue(name) {
+  const prefix = `--${name}=`;
+  return process.argv.find((argument) => argument.startsWith(prefix))?.slice(prefix.length).trim() ?? "";
+}
 
 function parseEnv(contents) {
   const env = {};
@@ -54,15 +57,6 @@ function byId(rows) {
 
 function skuStockKey(warehouseId, skuId) {
   return `${warehouseId}:${skuId}`;
-}
-
-function normalizeText(value) {
-  return String(value ?? "").trim().toLowerCase();
-}
-
-function warehouseMatches(warehouse, aliases) {
-  const name = normalizeText(warehouse?.name);
-  return aliases.some((alias) => name.includes(normalizeText(alias)));
 }
 
 function isShippedOrder(order) {
@@ -302,10 +296,8 @@ function buildExpectedInventory(data, suzhouWarehouse, fukuokaWarehouse) {
     const detail = transferDetail(adjustment.reason);
     const { source, destination } = transferRoute(detail);
     if (
-      !sourceWarehouseAliases.some((alias) => normalizeText(source).includes(normalizeText(alias))) ||
-      !destinationWarehouseAliases.some((alias) =>
-        normalizeText(destination).includes(normalizeText(alias)),
-      )
+      source.trim() !== suzhouWarehouse.name.trim() ||
+      destination.trim() !== fukuokaWarehouse.name.trim()
     ) {
       continue;
     }
@@ -428,6 +420,17 @@ function buildUpdates(data, suzhouWarehouse, fukuokaWarehouse, expected) {
 }
 
 async function main() {
+  const sourceWarehouseId = getArgumentValue("source-warehouse-id");
+  const destinationWarehouseId = getArgumentValue("destination-warehouse-id");
+  if (!sourceWarehouseId || !destinationWarehouseId) {
+    throw new Error(
+      "必须明确传入 --source-warehouse-id=<UUID> 和 --destination-warehouse-id=<UUID>，仓库不再按名称、别名或相似文本匹配",
+    );
+  }
+  if (sourceWarehouseId === destinationWarehouseId) {
+    throw new Error("源仓库和目标仓库不能相同");
+  }
+
   const env = { ...(await loadEnv()), ...process.env };
   const supabaseUrl = env.VITE_SUPABASE_URL;
   const supabaseAnonKey = env.VITE_SUPABASE_ANON_KEY;
@@ -467,14 +470,14 @@ async function main() {
     await Promise.all(tableNames.map(async (table) => [table, await fetchAll(supabase, table)])),
   );
 
-  const suzhouWarehouse = data.warehouses.find((warehouse) =>
-    warehouseMatches(warehouse, sourceWarehouseAliases),
+  const suzhouWarehouse = data.warehouses.find(
+    (warehouse) => warehouse.id === sourceWarehouseId,
   );
-  const fukuokaWarehouse = data.warehouses.find((warehouse) =>
-    warehouseMatches(warehouse, destinationWarehouseAliases),
+  const fukuokaWarehouse = data.warehouses.find(
+    (warehouse) => warehouse.id === destinationWarehouseId,
   );
   if (!suzhouWarehouse || !fukuokaWarehouse) {
-    throw new Error("找不到苏州或福冈仓库");
+    throw new Error("找不到指定 UUID 的源仓库或目标仓库");
   }
 
   const expected = buildExpectedInventory(data, suzhouWarehouse, fukuokaWarehouse);
