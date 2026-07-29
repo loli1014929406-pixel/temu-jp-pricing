@@ -295,19 +295,14 @@ export function getOcsTrackingUrl(trackingNo: string) {
   return `${ocsTrackingBaseUrl}?${params.toString()}`;
 }
 
-export function getTrackingUrl(order: TemuOrderRecord) {
+export function getTrackingUrl(
+  order: Pick<TemuOrderRecord, "logistics_tracking_no" | "warehouse_id">,
+  suzhouWarehouseId: string,
+) {
   const trackingNo = order.logistics_tracking_no.trim();
-  if (!trackingNo) return "";
-
-  if (getOrderTrackingCarrier(order) === "japan_post") {
-    return "";
-  }
-
-  if (hasOcsYamatoText(order.logistics_method)) {
-    return getOcsTrackingUrl(trackingNo);
-  }
-
-  return "";
+  if (!trackingNo || !suzhouWarehouseId) return "";
+  if (order.warehouse_id !== suzhouWarehouseId) return "";
+  return getOcsTrackingUrl(trackingNo);
 }
 
 export function getTrackingStatusUrl(order: TemuOrderRecord) {
@@ -681,9 +676,13 @@ export const OrderTableRow = memo(function OrderTableRow({
   const hasUnmatchedLogisticsMethod = rowOrders.some(
     (order) => order.logistics_method_is_unmatched,
   );
+  const suzhouWarehouseId = useMemo(
+    () => warehouses.find((warehouse) => warehouse.name === "苏州")?.id ?? "",
+    [warehouses],
+  );
   const trackingUrl = useMemo(
-    () => (mergedOrder ? getTrackingUrl(mergedOrder) : ""),
-    [mergedOrder],
+    () => (mergedOrder ? getTrackingUrl(mergedOrder, suzhouWarehouseId) : ""),
+    [mergedOrder, suzhouWarehouseId],
   );
   const trackingStatusUrl = useMemo(
     () => (mergedOrder ? getTrackingStatusUrl(mergedOrder) : ""),
