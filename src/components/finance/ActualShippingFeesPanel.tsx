@@ -1,12 +1,35 @@
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from "react";
-import { AlertTriangle, Ban, Check, CheckCircle2, History, Search, Upload, WalletCards, X } from "lucide-react";
-import { StandardTable } from "../ui/StandardTable";
-import { readXlsxWorkbook } from "../../lib/tabular-parser";
 import {
+  AlertTriangle,
+  Ban,
+  Check,
+  CheckCircle2,
+  History,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+  Upload,
+  WalletCards,
+  X,
+} from "lucide-react";
+import { StandardTable } from "../ui/StandardTable";
+import {
+  columnNumberToLabel,
   parseActualShippingFeeWorkbook,
-  type ActualShippingCarrier,
   type ActualShippingFeeParseResult,
 } from "../../lib/actual-shipping-fee-parser";
+import type { Workbook } from "../../lib/tabular-parser";
+import type { LogisticsMethod } from "../../types";
+import {
+  deleteActualShippingFeeTemplate,
+  ensureDefaultActualShippingFeeTemplates,
+  fetchActualShippingFeeTemplates,
+  fetchAvailableActualShippingFeeLogisticsMethods,
+  saveActualShippingFeeTemplate,
+  type ActualShippingFeeImportTemplate,
+  type ActualShippingFeeImportTemplateInput,
+} from "../../lib/actual-shipping-fee-templates";
 import {
   fetchActualShippingFeeReport,
   fetchLogisticsPaymentRecords,
@@ -33,8 +56,14 @@ type Props = {
 
 type PendingImport = {
   fileName: string;
+  template: ActualShippingFeeImportTemplate;
   parsed: ActualShippingFeeParseResult;
   preview: ActualShippingFeeImportPreview;
+};
+
+type TemplateEditorState = {
+  templateId: string | null;
+  draft: ActualShippingFeeImportTemplateInput;
 };
 
 const emptyReport: ActualShippingFeeReport = {
@@ -52,15 +81,50 @@ const emptyReport: ActualShippingFeeReport = {
   months: [],
 };
 
+function createTemplateDraft(
+  logisticsMethods: LogisticsMethod[],
+  workbook: Workbook | null,
+): ActualShippingFeeImportTemplateInput {
+  return {
+    name: "新运费导入模板",
+    worksheet_name: workbook?.worksheets[0]?.name ?? "",
+    start_row: 2,
+    tracking_source_type: "column",
+    tracking_column: 1,
+    tracking_fixed_value: "",
+    amount_source_type: "column",
+    amount_column: 2,
+    amount_fixed_value: null,
+    logistics_method_source_type: "fixed",
+    logistics_method_column: null,
+    logistics_method_fixed_id: null,
+  };
+}
+
+function templateToDraft(
+  template: ActualShippingFeeImportTemplate,
+): ActualShippingFeeImportTemplateInput {
+  return {
+    name: template.name,
+    worksheet_name: template.worksheet_name,
+    start_row: template.start_row,
+    tracking_source_type: template.tracking_source_type,
+    tracking_column: template.tracking_column,
+    tracking_fixed_value: template.tracking_fixed_value,
+    amount_source_type: template.amount_source_type,
+    amount_column: template.amount_column,
+    amount_fixed_value: template.amount_fixed_value,
+    logistics_method_source_type: template.logistics_method_source_type,
+    logistics_method_column: template.logistics_method_column,
+    logistics_method_fixed_id: template.logistics_method_fixed_id,
+  };
+}
+
 function formatPreciseRmb(value: number) {
   return `¥${value.toLocaleString("zh-CN", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 6,
   })}`;
-}
-
-function carrierLabel(carrier: ActualShippingCarrier) {
-  return carrier === "japan_post" ? "福冈仓日本邮便" : "苏州仓 OCS Yamato";
 }
 
 function getLocalDateTimeInputValue(date = new Date()) {
@@ -84,7 +148,9 @@ function settlementStatusMeta(status: LogisticsSettlementSummary["status"]) {
 function statusMeta(status: ActualShippingFeePreviewStatus) {
   if (status === "importable") return { label: "可导入", className: "bg-emerald-50 text-emerald-700" };
   if (status === "existing") return { label: "已有运费，跳过", className: "bg-amber-50 text-amber-700" };
-  if (status === "conflict") return { label: "对应多个订单，跳过", className: "bg-rose-50 text-rose-700" };
+  if (status === "conflict") return { label: "对应多个包裹，跳过", className: "bg-rose-50 text-rose-700" };
+  if (status === "duplicate") return { label: "文件内重复，跳过", className: "bg-rose-50 text-rose-700" };
+  if (status === "method_mismatch") return { label: "物流方式不符，跳过", className: "bg-orange-50 text-orange-700" };
   return { label: "未匹配，跳过", className: "bg-slate-100 text-slate-600" };
 }
 
@@ -95,9 +161,17 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [month, setMonth] = useState("");
-  const [carrier, setCarrier] = useState<"all" | ActualShippingCarrier>("all");
+  const [logisticsMethodId, setLogisticsMethodId] = useState("");
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
+  const [templates, setTemplates] = useState<ActualShippingFeeImportTemplate[]>([]);
+  const [logisticsMethods, setLogisticsMethods] = useState<LogisticsMethod[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [templateEditor, setTemplateEditor] = useState<TemplateEditorState | null>(null);
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [loadingTemplates, setLoadingTemplates] = useState(true);
+  const [uploadedWorkbook, setUploadedWorkbook] = useState<Workbook | null>(null);
+  const [uploadedFileName, setUploadedFileName] = useState("");
   const [parsing, setParsing] = useState(false);
   const [importing, setImporting] = useState(false);
   const [pendingImport, setPendingImport] = useState<PendingImport | null>(null);
@@ -119,7 +193,13 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
     setLoading(true);
     setError("");
     try {
-      const nextReport = await fetchActualShippingFeeReport({ page, pageSize, month, carrier, search });
+      const nextReport = await fetchActualShippingFeeReport({
+        page,
+        pageSize,
+        month,
+        logisticsMethodId,
+        search,
+      });
       setReport(nextReport);
       return nextReport;
     } catch (loadError) {
@@ -129,7 +209,7 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [carrier, month, page, pageSize, search]);
+  }, [logisticsMethodId, month, page, pageSize, search]);
 
   useEffect(() => {
     void loadReport();
@@ -137,7 +217,57 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
 
   useEffect(() => {
     setPage(1);
-  }, [carrier, month, pageSize, search]);
+  }, [logisticsMethodId, month, pageSize, search]);
+
+  const loadTemplatesAndMethods = useCallback(async () => {
+    setLoadingTemplates(true);
+    try {
+      const nextMethods = await fetchAvailableActualShippingFeeLogisticsMethods();
+      setLogisticsMethods(nextMethods);
+      await ensureDefaultActualShippingFeeTemplates();
+      const nextTemplates = await fetchActualShippingFeeTemplates();
+      setTemplates(nextTemplates);
+      setSelectedTemplateId((current) =>
+        nextTemplates.some((template) => template.id === current)
+          ? current
+          : nextTemplates[0]?.id ?? "",
+      );
+    } catch (loadTemplateError) {
+      notifyError(getErrorMessage(loadTemplateError, "加载实际运费导入模板失败"));
+    } finally {
+      setLoadingTemplates(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadTemplatesAndMethods();
+  }, [loadTemplatesAndMethods]);
+
+  const selectedTemplate = useMemo(
+    () => templates.find((template) => template.id === selectedTemplateId) ?? null,
+    [selectedTemplateId, templates],
+  );
+  const templateSample = useMemo(() => {
+    if (!templateEditor || !uploadedWorkbook) return null;
+    const worksheet = uploadedWorkbook.worksheets.find(
+      (item) => item.name === templateEditor.draft.worksheet_name,
+    ) ?? uploadedWorkbook.worksheets[0];
+    if (!worksheet) return null;
+    const row = worksheet.data[Math.max(0, templateEditor.draft.start_row - 1)] ?? [];
+    const maximumMappedColumn = Math.max(
+      templateEditor.draft.tracking_column ?? 0,
+      templateEditor.draft.amount_column ?? 0,
+      templateEditor.draft.logistics_method_column ?? 0,
+    );
+    const columnCount = Math.max(row.length, maximumMappedColumn);
+    return {
+      worksheetName: worksheet.name,
+      values: Array.from({ length: columnCount }, (_, index) => ({
+        column: index + 1,
+        value: String(row[index] ?? ""),
+      })),
+    };
+  }, [templateEditor, uploadedWorkbook]);
 
   const totalPages = Math.max(1, Math.ceil(report.totalCount / pageSize));
   const importStats = useMemo(() => {
@@ -148,9 +278,23 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
       ["已有运费跳过", pendingImport.preview.existingRecordCount],
       ["未匹配跳过", pendingImport.preview.unmatchedRecordCount],
       ["匹配冲突", pendingImport.preview.conflictRecordCount],
+      ["物流方式不符", pendingImport.preview.methodMismatchRecordCount],
       ["异常/汇总行", pendingImport.parsed.issues.length],
     ] as const;
   }, [pendingImport]);
+
+  async function parseAndPreviewFile(
+    workbook: Workbook,
+    fileName: string,
+    template: ActualShippingFeeImportTemplate,
+  ) {
+    const parsed = parseActualShippingFeeWorkbook(workbook, template, logisticsMethods);
+    if (parsed.records.length === 0) {
+      throw new Error(parsed.issues[0]?.reason || "表格中没有可核对的物流单号和实际运费");
+    }
+    const preview = await previewActualShippingFeeImport(parsed.records);
+    setPendingImport({ fileName, template, parsed, preview });
+  }
 
   async function handleSelectFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -159,17 +303,145 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
     setParsing(true);
     setPendingImport(null);
     try {
-      const workbook = await readXlsxWorkbook(file);
-      const parsed = parseActualShippingFeeWorkbook(workbook);
-      if (parsed.records.length === 0) {
-        throw new Error(parsed.issues[0]?.reason || "表格中没有可核对的物流单号和实际运费");
+      const { readActualShippingFeeWorkbook } = await import(
+        "../../lib/actual-shipping-fee-workbook"
+      );
+      const workbook = await readActualShippingFeeWorkbook(file);
+      setUploadedWorkbook(workbook);
+      setUploadedFileName(file.name);
+      if (!selectedTemplate) {
+        setTemplateEditor({
+          templateId: null,
+          draft: createTemplateDraft(logisticsMethods, workbook),
+        });
+        notifyWarning("请先建立映射模板，再预览导入结果。");
+        return;
       }
-      const preview = await previewActualShippingFeeImport(parsed.records);
-      setPendingImport({ fileName: file.name, parsed, preview });
+      await parseAndPreviewFile(workbook, file.name, selectedTemplate);
     } catch (parseError) {
       notifyError(getErrorMessage(parseError, "解析实际运费表格失败"));
     } finally {
       setParsing(false);
+    }
+  }
+
+  async function handleTemplateChange(templateId: string) {
+    setSelectedTemplateId(templateId);
+    setPendingImport(null);
+    const template = templates.find((item) => item.id === templateId);
+    if (!template || !uploadedWorkbook || !uploadedFileName) return;
+    setParsing(true);
+    try {
+      await parseAndPreviewFile(uploadedWorkbook, uploadedFileName, template);
+    } catch (parseError) {
+      notifyError(getErrorMessage(parseError, "按所选模板解析表格失败"));
+    } finally {
+      setParsing(false);
+    }
+  }
+
+  function updateTemplateDraft(updates: Partial<ActualShippingFeeImportTemplateInput>) {
+    setTemplateEditor((current) => current
+      ? { ...current, draft: { ...current.draft, ...updates } }
+      : current);
+  }
+
+  function openNewTemplateEditor() {
+    setTemplateEditor({
+      templateId: null,
+      draft: createTemplateDraft(logisticsMethods, uploadedWorkbook),
+    });
+  }
+
+  function openEditTemplateEditor() {
+    if (!selectedTemplate) return;
+    setTemplateEditor({
+      templateId: selectedTemplate.id,
+      draft: templateToDraft(selectedTemplate),
+    });
+  }
+
+  async function handleSaveTemplate() {
+    if (!templateEditor) return;
+    const draft = templateEditor.draft;
+    if (!draft.name.trim()) {
+      notifyWarning("请填写模板名称");
+      return;
+    }
+    if (draft.start_row < 1) {
+      notifyWarning("数据开始行必须大于 0");
+      return;
+    }
+    const columnMappings = [
+      [draft.tracking_source_type, draft.tracking_column, "物流单号"],
+      [draft.amount_source_type, draft.amount_column, "实际尾程运费"],
+      [draft.logistics_method_source_type, draft.logistics_method_column, "物流方式"],
+    ] as const;
+    const invalidColumn = columnMappings.find(
+      ([sourceType, column]) => sourceType === "column" && (!column || column < 1),
+    );
+    if (invalidColumn) {
+      notifyWarning(`${invalidColumn[2]}的来源列必须大于 0`);
+      return;
+    }
+    if (
+      draft.tracking_source_type === "fixed" &&
+      !draft.tracking_fixed_value.trim()
+    ) {
+      notifyWarning("请填写物流单号固定值");
+      return;
+    }
+    if (
+      draft.amount_source_type === "fixed" &&
+      (
+        draft.amount_fixed_value === null ||
+        !Number.isFinite(draft.amount_fixed_value) ||
+        draft.amount_fixed_value < 0
+      )
+    ) {
+      notifyWarning("请填写不小于 0 的实际尾程运费固定值");
+      return;
+    }
+    if (
+      draft.logistics_method_source_type === "fixed" &&
+      !draft.logistics_method_fixed_id
+    ) {
+      notifyWarning("请选择固定物流方式");
+      return;
+    }
+
+    setSavingTemplate(true);
+    try {
+      const saved = await saveActualShippingFeeTemplate(
+        draft,
+        templateEditor.templateId ?? undefined,
+      );
+      await loadTemplatesAndMethods();
+      setSelectedTemplateId(saved.id);
+      setTemplateEditor(null);
+      notifySuccess(templateEditor.templateId ? "导入模板已更新。" : "导入模板已创建。");
+      if (uploadedWorkbook && uploadedFileName) {
+        setParsing(true);
+        await parseAndPreviewFile(uploadedWorkbook, uploadedFileName, saved);
+      }
+    } catch (saveError) {
+      notifyError(getErrorMessage(saveError, "保存实际运费导入模板失败"));
+    } finally {
+      setSavingTemplate(false);
+      setParsing(false);
+    }
+  }
+
+  async function handleDeleteTemplate() {
+    if (!selectedTemplate || selectedTemplate.is_system) return;
+    if (!confirmAction(`确认删除导入模板“${selectedTemplate.name}”吗？`)) return;
+    try {
+      await deleteActualShippingFeeTemplate(selectedTemplate.id);
+      setPendingImport(null);
+      await loadTemplatesAndMethods();
+      notifySuccess("导入模板已删除。");
+    } catch (deleteError) {
+      notifyError(getErrorMessage(deleteError, "删除实际运费导入模板失败"));
     }
   }
 
@@ -183,7 +455,7 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
     try {
       const result = await importActualShippingFees({
         fileName: pendingImport.fileName,
-        carrier: pendingImport.parsed.carrier,
+        templateId: pendingImport.template.id,
         records: pendingImport.parsed.records,
       });
       if (result.importedRecordCount === 0) {
@@ -246,7 +518,7 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
     setLoadingPayments(true);
     try {
       setPaymentRecords(await fetchLogisticsPaymentRecords({
-        carrier: target.carrier,
+        logisticsMethodId: target.logisticsMethodId,
         shippingMonth: target.shippingMonth,
       }));
     } catch (paymentError) {
@@ -273,13 +545,13 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
       return;
     }
     if (!await confirmSave(
-      `确认登记 ${carrierLabel(paymentTarget.carrier)} ${paymentTarget.shippingMonth} 发货月付款 ${formatPreciseRmb(amount)} 吗？`,
+      `确认登记 ${paymentTarget.logisticsMethodName} ${paymentTarget.shippingMonth} 发货月付款 ${formatPreciseRmb(amount)} 吗？`,
     )) return;
 
     setSavingPayment(true);
     try {
       await recordLogisticsPayment({
-        carrier: paymentTarget.carrier,
+        logisticsMethodId: paymentTarget.logisticsMethodId,
         shippingMonth: paymentTarget.shippingMonth,
         paidAmountRmb: amount,
         paidAt: new Date(paymentDateTime).toISOString(),
@@ -317,25 +589,312 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
 
   return (
     <div className="animate-in fade-in space-y-5 duration-300">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+      <div className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-100 pb-3">
         <div>
           <h3 className="text-sm font-bold text-slate-800">物流商月结运费</h3>
           <p className="mt-1 text-xs text-slate-500">
             仅按物流单号匹配；月份统一取网站订单的实际发货时间，同一物流单号只计算一次。
           </p>
         </div>
-        <label className="btn-primary inline-flex h-10 cursor-pointer items-center gap-2 px-4 text-xs font-bold">
-          <Upload size={16} />
-          {parsing ? "解析中..." : "上传真实运费"}
-          <input
-            type="file"
-            accept=".xlsx"
-            className="hidden"
-            disabled={!canEdit || parsing || importing}
-            onChange={(event) => void handleSelectFile(event)}
-          />
-        </label>
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="flex min-w-56 flex-col gap-1 text-xs font-semibold text-slate-600">
+            导入模板
+            <select
+              value={selectedTemplateId}
+              onChange={(event) => void handleTemplateChange(event.target.value)}
+              className="h-10 rounded-lg border border-line bg-white px-3"
+              disabled={loadingTemplates || parsing}
+            >
+              {templates.length === 0 && <option value="">暂无模板</option>}
+              {templates.map((template) => (
+                <option key={template.id} value={template.id}>
+                  {template.name}{template.is_system ? "（自动生成）" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            className="btn-secondary h-10 px-3 text-xs"
+            onClick={openNewTemplateEditor}
+            disabled={!canEdit || loadingTemplates || logisticsMethods.length === 0}
+          >
+            <Plus size={15} /> 新建模板
+          </button>
+          <button
+            type="button"
+            className="btn-secondary h-10 px-3 text-xs"
+            onClick={openEditTemplateEditor}
+            disabled={!canEdit || !selectedTemplate}
+          >
+            <Pencil size={15} /> 映射设置
+          </button>
+          <button
+            type="button"
+            className="icon-btn h-10 w-10 text-rose-600"
+            onClick={() => void handleDeleteTemplate()}
+            disabled={!canEdit || !selectedTemplate || selectedTemplate.is_system}
+            aria-label="删除自定义模板"
+            title={selectedTemplate?.is_system ? "自动生成模板不可删除，可直接修改映射" : "删除模板"}
+          >
+            <Trash2 size={16} />
+          </button>
+          <label className="btn-primary inline-flex h-10 cursor-pointer items-center gap-2 px-4 text-xs font-bold">
+            <Upload size={16} />
+            {parsing ? "解析中..." : "选择运费表格"}
+            <input
+              type="file"
+              accept=".csv,.xls,.xlsx"
+              className="hidden"
+              disabled={!canEdit || parsing || importing || loadingTemplates}
+              onChange={(event) => void handleSelectFile(event)}
+            />
+          </label>
+        </div>
       </div>
+
+      {templateEditor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 p-4" role="dialog" aria-modal="true" aria-label="实际运费导入模板映射">
+          <div className="max-h-[92vh] w-full max-w-5xl overflow-auto rounded-2xl border border-slate-200 bg-white shadow-2xl">
+            <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-100 bg-white px-5 py-4">
+              <div>
+                <h4 className="text-base font-bold text-slate-900">
+                  {templateEditor.templateId ? "修改运费导入模板" : "新建运费导入模板"}
+                </h4>
+                <p className="mt-1 text-xs text-slate-500">
+                  将网站要求的三个字段映射到表格列号，或为字段设置固定值。列号从 1 开始。
+                </p>
+              </div>
+              <button
+                type="button"
+                className="icon-btn h-8 w-8"
+                onClick={() => setTemplateEditor(null)}
+                disabled={savingTemplate}
+                aria-label="关闭映射设置"
+              >
+                <X size={17} />
+              </button>
+            </div>
+
+            <div className="space-y-5 p-5">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">
+                  模板名称
+                  <input
+                    value={templateEditor.draft.name}
+                    onChange={(event) => updateTemplateDraft({ name: event.target.value })}
+                    className="h-10 rounded-lg border border-line bg-white px-3 text-sm"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">
+                  工作表
+                  {uploadedWorkbook ? (
+                    <select
+                      value={templateEditor.draft.worksheet_name}
+                      onChange={(event) => updateTemplateDraft({ worksheet_name: event.target.value })}
+                      className="h-10 rounded-lg border border-line bg-white px-3 text-sm"
+                    >
+                      {uploadedWorkbook.worksheets.map((worksheet) => (
+                        <option key={worksheet.name} value={worksheet.name}>{worksheet.name}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      value={templateEditor.draft.worksheet_name}
+                      onChange={(event) => updateTemplateDraft({ worksheet_name: event.target.value })}
+                      placeholder="留空时读取第一个工作表"
+                      className="h-10 rounded-lg border border-line bg-white px-3 text-sm"
+                    />
+                  )}
+                </label>
+                <label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">
+                  数据开始行
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={templateEditor.draft.start_row}
+                    onChange={(event) => updateTemplateDraft({
+                      start_row: Math.max(1, Number(event.target.value) || 1),
+                    })}
+                    className="h-10 rounded-lg border border-line bg-white px-3 text-sm"
+                  />
+                </label>
+              </div>
+
+              <div className="overflow-hidden rounded-xl border border-slate-200">
+                <div className="grid grid-cols-[minmax(160px,1fr)_150px_minmax(220px,2fr)] gap-3 bg-slate-50 px-4 py-2 text-xs font-bold text-slate-500">
+                  <div>网站字段</div>
+                  <div>取值方式</div>
+                  <div>表格列号 / 固定值</div>
+                </div>
+
+                <div className="grid grid-cols-[minmax(160px,1fr)_150px_minmax(220px,2fr)] items-center gap-3 border-t border-slate-100 px-4 py-3">
+                  <div className="text-sm font-bold text-slate-800">物流单号 <span className="text-rose-500">*</span></div>
+                  <select
+                    value={templateEditor.draft.tracking_source_type}
+                    onChange={(event) => updateTemplateDraft({
+                      tracking_source_type: event.target.value as "column" | "fixed",
+                    })}
+                    className="h-9 rounded-lg border border-line bg-white px-2 text-sm"
+                  >
+                    <option value="column">读取表格列</option>
+                    <option value="fixed">固定值</option>
+                  </select>
+                  {templateEditor.draft.tracking_source_type === "column" ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={templateEditor.draft.tracking_column ?? ""}
+                        onChange={(event) => updateTemplateDraft({
+                          tracking_column: Number(event.target.value) || null,
+                        })}
+                        className="h-9 w-28 rounded-lg border border-line bg-white px-3 text-sm"
+                      />
+                      <span className="text-xs font-semibold text-slate-500">
+                        {columnNumberToLabel(templateEditor.draft.tracking_column) || "--"} 列
+                      </span>
+                    </div>
+                  ) : (
+                    <input
+                      value={templateEditor.draft.tracking_fixed_value}
+                      onChange={(event) => updateTemplateDraft({ tracking_fixed_value: event.target.value })}
+                      className="h-9 rounded-lg border border-line bg-white px-3 text-sm"
+                    />
+                  )}
+                </div>
+
+                <div className="grid grid-cols-[minmax(160px,1fr)_150px_minmax(220px,2fr)] items-center gap-3 border-t border-slate-100 px-4 py-3">
+                  <div className="text-sm font-bold text-slate-800">实际尾程运费（人民币） <span className="text-rose-500">*</span></div>
+                  <select
+                    value={templateEditor.draft.amount_source_type}
+                    onChange={(event) => updateTemplateDraft({
+                      amount_source_type: event.target.value as "column" | "fixed",
+                    })}
+                    className="h-9 rounded-lg border border-line bg-white px-2 text-sm"
+                  >
+                    <option value="column">读取表格列</option>
+                    <option value="fixed">固定值</option>
+                  </select>
+                  {templateEditor.draft.amount_source_type === "column" ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={templateEditor.draft.amount_column ?? ""}
+                        onChange={(event) => updateTemplateDraft({
+                          amount_column: Number(event.target.value) || null,
+                        })}
+                        className="h-9 w-28 rounded-lg border border-line bg-white px-3 text-sm"
+                      />
+                      <span className="text-xs font-semibold text-slate-500">
+                        {columnNumberToLabel(templateEditor.draft.amount_column) || "--"} 列
+                      </span>
+                    </div>
+                  ) : (
+                    <input
+                      type="number"
+                      min={0}
+                      step="any"
+                      value={templateEditor.draft.amount_fixed_value ?? ""}
+                      onChange={(event) => updateTemplateDraft({
+                        amount_fixed_value: event.target.value === "" ? null : Number(event.target.value),
+                      })}
+                      className="h-9 rounded-lg border border-line bg-white px-3 text-sm"
+                    />
+                  )}
+                </div>
+
+                <div className="grid grid-cols-[minmax(160px,1fr)_150px_minmax(220px,2fr)] items-center gap-3 border-t border-slate-100 px-4 py-3">
+                  <div className="text-sm font-bold text-slate-800">物流方式 <span className="text-rose-500">*</span></div>
+                  <select
+                    value={templateEditor.draft.logistics_method_source_type}
+                    onChange={(event) => updateTemplateDraft({
+                      logistics_method_source_type: event.target.value as "column" | "fixed",
+                    })}
+                    className="h-9 rounded-lg border border-line bg-white px-2 text-sm"
+                  >
+                    <option value="column">读取表格列</option>
+                    <option value="fixed">固定值</option>
+                  </select>
+                  {templateEditor.draft.logistics_method_source_type === "column" ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={templateEditor.draft.logistics_method_column ?? ""}
+                        onChange={(event) => updateTemplateDraft({
+                          logistics_method_column: Number(event.target.value) || null,
+                        })}
+                        className="h-9 w-28 rounded-lg border border-line bg-white px-3 text-sm"
+                      />
+                      <span className="text-xs font-semibold text-slate-500">
+                        {columnNumberToLabel(templateEditor.draft.logistics_method_column) || "--"} 列
+                      </span>
+                    </div>
+                  ) : (
+                    <select
+                      value={templateEditor.draft.logistics_method_fixed_id ?? ""}
+                      onChange={(event) => updateTemplateDraft({
+                        logistics_method_fixed_id: event.target.value || null,
+                      })}
+                      className="h-9 rounded-lg border border-line bg-white px-3 text-sm"
+                    >
+                      <option value="">请选择网站物流方式</option>
+                      {logisticsMethods.map((method) => (
+                        <option key={method.id} value={method.id}>{method.name}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-sky-100 bg-sky-50/40 p-4">
+                <div className="text-sm font-bold text-slate-800">
+                  数据预览（第 {templateEditor.draft.start_row} 行）
+                </div>
+                {!uploadedWorkbook ? (
+                  <p className="mt-2 text-xs text-slate-500">
+                    尚未选择表格。保存模板后，选择 CSV、XLS 或 XLSX 文件即可按列号读取。
+                  </p>
+                ) : templateSample && templateSample.values.length > 0 ? (
+                  <div className="mt-3 overflow-x-auto">
+                    <div className="flex min-w-max gap-2">
+                      {templateSample.values.map((cell) => (
+                        <div key={cell.column} className="w-36 shrink-0 rounded-lg border border-white bg-white p-2">
+                          <div className="text-[11px] font-bold text-slate-400">
+                            {columnNumberToLabel(cell.column)} · 第 {cell.column} 列
+                          </div>
+                          <div className="mt-1 truncate text-xs font-semibold text-slate-700" title={cell.value}>
+                            {cell.value || "（空）"}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="mt-2 text-xs text-amber-700">
+                    所选工作表在该开始行没有样例数据，请调整工作表或开始行。
+                  </p>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <button type="button" className="btn-secondary" onClick={() => setTemplateEditor(null)} disabled={savingTemplate}>
+                  取消
+                </button>
+                <button type="button" className="btn-primary" onClick={() => void handleSaveTemplate()} disabled={savingTemplate}>
+                  <Check size={16} /> {savingTemplate ? "保存中..." : "保存模板"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {pendingImport && importStats && (
         <div className="rounded-xl border border-sky-200 bg-sky-50/40 p-4">
@@ -343,7 +902,7 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
             <div>
               <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
                 <CheckCircle2 size={17} className="text-sky-600" />
-                导入前核对 · {pendingImport.parsed.carrierLabel}
+                导入前核对 · {pendingImport.template.name}
               </div>
               <p className="mt-1 text-xs text-slate-500">
                 {pendingImport.fileName} · 工作表 {pendingImport.parsed.sheetName}
@@ -360,7 +919,7 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
             </button>
           </div>
 
-          <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-7">
             {importStats.map(([label, value]) => (
               <div key={label} className="rounded-lg border border-white bg-white/90 p-3">
                 <div className="text-[11px] font-semibold text-slate-500">{label}</div>
@@ -391,11 +950,12 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
             </div>
 
             <div className="max-h-72 overflow-auto rounded-lg border border-white bg-white/90">
-              <table className="w-full min-w-[760px] text-xs">
+              <table className="w-full min-w-[900px] text-xs">
                 <thead className="sticky top-0 bg-slate-50 text-left text-slate-500">
                   <tr>
                     <th className="px-3 py-2">行</th>
                     <th className="px-3 py-2">物流单号</th>
+                    <th className="px-3 py-2">物流方式</th>
                     <th className="px-3 py-2">网站订单号</th>
                     <th className="px-3 py-2">实际发货月份</th>
                     <th className="px-3 py-2 text-right">实际尾程运费</th>
@@ -409,6 +969,7 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
                       <tr key={`${row.sourceRowNumber}-${row.trackingNo}`} className="border-t border-slate-100">
                         <td className="px-3 py-2 text-slate-400">{row.sourceRowNumber}</td>
                         <td className="px-3 py-2 font-mono font-semibold text-slate-700">{row.trackingNo}</td>
+                        <td className="px-3 py-2 font-semibold text-slate-600">{row.logisticsMethodName || "--"}</td>
                         <td className="px-3 py-2 font-mono text-slate-600">{row.orderNo || "--"}</td>
                         <td className="px-3 py-2 text-slate-600">{row.settlementMonth || "待补"}</td>
                         <td className="px-3 py-2 text-right font-bold text-slate-900">{formatPreciseRmb(row.amountRmb)}</td>
@@ -486,11 +1047,12 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
           </select>
         </label>
         <label className="flex min-w-44 flex-col gap-1 text-xs font-semibold text-slate-600">
-          物流商
-          <select value={carrier} onChange={(event) => setCarrier(event.target.value as "all" | ActualShippingCarrier)} className="h-9 rounded-lg border border-line bg-white px-3">
-            <option value="all">全部物流商</option>
-            <option value="japan_post">福冈仓日本邮便</option>
-            <option value="ocs_yamato">苏州仓 OCS Yamato</option>
+          物流方式
+          <select value={logisticsMethodId} onChange={(event) => setLogisticsMethodId(event.target.value)} className="h-9 rounded-lg border border-line bg-white px-3">
+            <option value="">全部物流方式</option>
+            {logisticsMethods.map((method) => (
+              <option key={method.id} value={method.id}>{method.name}</option>
+            ))}
           </select>
         </label>
         <form
@@ -518,9 +1080,9 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
             {report.summary.settlements.map((settlement) => {
               const meta = settlementStatusMeta(settlement.status);
               return (
-                <div key={`${settlement.carrier}-${settlement.shippingMonth}`} className="grid gap-3 px-4 py-4 lg:grid-cols-[1.4fr_repeat(4,minmax(110px,1fr))_auto] lg:items-center">
+                <div key={`${settlement.logisticsMethodId}-${settlement.shippingMonth}`} className="grid gap-3 px-4 py-4 lg:grid-cols-[1.4fr_repeat(4,minmax(110px,1fr))_auto] lg:items-center">
                   <div>
-                    <div className="font-bold text-slate-800">{carrierLabel(settlement.carrier)}</div>
+                    <div className="font-bold text-slate-800">{settlement.logisticsMethodName}</div>
                     <div className="mt-1 text-xs text-slate-500">{settlement.shipmentCount} 票 · 实际发货月 {settlement.shippingMonth}</div>
                   </div>
                   <div>
@@ -584,7 +1146,7 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
             <thead>
               <tr>
                 <th className="bg-slate-50">实际发货月份</th>
-                <th className="bg-slate-50">物流商</th>
+                <th className="bg-slate-50">物流方式</th>
                 <th className="bg-slate-50">物流单号</th>
                 <th className="bg-slate-50">网站订单号</th>
                 <th className="bg-slate-50">实际发货时间</th>
@@ -596,7 +1158,7 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
               {report.rows.map((row) => (
                 <tr key={row.id} className="hover:bg-slate-50/50">
                   <td className={row.settlementMonth ? "font-bold text-slate-700" : "font-bold text-amber-700"}>{row.settlementMonth || "待补"}</td>
-                  <td className="font-semibold text-slate-700">{carrierLabel(row.carrier)}</td>
+                  <td className="font-semibold text-slate-700">{row.logisticsMethodName || "--"}</td>
                   <td className="font-mono text-xs font-semibold text-slate-700">{row.trackingNo}</td>
                   <td className="font-mono text-xs text-slate-600">{row.orderNo || "--"}</td>
                   <td className="text-xs text-slate-500">
@@ -677,7 +1239,7 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
               <div>
                 <h4 className="text-base font-bold text-slate-900">物流商月结付款</h4>
                 <p className="mt-1 text-xs text-slate-500">
-                  {carrierLabel(paymentTarget.carrier)} · {paymentTarget.shippingMonth} 实际发货月 · {paymentTarget.shipmentCount}票
+                  {paymentTarget.logisticsMethodName} · {paymentTarget.shippingMonth} 实际发货月 · {paymentTarget.shipmentCount}票
                 </p>
               </div>
               <button type="button" className="icon-btn h-8 w-8" onClick={() => setPaymentTarget(null)} disabled={savingPayment || Boolean(voidingPaymentId)} aria-label="关闭付款窗口">

@@ -127,6 +127,25 @@ npm run sync:backend-context
   - SQL 聚合与前端再次聚合并存；只改一侧可能使看板摘要和明细页出现不同数字。
   - 财务页面的样式调整也可能改变金额列、合计行、正负号或异常提示的可读性，不能只做截图级检查。
 
+### 实际运费映射模板导入（`src/components/finance/ActualShippingFeesPanel.tsx`、`src/lib/actual-shipping-fee-parser.ts`、`src/lib/actual-shipping-fee-templates.ts`）
+
+- 影响范围：
+  - 实际运费上传支持 CSV、XLS、XLSX，通过用户模板把网站字段“物流单号、实际尾程运费（人民币）、物流方式”映射到 1 开始的表格列号或固定值，并由用户指定工作表和数据开始行。
+  - 可用物流方式只来自已启用且至少关联一个仓库的 `logistics_methods` / `warehouse_logistics_methods`；模板保存稳定的 `logistics_method_id`，表格列值按网站物流方式名称归一化匹配。
+  - `preview_actual_shipping_fee_import_v2` 与 `import_actual_shipping_fees_v2` 只按物流单号匹配 `temu_order_shipments`。唯一包裹且物流方式一致才可导入；未匹配、多包裹冲突、文件内重复、物流方式不一致或已有实际运费均跳过。
+  - 导入只新增 `finance_actual_shipping_fees` 并由既有同步触发器写回包裹实际运费；不修改仓库、物流方式、订单状态、库存、拆包结构、实际发货时间或月份归属规则。
+  - 实际运费报表和物流付款使用稳定的 `logistics_method_id`，仍按包裹实际发货时间归月，金额不换算且保留来源精度。
+- 修改前需确认：
+  - 不得新增订单号兜底匹配或覆盖已有运费；重复物流单号必须整组跳过，汇总/无效行继续跳过。
+  - 新物流方式必须先在网站物流设置中启用并关联仓库，不能在上传流程中自动创建或改写订单物流方式。
+  - 拆单后必须以 `shipment_id` 为唯一匹配粒度，同一物流单号对应多个包裹时保持跳过。
+  - 修改后至少检查模板 RLS、默认模板幂等、CSV/XLS/XLSX 解析、包裹级 RPC、付款报表、数据同步覆盖、测试和构建。
+- 常见陷阱：
+  - 表格列号是 1 开始，代码数组索引是 0 开始；默认日本邮政 H/Y 列分别为 8/25，OCS C/BC 列分别为 3/55。
+  - 表头文案不是映射依据；模板指定的工作表或开始行不存在时应阻止预览，不能静默猜测其他列。
+  - 表格物流方式名称匹配成功不代表订单可导入，数据库仍需校验包裹保存的稳定 `logistics_method_id` 一致。
+  - 不要按订单明细重复写入或计费；实际运费和付款归属均保持包裹级。
+
 ### Supabase 表结构变更（`supabase/migrations/`、`src/types.ts`、`src/lib/`）
 
 - 影响范围：
@@ -192,3 +211,4 @@ npm run sync:backend-context
 - 2026-07-28：自动匹配改为仓库唯一优先级、单 SKU 3cm 专用尾程和数据库二次校验；仓库身份统一使用精确 UUID。
 - 2026-07-29：修复自动匹配 RPC 使用 `min(uuid)` 导致生产调用失败，并补充事务内真实调用回滚验证要求。
 - 2026-07-29：手动物流查询改为刷新并显式携带最新会话 JWT，同时显示 Edge Function 返回的具体中文错误。
+- 2026-07-30：实际运费上传改为 CSV/XLS/XLSX 自定义映射模板，并将导入、报表和物流付款统一到包裹级稳定物流方式 ID。
