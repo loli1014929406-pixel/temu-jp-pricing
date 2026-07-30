@@ -38,7 +38,8 @@
     "react-dom": "^19.1.0",
     "react-router-dom": "^7.6.0",
     "read-excel-file": "^9.0.10",
-    "write-excel-file": "^4.0.7"
+    "write-excel-file": "^4.0.7",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",

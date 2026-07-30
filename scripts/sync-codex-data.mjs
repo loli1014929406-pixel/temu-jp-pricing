@@ -40,6 +40,7 @@ const tables = [
   "finance_settlement_files",
   "finance_settlement_records",
   "finance_actual_shipping_fees",
+  "finance_actual_shipping_fee_import_templates",
 ];
 
 function parseEnv(contents) {

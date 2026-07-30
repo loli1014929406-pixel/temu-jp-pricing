@@ -1,18 +1,19 @@
-import type {
-  ActualShippingCarrier,
-  ActualShippingFeeImportRecord,
-} from "./actual-shipping-fee-parser";
+import type { ActualShippingFeeImportRecord } from "./actual-shipping-fee-parser";
 import { requireSession, withTimeout } from "./supabase-helpers";
 
 export type ActualShippingFeePreviewStatus =
   | "importable"
   | "existing"
   | "unmatched"
-  | "conflict";
+  | "conflict"
+  | "duplicate"
+  | "method_mismatch";
 
 export type ActualShippingFeePreviewRow = {
   trackingNo: string;
   amountRmb: number;
+  logisticsMethodId: string;
+  logisticsMethodName: string;
   sourceRowNumber: number;
   orderNo: string;
   actualShipTime: string;
@@ -33,6 +34,8 @@ export type ActualShippingFeeImportPreview = {
   existingRecordCount: number;
   unmatchedRecordCount: number;
   conflictRecordCount: number;
+  duplicateRecordCount: number;
+  methodMismatchRecordCount: number;
   missingActualShipTimeCount: number;
   importableTotalAmountRmb: number;
   months: ActualShippingFeeMonthSummary[];
@@ -46,6 +49,8 @@ export type ActualShippingFeeImportResult = {
   existingRecordCount: number;
   unmatchedRecordCount: number;
   conflictRecordCount: number;
+  duplicateRecordCount: number;
+  methodMismatchRecordCount: number;
   missingActualShipTimeCount: number;
 };
 
@@ -53,7 +58,8 @@ export type ActualShippingFeeReportRow = {
   id: string;
   trackingNo: string;
   amountRmb: number;
-  carrier: ActualShippingCarrier;
+  logisticsMethodId: string;
+  logisticsMethodName: string;
   sourceFileName: string;
   importedAt: string;
   orderNo: string;
@@ -79,7 +85,8 @@ export type ActualShippingFeeReport = {
 export type LogisticsSettlementStatus = "unpaid" | "partial" | "paid";
 
 export type LogisticsSettlementSummary = {
-  carrier: ActualShippingCarrier;
+  logisticsMethodId: string;
+  logisticsMethodName: string;
   shippingMonth: string;
   shipmentCount: number;
   payableAmountRmb: number;
@@ -137,7 +144,7 @@ export async function previewActualShippingFeeImport(
 ): Promise<ActualShippingFeeImportPreview> {
   const { supabase } = await requireSession();
   const { data, error } = await withTimeout(
-    supabase.rpc("preview_actual_shipping_fee_import", { p_records: records }),
+    supabase.rpc("preview_actual_shipping_fee_import_v2", { p_records: records }),
     "预览实际运费导入",
     { requestKind: "rpc", rowCount: records.length },
   );
@@ -152,6 +159,8 @@ export async function previewActualShippingFeeImport(
     existingRecordCount: numberValue(payload.existingRecordCount),
     unmatchedRecordCount: numberValue(payload.unmatchedRecordCount),
     conflictRecordCount: numberValue(payload.conflictRecordCount),
+    duplicateRecordCount: numberValue(payload.duplicateRecordCount),
+    methodMismatchRecordCount: numberValue(payload.methodMismatchRecordCount),
     missingActualShipTimeCount: numberValue(payload.missingActualShipTimeCount),
     importableTotalAmountRmb: numberValue(payload.importableTotalAmountRmb),
     months: parseMonthSummary(payload.months),
@@ -160,6 +169,8 @@ export async function previewActualShippingFeeImport(
       return {
         trackingNo: String(item.trackingNo ?? ""),
         amountRmb: numberValue(item.amountRmb),
+        logisticsMethodId: String(item.logisticsMethodId ?? ""),
+        logisticsMethodName: String(item.logisticsMethodName ?? ""),
         sourceRowNumber: numberValue(item.sourceRowNumber),
         orderNo: String(item.orderNo ?? ""),
         actualShipTime: String(item.actualShipTime ?? ""),
@@ -172,14 +183,14 @@ export async function previewActualShippingFeeImport(
 
 export async function importActualShippingFees(options: {
   fileName: string;
-  carrier: ActualShippingCarrier;
+  templateId: string;
   records: ActualShippingFeeImportRecord[];
 }): Promise<ActualShippingFeeImportResult> {
   const { supabase } = await requireSession();
   const { data, error } = await withTimeout(
-    supabase.rpc("import_actual_shipping_fees", {
+    supabase.rpc("import_actual_shipping_fees_v2", {
       p_file_name: options.fileName,
-      p_carrier: options.carrier,
+      p_template_id: options.templateId,
       p_records: options.records,
     }),
     "导入实际运费",
@@ -194,6 +205,8 @@ export async function importActualShippingFees(options: {
     existingRecordCount: numberValue(payload.existingRecordCount),
     unmatchedRecordCount: numberValue(payload.unmatchedRecordCount),
     conflictRecordCount: numberValue(payload.conflictRecordCount),
+    duplicateRecordCount: numberValue(payload.duplicateRecordCount),
+    methodMismatchRecordCount: numberValue(payload.methodMismatchRecordCount),
     missingActualShipTimeCount: numberValue(payload.missingActualShipTimeCount),
   };
 }
@@ -202,16 +215,16 @@ export async function fetchActualShippingFeeReport(options: {
   page: number;
   pageSize: number;
   month: string;
-  carrier: "all" | ActualShippingCarrier;
+  logisticsMethodId: string;
   search: string;
 }): Promise<ActualShippingFeeReport> {
   const { supabase } = await requireSession();
   const { data, error } = await withTimeout(
-    supabase.rpc("get_actual_shipping_fee_report", {
+    supabase.rpc("get_actual_shipping_fee_report_v2", {
       p_page: Math.max(1, Math.trunc(options.page)),
       p_page_size: Math.min(100, Math.max(1, Math.trunc(options.pageSize))),
       p_month: options.month,
-      p_carrier: options.carrier,
+      p_logistics_method_id: options.logisticsMethodId || null,
       p_search: options.search.trim(),
     }),
     "加载实际运费月结",
@@ -229,7 +242,8 @@ export async function fetchActualShippingFeeReport(options: {
         id: String(item.id ?? ""),
         trackingNo: String(item.trackingNo ?? ""),
         amountRmb: numberValue(item.amountRmb),
-        carrier: String(item.carrier ?? "japan_post") as ActualShippingCarrier,
+        logisticsMethodId: String(item.logisticsMethodId ?? ""),
+        logisticsMethodName: String(item.logisticsMethodName ?? ""),
         sourceFileName: String(item.sourceFileName ?? ""),
         importedAt: String(item.importedAt ?? ""),
         orderNo: String(item.orderNo ?? ""),
@@ -248,7 +262,8 @@ export async function fetchActualShippingFeeReport(options: {
       settlements: (Array.isArray(summary.settlements) ? summary.settlements : []).map((row) => {
         const item = row as Record<string, unknown>;
         return {
-          carrier: String(item.carrier ?? "japan_post") as ActualShippingCarrier,
+          logisticsMethodId: String(item.logisticsMethodId ?? ""),
+          logisticsMethodName: String(item.logisticsMethodName ?? ""),
           shippingMonth: String(item.shippingMonth ?? ""),
           shipmentCount: numberValue(item.shipmentCount),
           payableAmountRmb: numberValue(item.payableAmountRmb),
@@ -264,7 +279,7 @@ export async function fetchActualShippingFeeReport(options: {
 }
 
 export async function recordLogisticsPayment(options: {
-  carrier: ActualShippingCarrier;
+  logisticsMethodId: string;
   shippingMonth: string;
   paidAmountRmb: number;
   paidAt: string;
@@ -273,8 +288,8 @@ export async function recordLogisticsPayment(options: {
 }) {
   const { supabase } = await requireSession();
   const { data, error } = await withTimeout(
-    supabase.rpc("record_logistics_payment", {
-      p_carrier: options.carrier,
+    supabase.rpc("record_logistics_payment_v2", {
+      p_logistics_method_id: options.logisticsMethodId,
       p_shipping_month: options.shippingMonth,
       p_paid_amount_rmb: options.paidAmountRmb,
       p_paid_at: options.paidAt,
@@ -289,13 +304,13 @@ export async function recordLogisticsPayment(options: {
 }
 
 export async function fetchLogisticsPaymentRecords(options: {
-  carrier: ActualShippingCarrier;
+  logisticsMethodId: string;
   shippingMonth: string;
 }): Promise<LogisticsPaymentRecord[]> {
   const { supabase } = await requireSession();
   const { data, error } = await withTimeout(
-    supabase.rpc("get_logistics_payment_records", {
-      p_carrier: options.carrier,
+    supabase.rpc("get_logistics_payment_records_v2", {
+      p_logistics_method_id: options.logisticsMethodId,
       p_shipping_month: options.shippingMonth,
     }),
     "加载物流付款记录",
