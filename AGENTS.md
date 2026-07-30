@@ -114,6 +114,7 @@ npm run sync:backend-context
   - 结算导入通过 `parseSettlementData`、`import_finance_settlement_atomic` 写入 `finance_settlement_files`、`finance_settlement_records`；退款/冲回体现在 `sales_reversal`、`freight_reversal`。
   - 实际运费和物流付款通过 `finance_actual_shipping_fees`、`finance_logistics_settlements`、`finance_logistics_payments` 及其导入、报表、付款 RPC 进入财务结果。
   - 商品成本依赖商品 SKU/BOM，物流估算依赖 `pricing_settings`、`logistics_methods`、`warehouse_logistics_methods`；订单号、包裹、物流单号、实际发货/签收时间会影响匹配、计费和月份归属。
+  - 按件数阶梯尾程依赖四参数 `finance_dynamic_method_cost(..., p_quantity)`；拆包财务通过 `finance_split_method_cost` 传入包裹商品数量，继续保证尾程费用每个 `shipment_id` 只计算一次。
 - 修改前需确认：
   - 确认结算匹配键和规范化规则。当前核心路径以结算 `po_number` 对订单 `order_no`，并结合 SKU 信息处理明细。
   - 确认收入是否包含销售/运费冲回，实际运费是否优先于估算运费，月份是否继续按实际发货时间归属。
@@ -125,12 +126,14 @@ npm run sync:backend-context
   - 用可变的物流名称代替稳定 `logistics_method_id` 会在重命名后破坏分组和费用公式。
   - 忽略 `sales_reversal`/`freight_reversal` 会高估收入，忽略实际运费优先级会让利润与对账不一致。
   - SQL 聚合与前端再次聚合并存；只改一侧可能使看板摘要和明细页出现不同数字。
+  - 若拆包财务上线时生产库仍只有三参数 `finance_dynamic_method_cost`，兼容分支会忽略数量并令 `quantity_tier` 返回 0；不能补跑会覆盖拆包财务 RPC 的旧迁移，应新增迁移补齐四参数函数并重新绑定 `finance_split_method_cost`。
   - 财务页面的样式调整也可能改变金额列、合计行、正负号或异常提示的可读性，不能只做截图级检查。
 
 ### 实际运费映射模板导入（`src/components/finance/ActualShippingFeesPanel.tsx`、`src/lib/actual-shipping-fee-parser.ts`、`src/lib/actual-shipping-fee-templates.ts`）
 
 - 影响范围：
   - 实际运费上传支持 CSV、XLS、XLSX，通过用户模板把网站字段“物流单号、实际尾程运费（人民币）、物流方式”映射到 1 开始的表格列号或固定值，并由用户指定工作表和数据开始行。
+  - 日本邮政和 OCS 自动生成模板允许用户删除；删除时保留带 `system_key` 的软删除记录，模板列表排除 `deleted_at` 非空记录，确保默认模板初始化函数不会在刷新后重新生成。
   - 可用物流方式只来自已启用且至少关联一个仓库的 `logistics_methods` / `warehouse_logistics_methods`；模板保存稳定的 `logistics_method_id`，表格列值按网站物流方式名称归一化匹配。
   - `preview_actual_shipping_fee_import_v2` 与 `import_actual_shipping_fees_v2` 只按物流单号匹配 `temu_order_shipments`。唯一包裹且物流方式一致才可导入；未匹配、多包裹冲突、文件内重复、物流方式不一致或已有实际运费均跳过。
   - 导入只新增 `finance_actual_shipping_fees` 并由既有同步触发器写回包裹实际运费；不修改仓库、物流方式、订单状态、库存、拆包结构、实际发货时间或月份归属规则。
@@ -144,7 +147,27 @@ npm run sync:backend-context
   - 表格列号是 1 开始，代码数组索引是 0 开始；默认日本邮政 H/Y 列分别为 8/25，OCS C/BC 列分别为 3/55。
   - 表头文案不是映射依据；模板指定的工作表或开始行不存在时应阻止预览，不能静默猜测其他列。
   - 表格物流方式名称匹配成功不代表订单可导入，数据库仍需校验包裹保存的稳定 `logistics_method_id` 一致。
+  - 自动生成模板不能直接物理删除，否则 `ensure_actual_shipping_fee_default_templates` 会在下次加载时重新创建；必须保留系统键并使用 `deleted_at` 隐藏。
   - 不要按订单明细重复写入或计费；实际运费和付款归属均保持包裹级。
+
+### 订单表与物流单号映射模板导入（`src/components/orders/OrderFileImportModal.tsx`、`src/lib/order-file-import-parser.ts`、`src/lib/order-file-import-templates.ts`、`src/lib/order-tracking-import.ts`）
+
+- 影响范围：
+  - 上传订单表和上传物流单号各自使用独立的 CSV/XLS/XLSX 映射模板，可指定工作表、数据开始行、表格列或固定值；选择已有模板后可直接上传和预览，无需再次绑定。
+  - 现有订单表表头兼容规则和现有物流单号表头兼容规则分别初始化为系统模板。系统模板删除时写入 `deleted_at` 软删除标记，自定义模板物理删除；默认模板初始化不得恢复已软删除的系统模板。
+  - 订单表模板只改变文件解析与预览，仍沿用原有必填字段、SKU 规格匹配、去重、`importTemuOrders` 导入和后续订单加载规则。
+  - 物流单号模板只处理当前“待发货”包裹：未拆包时按订单号精确匹配；已拆包时必须同时按订单号和子订单号精确匹配。确认导入后仍沿用 `saveOrderEntriesWithInventory`、物流状态初始化和现有库存、阶段规则。
+  - 模板数据存储于 `temu_order_file_import_templates`，需同步检查 RLS、账号编辑权限、默认模板幂等、`scripts/sync-codex-data.mjs` 数据覆盖和前端类型归一化。
+- 修改前需确认：
+  - 确认目标只是文件解析、模板、预览或匹配键；不得顺带修改订单阶段、待分配规则、拆包结构、仓库物流归属、库存占用或追踪刷新逻辑。
+  - 确认新增物流文件格式能提供拆包订单的子订单号；缺少子订单号的拆包记录必须跳过，不能回退到模糊匹配。
+  - 确认同一“订单号 + 子订单号”只对应一个待发货包裹；若对应多个包裹，应在预览中标记冲突并整组跳过。
+  - 修改后至少检查 CSV/XLS/XLSX 解析、默认模板生成与删除、精确匹配和冲突跳过测试，并运行订单页相关测试与构建。
+- 常见陷阱：
+  - 不得重新使用姓名、电话、邮编、地址、备注或文件行顺序为拆包包裹打分；这些字段存在相同值时会把物流单号写入错误包裹。
+  - 未拆包记录即使文件中带子订单号，也只以订单号为匹配键；拆包记录不能只按订单号匹配。
+  - 模板预览成功不代表允许覆盖已有物流单号；实际确认导入仍必须受现有“待发货”范围和保存规则约束。
+  - 表格列号按 1 开始，代码数组索引按 0 开始；模板指定的工作表或开始行不存在时必须阻止预览，不能静默猜测。
 
 ### Supabase 表结构变更（`supabase/migrations/`、`src/types.ts`、`src/lib/`）
 
@@ -212,3 +235,6 @@ npm run sync:backend-context
 - 2026-07-29：修复自动匹配 RPC 使用 `min(uuid)` 导致生产调用失败，并补充事务内真实调用回滚验证要求。
 - 2026-07-29：手动物流查询改为刷新并显式携带最新会话 JWT，同时显示 Edge Function 返回的具体中文错误。
 - 2026-07-30：实际运费上传改为 CSV/XLS/XLSX 自定义映射模板，并将导入、报表和物流付款统一到包裹级稳定物流方式 ID。
+- 2026-07-30：允许删除日本邮政和 OCS 自动生成运费模板，并用软删除标记阻止初始化函数重新生成。
+- 2026-07-30：修复拆包财务兼容分支忽略 `quantity_tier` 包裹数量，恢复神户 Yamato3cm 自动估算。
+- 2026-07-30：订单表和物流单号上传改为独立映射模板与导入预览；未拆包按订单号匹配，拆包按订单号和子订单号匹配。

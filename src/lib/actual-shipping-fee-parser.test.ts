@@ -28,6 +28,7 @@ function template(
     logistics_method_fixed_id: logisticsMethods[0].id,
     is_system: false,
     system_key: "",
+    deleted_at: null,
     created_at: "",
     updated_at: "",
     ...overrides,

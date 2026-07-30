@@ -28,6 +28,11 @@ export type TemuOrderImportRow = Pick<
   | "estimated_delivery_time"
 >;
 
+export type ExistingTemuOrderImportLine = Pick<
+  TemuOrderImportRow,
+  "order_no" | "sub_order_no" | "sku_code" | "product_attributes"
+>;
+
 const textOrderFields = [
   "id",
   "source_order_id",
@@ -157,6 +162,88 @@ function getOrderLineSkuKey(
     normalizeSkuCode(order.sku_code),
     normalizeSalesSpec(order.product_attributes),
   ].join("\u0000");
+}
+
+export function filterNewTemuOrderImportRows(
+  rows: TemuOrderImportRow[],
+  existingRows: ExistingTemuOrderImportLine[],
+) {
+  const existingRowsByLineKey = new Set<string>();
+  const existingRowsBySkuKey = new Set<string>();
+  const existingOrderNoCounts = existingRows.reduce<Record<string, number>>(
+    (counts, row) => {
+      const key = getOrderNoKey(row.order_no);
+      if (key) counts[key] = (counts[key] ?? 0) + 1;
+      return counts;
+    },
+    {},
+  );
+  const importOrderNoCounts = rows.reduce<Record<string, number>>(
+    (counts, row) => {
+      const key = getOrderNoKey(row.order_no);
+      if (key) counts[key] = (counts[key] ?? 0) + 1;
+      return counts;
+    },
+    {},
+  );
+
+  existingRows.forEach((row) => {
+    const lineKey = getOrderLineKey(row);
+    if (lineKey) existingRowsByLineKey.add(lineKey);
+
+    const skuKey = getOrderLineSkuKey(row);
+    if (skuKey) existingRowsBySkuKey.add(skuKey);
+  });
+
+  return rows.filter((row) => {
+    const lineKey = getOrderLineKey(row);
+    if (lineKey && existingRowsByLineKey.has(lineKey)) return false;
+
+    const skuKey = getOrderLineSkuKey(row);
+    if (skuKey && existingRowsBySkuKey.has(skuKey)) return false;
+
+    const orderNoKey = getOrderNoKey(row.order_no);
+    return !(
+      orderNoKey &&
+      (existingOrderNoCounts[orderNoKey] ?? 0) === 1 &&
+      (importOrderNoCounts[orderNoKey] ?? 0) === 1
+    );
+  });
+}
+
+type SessionSupabaseClient = Awaited<
+  ReturnType<typeof requireSession>
+>["supabase"];
+
+async function findNewTemuOrderImportRowsWithClient(
+  supabase: SessionSupabaseClient,
+  rows: TemuOrderImportRow[],
+) {
+  const { data: existingData, error: existingError } =
+    await fetchAllPages<ExistingTemuOrderImportLine>(async (from, to) => {
+      const { data, error } = await withTimeout(
+        supabase
+          .from("temu_orders")
+          .select("order_no, sub_order_no, sku_code, product_attributes")
+          .order("id", { ascending: true })
+          .range(from, to),
+        "检查已有订单",
+      );
+      return {
+        data: (data ?? []) as ExistingTemuOrderImportLine[],
+        error,
+      };
+    });
+  if (existingError) throw existingError;
+  return filterNewTemuOrderImportRows(rows, existingData ?? []);
+}
+
+export async function findNewTemuOrderImportRows(
+  rows: TemuOrderImportRow[],
+) {
+  if (rows.length === 0) return [] as TemuOrderImportRow[];
+  const { supabase } = await requireSession();
+  return findNewTemuOrderImportRowsWithClient(supabase, rows);
 }
 
 function normalizeTemuOrder(row: Partial<TemuOrderRecord>): TemuOrderRecord {
@@ -447,69 +534,7 @@ export async function fetchFinanceOrdersPage(
 export async function importTemuOrders(rows: TemuOrderImportRow[]) {
   const { supabase, session } = await requireSession();
   if (rows.length === 0) return [] as TemuOrderRecord[];
-
-  type ExistingOrderLine = Pick<
-    TemuOrderImportRow,
-    "order_no" | "sub_order_no" | "sku_code" | "product_attributes"
-  >;
-  const { data: existingData, error: existingError } = await fetchAllPages<ExistingOrderLine>(
-    async (from, to) => {
-      const { data, error } = await withTimeout(
-        supabase
-          .from("temu_orders")
-          .select("order_no, sub_order_no, sku_code, product_attributes")
-          .order("id", { ascending: true })
-          .range(from, to),
-        "检查已有订单",
-      );
-      return { data: (data ?? []) as ExistingOrderLine[], error };
-    },
-  );
-  if (existingError) throw existingError;
-
-  const existingRows = existingData ?? [];
-  const existingRowsByLineKey = new Map<string, typeof existingRows[number]>();
-  const existingRowsBySkuKey = new Map<string, typeof existingRows[number]>();
-  const existingOrderNoCounts = existingRows.reduce<Record<string, number>>(
-    (counts, row) => {
-      const key = getOrderNoKey(row.order_no);
-      if (key) counts[key] = (counts[key] ?? 0) + 1;
-      return counts;
-    },
-    {},
-  );
-  const importOrderNoCounts = rows.reduce<Record<string, number>>((counts, row) => {
-    const key = getOrderNoKey(row.order_no);
-    if (key) counts[key] = (counts[key] ?? 0) + 1;
-    return counts;
-  }, {});
-
-  existingRows.forEach((row) => {
-    const lineKey = getOrderLineKey(row);
-    if (lineKey && !existingRowsByLineKey.has(lineKey)) {
-      existingRowsByLineKey.set(lineKey, row);
-    }
-
-    const skuKey = getOrderLineSkuKey(row);
-    if (skuKey && !existingRowsBySkuKey.has(skuKey)) {
-      existingRowsBySkuKey.set(skuKey, row);
-    }
-  });
-
-  const newRows = rows.filter((row) => {
-    const lineKey = getOrderLineKey(row);
-    if (lineKey && existingRowsByLineKey.has(lineKey)) return false;
-
-    const skuKey = getOrderLineSkuKey(row);
-    if (skuKey && existingRowsBySkuKey.has(skuKey)) return false;
-
-    const orderNoKey = getOrderNoKey(row.order_no);
-    return !(
-      orderNoKey &&
-      (existingOrderNoCounts[orderNoKey] ?? 0) === 1 &&
-      (importOrderNoCounts[orderNoKey] ?? 0) === 1
-    );
-  });
+  const newRows = await findNewTemuOrderImportRowsWithClient(supabase, rows);
   if (newRows.length === 0) return [] as TemuOrderRecord[];
 
   const payload = newRows.map((row) => ({

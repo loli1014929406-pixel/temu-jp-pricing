@@ -20,14 +20,29 @@ export type ActualShippingFeeImportTemplate = {
   logistics_method_fixed_id: string | null;
   is_system: boolean;
   system_key: string;
+  deleted_at: string | null;
   created_at: string;
   updated_at: string;
 };
 
 export type ActualShippingFeeImportTemplateInput = Omit<
   ActualShippingFeeImportTemplate,
-  "id" | "user_id" | "is_system" | "system_key" | "created_at" | "updated_at"
+  | "id"
+  | "user_id"
+  | "is_system"
+  | "system_key"
+  | "deleted_at"
+  | "created_at"
+  | "updated_at"
 >;
+
+export type ActualShippingFeeTemplateDeleteMode = "soft" | "hard";
+
+export function getActualShippingFeeTemplateDeleteMode(
+  template: Pick<ActualShippingFeeImportTemplate, "is_system">,
+): ActualShippingFeeTemplateDeleteMode {
+  return template.is_system ? "soft" : "hard";
+}
 
 const templateSelect = [
   "id",
@@ -46,6 +61,7 @@ const templateSelect = [
   "logistics_method_fixed_id",
   "is_system",
   "system_key",
+  "deleted_at",
   "created_at",
   "updated_at",
 ].join(", ");
@@ -66,6 +82,7 @@ export async function fetchActualShippingFeeTemplates() {
     supabase
       .from("finance_actual_shipping_fee_import_templates")
       .select(templateSelect)
+      .is("deleted_at", null)
       .order("is_system", { ascending: false })
       .order("updated_at", { ascending: false }),
     "加载实际运费导入模板",
@@ -124,13 +141,21 @@ export async function saveActualShippingFeeTemplate(
   return data as unknown as ActualShippingFeeImportTemplate;
 }
 
-export async function deleteActualShippingFeeTemplate(templateId: string) {
+export async function deleteActualShippingFeeTemplate(
+  template: Pick<ActualShippingFeeImportTemplate, "id" | "is_system">,
+) {
   const { supabase } = await requireSession();
+  const query = getActualShippingFeeTemplateDeleteMode(template) === "soft"
+    ? supabase
+        .from("finance_actual_shipping_fee_import_templates")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("id", template.id)
+    : supabase
+        .from("finance_actual_shipping_fee_import_templates")
+        .delete()
+        .eq("id", template.id);
   const { error } = await withTimeout(
-    supabase
-      .from("finance_actual_shipping_fee_import_templates")
-      .delete()
-      .eq("id", templateId),
+    query,
     "删除实际运费导入模板",
   );
   if (error) throw error;

@@ -5,7 +5,6 @@ import {
   RefreshCw,
   Upload,
 } from "lucide-react";
-import { useRef } from "react";
 import {
   orderCustomerHistoryMeta,
   visibleOrderCustomerHistoryStatuses,
@@ -16,48 +15,24 @@ import type { TemuTrackingAlert } from "../../lib/order-tracking";
 type OrderFileActionsProps = {
   canEdit: boolean;
   busyKey: string;
-  onOrderFile: (file: File | undefined) => void;
-  onTrackingFile: (file: File | undefined) => void;
+  onOpenOrderImport: () => void;
+  onOpenTrackingImport: () => void;
 };
 
 export function OrderFileActions({
   canEdit,
   busyKey,
-  onOrderFile,
-  onTrackingFile,
+  onOpenOrderImport,
+  onOpenTrackingImport,
 }: OrderFileActionsProps) {
-  const orderInputRef = useRef<HTMLInputElement | null>(null);
-  const trackingInputRef = useRef<HTMLInputElement | null>(null);
   if (!canEdit) return null;
 
   return (
     <>
-      <input
-        ref={orderInputRef}
-        type="file"
-        aria-label="选择 Temu 订单文件"
-        accept=".xlsx,.csv,.tsv,.txt"
-        className="hidden"
-        onChange={(event) => {
-          onOrderFile(event.target.files?.[0]);
-          event.target.value = "";
-        }}
-      />
-      <input
-        ref={trackingInputRef}
-        type="file"
-        aria-label="选择物流单号文件"
-        accept=".xlsx,.csv,.tsv,.txt"
-        className="hidden"
-        onChange={(event) => {
-          onTrackingFile(event.target.files?.[0]);
-          event.target.value = "";
-        }}
-      />
       <button
         type="button"
         disabled={busyKey === "tracking-import"}
-        onClick={() => trackingInputRef.current?.click()}
+        onClick={onOpenTrackingImport}
         className="btn-secondary"
       >
         <Upload size={18} />
@@ -66,7 +41,7 @@ export function OrderFileActions({
       <button
         type="button"
         disabled={busyKey === "import"}
-        onClick={() => orderInputRef.current?.click()}
+        onClick={onOpenOrderImport}
         className="btn-primary"
       >
         <Upload size={18} />

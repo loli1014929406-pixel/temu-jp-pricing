@@ -13,6 +13,10 @@ import {
 } from "../components/orders/OrderPageChrome";
 import { ReshipOrderModal } from "../components/orders/ReshipOrderModal";
 import { SplitOrderModal } from "../components/orders/SplitOrderModal";
+import {
+  OrderFileImportModal,
+  type PreparedOrderFileImport,
+} from "../components/orders/OrderFileImportModal";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PageHeader } from "../components/ui";
 import { StandardTable, type StandardTableColumn } from "../components/ui/StandardTable";
@@ -28,7 +32,6 @@ import {
   addObjectSheet,
   createWorkbook,
   downloadWorkbook,
-  readTabularFileObjects,
 } from "../lib/excel";
 import {
   dedupeLogisticsMethodNames,
@@ -44,6 +47,7 @@ import {
   cancelTemuOrderSplit,
   deleteTemuOrder,
   fetchTemuOrderFulfillmentByOrderNo,
+  findNewTemuOrderImportRows,
   importTemuOrders,
   releaseTemuOrderShipmentInventory,
   saveTemuOrderSplit,
@@ -94,26 +98,15 @@ type OrdersPageProps = {
 import {
   OrderSortKey,
   OrderSort,
-  TrackingImportRecord,
   OrderStockDeduction,
-  TemuOrderImportField,
-  importColumnAliases,
-  optionalImportFields,
-  importFieldLabels,
-  trackingNoImportColumnAliases,
   rmbPerUsdForDeclaration,
   defaultOrderSort,
   temuUploadWarehouseName,
   temuUploadColumns,
   visibleColumns,
   orderColumnWidths,
-  hasAnyColumn,
-  readImportCell,
   normalizeSkuCode,
   normalizeSalesSpec,
-  normalizeJapanesePhone,
-  normalizePostalCode,
-  includesLooseText,
   formatStyleColorForDeclaration,
   normalizeLogisticsMethod,
   buildSkuOrderLookup,
@@ -135,7 +128,6 @@ import {
   getOrderLineSkuKey,
   getOrderLineLabel,
   dedupeImportRowsByOrderLine,
-  parseTrackingImportRecord,
   getFullAddress,
   formatRecipientPhone,
   formatRecipientName,
@@ -148,7 +140,43 @@ import {
   parseOrderDateTime,
   normalizeRmbAmount,
 } from "./orders/OrderTableRow";
+import {
+  buildTrackingImportPreview,
+  type TrackingImportPreview,
+} from "../lib/order-tracking-import";
+import type { OrderFileImportKind } from "../lib/order-file-import-templates";
 
+type OrderImportReviewRow = {
+  sourceRowNumber: number;
+  orderNo: string;
+  subOrderNo: string;
+  status: "importable" | "duplicate_file" | "existing" | "missing_order_no";
+  message: string;
+};
+
+type PendingOrderFileImport = {
+  kind: "orders";
+  fileName: string;
+  templateName: string;
+  sheetName: string;
+  totalRowCount: number;
+  rows: OrderImportReviewRow[];
+  importRows: TemuOrderImportRow[];
+  missingRecipientInfoCount: number;
+};
+
+type PendingTrackingFileImport = {
+  kind: "tracking";
+  fileName: string;
+  templateName: string;
+  sheetName: string;
+  totalRowCount: number;
+  preview: TrackingImportPreview;
+};
+
+type PendingOrderPageFileImport =
+  | PendingOrderFileImport
+  | PendingTrackingFileImport;
 
 export function OrdersPage({ user }: OrdersPageProps) {
   const { canEdit, canDelete } = usePermissions();
@@ -161,6 +189,10 @@ export function OrdersPage({ user }: OrdersPageProps) {
   const [logisticsMethodFilter, setLogisticsMethodFilter] = useState("");
   const [orderSort, setOrderSort] = useState<OrderSort>(defaultOrderSort);
   const [showUrgentUnuploadedOnly, setShowUrgentUnuploadedOnly] = useState(false);
+  const [openFileImportKind, setOpenFileImportKind] =
+    useState<OrderFileImportKind | null>(null);
+  const [pendingFileImport, setPendingFileImport] =
+    useState<PendingOrderPageFileImport | null>(null);
 
   useEffect(() => {
     setPage(1);
@@ -790,68 +822,6 @@ export function OrdersPage({ user }: OrdersPageProps) {
     );
   }
 
-  function getTrackingMatchScore(order: TemuOrderRecord, record: TrackingImportRecord) {
-    const orderPhone = normalizeJapanesePhone(formatRecipientPhone(order.recipient_phone));
-    const recordPhone = normalizeJapanesePhone(record.phone);
-    const orderPostalCode = normalizePostalCode(order.postal_code);
-    const recordPostalCode = normalizePostalCode(record.postalCode);
-    const orderName = formatRecipientName(order.recipient_name);
-    const orderAddress = getFullAddress(order);
-    let score = 0;
-
-    if (record.orderNo && includesLooseText(record.orderNo, order.order_no)) score += 140;
-    if (record.subOrderNo && includesLooseText(record.subOrderNo, order.sub_order_no)) score += 90;
-    if (includesLooseText(record.allText, order.order_no)) score += 100;
-    if (record.refNo && includesLooseText(record.refNo, order.order_no)) score += 100;
-    if (orderPhone && recordPhone && orderPhone === recordPhone) score += 60;
-    if (orderPostalCode && recordPostalCode && orderPostalCode === recordPostalCode) score += 45;
-    if (orderName && includesLooseText(record.recipientName, orderName)) score += 40;
-    if (orderAddress && includesLooseText(record.address, orderAddress)) score += 35;
-    if (order.sku_code && includesLooseText(record.remark, order.sku_code)) score += 20;
-
-    return score;
-  }
-
-  function isConfidentTrackingMatch(order: TemuOrderRecord, record: TrackingImportRecord, score: number) {
-    const phoneMatched =
-      normalizeJapanesePhone(formatRecipientPhone(order.recipient_phone)) ===
-      normalizeJapanesePhone(record.phone);
-    const postalMatched =
-      normalizePostalCode(order.postal_code) === normalizePostalCode(record.postalCode);
-    const nameMatched = includesLooseText(record.recipientName, formatRecipientName(order.recipient_name));
-    const addressMatched = includesLooseText(record.address, getFullAddress(order));
-    const orderNoMatched = includesLooseText(record.orderNo, order.order_no);
-    const subOrderNoMatched = includesLooseText(record.subOrderNo, order.sub_order_no);
-
-    return (
-      orderNoMatched ||
-      subOrderNoMatched ||
-      includesLooseText(record.allText, order.order_no) ||
-      (phoneMatched && postalMatched) ||
-      (nameMatched && postalMatched) ||
-      (addressMatched && postalMatched) ||
-      score >= 100
-    );
-  }
-
-  function findTrackingMatch(
-    order: TemuOrderRecord,
-    records: TrackingImportRecord[],
-    usedRowIndexes: Set<number>,
-  ) {
-    const scoredRecords = records
-      .filter((record) => !usedRowIndexes.has(record.rowIndex))
-      .map((record) => ({
-        record,
-        score: getTrackingMatchScore(order, record),
-      }))
-      .sort((left, right) => right.score - left.score);
-
-    const best = scoredRecords[0];
-    if (!best || !isConfidentTrackingMatch(order, best.record, best.score)) return null;
-    return best.record;
-  }
-
   function reserveOrderInventory(
     warehouseId: string,
     sku: ProductSku,
@@ -931,131 +901,167 @@ export function OrdersPage({ user }: OrdersPageProps) {
     );
   }
 
-  async function handleFileChange(file: File | undefined) {
+  async function handlePreparedFileImport(
+    prepared: PreparedOrderFileImport,
+  ) {
     if (!canEdit) {
-      setErrorMessage("当前账号没有编辑权限，不能导入订单。");
+      setErrorMessage("当前账号没有编辑权限，不能导入文件。");
       return;
     }
-    if (!file) return;
-    if (!(await confirmAction(`确认导入订单文件“${file.name}”吗？`))) return;
-
-    setBusyKey("import");
     setErrorMessage("");
     setNoticeMessage("");
 
-    try {
-      const rows = await readTabularFileObjects(file);
-      const missingColumns = (Object.keys(importColumnAliases) as TemuOrderImportField[])
-        .filter(
-          (field) =>
-            !optionalImportFields.has(field) &&
-            !hasAnyColumn(rows[0] ?? {}, importColumnAliases[field]),
-        )
-        .map((field) => importFieldLabels[field]);
-      if (missingColumns.length > 0) {
-        throw new Error(`缺少必要列：${missingColumns.join("、")}`);
-      }
+    if (prepared.kind === "tracking") {
+      const records = prepared.parsed.rows.map((row) => ({
+        sourceRowNumber: row.sourceRowNumber,
+        orderNo: row.values.order_no ?? "",
+        subOrderNo: row.values.sub_order_no ?? "",
+        trackingNo: row.values.tracking_no ?? "",
+      }));
+      const preview = buildTrackingImportPreview(
+        records,
+        allOrders.filter(
+          (order) => getOrderStage(order) === "pending_shipping",
+        ),
+      );
+      setPendingFileImport({
+        kind: "tracking",
+        fileName: prepared.fileName,
+        templateName: prepared.template.name,
+        sheetName: prepared.parsed.sheetName,
+        totalRowCount: prepared.parsed.totalRowCount,
+        preview,
+      });
+      setOpenFileImportKind(null);
+      return;
+    }
 
+    setBusyKey("import-preview");
+    try {
       const { products: nextProducts, productSkus: nextSkus } =
         await fetchLatestProductsAndSkus();
       const importSkuLookup = buildSkuOrderLookup(nextProducts, nextSkus);
-
-      const importRows: TemuOrderImportRow[] = rows.flatMap((row, index) => {
-        const orderNo = readImportCell(row, "order_no");
-        if (!orderNo) return [];
-        const skuCode = readImportCell(row, "sku_code");
-        const matchedSalesSpec = importSkuLookup.salesSpecByCode.get(normalizeSkuCode(skuCode));
-        return [
-          {
-            order_no: orderNo,
-            sub_order_no: readImportCell(row, "sub_order_no") || String(index + 2),
-            order_status: readImportCell(row, "order_status"),
+      const parsedRows = prepared.parsed.rows.map((source) => {
+        const values = source.values;
+        const skuCode = values.sku_code ?? "";
+        const matchedSalesSpec = importSkuLookup.salesSpecByCode.get(
+          normalizeSkuCode(skuCode),
+        );
+        return {
+          sourceRowNumber: source.sourceRowNumber,
+          row: {
+            order_no: values.order_no ?? "",
+            sub_order_no:
+              values.sub_order_no || String(source.sourceRowNumber),
+            order_status: values.order_status ?? "",
             sku_code: skuCode,
             fulfillment_quantity: parseFulfillmentQuantity(
-              readImportCell(row, "fulfillment_quantity"),
+              values.fulfillment_quantity ?? "",
             ),
-            product_attributes: matchedSalesSpec ?? readImportCell(row, "product_attributes"),
-            recipient_name: readImportCell(row, "recipient_name"),
-            recipient_phone: readImportCell(row, "recipient_phone"),
-            email: readImportCell(row, "email"),
-            province: readImportCell(row, "province"),
-            city: readImportCell(row, "city"),
-            district: readImportCell(row, "district"),
-            address_line1: readImportCell(row, "address_line1"),
-            address_line2: readImportCell(row, "address_line2"),
-            postal_code: readImportCell(row, "postal_code"),
-            latest_ship_time: readImportCell(row, "latest_ship_time"),
-            actual_ship_time: readImportCell(row, "actual_ship_time"),
-            estimated_delivery_time: readImportCell(row, "estimated_delivery_time"),
-          },
-        ];
-      });
-      if (importRows.length === 0) throw new Error("没有读取到可导入的订单行");
-
-      const uniqueImportRows = dedupeImportRowsByOrderLine(importRows);
-      const skippedDuplicateCount = importRows.length - uniqueImportRows.length;
-      const existingOrders = allOrders;
-      const existingOrdersByLineKey = new Map<string, TemuOrderRecord>();
-      const existingOrdersBySkuKey = new Map<string, TemuOrderRecord>();
-      const existingOrderNoCounts = existingOrders.reduce<Record<string, number>>(
-        (counts, order) => {
-          const key = getOrderNoKey(order.order_no);
-          if (key) counts[key] = (counts[key] ?? 0) + 1;
-          return counts;
-        },
-        {},
-      );
-      const importOrderNoCounts = uniqueImportRows.reduce<Record<string, number>>(
-        (counts, row) => {
-          const key = getOrderNoKey(row.order_no);
-          if (key) counts[key] = (counts[key] ?? 0) + 1;
-          return counts;
-        },
-        {},
-      );
-
-      existingOrders.forEach((order) => {
-        const lineKey = getOrderLineKey(order);
-        if (lineKey && !existingOrdersByLineKey.has(lineKey)) {
-          existingOrdersByLineKey.set(lineKey, order);
-        }
-
-        const skuKey = getOrderLineSkuKey(order);
-        if (skuKey && !existingOrdersBySkuKey.has(skuKey)) {
-          existingOrdersBySkuKey.set(skuKey, order);
-        }
+            product_attributes:
+              matchedSalesSpec ?? values.product_attributes ?? "",
+            recipient_name: values.recipient_name ?? "",
+            recipient_phone: values.recipient_phone ?? "",
+            email: values.email ?? "",
+            province: values.province ?? "",
+            city: values.city ?? "",
+            district: values.district ?? "",
+            address_line1: values.address_line1 ?? "",
+            address_line2: values.address_line2 ?? "",
+            postal_code: values.postal_code ?? "",
+            latest_ship_time: values.latest_ship_time ?? "",
+            actual_ship_time: values.actual_ship_time ?? "",
+            estimated_delivery_time:
+              values.estimated_delivery_time ?? "",
+          } satisfies TemuOrderImportRow,
+        };
       });
 
-      const findExistingImportOrder = (row: TemuOrderImportRow) => {
-        const lineKey = getOrderLineKey(row);
-        const lineMatch = lineKey ? existingOrdersByLineKey.get(lineKey) : undefined;
-        if (lineMatch) return lineMatch;
+      const validRows = parsedRows.filter((item) => item.row.order_no.trim());
+      const uniqueRows = dedupeImportRowsByOrderLine(
+        validRows.map((item) => item.row),
+      );
+      const uniqueKeys = new Set(uniqueRows.map(getOrderLineKey));
+      const databaseNewRows = await findNewTemuOrderImportRows(uniqueRows);
+      const databaseNewLineKeys = new Set(
+        databaseNewRows.map(getOrderLineKey),
+      );
+      const seenUniqueKeys = new Set<string>();
 
-        const skuKey = getOrderLineSkuKey(row);
-        const skuMatch = skuKey ? existingOrdersBySkuKey.get(skuKey) : undefined;
-        if (skuMatch) return skuMatch;
-
-        const orderNoKey = getOrderNoKey(row.order_no);
+      const importRows: TemuOrderImportRow[] = [];
+      const reviewRows: OrderImportReviewRow[] = parsedRows.map((item) => {
+        const lineKey = getOrderLineKey(item.row);
+        if (!item.row.order_no.trim()) {
+          return {
+            sourceRowNumber: item.sourceRowNumber,
+            orderNo: "",
+            subOrderNo: item.row.sub_order_no,
+            status: "missing_order_no",
+            message: "订单号为空",
+          };
+        }
         if (
-          orderNoKey &&
-          (existingOrderNoCounts[orderNoKey] ?? 0) === 1 &&
-          (importOrderNoCounts[orderNoKey] ?? 0) === 1
+          !uniqueKeys.has(lineKey) ||
+          (lineKey && seenUniqueKeys.has(lineKey))
         ) {
-          return existingOrders.find((order) => getOrderNoKey(order.order_no) === orderNoKey);
+          return {
+            sourceRowNumber: item.sourceRowNumber,
+            orderNo: item.row.order_no,
+            subOrderNo: item.row.sub_order_no,
+            status: "duplicate_file",
+            message: "上传文件内订单明细重复，已跳过",
+          };
         }
+        if (lineKey) seenUniqueKeys.add(lineKey);
+        if (!databaseNewLineKeys.has(lineKey)) {
+          return {
+            sourceRowNumber: item.sourceRowNumber,
+            orderNo: item.row.order_no,
+            subOrderNo: item.row.sub_order_no,
+            status: "existing",
+            message: "网站已有该订单明细，已跳过",
+          };
+        }
+        importRows.push(item.row);
+        return {
+          sourceRowNumber: item.sourceRowNumber,
+          orderNo: item.row.order_no,
+          subOrderNo: item.row.sub_order_no,
+          status: "importable",
+          message: "可导入",
+        };
+      });
 
-        return undefined;
-      };
+      setPendingFileImport({
+        kind: "orders",
+        fileName: prepared.fileName,
+        templateName: prepared.template.name,
+        sheetName: prepared.parsed.sheetName,
+        totalRowCount: prepared.parsed.totalRowCount,
+        rows: reviewRows,
+        importRows,
+        missingRecipientInfoCount: importRows.filter(
+          (row) => !hasAnyRecipientInfo(row),
+        ).length,
+      });
+      setOpenFileImportKind(null);
+    } catch (error) {
+      setErrorMessage(getOrdersErrorMessage(error, "核对订单文件失败"));
+    } finally {
+      setBusyKey("");
+    }
+  }
 
-      const newImportRows = uniqueImportRows.filter((row) => !findExistingImportOrder(row));
-      const existingLineCount = uniqueImportRows.length - newImportRows.length;
-      const unresolvedRowsMissingRecipientInfo = newImportRows.filter(
-        (row) => !hasAnyRecipientInfo(row),
-      ).length;
+  async function confirmPendingOrderFileImport() {
+    if (!pendingFileImport || pendingFileImport.kind !== "orders") return;
+    setBusyKey("import");
+    setErrorMessage("");
+    setNoticeMessage("");
+    try {
       const savedOrders =
-        newImportRows.length > 0
-          ? await importTemuOrders(newImportRows)
-          : [] as TemuOrderRecord[];
+        pendingFileImport.importRows.length > 0
+          ? await importTemuOrders(pendingFileImport.importRows)
+          : [];
       if (savedOrders.length > 0) {
         updateOrdersState(savedOrders);
         setActiveStage("pending_assignment");
@@ -1065,21 +1071,29 @@ export function OrdersPage({ user }: OrdersPageProps) {
         setShowUrgentUnuploadedOnly(false);
         setPage(1);
       }
-      const skipMessages = [
-        skippedDuplicateCount > 0 ? `跳过上传表内重复订单明细 ${skippedDuplicateCount} 行` : "",
-        existingLineCount > 0 ? `跳过已有订单明细 ${existingLineCount} 条` : "",
-        unresolvedRowsMissingRecipientInfo > 0
-          ? `${unresolvedRowsMissingRecipientInfo} 条订单仍缺少收件信息，请重新上传包含收件信息的 Temu 订单表`
-          : "",
-      ].filter(Boolean);
+      const duplicateCount = pendingFileImport.rows.filter(
+        (row) => row.status === "duplicate_file",
+      ).length;
+      const existingCount = pendingFileImport.rows.filter(
+        (row) => row.status === "existing",
+      ).length;
       setNoticeMessage(
         [
           savedOrders.length > 0
             ? `已导入 ${savedOrders.length} 条新订单明细`
             : "没有新增订单",
-          ...skipMessages,
-        ].join("，"),
+          duplicateCount > 0
+            ? `跳过上传表内重复订单明细 ${duplicateCount} 行`
+            : "",
+          existingCount > 0
+            ? `跳过已有订单明细 ${existingCount} 条`
+            : "",
+          pendingFileImport.missingRecipientInfoCount > 0
+            ? `${pendingFileImport.missingRecipientInfoCount} 条订单仍缺少收件信息，请重新上传包含收件信息的 Temu 订单表`
+            : "",
+        ].filter(Boolean).join("，"),
       );
+      setPendingFileImport(null);
     } catch (error) {
       setErrorMessage(getOrdersErrorMessage(error, "导入订单失败"));
     } finally {
@@ -1087,88 +1101,51 @@ export function OrdersPage({ user }: OrdersPageProps) {
     }
   }
 
-  async function handleTrackingFileChange(file: File | undefined) {
-    if (!canEdit) {
-      setErrorMessage("当前账号没有编辑权限，不能导入物流单号。");
-      return;
-    }
-    if (!file) return;
-    if (!(await confirmAction(`确认导入物流单号文件“${file.name}”吗？`))) return;
-
+  async function confirmPendingTrackingFileImport() {
+    if (!pendingFileImport || pendingFileImport.kind !== "tracking") return;
     setBusyKey("tracking-import");
     setErrorMessage("");
     setNoticeMessage("");
-
     try {
-      const rows = await readTabularFileObjects(file);
-      if (rows.length === 0) {
-        throw new Error("文件里没有可读取的数据。");
-      }
-      const hasTrackingNoColumn = rows.some((row) =>
-        hasAnyColumn(row, trackingNoImportColumnAliases),
+      const saveEntries = pendingFileImport.preview.matches.flatMap((match) =>
+        match.orders.map((order) => {
+          const draft = drafts[order.id] ?? toDraft(order);
+          const updates = {
+            ...draft,
+            order_status: "已发货",
+            actual_ship_time: "",
+            logistics_tracking_no: match.record.trackingNo,
+            logistics_status: "待查询",
+          };
+          return { order, updates, nextOrder: { ...order, ...updates } };
+        }),
       );
-      if (!hasTrackingNoColumn) {
-        throw new Error("缺少物流单号列，请确认表格包含 CWB_NO、跟踪单号或物流单号。");
-      }
-
-      const trackingRows = rows
-        .map((row, index) => parseTrackingImportRecord(row, index))
-        .filter((row): row is TrackingImportRecord => Boolean(row));
-      if (trackingRows.length === 0) throw new Error("没有读取到可用的物流单号");
-
-      const pendingOrders = allOrders.filter(
-        (order) => getOrderStage(order) === "pending_shipping",
-      );
-      if (pendingOrders.length === 0) {
-        setNoticeMessage("当前没有待发货订单需要匹配物流单号。");
-        return;
-      }
-
-      const pendingOrderRows = buildOrderDisplayRows(pendingOrders);
-      const usedRowIndexes = new Set<number>();
-      const matchedPairs = pendingOrderRows.flatMap((orderRow) => {
-        const match = findTrackingMatch(orderRow.primaryOrder, trackingRows, usedRowIndexes);
-        if (!match) return [];
-        usedRowIndexes.add(match.rowIndex);
-        return orderRow.orders.map((order) => ({ order, trackingRow: match }));
-      });
-
-      if (matchedPairs.length === 0) {
-        setNoticeMessage(`未匹配到物流单号，${pendingOrders.length} 条待发货订单保持不变。`);
-        return;
-      }
-
-      const saveEntries = matchedPairs.map(({ order, trackingRow }) => {
-        const draft = drafts[order.id] ?? toDraft(order);
-        const updates = {
-          ...draft,
-          order_status: "已发货",
-          actual_ship_time: "",
-          logistics_tracking_no: trackingRow.trackingNo,
-          logistics_status: "待查询",
-        };
-        return { order, updates, nextOrder: { ...order, ...updates } };
-      });
       const { nextOrders, inventoryChanges, failures } =
         await saveOrderEntriesWithInventory(saveEntries);
       if (nextOrders.length === 0 && failures.length > 0) {
         throw failures[0].error;
       }
-
       updateOrdersState(nextOrders);
       setSelectedOrderIds((current) =>
-        current.filter((id) => !nextOrders.some((order) => order.id === id)),
+        current.filter(
+          (id) => !nextOrders.some((order) => order.id === id),
+        ),
       );
       setActiveStage("shipped");
+      const skippedCount = pendingFileImport.preview.rows.filter(
+        (row) => row.status !== "importable",
+      ).length;
       setNoticeMessage(
         [
-          `已匹配物流单号 ${nextOrders.length} 条并转入已发货`,
+          `已匹配物流单号 ${pendingFileImport.preview.matches.length} 个包裹并转入已发货`,
           inventoryChanges.length > 0
             ? `扣减 ${inventoryChanges.length} 项 SKU 库存`
             : "",
-          `未处理 ${pendingOrders.length - nextOrders.length} 条继续留在待发货`,
+          skippedCount > 0 ? `跳过 ${skippedCount} 行未匹配或冲突数据` : "",
+          failures.length > 0 ? `${failures.length} 条更新失败` : "",
         ].filter(Boolean).join("，"),
       );
+      setPendingFileImport(null);
     } catch (error) {
       setErrorMessage(getOrdersErrorMessage(error, "导入物流单号失败"));
     } finally {
@@ -2626,8 +2603,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
           <OrderFileActions
             canEdit={canEdit}
             busyKey={busyKey}
-            onOrderFile={(file) => void handleFileChange(file)}
-            onTrackingFile={(file) => void handleTrackingFileChange(file)}
+            onOpenOrderImport={() => setOpenFileImportKind("orders")}
+            onOpenTrackingImport={() => setOpenFileImportKind("tracking")}
           />
         ) : null}
       />
@@ -2637,6 +2614,271 @@ export function OrdersPage({ user }: OrdersPageProps) {
         noticeMessage={noticeMessage}
         draftNotice={draftNotice}
       />
+
+      {openFileImportKind && (
+        <OrderFileImportModal
+          kind={openFileImportKind}
+          canEdit={canEdit}
+          onClose={() => setOpenFileImportKind(null)}
+          onPrepared={(prepared) => void handlePreparedFileImport(prepared)}
+        />
+      )}
+
+      {pendingFileImport && (
+        <section className="rounded-xl border border-sky-200 bg-sky-50/40 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-bold text-slate-900">
+                导入前核对 · {pendingFileImport.templateName}
+              </h2>
+              <p className="mt-1 text-xs text-slate-500">
+                {pendingFileImport.fileName} · 工作表{" "}
+                {pendingFileImport.sheetName} · 读取{" "}
+                {pendingFileImport.totalRowCount} 行
+              </p>
+            </div>
+            <button
+              type="button"
+              className="icon-btn h-8 w-8"
+              onClick={() => setPendingFileImport(null)}
+              disabled={Boolean(busyKey)}
+              aria-label="关闭导入预览"
+            >
+              ×
+            </button>
+          </div>
+
+          {pendingFileImport.kind === "orders" ? (
+            <>
+              <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                {[
+                  ["读取订单行", pendingFileImport.rows.length],
+                  ["可导入", pendingFileImport.importRows.length],
+                  [
+                    "已有订单",
+                    pendingFileImport.rows.filter(
+                      (row) => row.status === "existing",
+                    ).length,
+                  ],
+                  [
+                    "重复或无效",
+                    pendingFileImport.rows.filter(
+                      (row) =>
+                        row.status === "duplicate_file" ||
+                        row.status === "missing_order_no",
+                    ).length,
+                  ],
+                ].map(([label, value]) => (
+                  <div
+                    key={label}
+                    className="rounded-lg border border-white bg-white/90 p-3"
+                  >
+                    <div className="text-[11px] font-semibold text-slate-500">
+                      {label}
+                    </div>
+                    <div className="mt-1 text-lg font-bold text-slate-900">
+                      {value}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {pendingFileImport.missingRecipientInfoCount > 0 && (
+                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
+                  可导入数据中有{" "}
+                  {pendingFileImport.missingRecipientInfoCount} 条缺少收件信息。
+                </div>
+              )}
+              <div className="mt-3 max-h-72 overflow-auto rounded-lg border border-white bg-white/90">
+                <table className="w-full min-w-[760px] text-xs">
+                  <thead className="sticky top-0 bg-slate-50 text-left text-slate-500">
+                    <tr>
+                      <th className="px-3 py-2">行</th>
+                      <th className="px-3 py-2">订单号</th>
+                      <th className="px-3 py-2">子订单号</th>
+                      <th className="px-3 py-2">处理结果</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pendingFileImport.rows.map((row) => (
+                      <tr
+                        key={`${row.sourceRowNumber}-${row.orderNo}-${row.subOrderNo}`}
+                        className="border-t border-slate-100"
+                      >
+                        <td className="px-3 py-2 text-slate-400">
+                          {row.sourceRowNumber}
+                        </td>
+                        <td className="px-3 py-2 font-mono font-semibold text-slate-700">
+                          {row.orderNo || "--"}
+                        </td>
+                        <td className="px-3 py-2 font-mono text-slate-600">
+                          {row.subOrderNo || "--"}
+                        </td>
+                        <td className="px-3 py-2">
+                          <span
+                            className={`rounded px-2 py-1 font-bold ${
+                              row.status === "importable"
+                                ? "bg-emerald-50 text-emerald-700"
+                                : row.status === "existing"
+                                  ? "bg-slate-100 text-slate-600"
+                                  : "bg-amber-50 text-amber-700"
+                            }`}
+                          >
+                            {row.message}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setPendingFileImport(null)}
+                  disabled={Boolean(busyKey)}
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => void confirmPendingOrderFileImport()}
+                  disabled={
+                    Boolean(busyKey) ||
+                    pendingFileImport.importRows.length === 0
+                  }
+                >
+                  {busyKey === "import"
+                    ? "导入中..."
+                    : `确认导入 ${pendingFileImport.importRows.length} 条`}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                {[
+                  ["读取物流行", pendingFileImport.preview.rows.length],
+                  ["可匹配包裹", pendingFileImport.preview.matches.length],
+                  [
+                    "未匹配",
+                    pendingFileImport.preview.rows.filter((row) =>
+                      [
+                        "unmatched_order",
+                        "unmatched_sub_order",
+                        "missing_order_no",
+                        "missing_sub_order_no",
+                        "missing_tracking_no",
+                      ].includes(row.status),
+                    ).length,
+                  ],
+                  [
+                    "冲突或重复",
+                    pendingFileImport.preview.rows.filter((row) =>
+                      [
+                        "ambiguous_package",
+                        "duplicate_order_key",
+                        "duplicate_tracking_no",
+                      ].includes(row.status),
+                    ).length,
+                  ],
+                ].map(([label, value]) => (
+                  <div
+                    key={label}
+                    className="rounded-lg border border-white bg-white/90 p-3"
+                  >
+                    <div className="text-[11px] font-semibold text-slate-500">
+                      {label}
+                    </div>
+                    <div className="mt-1 text-lg font-bold text-slate-900">
+                      {value}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 max-h-72 overflow-auto rounded-lg border border-white bg-white/90">
+                <table className="w-full min-w-[920px] text-xs">
+                  <thead className="sticky top-0 bg-slate-50 text-left text-slate-500">
+                    <tr>
+                      <th className="px-3 py-2">行</th>
+                      <th className="px-3 py-2">订单号</th>
+                      <th className="px-3 py-2">子订单号</th>
+                      <th className="px-3 py-2">包裹</th>
+                      <th className="px-3 py-2">物流单号</th>
+                      <th className="px-3 py-2">处理结果</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pendingFileImport.preview.rows.map((row) => (
+                      <tr
+                        key={`${row.sourceRowNumber}-${row.trackingNo}`}
+                        className="border-t border-slate-100"
+                      >
+                        <td className="px-3 py-2 text-slate-400">
+                          {row.sourceRowNumber}
+                        </td>
+                        <td className="px-3 py-2 font-mono font-semibold text-slate-700">
+                          {row.orderNo || "--"}
+                        </td>
+                        <td className="px-3 py-2 font-mono text-slate-600">
+                          {row.subOrderNo || "--"}
+                        </td>
+                        <td className="px-3 py-2 text-slate-600">
+                          {row.packageSequence
+                            ? `包裹 ${row.packageSequence}`
+                            : "--"}
+                        </td>
+                        <td className="px-3 py-2 font-mono font-semibold text-slate-700">
+                          {row.trackingNo || "--"}
+                        </td>
+                        <td className="px-3 py-2">
+                          <span
+                            className={`rounded px-2 py-1 font-bold ${
+                              row.status === "importable"
+                                ? "bg-emerald-50 text-emerald-700"
+                                : row.status === "ambiguous_package" ||
+                                    row.status === "duplicate_order_key" ||
+                                    row.status === "duplicate_tracking_no"
+                                  ? "bg-rose-50 text-rose-700"
+                                  : "bg-amber-50 text-amber-700"
+                            }`}
+                          >
+                            {row.message}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setPendingFileImport(null)}
+                  disabled={Boolean(busyKey)}
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => void confirmPendingTrackingFileImport()}
+                  disabled={
+                    Boolean(busyKey) ||
+                    pendingFileImport.preview.matches.length === 0
+                  }
+                >
+                  {busyKey === "tracking-import"
+                    ? "导入中..."
+                    : `确认导入 ${pendingFileImport.preview.matches.length} 个包裹`}
+                </button>
+              </div>
+            </>
+          )}
+        </section>
+      )}
 
       <OrderFilters
         activeStage={activeStage}

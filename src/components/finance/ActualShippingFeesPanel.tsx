@@ -4,11 +4,15 @@ import {
   Ban,
   Check,
   CheckCircle2,
+  Eraser,
+  FileSpreadsheet,
   History,
+  Link2,
   Pencil,
   Plus,
   Search,
   Trash2,
+  Unlink,
   Upload,
   WalletCards,
   X,
@@ -21,6 +25,14 @@ import {
 } from "../../lib/actual-shipping-fee-parser";
 import type { Workbook } from "../../lib/tabular-parser";
 import type { LogisticsMethod } from "../../types";
+import {
+  bindActualShippingFeeColumn,
+  clearActualShippingFeeFieldMapping,
+  clearAllActualShippingFeeFieldMappings,
+  getActualShippingFeeFieldMapping,
+  setActualShippingFeeFixedMapping,
+  type ActualShippingFeeWebsiteField,
+} from "../../lib/actual-shipping-fee-template-mapping";
 import {
   deleteActualShippingFeeTemplate,
   ensureDefaultActualShippingFeeTemplates,
@@ -66,6 +78,16 @@ type TemplateEditorState = {
   draft: ActualShippingFeeImportTemplateInput;
 };
 
+const websiteFieldMeta: Array<{
+  key: ActualShippingFeeWebsiteField;
+  label: string;
+  fixedValueLabel: string;
+}> = [
+  { key: "tracking", label: "物流单号", fixedValueLabel: "物流单号固定值" },
+  { key: "amount", label: "实际尾程运费（人民币）", fixedValueLabel: "运费固定值" },
+  { key: "logistics_method", label: "物流方式", fixedValueLabel: "网站物流方式" },
+];
+
 const emptyReport: ActualShippingFeeReport = {
   rows: [],
   totalCount: 0,
@@ -82,7 +104,6 @@ const emptyReport: ActualShippingFeeReport = {
 };
 
 function createTemplateDraft(
-  logisticsMethods: LogisticsMethod[],
   workbook: Workbook | null,
 ): ActualShippingFeeImportTemplateInput {
   return {
@@ -90,10 +111,10 @@ function createTemplateDraft(
     worksheet_name: workbook?.worksheets[0]?.name ?? "",
     start_row: 2,
     tracking_source_type: "column",
-    tracking_column: 1,
+    tracking_column: null,
     tracking_fixed_value: "",
     amount_source_type: "column",
-    amount_column: 2,
+    amount_column: null,
     amount_fixed_value: null,
     logistics_method_source_type: "fixed",
     logistics_method_column: null,
@@ -168,6 +189,11 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
   const [logisticsMethods, setLogisticsMethods] = useState<LogisticsMethod[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [templateEditor, setTemplateEditor] = useState<TemplateEditorState | null>(null);
+  const [selectedWebsiteField, setSelectedWebsiteField] =
+    useState<ActualShippingFeeWebsiteField>("tracking");
+  const [selectedSampleColumn, setSelectedSampleColumn] = useState<number | null>(null);
+  const [fixedValueField, setFixedValueField] =
+    useState<ActualShippingFeeWebsiteField | null>(null);
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [loadingTemplates, setLoadingTemplates] = useState(true);
   const [uploadedWorkbook, setUploadedWorkbook] = useState<Workbook | null>(null);
@@ -232,8 +258,10 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
           ? current
           : nextTemplates[0]?.id ?? "",
       );
+      return { templates: nextTemplates, methods: nextMethods };
     } catch (loadTemplateError) {
       notifyError(getErrorMessage(loadTemplateError, "加载实际运费导入模板失败"));
+      return null;
     } finally {
       setLoadingTemplates(false);
     }
@@ -249,10 +277,17 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
   );
   const templateSample = useMemo(() => {
     if (!templateEditor || !uploadedWorkbook) return null;
-    const worksheet = uploadedWorkbook.worksheets.find(
-      (item) => item.name === templateEditor.draft.worksheet_name,
-    ) ?? uploadedWorkbook.worksheets[0];
-    if (!worksheet) return null;
+    const requestedWorksheetName = templateEditor.draft.worksheet_name.trim();
+    const worksheet = requestedWorksheetName
+      ? uploadedWorkbook.worksheets.find((item) => item.name === requestedWorksheetName)
+      : uploadedWorkbook.worksheets[0];
+    if (!worksheet) {
+      return {
+        worksheetName: requestedWorksheetName,
+        values: [],
+        missingWorksheet: Boolean(requestedWorksheetName),
+      };
+    }
     const row = worksheet.data[Math.max(0, templateEditor.draft.start_row - 1)] ?? [];
     const maximumMappedColumn = Math.max(
       templateEditor.draft.tracking_column ?? 0,
@@ -266,6 +301,7 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
         column: index + 1,
         value: String(row[index] ?? ""),
       })),
+      missingWorksheet: false,
     };
   }, [templateEditor, uploadedWorkbook]);
 
@@ -309,15 +345,29 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
       const workbook = await readActualShippingFeeWorkbook(file);
       setUploadedWorkbook(workbook);
       setUploadedFileName(file.name);
-      if (!selectedTemplate) {
-        setTemplateEditor({
-          templateId: null,
-          draft: createTemplateDraft(logisticsMethods, workbook),
-        });
-        notifyWarning("请先建立映射模板，再预览导入结果。");
-        return;
-      }
-      await parseAndPreviewFile(workbook, file.name, selectedTemplate);
+      setTemplateEditor((current) => {
+        const nextEditor = current ?? (
+          selectedTemplate
+            ? {
+                templateId: selectedTemplate.id,
+                draft: templateToDraft(selectedTemplate),
+              }
+            : {
+                templateId: null,
+                draft: createTemplateDraft(workbook),
+              }
+        );
+        if (nextEditor.draft.worksheet_name.trim()) return nextEditor;
+        return {
+          ...nextEditor,
+          draft: {
+            ...nextEditor.draft,
+            worksheet_name: workbook.worksheets[0]?.name ?? "",
+          },
+        };
+      });
+      setSelectedSampleColumn(null);
+      notifySuccess(`已读取表格“${file.name}”，请从样例数据中选择列并绑定。`);
     } catch (parseError) {
       notifyError(getErrorMessage(parseError, "解析实际运费表格失败"));
     } finally {
@@ -325,19 +375,21 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
     }
   }
 
-  async function handleTemplateChange(templateId: string) {
+  function handleTemplateChange(templateId: string) {
     setSelectedTemplateId(templateId);
     setPendingImport(null);
+    setSelectedSampleColumn(null);
+    setFixedValueField(null);
     const template = templates.find((item) => item.id === templateId);
-    if (!template || !uploadedWorkbook || !uploadedFileName) return;
-    setParsing(true);
-    try {
-      await parseAndPreviewFile(uploadedWorkbook, uploadedFileName, template);
-    } catch (parseError) {
-      notifyError(getErrorMessage(parseError, "按所选模板解析表格失败"));
-    } finally {
-      setParsing(false);
-    }
+    setTemplateEditor(template
+      ? {
+          templateId: template.id,
+          draft: templateToDraft(template),
+        }
+      : {
+          templateId: null,
+          draft: createTemplateDraft(uploadedWorkbook),
+        });
   }
 
   function updateTemplateDraft(updates: Partial<ActualShippingFeeImportTemplateInput>) {
@@ -347,31 +399,102 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
   }
 
   function openNewTemplateEditor() {
+    setSelectedTemplateId("");
     setTemplateEditor({
       templateId: null,
-      draft: createTemplateDraft(logisticsMethods, uploadedWorkbook),
+      draft: createTemplateDraft(uploadedWorkbook),
     });
+    setSelectedWebsiteField("tracking");
+    setSelectedSampleColumn(null);
+    setFixedValueField(null);
   }
 
-  function openEditTemplateEditor() {
-    if (!selectedTemplate) return;
-    setTemplateEditor({
-      templateId: selectedTemplate.id,
-      draft: templateToDraft(selectedTemplate),
-    });
+  function openImportWorkbench() {
+    setTemplateEditor(selectedTemplate
+      ? {
+          templateId: selectedTemplate.id,
+          draft: templateToDraft(selectedTemplate),
+        }
+      : {
+          templateId: null,
+          draft: createTemplateDraft(uploadedWorkbook),
+        });
+    setSelectedWebsiteField("tracking");
+    setSelectedSampleColumn(null);
+    setFixedValueField(null);
   }
 
-  async function handleSaveTemplate() {
+  function closeImportWorkbench() {
+    setTemplateEditor(null);
+    setSelectedSampleColumn(null);
+    setFixedValueField(null);
+  }
+
+  function selectWebsiteField(field: ActualShippingFeeWebsiteField) {
+    setSelectedWebsiteField(field);
+    const mapping = templateEditor
+      ? getActualShippingFeeFieldMapping(templateEditor.draft, field)
+      : null;
+    setFixedValueField(mapping?.sourceType === "fixed" ? field : null);
+  }
+
+  function handleBindSelectedColumn() {
     if (!templateEditor) return;
-    const draft = templateEditor.draft;
-    if (!draft.name.trim()) {
-      notifyWarning("请填写模板名称");
+    if (!selectedSampleColumn) {
+      notifyWarning("请先从右侧样例数据中选择一个表格列");
       return;
     }
-    if (draft.start_row < 1) {
-      notifyWarning("数据开始行必须大于 0");
-      return;
-    }
+    setTemplateEditor({
+      ...templateEditor,
+      draft: bindActualShippingFeeColumn(
+        templateEditor.draft,
+        selectedWebsiteField,
+        selectedSampleColumn,
+      ),
+    });
+    setSelectedSampleColumn(null);
+    setFixedValueField(null);
+  }
+
+  function handleUseFixedValue() {
+    if (!templateEditor) return;
+    setTemplateEditor({
+      ...templateEditor,
+      draft: setActualShippingFeeFixedMapping(
+        templateEditor.draft,
+        selectedWebsiteField,
+      ),
+    });
+    setSelectedSampleColumn(null);
+    setFixedValueField(selectedWebsiteField);
+  }
+
+  function handleClearSelectedMapping() {
+    if (!templateEditor) return;
+    setTemplateEditor({
+      ...templateEditor,
+      draft: clearActualShippingFeeFieldMapping(
+        templateEditor.draft,
+        selectedWebsiteField,
+      ),
+    });
+    setSelectedSampleColumn(null);
+    setFixedValueField(null);
+  }
+
+  function handleClearAllMappings() {
+    if (!templateEditor) return;
+    setTemplateEditor({
+      ...templateEditor,
+      draft: clearAllActualShippingFeeFieldMappings(templateEditor.draft),
+    });
+    setSelectedSampleColumn(null);
+    setFixedValueField(null);
+  }
+
+  function getTemplateValidationError(draft: ActualShippingFeeImportTemplateInput) {
+    if (!draft.name.trim()) return "请填写模板名称";
+    if (draft.start_row < 1) return "数据开始行必须大于 0";
     const columnMappings = [
       [draft.tracking_source_type, draft.tracking_column, "物流单号"],
       [draft.amount_source_type, draft.amount_column, "实际尾程运费"],
@@ -380,16 +503,12 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
     const invalidColumn = columnMappings.find(
       ([sourceType, column]) => sourceType === "column" && (!column || column < 1),
     );
-    if (invalidColumn) {
-      notifyWarning(`${invalidColumn[2]}的来源列必须大于 0`);
-      return;
-    }
+    if (invalidColumn) return `请为${invalidColumn[2]}绑定表格列或设置固定值`;
     if (
       draft.tracking_source_type === "fixed" &&
       !draft.tracking_fixed_value.trim()
     ) {
-      notifyWarning("请填写物流单号固定值");
-      return;
+      return "请填写物流单号固定值";
     }
     if (
       draft.amount_source_type === "fixed" &&
@@ -399,15 +518,24 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
         draft.amount_fixed_value < 0
       )
     ) {
-      notifyWarning("请填写不小于 0 的实际尾程运费固定值");
-      return;
+      return "请填写不小于 0 的实际尾程运费固定值";
     }
     if (
       draft.logistics_method_source_type === "fixed" &&
       !draft.logistics_method_fixed_id
     ) {
-      notifyWarning("请选择固定物流方式");
-      return;
+      return "请选择固定物流方式";
+    }
+    return "";
+  }
+
+  async function saveCurrentTemplate(showSuccess: boolean) {
+    if (!templateEditor) return;
+    const draft = templateEditor.draft;
+    const validationError = getTemplateValidationError(draft);
+    if (validationError) {
+      notifyWarning(validationError);
+      return null;
     }
 
     setSavingTemplate(true);
@@ -418,27 +546,78 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
       );
       await loadTemplatesAndMethods();
       setSelectedTemplateId(saved.id);
-      setTemplateEditor(null);
-      notifySuccess(templateEditor.templateId ? "导入模板已更新。" : "导入模板已创建。");
-      if (uploadedWorkbook && uploadedFileName) {
-        setParsing(true);
-        await parseAndPreviewFile(uploadedWorkbook, uploadedFileName, saved);
+      setTemplateEditor({
+        templateId: saved.id,
+        draft: templateToDraft(saved),
+      });
+      if (showSuccess) {
+        notifySuccess(templateEditor.templateId ? "导入模板已更新。" : "导入模板已创建。");
       }
+      return saved;
     } catch (saveError) {
       notifyError(getErrorMessage(saveError, "保存实际运费导入模板失败"));
+      return null;
     } finally {
       setSavingTemplate(false);
+    }
+  }
+
+  async function handleSaveTemplate() {
+    await saveCurrentTemplate(true);
+  }
+
+  async function handlePreviewCurrentImport() {
+    if (!templateEditor) return;
+    if (!uploadedWorkbook || !uploadedFileName) {
+      notifyWarning("请先选择需要上传的 CSV、XLS 或 XLSX 文件");
+      return;
+    }
+    const validationError = getTemplateValidationError(templateEditor.draft);
+    if (validationError) {
+      notifyWarning(validationError);
+      return;
+    }
+
+    const existingTemplate = templateEditor.templateId
+      ? templates.find((template) => template.id === templateEditor.templateId)
+      : null;
+    const templateIsDirty = !existingTemplate ||
+      JSON.stringify(templateToDraft(existingTemplate)) !==
+        JSON.stringify(templateEditor.draft);
+    const template = templateIsDirty
+      ? await saveCurrentTemplate(false)
+      : existingTemplate;
+    if (!template) return;
+
+    setParsing(true);
+    try {
+      await parseAndPreviewFile(uploadedWorkbook, uploadedFileName, template);
+      closeImportWorkbench();
+    } catch (parseError) {
+      notifyError(getErrorMessage(parseError, "按当前映射核对表格失败"));
+    } finally {
       setParsing(false);
     }
   }
 
   async function handleDeleteTemplate() {
-    if (!selectedTemplate || selectedTemplate.is_system) return;
+    if (!selectedTemplate) return;
     if (!confirmAction(`确认删除导入模板“${selectedTemplate.name}”吗？`)) return;
     try {
-      await deleteActualShippingFeeTemplate(selectedTemplate.id);
+      await deleteActualShippingFeeTemplate(selectedTemplate);
       setPendingImport(null);
-      await loadTemplatesAndMethods();
+      const loaded = await loadTemplatesAndMethods();
+      const nextTemplate = loaded?.templates[0] ?? null;
+      setSelectedTemplateId(nextTemplate?.id ?? "");
+      setTemplateEditor(nextTemplate
+        ? {
+            templateId: nextTemplate.id,
+            draft: templateToDraft(nextTemplate),
+          }
+        : {
+            templateId: null,
+            draft: createTemplateDraft(uploadedWorkbook),
+          });
       notifySuccess("导入模板已删除。");
     } catch (deleteError) {
       notifyError(getErrorMessage(deleteError, "删除实际运费导入模板失败"));
@@ -587,6 +766,43 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
     }
   }
 
+  function getMappingDescription(field: ActualShippingFeeWebsiteField) {
+    if (!templateEditor) {
+      return { isMapped: false, primary: "未绑定", secondary: "" };
+    }
+    const mapping = getActualShippingFeeFieldMapping(templateEditor.draft, field);
+    if (mapping.sourceType === "column") {
+      if (!mapping.column) {
+        return { isMapped: false, primary: "未绑定", secondary: "请选择右侧表格列" };
+      }
+      const sampleValue = templateSample?.values.find(
+        (cell) => cell.column === mapping.column,
+      )?.value ?? "";
+      return {
+        isMapped: true,
+        primary: `${columnNumberToLabel(mapping.column)} 列（第 ${mapping.column} 列）`,
+        secondary: sampleValue || "当前样例行为空",
+      };
+    }
+
+    if (field === "logistics_method") {
+      const methodName = logisticsMethods.find(
+        (method) => method.id === mapping.fixedValue,
+      )?.name ?? "";
+      return {
+        isMapped: Boolean(methodName),
+        primary: methodName ? `固定值：${methodName}` : "固定值未设置",
+        secondary: "",
+      };
+    }
+    const fixedValue = String(mapping.fixedValue ?? "").trim();
+    return {
+      isMapped: fixedValue !== "",
+      primary: fixedValue ? `固定值：${fixedValue}` : "固定值未设置",
+      secondary: "",
+    };
+  }
+
   return (
     <div className="animate-in fade-in space-y-5 duration-300">
       <div className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-100 pb-3">
@@ -596,300 +812,477 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
             仅按物流单号匹配；月份统一取网站订单的实际发货时间，同一物流单号只计算一次。
           </p>
         </div>
-        <div className="flex flex-wrap items-end gap-2">
-          <label className="flex min-w-56 flex-col gap-1 text-xs font-semibold text-slate-600">
-            导入模板
-            <select
-              value={selectedTemplateId}
-              onChange={(event) => void handleTemplateChange(event.target.value)}
-              className="h-10 rounded-lg border border-line bg-white px-3"
-              disabled={loadingTemplates || parsing}
-            >
-              {templates.length === 0 && <option value="">暂无模板</option>}
-              {templates.map((template) => (
-                <option key={template.id} value={template.id}>
-                  {template.name}{template.is_system ? "（自动生成）" : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            type="button"
-            className="btn-secondary h-10 px-3 text-xs"
-            onClick={openNewTemplateEditor}
-            disabled={!canEdit || loadingTemplates || logisticsMethods.length === 0}
-          >
-            <Plus size={15} /> 新建模板
-          </button>
-          <button
-            type="button"
-            className="btn-secondary h-10 px-3 text-xs"
-            onClick={openEditTemplateEditor}
-            disabled={!canEdit || !selectedTemplate}
-          >
-            <Pencil size={15} /> 映射设置
-          </button>
-          <button
-            type="button"
-            className="icon-btn h-10 w-10 text-rose-600"
-            onClick={() => void handleDeleteTemplate()}
-            disabled={!canEdit || !selectedTemplate || selectedTemplate.is_system}
-            aria-label="删除自定义模板"
-            title={selectedTemplate?.is_system ? "自动生成模板不可删除，可直接修改映射" : "删除模板"}
-          >
-            <Trash2 size={16} />
-          </button>
-          <label className="btn-primary inline-flex h-10 cursor-pointer items-center gap-2 px-4 text-xs font-bold">
-            <Upload size={16} />
-            {parsing ? "解析中..." : "选择运费表格"}
-            <input
-              type="file"
-              accept=".csv,.xls,.xlsx"
-              className="hidden"
-              disabled={!canEdit || parsing || importing || loadingTemplates}
-              onChange={(event) => void handleSelectFile(event)}
-            />
-          </label>
-        </div>
+        <button
+          type="button"
+          className="btn-primary h-10 px-4 text-xs"
+          onClick={openImportWorkbench}
+          disabled={!canEdit || loadingTemplates || logisticsMethods.length === 0}
+        >
+          <Upload size={16} /> 上传实际运费
+        </button>
       </div>
 
       {templateEditor && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 p-4" role="dialog" aria-modal="true" aria-label="实际运费导入模板映射">
-          <div className="max-h-[92vh] w-full max-w-5xl overflow-auto rounded-2xl border border-slate-200 bg-white shadow-2xl">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="实际运费上传与映射"
+        >
+          <div className="max-h-[94vh] w-full max-w-7xl overflow-auto rounded-2xl border border-slate-200 bg-white shadow-2xl">
             <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-100 bg-white px-5 py-4">
               <div>
-                <h4 className="text-base font-bold text-slate-900">
-                  {templateEditor.templateId ? "修改运费导入模板" : "新建运费导入模板"}
-                </h4>
+                <h4 className="text-base font-bold text-slate-900">上传实际运费 · 制作映射模板</h4>
                 <p className="mt-1 text-xs text-slate-500">
-                  将网站要求的三个字段映射到表格列号，或为字段设置固定值。列号从 1 开始。
+                  选择表格和开始行后，从右侧真实数据中选择一列，再绑定到左侧网站字段；也可以设置固定值。
                 </p>
               </div>
               <button
                 type="button"
                 className="icon-btn h-8 w-8"
-                onClick={() => setTemplateEditor(null)}
-                disabled={savingTemplate}
-                aria-label="关闭映射设置"
+                onClick={closeImportWorkbench}
+                disabled={savingTemplate || parsing}
+                aria-label="关闭实际运费上传"
               >
                 <X size={17} />
               </button>
             </div>
 
-            <div className="space-y-5 p-5">
-              <div className="grid gap-3 sm:grid-cols-3">
-                <label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">
-                  模板名称
-                  <input
-                    value={templateEditor.draft.name}
-                    onChange={(event) => updateTemplateDraft({ name: event.target.value })}
-                    className="h-10 rounded-lg border border-line bg-white px-3 text-sm"
-                  />
-                </label>
-                <label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">
-                  工作表
-                  {uploadedWorkbook ? (
-                    <select
-                      value={templateEditor.draft.worksheet_name}
-                      onChange={(event) => updateTemplateDraft({ worksheet_name: event.target.value })}
-                      className="h-10 rounded-lg border border-line bg-white px-3 text-sm"
+              <div className="space-y-5 p-5">
+              <section className="rounded-xl border border-slate-200 bg-slate-50/40 p-4">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h5 className="text-sm font-bold text-slate-800">1. 选择模板与上传文件</h5>
+                    <p className="mt-1 text-xs text-slate-500">
+                      已有模板可直接选择；新格式表格可在这里新建并保存为模板。
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      className="btn-secondary h-9 px-3 text-xs"
+                      onClick={openNewTemplateEditor}
+                      disabled={savingTemplate || parsing}
                     >
-                      {uploadedWorkbook.worksheets.map((worksheet) => (
-                        <option key={worksheet.name} value={worksheet.name}>{worksheet.name}</option>
+                      <Plus size={15} /> 新建模板
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-btn h-9 w-9 text-rose-600"
+                      onClick={() => void handleDeleteTemplate()}
+                      disabled={
+                        savingTemplate ||
+                        parsing ||
+                        !selectedTemplate
+                      }
+                      aria-label="删除当前模板"
+                      title="删除当前模板"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">
+                    上传模板
+                    <select
+                      value={templateEditor.templateId ?? ""}
+                      onChange={(event) => handleTemplateChange(event.target.value)}
+                      className="h-10 rounded-lg border border-line bg-white px-3 text-sm"
+                      disabled={loadingTemplates || savingTemplate || parsing}
+                    >
+                      {!templateEditor.templateId && (
+                        <option value="">新模板（尚未保存）</option>
+                      )}
+                      {templates.map((template) => (
+                        <option key={template.id} value={template.id}>
+                          {template.name}{template.is_system ? "（自动生成）" : ""}
+                        </option>
                       ))}
                     </select>
-                  ) : (
+                  </label>
+
+                  <label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">
+                    模板名称
                     <input
-                      value={templateEditor.draft.worksheet_name}
-                      onChange={(event) => updateTemplateDraft({ worksheet_name: event.target.value })}
-                      placeholder="留空时读取第一个工作表"
+                      value={templateEditor.draft.name}
+                      onChange={(event) => updateTemplateDraft({ name: event.target.value })}
                       className="h-10 rounded-lg border border-line bg-white px-3 text-sm"
+                      disabled={savingTemplate || parsing}
                     />
-                  )}
-                </label>
-                <label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">
-                  数据开始行
-                  <input
-                    type="number"
-                    min={1}
-                    step={1}
-                    value={templateEditor.draft.start_row}
-                    onChange={(event) => updateTemplateDraft({
-                      start_row: Math.max(1, Number(event.target.value) || 1),
-                    })}
-                    className="h-10 rounded-lg border border-line bg-white px-3 text-sm"
-                  />
-                </label>
-              </div>
+                  </label>
 
-              <div className="overflow-hidden rounded-xl border border-slate-200">
-                <div className="grid grid-cols-[minmax(160px,1fr)_150px_minmax(220px,2fr)] gap-3 bg-slate-50 px-4 py-2 text-xs font-bold text-slate-500">
-                  <div>网站字段</div>
-                  <div>取值方式</div>
-                  <div>表格列号 / 固定值</div>
-                </div>
-
-                <div className="grid grid-cols-[minmax(160px,1fr)_150px_minmax(220px,2fr)] items-center gap-3 border-t border-slate-100 px-4 py-3">
-                  <div className="text-sm font-bold text-slate-800">物流单号 <span className="text-rose-500">*</span></div>
-                  <select
-                    value={templateEditor.draft.tracking_source_type}
-                    onChange={(event) => updateTemplateDraft({
-                      tracking_source_type: event.target.value as "column" | "fixed",
-                    })}
-                    className="h-9 rounded-lg border border-line bg-white px-2 text-sm"
-                  >
-                    <option value="column">读取表格列</option>
-                    <option value="fixed">固定值</option>
-                  </select>
-                  {templateEditor.draft.tracking_source_type === "column" ? (
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        min={1}
-                        step={1}
-                        value={templateEditor.draft.tracking_column ?? ""}
-                        onChange={(event) => updateTemplateDraft({
-                          tracking_column: Number(event.target.value) || null,
-                        })}
-                        className="h-9 w-28 rounded-lg border border-line bg-white px-3 text-sm"
-                      />
-                      <span className="text-xs font-semibold text-slate-500">
-                        {columnNumberToLabel(templateEditor.draft.tracking_column) || "--"} 列
+                  <div className="flex flex-col gap-1 text-xs font-semibold text-slate-600 xl:col-span-2">
+                    运费表格
+                    <div className="flex h-10 min-w-0 items-center gap-2 rounded-lg border border-line bg-white pl-3">
+                      <FileSpreadsheet size={16} className="shrink-0 text-slate-400" />
+                      <span
+                        className={`min-w-0 flex-1 truncate text-sm ${
+                          uploadedFileName ? "text-slate-700" : "text-slate-400"
+                        }`}
+                        title={uploadedFileName}
+                      >
+                        {uploadedFileName || "尚未选择 CSV、XLS 或 XLSX 文件"}
                       </span>
-                    </div>
-                  ) : (
-                    <input
-                      value={templateEditor.draft.tracking_fixed_value}
-                      onChange={(event) => updateTemplateDraft({ tracking_fixed_value: event.target.value })}
-                      className="h-9 rounded-lg border border-line bg-white px-3 text-sm"
-                    />
-                  )}
-                </div>
-
-                <div className="grid grid-cols-[minmax(160px,1fr)_150px_minmax(220px,2fr)] items-center gap-3 border-t border-slate-100 px-4 py-3">
-                  <div className="text-sm font-bold text-slate-800">实际尾程运费（人民币） <span className="text-rose-500">*</span></div>
-                  <select
-                    value={templateEditor.draft.amount_source_type}
-                    onChange={(event) => updateTemplateDraft({
-                      amount_source_type: event.target.value as "column" | "fixed",
-                    })}
-                    className="h-9 rounded-lg border border-line bg-white px-2 text-sm"
-                  >
-                    <option value="column">读取表格列</option>
-                    <option value="fixed">固定值</option>
-                  </select>
-                  {templateEditor.draft.amount_source_type === "column" ? (
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        min={1}
-                        step={1}
-                        value={templateEditor.draft.amount_column ?? ""}
-                        onChange={(event) => updateTemplateDraft({
-                          amount_column: Number(event.target.value) || null,
-                        })}
-                        className="h-9 w-28 rounded-lg border border-line bg-white px-3 text-sm"
-                      />
-                      <span className="text-xs font-semibold text-slate-500">
-                        {columnNumberToLabel(templateEditor.draft.amount_column) || "--"} 列
-                      </span>
-                    </div>
-                  ) : (
-                    <input
-                      type="number"
-                      min={0}
-                      step="any"
-                      value={templateEditor.draft.amount_fixed_value ?? ""}
-                      onChange={(event) => updateTemplateDraft({
-                        amount_fixed_value: event.target.value === "" ? null : Number(event.target.value),
-                      })}
-                      className="h-9 rounded-lg border border-line bg-white px-3 text-sm"
-                    />
-                  )}
-                </div>
-
-                <div className="grid grid-cols-[minmax(160px,1fr)_150px_minmax(220px,2fr)] items-center gap-3 border-t border-slate-100 px-4 py-3">
-                  <div className="text-sm font-bold text-slate-800">物流方式 <span className="text-rose-500">*</span></div>
-                  <select
-                    value={templateEditor.draft.logistics_method_source_type}
-                    onChange={(event) => updateTemplateDraft({
-                      logistics_method_source_type: event.target.value as "column" | "fixed",
-                    })}
-                    className="h-9 rounded-lg border border-line bg-white px-2 text-sm"
-                  >
-                    <option value="column">读取表格列</option>
-                    <option value="fixed">固定值</option>
-                  </select>
-                  {templateEditor.draft.logistics_method_source_type === "column" ? (
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        min={1}
-                        step={1}
-                        value={templateEditor.draft.logistics_method_column ?? ""}
-                        onChange={(event) => updateTemplateDraft({
-                          logistics_method_column: Number(event.target.value) || null,
-                        })}
-                        className="h-9 w-28 rounded-lg border border-line bg-white px-3 text-sm"
-                      />
-                      <span className="text-xs font-semibold text-slate-500">
-                        {columnNumberToLabel(templateEditor.draft.logistics_method_column) || "--"} 列
-                      </span>
-                    </div>
-                  ) : (
-                    <select
-                      value={templateEditor.draft.logistics_method_fixed_id ?? ""}
-                      onChange={(event) => updateTemplateDraft({
-                        logistics_method_fixed_id: event.target.value || null,
-                      })}
-                      className="h-9 rounded-lg border border-line bg-white px-3 text-sm"
-                    >
-                      <option value="">请选择网站物流方式</option>
-                      {logisticsMethods.map((method) => (
-                        <option key={method.id} value={method.id}>{method.name}</option>
-                      ))}
-                    </select>
-                  )}
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-sky-100 bg-sky-50/40 p-4">
-                <div className="text-sm font-bold text-slate-800">
-                  数据预览（第 {templateEditor.draft.start_row} 行）
-                </div>
-                {!uploadedWorkbook ? (
-                  <p className="mt-2 text-xs text-slate-500">
-                    尚未选择表格。保存模板后，选择 CSV、XLS 或 XLSX 文件即可按列号读取。
-                  </p>
-                ) : templateSample && templateSample.values.length > 0 ? (
-                  <div className="mt-3 overflow-x-auto">
-                    <div className="flex min-w-max gap-2">
-                      {templateSample.values.map((cell) => (
-                        <div key={cell.column} className="w-36 shrink-0 rounded-lg border border-white bg-white p-2">
-                          <div className="text-[11px] font-bold text-slate-400">
-                            {columnNumberToLabel(cell.column)} · 第 {cell.column} 列
-                          </div>
-                          <div className="mt-1 truncate text-xs font-semibold text-slate-700" title={cell.value}>
-                            {cell.value || "（空）"}
-                          </div>
-                        </div>
-                      ))}
+                      <label className="btn-secondary mr-1 inline-flex h-8 shrink-0 cursor-pointer items-center px-3 text-xs">
+                        {parsing ? "读取中..." : "选择文件"}
+                        <input
+                          type="file"
+                          accept=".csv,.xls,.xlsx"
+                          className="hidden"
+                          disabled={savingTemplate || parsing || importing}
+                          onChange={(event) => void handleSelectFile(event)}
+                        />
+                      </label>
                     </div>
                   </div>
-                ) : (
-                  <p className="mt-2 text-xs text-amber-700">
-                    所选工作表在该开始行没有样例数据，请调整工作表或开始行。
-                  </p>
-                )}
-              </div>
 
-              <div className="flex justify-end gap-2">
-                <button type="button" className="btn-secondary" onClick={() => setTemplateEditor(null)} disabled={savingTemplate}>
-                  取消
-                </button>
-                <button type="button" className="btn-primary" onClick={() => void handleSaveTemplate()} disabled={savingTemplate}>
-                  <Check size={16} /> {savingTemplate ? "保存中..." : "保存模板"}
-                </button>
+                  <label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">
+                    工作表
+                    {uploadedWorkbook ? (
+                      <select
+                        value={templateEditor.draft.worksheet_name}
+                        onChange={(event) => {
+                          updateTemplateDraft({ worksheet_name: event.target.value });
+                          setSelectedSampleColumn(null);
+                        }}
+                        className="h-10 rounded-lg border border-line bg-white px-3 text-sm"
+                        disabled={savingTemplate || parsing}
+                      >
+                        {templateEditor.draft.worksheet_name &&
+                          !uploadedWorkbook.worksheets.some(
+                            (worksheet) =>
+                              worksheet.name === templateEditor.draft.worksheet_name,
+                          ) && (
+                            <option value={templateEditor.draft.worksheet_name}>
+                              {templateEditor.draft.worksheet_name}（文件中不存在）
+                            </option>
+                          )}
+                        {uploadedWorkbook.worksheets.map((worksheet) => (
+                          <option key={worksheet.name} value={worksheet.name}>
+                            {worksheet.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        value={templateEditor.draft.worksheet_name}
+                        onChange={(event) =>
+                          updateTemplateDraft({ worksheet_name: event.target.value })
+                        }
+                        placeholder="选择文件后可选择工作表"
+                        className="h-10 rounded-lg border border-line bg-white px-3 text-sm"
+                        disabled={savingTemplate || parsing}
+                      />
+                    )}
+                  </label>
+
+                  <label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">
+                    数据开始行
+                    <input
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={templateEditor.draft.start_row}
+                      onChange={(event) => {
+                        updateTemplateDraft({
+                          start_row: Math.max(1, Number(event.target.value) || 1),
+                        });
+                        setSelectedSampleColumn(null);
+                      }}
+                      className="h-10 rounded-lg border border-line bg-white px-3 text-sm"
+                      disabled={savingTemplate || parsing}
+                    />
+                  </label>
+                </div>
+              </section>
+
+              <section className="rounded-xl border border-slate-200">
+                <div className="border-b border-slate-200 bg-slate-50/70 px-4 py-3">
+                  <h5 className="text-sm font-bold text-slate-800">2. 映射设置</h5>
+                  <p className="mt-1 text-xs text-slate-500">
+                    先点选左侧网站字段，再点选右侧样例列，最后点击“绑定”。每个网站字段只能绑定一列或一个固定值。
+                  </p>
+                </div>
+
+                <div className="grid min-h-[430px] lg:grid-cols-[minmax(360px,1.15fr)_180px_minmax(360px,1fr)]">
+                  <div className="border-b border-slate-200 lg:border-b-0 lg:border-r">
+                    <div className="grid grid-cols-[72px_minmax(130px,0.9fr)_minmax(180px,1.3fr)] bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500">
+                      <div>必填</div>
+                      <div>网站字段</div>
+                      <div>当前映射内容</div>
+                    </div>
+                    <div className="divide-y divide-slate-100">
+                      {websiteFieldMeta.map((field) => {
+                        const description = getMappingDescription(field.key);
+                        const isSelected = selectedWebsiteField === field.key;
+                        return (
+                          <button
+                            key={field.key}
+                            type="button"
+                            className={`grid w-full grid-cols-[72px_minmax(130px,0.9fr)_minmax(180px,1.3fr)] items-center px-3 py-4 text-left transition ${
+                              isSelected
+                                ? "bg-teal-50 ring-1 ring-inset ring-teal-500"
+                                : "bg-white hover:bg-slate-50"
+                            }`}
+                            onClick={() => selectWebsiteField(field.key)}
+                            aria-label={`选择网站字段：${field.label}`}
+                          >
+                            <div>
+                              <span className="rounded bg-rose-50 px-2 py-1 text-[11px] font-bold text-rose-600">
+                                必填
+                              </span>
+                            </div>
+                            <div className="pr-3 text-sm font-bold text-slate-800">
+                              {field.label}
+                            </div>
+                            <div className="min-w-0">
+                              <div
+                                className={`truncate text-xs font-bold ${
+                                  description.isMapped
+                                    ? "text-teal-700"
+                                    : "text-amber-700"
+                                }`}
+                              >
+                                {description.primary}
+                              </div>
+                              {description.secondary && (
+                                <div
+                                  className="mt-1 truncate text-[11px] text-slate-500"
+                                  title={description.secondary}
+                                >
+                                  {description.secondary}
+                                </div>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col items-stretch justify-center gap-2 border-b border-slate-200 bg-slate-50/40 p-4 lg:border-b-0 lg:border-r">
+                    <button
+                      type="button"
+                      className="btn-primary justify-center text-xs"
+                      onClick={handleBindSelectedColumn}
+                      disabled={!selectedSampleColumn || savingTemplate || parsing}
+                    >
+                      <Link2 size={15} /> 绑定
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-secondary justify-center text-xs"
+                      onClick={handleClearSelectedMapping}
+                      disabled={savingTemplate || parsing}
+                    >
+                      <Unlink size={15} /> 解除绑定
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-secondary justify-center text-xs"
+                      onClick={handleUseFixedValue}
+                      disabled={savingTemplate || parsing}
+                    >
+                      <Pencil size={15} /> 设置固定值
+                    </button>
+
+                    {fixedValueField && (
+                      <div className="mt-2 rounded-lg border border-teal-200 bg-white p-3">
+                        <div className="mb-2 text-xs font-bold text-slate-700">
+                          {
+                            websiteFieldMeta.find(
+                              (field) => field.key === fixedValueField,
+                            )?.fixedValueLabel
+                          }
+                        </div>
+                        {fixedValueField === "tracking" && (
+                          <input
+                            value={templateEditor.draft.tracking_fixed_value}
+                            onChange={(event) =>
+                              updateTemplateDraft({
+                                tracking_fixed_value: event.target.value,
+                              })
+                            }
+                            className="h-9 w-full rounded-lg border border-line px-2 text-sm"
+                            placeholder="输入固定物流单号"
+                          />
+                        )}
+                        {fixedValueField === "amount" && (
+                          <input
+                            type="number"
+                            min={0}
+                            step="any"
+                            value={templateEditor.draft.amount_fixed_value ?? ""}
+                            onChange={(event) =>
+                              updateTemplateDraft({
+                                amount_fixed_value:
+                                  event.target.value === ""
+                                    ? null
+                                    : Number(event.target.value),
+                              })
+                            }
+                            className="h-9 w-full rounded-lg border border-line px-2 text-sm"
+                            placeholder="输入人民币金额"
+                          />
+                        )}
+                        {fixedValueField === "logistics_method" && (
+                          <select
+                            value={templateEditor.draft.logistics_method_fixed_id ?? ""}
+                            onChange={(event) =>
+                              updateTemplateDraft({
+                                logistics_method_fixed_id:
+                                  event.target.value || null,
+                              })
+                            }
+                            className="h-9 w-full rounded-lg border border-line bg-white px-2 text-sm"
+                          >
+                            <option value="">请选择网站物流方式</option>
+                            {logisticsMethods.map((method) => (
+                              <option key={method.id} value={method.id}>
+                                {method.name}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      className="mt-auto inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                      onClick={handleClearAllMappings}
+                      disabled={savingTemplate || parsing}
+                    >
+                      <Eraser size={15} /> 全部清除
+                    </button>
+                  </div>
+
+                  <div className="min-w-0 bg-white">
+                    <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-3 py-2">
+                      <div className="text-xs font-bold text-slate-600">
+                        数据摘取（第 {templateEditor.draft.start_row} 行）
+                      </div>
+                      {selectedSampleColumn && (
+                        <div className="text-[11px] font-bold text-teal-700">
+                          已选择 {columnNumberToLabel(selectedSampleColumn)} 列
+                        </div>
+                      )}
+                    </div>
+
+                    {!uploadedWorkbook ? (
+                      <div className="flex min-h-[370px] items-center justify-center p-6 text-center text-xs text-slate-500">
+                        请先在上方选择表格，系统会在这里显示开始行的每一列真实数据。
+                      </div>
+                    ) : templateSample?.missingWorksheet ? (
+                      <div className="flex min-h-[370px] items-center justify-center p-6 text-center text-xs font-semibold text-amber-700">
+                        文件中找不到工作表“{templateSample.worksheetName}”，请在上方重新选择工作表。
+                      </div>
+                    ) : templateSample && templateSample.values.length > 0 ? (
+                      <div className="max-h-[390px] overflow-auto p-3">
+                        <div className="space-y-2">
+                          {templateSample.values.map((cell) => {
+                            const mappedFields = websiteFieldMeta.filter((field) => {
+                              const mapping = getActualShippingFeeFieldMapping(
+                                templateEditor.draft,
+                                field.key,
+                              );
+                              return (
+                                mapping.sourceType === "column" &&
+                                mapping.column === cell.column
+                              );
+                            });
+                            const isSelected = selectedSampleColumn === cell.column;
+                            return (
+                              <button
+                                key={cell.column}
+                                type="button"
+                                className={`w-full rounded-lg border p-3 text-left transition ${
+                                  isSelected
+                                    ? "border-teal-500 bg-teal-50 ring-1 ring-teal-500"
+                                    : "border-slate-200 bg-white hover:border-teal-300 hover:bg-teal-50/40"
+                                }`}
+                                onClick={() => setSelectedSampleColumn(cell.column)}
+                                aria-label={`选择表格列 ${columnNumberToLabel(cell.column)}`}
+                              >
+                                <div className="flex items-center justify-between gap-3">
+                                  <div className="text-xs font-bold text-slate-600">
+                                    {columnNumberToLabel(cell.column)} 列 · 第 {cell.column} 列
+                                  </div>
+                                  {mappedFields.length > 0 && (
+                                    <div className="rounded bg-sky-50 px-2 py-1 text-[10px] font-bold text-sky-700">
+                                      已绑定：{mappedFields.map((field) => field.label).join("、")}
+                                    </div>
+                                  )}
+                                </div>
+                                <div
+                                  className={`mt-1 break-all text-sm ${
+                                    cell.value ? "font-semibold text-slate-800" : "text-slate-400"
+                                  }`}
+                                >
+                                  {cell.value || "（空）"}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex min-h-[370px] items-center justify-center p-6 text-center text-xs font-semibold text-amber-700">
+                        所选工作表在第 {templateEditor.draft.start_row} 行没有样例数据，请调整工作表或开始行。
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </section>
+
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="text-xs text-slate-500">
+                  已完成{" "}
+                  <span className="font-bold text-slate-700">
+                    {
+                      websiteFieldMeta.filter(
+                        (field) => getMappingDescription(field.key).isMapped,
+                      ).length
+                    }
+                    /3
+                  </span>{" "}
+                  个网站字段已映射
+                  {uploadedFileName ? ` · 当前文件：${uploadedFileName}` : ""}
+                </div>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={closeImportWorkbench}
+                    disabled={savingTemplate || parsing}
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => void handleSaveTemplate()}
+                    disabled={savingTemplate || parsing}
+                  >
+                    <Check size={16} /> {savingTemplate ? "保存中..." : "仅保存模板"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={() => void handlePreviewCurrentImport()}
+                    disabled={
+                      savingTemplate ||
+                      parsing ||
+                      !uploadedWorkbook ||
+                      !uploadedFileName
+                    }
+                  >
+                    <Upload size={16} />
+                    {parsing ? "核对中..." : "保存模板并核对导入"}
+                  </button>
+                </div>
               </div>
             </div>
           </div>

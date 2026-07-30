@@ -41,6 +41,7 @@ const tables = [
   "finance_settlement_records",
   "finance_actual_shipping_fees",
   "finance_actual_shipping_fee_import_templates",
+  "temu_order_file_import_templates",
 ];
 
 function parseEnv(contents) {
