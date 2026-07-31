@@ -29,13 +29,16 @@ import {
 import { useAutoDismiss } from "../hooks/use-auto-dismiss";
 import { usePermissions } from "../hooks/use-permissions";
 import {
-  addObjectSheet,
-  createWorkbook,
   downloadWorkbook,
 } from "../lib/excel";
 import {
-  dedupeLogisticsMethodNames,
-} from "../lib/logistics-methods";
+  fillTemuUploadExportWorkbook,
+  type TemuUploadExportRow,
+} from "../lib/temu-upload-export";
+import {
+  fillShippingExportWorkbook,
+  type ShippingExportRow,
+} from "../lib/shipping-table-export";
 import {
   getWarehouseLastLegMethods,
   getWarehouseLogisticsConfigStatus,
@@ -102,7 +105,6 @@ import {
   rmbPerUsdForDeclaration,
   defaultOrderSort,
   temuUploadWarehouseName,
-  temuUploadColumns,
   visibleColumns,
   orderColumnWidths,
   normalizeSkuCode,
@@ -910,6 +912,68 @@ export function OrdersPage({ user }: OrdersPageProps) {
     }
     setErrorMessage("");
     setNoticeMessage("");
+
+    if (prepared.kind === "shipping_export") {
+      if (selectedPendingShippingOrdersInView.length === 0) {
+        setNoticeMessage("请先勾选要下载发货表格的待发货订单。");
+        return;
+      }
+      const validationMessage = validateOrdersReadyForFulfillment(
+        selectedPendingShippingOrdersInView,
+      );
+      if (validationMessage) {
+        setErrorMessage(validationMessage);
+        return;
+      }
+      setBusyKey("download-shipping-table");
+      try {
+        await downloadOcsShippingWorkbook(
+          selectedPendingShippingOrdersInView,
+          prepared.template,
+          prepared.workbook,
+        );
+        setNoticeMessage(
+          `已按模板“${prepared.template.name}”下载 ${buildOrderDisplayRows(selectedPendingShippingOrdersInView).length} 行发货表格`,
+        );
+        setOpenFileImportKind(null);
+      } catch (error) {
+        setErrorMessage(getOrdersErrorMessage(error, "下载发货表格失败"));
+      } finally {
+        setBusyKey("");
+      }
+      return;
+    }
+
+    if (prepared.kind === "temu_upload") {
+      if (selectedShippedOrdersInView.length === 0) {
+        setNoticeMessage("请先勾选要下载上传表格的已发货订单。");
+        return;
+      }
+      const validationMessage = validateOrdersReadyForTemuUpload(
+        selectedShippedOrdersInView,
+      );
+      if (validationMessage) {
+        setErrorMessage(validationMessage);
+        return;
+      }
+      setBusyKey("download-temu-upload-table");
+      try {
+        await downloadTemuUploadWorkbook(
+          selectedShippedOrdersInView,
+          prepared.template,
+          prepared.workbook,
+        );
+        setNoticeMessage(
+          `已按模板“${prepared.template.name}”下载 ${selectedShippedOrdersInView.length} 条订单的上传表格`,
+        );
+        setOpenFileImportKind(null);
+      } catch (error) {
+        setErrorMessage(getOrdersErrorMessage(error, "下载上传表格失败"));
+      } finally {
+        setBusyKey("");
+      }
+      return;
+    }
 
     if (prepared.kind === "tracking") {
       const records = prepared.parsed.rows.map((row) => ({
@@ -2219,35 +2283,39 @@ export function OrdersPage({ user }: OrdersPageProps) {
     return { errorMessage: "", deductions };
   }
 
-  function buildOcsSheet1Rows(targetOrders: TemuOrderRecord[]) {
+  function buildOcsSheet1Rows(
+    targetOrders: TemuOrderRecord[],
+  ): ShippingExportRow[] {
     return buildOrderDisplayRows(targetOrders).map((row) => {
       const merged = row.primaryOrder;
       return {
-        收件人: formatRecipientName(merged.recipient_name),
-        收件人地址: getFullAddress(merged),
-        收件邮编: merged.postal_code,
-        收件电话: formatRecipientPhone(merged.recipient_phone),
-        件数: 1,
-        "目的地(可以都填TYO)": "TYO",
-        订单号: merged.order_no,
-        "服务类型(不填写默认B2C)": "NEP",
-        店铺名称: "",
-        店铺备注: "",
-        发件人: "",
-        发件人地址: "",
-        发件人电话: "",
-        发件人邮编: "",
-        店铺: "",
-        自定义重量: "",
-        "是否带电(0:不带电/1:带电)": 0,
-        平台名称: "TEMU",
-        生产销售单位: "",
-        生产销售单位统一编码: "",
+        shipment_recipient_name: formatRecipientName(merged.recipient_name),
+        shipment_address: getFullAddress(merged),
+        shipment_postal_code: merged.postal_code,
+        shipment_phone: formatRecipientPhone(merged.recipient_phone),
+        shipment_package_count: 1,
+        shipment_destination: "TYO",
+        shipment_order_no: merged.order_no,
+        shipment_service_type: "NEP",
+        shipment_store_name: "",
+        shipment_store_note: "",
+        shipment_sender_name: "",
+        shipment_sender_address: "",
+        shipment_sender_phone: "",
+        shipment_sender_postal_code: "",
+        shipment_store: "",
+        shipment_custom_weight: "",
+        shipment_has_battery: 0,
+        shipment_platform_name: "TEMU",
+        shipment_sales_unit: "",
+        shipment_sales_unit_code: "",
       };
     });
   }
 
-  function buildOcsSheet2Rows(targetOrders: TemuOrderRecord[]) {
+  function buildOcsSheet2Rows(
+    targetOrders: TemuOrderRecord[],
+  ): ShippingExportRow[] {
     return buildOrderDisplayRows(targetOrders).flatMap((row) => {
       const declarationGroups = new Map<
         string,
@@ -2274,33 +2342,47 @@ export function OrdersPage({ user }: OrdersPageProps) {
       });
 
       return Array.from(declarationGroups.values()).map((group, index) => ({
-        订单号: row.primaryOrder.order_no,
-        商品代码: index + 1,
-        品名: group.declaration.product.product_name_en,
-        描述: group.declaration.product.material_en,
-        商品数量: group.quantity,
-        单价: getDeclarationUnitPriceUsd(group.declaration.sku),
-        币值: "USD",
-        编制方式: "",
-        HS_CODE: "",
-        原产国: "CN",
-        货架号: "",
-        采购编号: "",
-        样式颜色: formatStyleColorForDeclaration(group.order.product_attributes),
-        客户备注: `${group.declaration.product.product_name_en} ${group.declaration.product.product_code}`.trim(),
-        URL: "",
-        PRIMARYKEY: "",
-        国内申报价值: "",
-        国内申报币值: "",
+        item_order_no: row.primaryOrder.order_no,
+        item_code: index + 1,
+        item_name: group.declaration.product.product_name_en,
+        item_description: group.declaration.product.material_en,
+        item_quantity: group.quantity,
+        item_unit_price: getDeclarationUnitPriceUsd(group.declaration.sku),
+        item_currency: "USD",
+        item_compilation_method: "",
+        item_hs_code: "",
+        item_origin_country: "CN",
+        item_shelf_no: "",
+        item_purchase_no: "",
+        item_style_color: formatStyleColorForDeclaration(group.order.product_attributes),
+        item_customer_note: `${group.declaration.product.product_name_en} ${group.declaration.product.product_code}`.trim(),
+        item_url: "",
+        item_primary_key: "",
+        item_domestic_declared_value: "",
+        item_domestic_currency: "",
       }));
     });
   }
 
-  async function downloadOcsShippingWorkbook(targetOrders: TemuOrderRecord[]) {
-    const workbook = await createWorkbook();
-    addObjectSheet(workbook, "Sheet1", buildOcsSheet1Rows(targetOrders));
-    addObjectSheet(workbook, "Sheet2", buildOcsSheet2Rows(targetOrders));
-    await downloadWorkbook(workbook, `OCS-3cm-发货表格-${formatFileTimestamp()}.xlsx`);
+  async function downloadOcsShippingWorkbook(
+    targetOrders: TemuOrderRecord[],
+    template: Extract<
+      PreparedOrderFileImport,
+      { kind: "shipping_export" }
+    >["template"],
+    sourceWorkbook: Extract<
+      PreparedOrderFileImport,
+      { kind: "shipping_export" }
+    >["workbook"],
+  ) {
+    const workbook = fillShippingExportWorkbook(sourceWorkbook, template, {
+      Sheet1: buildOcsSheet1Rows(targetOrders),
+      Sheet2: buildOcsSheet2Rows(targetOrders),
+    });
+    await downloadWorkbook(
+      workbook,
+      `OCS-3cm-发货表格-${formatFileTimestamp()}.xlsx`,
+    );
   }
 
   function validateOrdersReadyForTemuUpload(targetOrders: TemuOrderRecord[]) {
@@ -2321,28 +2403,43 @@ export function OrdersPage({ user }: OrdersPageProps) {
     return "";
   }
 
-  function buildTemuUploadRows(targetOrders: TemuOrderRecord[]) {
+  function buildTemuUploadRows(
+    targetOrders: TemuOrderRecord[],
+  ): TemuUploadExportRow[] {
     return targetOrders.map((order) => {
       const merged = mergeOrderDraft(order);
 
       return {
-        订单号: merged.order_no,
-        子订单号: merged.sub_order_no,
-        商品件数: getOrderFulfillmentQuantity(merged),
-        跟踪单号: merged.logistics_tracking_no.trim(),
-        物流承运商: getTemuUploadCarrier(merged),
-        发货仓库名称: temuUploadWarehouseName,
+        order_no: merged.order_no,
+        sub_order_no: merged.sub_order_no,
+        fulfillment_quantity: getOrderFulfillmentQuantity(merged),
+        tracking_no: merged.logistics_tracking_no.trim(),
+        carrier: getTemuUploadCarrier(merged),
+        warehouse_name: temuUploadWarehouseName,
       };
     });
   }
 
-  async function downloadTemuUploadWorkbook(targetOrders: TemuOrderRecord[]) {
-    const workbook = await createWorkbook();
-    addObjectSheet(workbook, "Sheet1", buildTemuUploadRows(targetOrders), {
-      headers: [...temuUploadColumns],
-      columnWidths: [28, 28, 10, 18, 14, 16],
-    });
-    await downloadWorkbook(workbook, `Temu上传发货表格-${formatFileTimestamp()}.xlsx`);
+  async function downloadTemuUploadWorkbook(
+    targetOrders: TemuOrderRecord[],
+    template: Extract<
+      PreparedOrderFileImport,
+      { kind: "temu_upload" }
+    >["template"],
+    sourceWorkbook: Extract<
+      PreparedOrderFileImport,
+      { kind: "temu_upload" }
+    >["workbook"],
+  ) {
+    const workbook = fillTemuUploadExportWorkbook(
+      sourceWorkbook,
+      template,
+      buildTemuUploadRows(targetOrders),
+    );
+    await downloadWorkbook(
+      workbook,
+      `Temu上传发货表格-${formatFileTimestamp()}.xlsx`,
+    );
   }
 
   async function handleMoveNewOrdersToPendingShipping(
@@ -2413,7 +2510,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
     }
   }
 
-  async function handleDownloadShippingTable(targetOrders: TemuOrderRecord[], busyName: string) {
+  function handleOpenShippingTableDownload(targetOrders: TemuOrderRecord[]) {
     if (!canEdit) {
       setErrorMessage("当前账号没有编辑权限，不能下载发货表格。");
       return;
@@ -2429,35 +2526,18 @@ export function OrdersPage({ user }: OrdersPageProps) {
       return;
     }
 
-    setBusyKey(busyName);
     setErrorMessage("");
     setNoticeMessage("");
-
-    try {
-      await downloadOcsShippingWorkbook(targetOrders);
-      const methodLabel = dedupeLogisticsMethodNames(
-        targetOrders.map((order) => order.logistics_method),
-      ).join("、");
-      setNoticeMessage(
-        `已下载 ${buildOrderDisplayRows(targetOrders).length} 行 ${methodLabel || "物流"}发货表格`,
-      );
-    } catch (error) {
-      setErrorMessage(getOrdersErrorMessage(error, "下载发货表格失败"));
-    } finally {
-      setBusyKey("");
-    }
+    setOpenFileImportKind("shipping_export");
   }
 
-  async function handleDownloadTemuUploadTable(
-    targetOrders: TemuOrderRecord[],
-    busyName: string,
-  ) {
+  function handleOpenTemuUploadTableDownload(targetOrders: TemuOrderRecord[]) {
     if (!canEdit) {
-      setErrorMessage("当前账号没有编辑权限，不能下载上传 Temu 表格。");
+      setErrorMessage("当前账号没有编辑权限，不能下载上传表格。");
       return;
     }
     if (targetOrders.length === 0) {
-      setNoticeMessage("请先勾选要下载上传 Temu 表格的已发货订单。");
+      setNoticeMessage("请先勾选要下载上传表格的已发货订单。");
       return;
     }
 
@@ -2467,18 +2547,9 @@ export function OrdersPage({ user }: OrdersPageProps) {
       return;
     }
 
-    setBusyKey(busyName);
     setErrorMessage("");
     setNoticeMessage("");
-
-    try {
-      await downloadTemuUploadWorkbook(targetOrders);
-      setNoticeMessage(`已下载 ${targetOrders.length} 条订单的上传 Temu 表格`);
-    } catch (error) {
-      setErrorMessage(getOrdersErrorMessage(error, "下载上传 Temu 表格失败"));
-    } finally {
-      setBusyKey("");
-    }
+    setOpenFileImportKind("temu_upload");
   }
 
   async function handleMarkSelectedUploadedTemu() {
@@ -3003,16 +3074,10 @@ export function OrdersPage({ user }: OrdersPageProps) {
           }
           onSaveSelectedOrders={() => void handleSaveSelectedOrders()}
           onDownloadShippingTable={() =>
-            void handleDownloadShippingTable(
-              selectedPendingShippingOrdersInView,
-              "download-shipping-table",
-            )
+            handleOpenShippingTableDownload(selectedPendingShippingOrdersInView)
           }
           onDownloadTemuUploadTable={() =>
-            void handleDownloadTemuUploadTable(
-              selectedShippedOrdersInView,
-              "download-temu-upload-table",
-            )
+            handleOpenTemuUploadTableDownload(selectedShippedOrdersInView)
           }
           onMarkSelectedUploadedTemu={() => void handleMarkSelectedUploadedTemu()}
           onMarkSelectedCompleted={() => void handleMarkSelectedCompleted()}

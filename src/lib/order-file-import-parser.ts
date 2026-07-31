@@ -85,7 +85,7 @@ function getWorksheet(
   return worksheet;
 }
 
-function resolveHeaderColumn(
+export function resolveHeaderColumn(
   worksheet: Worksheet,
   aliases: string[],
   startRow: number,

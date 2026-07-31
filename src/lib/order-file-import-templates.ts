@@ -1,22 +1,75 @@
 import type { TemuOrderImportRow } from "./orders";
 import { requireSession, withTimeout } from "./supabase-helpers";
 
-export type OrderFileImportKind = "orders" | "tracking";
+export type OrderFileImportKind =
+  | "orders"
+  | "tracking"
+  | "temu_upload"
+  | "shipping_export";
 export type OrderFileMappingSource = "column" | "fixed" | "header";
 export type TemuOrderImportField = keyof TemuOrderImportRow;
 export type TrackingFileImportField =
   | "order_no"
   | "sub_order_no"
   | "tracking_no";
+export type TemuUploadExportField =
+  | "order_no"
+  | "sub_order_no"
+  | "fulfillment_quantity"
+  | "tracking_no"
+  | "carrier"
+  | "warehouse_name";
+export type ShippingExportField =
+  | "shipment_recipient_name"
+  | "shipment_address"
+  | "shipment_postal_code"
+  | "shipment_phone"
+  | "shipment_package_count"
+  | "shipment_destination"
+  | "shipment_order_no"
+  | "shipment_service_type"
+  | "shipment_store_name"
+  | "shipment_store_note"
+  | "shipment_sender_name"
+  | "shipment_sender_address"
+  | "shipment_sender_phone"
+  | "shipment_sender_postal_code"
+  | "shipment_store"
+  | "shipment_custom_weight"
+  | "shipment_has_battery"
+  | "shipment_platform_name"
+  | "shipment_sales_unit"
+  | "shipment_sales_unit_code"
+  | "item_order_no"
+  | "item_code"
+  | "item_name"
+  | "item_description"
+  | "item_quantity"
+  | "item_unit_price"
+  | "item_currency"
+  | "item_compilation_method"
+  | "item_hs_code"
+  | "item_origin_country"
+  | "item_shelf_no"
+  | "item_purchase_no"
+  | "item_style_color"
+  | "item_customer_note"
+  | "item_url"
+  | "item_primary_key"
+  | "item_domestic_declared_value"
+  | "item_domestic_currency";
 export type OrderFileImportField =
   | TemuOrderImportField
-  | TrackingFileImportField;
+  | TrackingFileImportField
+  | TemuUploadExportField
+  | ShippingExportField;
 
 export type OrderFileFieldMapping = {
   sourceType: OrderFileMappingSource;
   column: number | null;
   fixedValue: string;
   headerAliases: string[];
+  worksheetName?: string;
 };
 
 export type OrderFileImportTemplate = {
@@ -43,6 +96,7 @@ export type OrderFileImportFieldMeta = {
   key: OrderFileImportField;
   label: string;
   required: boolean;
+  worksheetName?: string;
 };
 
 export const orderImportColumnAliases = {
@@ -163,10 +217,96 @@ export const trackingFileImportFieldMeta: OrderFileImportFieldMeta[] = [
   { key: "tracking_no", label: "物流单号", required: true },
 ];
 
+export const temuUploadExportColumnAliases = {
+  order_no: ["订单号"],
+  sub_order_no: ["子订单号"],
+  fulfillment_quantity: ["商品件数"],
+  tracking_no: ["跟踪单号"],
+  carrier: ["物流承运商"],
+  warehouse_name: ["发货仓库名称"],
+} satisfies Record<TemuUploadExportField, string[]>;
+
+export const temuUploadExportFieldMeta: OrderFileImportFieldMeta[] = [
+  { key: "order_no", label: "订单号", required: true },
+  { key: "sub_order_no", label: "子订单号", required: true },
+  { key: "fulfillment_quantity", label: "商品件数", required: true },
+  { key: "tracking_no", label: "跟踪单号", required: true },
+  { key: "carrier", label: "物流承运商", required: true },
+  { key: "warehouse_name", label: "发货仓库名称", required: true },
+];
+
+const shippingSheet1Fields = [
+  ["shipment_recipient_name", "收件人"],
+  ["shipment_address", "收件人地址"],
+  ["shipment_postal_code", "收件邮编"],
+  ["shipment_phone", "收件电话"],
+  ["shipment_package_count", "件数"],
+  ["shipment_destination", "目的地(可以都填TYO)"],
+  ["shipment_order_no", "订单号"],
+  ["shipment_service_type", "服务类型(不填写默认B2C)"],
+  ["shipment_store_name", "店铺名称"],
+  ["shipment_store_note", "店铺备注"],
+  ["shipment_sender_name", "发件人"],
+  ["shipment_sender_address", "发件人地址"],
+  ["shipment_sender_phone", "发件人电话"],
+  ["shipment_sender_postal_code", "发件人邮编"],
+  ["shipment_store", "店铺"],
+  ["shipment_custom_weight", "自定义重量"],
+  ["shipment_has_battery", "是否带电(0:不带电/1:带电)"],
+  ["shipment_platform_name", "平台名称"],
+  ["shipment_sales_unit", "生产销售单位"],
+  ["shipment_sales_unit_code", "生产销售单位统一编码"],
+] as const satisfies ReadonlyArray<readonly [ShippingExportField, string]>;
+
+const shippingSheet2Fields = [
+  ["item_order_no", "订单号"],
+  ["item_code", "商品代码"],
+  ["item_name", "品名"],
+  ["item_description", "描述"],
+  ["item_quantity", "商品数量"],
+  ["item_unit_price", "单价"],
+  ["item_currency", "币值"],
+  ["item_compilation_method", "编制方式"],
+  ["item_hs_code", "HS_CODE"],
+  ["item_origin_country", "原产国"],
+  ["item_shelf_no", "货架号"],
+  ["item_purchase_no", "采购编号"],
+  ["item_style_color", "样式颜色"],
+  ["item_customer_note", "客户备注"],
+  ["item_url", "URL"],
+  ["item_primary_key", "PRIMARYKEY"],
+  ["item_domestic_declared_value", "国内申报价值"],
+  ["item_domestic_currency", "国内申报币值"],
+] as const satisfies ReadonlyArray<readonly [ShippingExportField, string]>;
+
+export const shippingExportColumnAliases = Object.fromEntries([
+  ...shippingSheet1Fields,
+  ...shippingSheet2Fields,
+].map(([key, label]) => [key, [label]])) as Record<
+  ShippingExportField,
+  string[]
+>;
+
+export const shippingExportFieldMeta: OrderFileImportFieldMeta[] = [
+  ...shippingSheet1Fields.map(([key, label]) => ({
+    key,
+    label,
+    required: true,
+    worksheetName: "Sheet1",
+  })),
+  ...shippingSheet2Fields.map(([key, label]) => ({
+    key,
+    label,
+    required: true,
+    worksheetName: "Sheet2",
+  })),
+];
+
 export function getOrderFileImportFieldMeta(kind: OrderFileImportKind) {
-  return kind === "orders"
-    ? orderFileImportFieldMeta
-    : trackingFileImportFieldMeta;
+  if (kind === "orders") return orderFileImportFieldMeta;
+  if (kind === "tracking") return trackingFileImportFieldMeta;
+  if (kind === "temu_upload") return temuUploadExportFieldMeta;
+  return shippingExportFieldMeta;
 }
 
 export function getOrderFileImportColumnAliases(
@@ -176,15 +316,24 @@ export function getOrderFileImportColumnAliases(
   if (kind === "orders") {
     return orderImportColumnAliases[field as TemuOrderImportField] ?? [];
   }
-  return trackingImportColumnAliases[field as TrackingFileImportField] ?? [];
+  if (kind === "tracking") {
+    return trackingImportColumnAliases[field as TrackingFileImportField] ?? [];
+  }
+  if (kind === "temu_upload") {
+    return temuUploadExportColumnAliases[field as TemuUploadExportField] ?? [];
+  }
+  return shippingExportColumnAliases[field as ShippingExportField] ?? [];
 }
 
-export function createEmptyOrderFileMapping(): OrderFileFieldMapping {
+export function createEmptyOrderFileMapping(
+  worksheetName = "",
+): OrderFileFieldMapping {
   return {
     sourceType: "column",
     column: null,
     fixedValue: "",
     headerAliases: [],
+    worksheetName,
   };
 }
 
@@ -200,7 +349,7 @@ export function createEmptyOrderFileTemplate(
     field_mappings: Object.fromEntries(
       getOrderFileImportFieldMeta(kind).map((field) => [
         field.key,
-        createEmptyOrderFileMapping(),
+        createEmptyOrderFileMapping(field.worksheetName),
       ]),
     ),
   };
@@ -224,13 +373,19 @@ function normalizeMapping(value: unknown): OrderFileFieldMapping {
     headerAliases: Array.isArray(mapping.headerAliases)
       ? mapping.headerAliases.map((alias) => String(alias).trim()).filter(Boolean)
       : [],
+    worksheetName: String(mapping.worksheetName ?? ""),
   };
 }
 
 function normalizeTemplate(
   row: Partial<OrderFileImportTemplate>,
 ): OrderFileImportTemplate {
-  const kind = row.import_type === "tracking" ? "tracking" : "orders";
+  const kind: OrderFileImportKind =
+    row.import_type === "tracking" ||
+    row.import_type === "temu_upload" ||
+    row.import_type === "shipping_export"
+      ? row.import_type
+      : "orders";
   const rawMappings =
     row.field_mappings && typeof row.field_mappings === "object"
       ? row.field_mappings
@@ -272,7 +427,9 @@ const templateSelect = [
   "updated_at",
 ].join(", ");
 
-export async function ensureDefaultOrderFileImportTemplates() {
+export async function ensureDefaultOrderFileImportTemplates(
+  kind?: OrderFileImportKind,
+) {
   const { supabase } = await requireSession();
   const { error } = await withTimeout(
     supabase.rpc("ensure_temu_order_file_import_default_templates"),
@@ -280,6 +437,33 @@ export async function ensureDefaultOrderFileImportTemplates() {
     { requestKind: "rpc" },
   );
   if (error && !["42883", "PGRST202"].includes(error.code ?? "")) throw error;
+  if (kind === "temu_upload") {
+    const { error: exportError } = await withTimeout(
+      supabase.rpc("ensure_temu_upload_export_default_template"),
+      "初始化下载上传表格默认模板",
+      { requestKind: "rpc" },
+    );
+    if (
+      exportError &&
+      !["42883", "PGRST202"].includes(exportError.code ?? "")
+    ) {
+      throw exportError;
+    }
+  }
+
+  if (kind === "shipping_export") {
+    const { error: shippingError } = await withTimeout(
+      supabase.rpc("ensure_shipping_export_default_template"),
+      "初始化下载发货表格默认模板",
+      { requestKind: "rpc" },
+    );
+    if (
+      shippingError &&
+      !["42883", "PGRST202"].includes(shippingError.code ?? "")
+    ) {
+      throw shippingError;
+    }
+  }
 }
 
 export async function fetchOrderFileImportTemplates(

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import {
+  Download,
   Eraser,
   FileSpreadsheet,
   Link2,
@@ -35,12 +36,25 @@ import type { Workbook } from "../../lib/tabular-parser";
 import { confirmAction } from "../../utils/confirmations";
 import { getErrorMessage } from "../../utils/errors";
 
-export type PreparedOrderFileImport = {
-  kind: OrderFileImportKind;
-  fileName: string;
-  template: OrderFileImportTemplate;
-  parsed: ParsedOrderFileImport;
-};
+export type PreparedOrderFileImport =
+  | {
+      kind: "orders" | "tracking";
+      fileName: string;
+      template: OrderFileImportTemplate;
+      parsed: ParsedOrderFileImport;
+    }
+  | {
+      kind: "temu_upload";
+      fileName: string;
+      template: OrderFileImportTemplate;
+      workbook: Workbook;
+    }
+  | {
+      kind: "shipping_export";
+      fileName: string;
+      template: OrderFileImportTemplate;
+      workbook: Workbook;
+    };
 
 type Props = {
   kind: OrderFileImportKind;
@@ -95,13 +109,23 @@ function draftToTemplate(
 }
 
 function getTitle(kind: OrderFileImportKind) {
-  return kind === "orders"
-    ? "上传订单表 · 制作映射模板"
-    : "上传物流单号 · 制作映射模板";
+  if (kind === "orders") return "上传订单表 · 制作映射模板";
+  if (kind === "tracking") return "上传物流单号 · 制作映射模板";
+  return kind === "temu_upload"
+    ? "下载上传表格 · 制作映射模板"
+    : "下载发货表格 · 制作映射模板";
 }
 
 function getFileLabel(kind: OrderFileImportKind) {
-  return kind === "orders" ? "Temu 订单表格" : "物流单号表格";
+  if (kind === "orders") return "Temu 订单表格";
+  if (kind === "tracking") return "物流单号表格";
+  return kind === "temu_upload"
+    ? "Temu 上传表格模板"
+    : "发货表格模板";
+}
+
+function isDownloadKind(kind: OrderFileImportKind) {
+  return kind === "temu_upload" || kind === "shipping_export";
 }
 
 export function OrderFileImportModal({
@@ -169,7 +193,7 @@ export function OrderFileImportModal({
     async function loadTemplates() {
       setLoading(true);
       try {
-        await ensureDefaultOrderFileImportTemplates();
+        await ensureDefaultOrderFileImportTemplates(kind);
         const nextTemplates = await fetchOrderFileImportTemplates(kind);
         if (cancelled) return;
         setTemplates(nextTemplates);
@@ -246,7 +270,7 @@ export function OrderFileImportModal({
     if (!selectedTemplate) return;
     if (
       !(await confirmAction(
-        `确认删除导入模板“${selectedTemplate.name}”吗？`,
+        `确认删除${isDownloadKind(kind) ? "下载" : "导入"}模板“${selectedTemplate.name}”吗？`,
       ))
     ) {
       return;
@@ -266,9 +290,14 @@ export function OrderFileImportModal({
               draft: createEmptyOrderFileTemplate(kind),
             },
       );
-      notifySuccess("导入模板已删除。");
+      notifySuccess(`${isDownloadKind(kind) ? "下载" : "导入"}模板已删除。`);
     } catch (error) {
-      notifyError(getErrorMessage(error, "删除导入模板失败"));
+      notifyError(
+        getErrorMessage(
+          error,
+          `删除${isDownloadKind(kind) ? "下载" : "导入"}模板失败`,
+        ),
+      );
     }
   }
 
@@ -297,7 +326,11 @@ export function OrderFileImportModal({
       if (!field.required) return false;
       const mapping = editor.draft.field_mappings[field.key];
       if (!mapping) return true;
-      if (mapping.sourceType === "fixed") return !mapping.fixedValue.trim();
+      if (mapping.sourceType === "fixed") {
+        return isDownloadKind(kind)
+          ? !mapping.column || mapping.column < 1 || !mapping.fixedValue.trim()
+          : !mapping.fixedValue.trim();
+      }
       if (mapping.sourceType === "header") {
         return mapping.headerAliases.length === 0;
       }
@@ -329,12 +362,19 @@ export function OrderFileImportModal({
       setEditor({ templateId: saved.id, draft: templateToDraft(saved) });
       if (showSuccess) {
         notifySuccess(
-          editor.templateId ? "导入模板已更新。" : "导入模板已创建。",
+          editor.templateId
+            ? `${isDownloadKind(kind) ? "下载" : "导入"}模板已更新。`
+            : `${isDownloadKind(kind) ? "下载" : "导入"}模板已创建。`,
         );
       }
       return saved;
     } catch (error) {
-      notifyError(getErrorMessage(error, "保存导入模板失败"));
+      notifyError(
+        getErrorMessage(
+          error,
+          `保存${isDownloadKind(kind) ? "下载" : "导入"}模板失败`,
+        ),
+      );
       return null;
     } finally {
       setSaving(false);
@@ -360,10 +400,21 @@ export function OrderFileImportModal({
       : selectedTemplate;
     if (!template) return;
     try {
+      if (isDownloadKind(kind)) {
+        onPrepared({ kind, fileName, template, workbook });
+        return;
+      }
       const parsed = parseOrderFileImportWorkbook(workbook, template);
       onPrepared({ kind, fileName, template, parsed });
     } catch (error) {
-      notifyError(getErrorMessage(error, "按当前映射核对表格失败"));
+      notifyError(
+        getErrorMessage(
+          error,
+          isDownloadKind(kind)
+            ? "按当前映射生成下载表格失败"
+            : "按当前映射核对表格失败",
+        ),
+      );
     }
   }
 
@@ -376,16 +427,36 @@ export function OrderFileImportModal({
         headerAliases: [],
       };
     if (mapping.sourceType === "fixed") {
+      const columnLabel =
+        isDownloadKind(kind) && mapping.column
+          ? ` → ${mapping.worksheetName ? `${mapping.worksheetName} / ` : ""}${columnNumberToLabel(mapping.column)} 列`
+          : "";
       return mapping.fixedValue
-        ? { mapped: true, primary: `固定值：${mapping.fixedValue}`, secondary: "" }
+        ? {
+            mapped: true,
+            primary: `固定值：${mapping.fixedValue}${columnLabel}`,
+            secondary: "",
+          }
         : { mapped: false, primary: "固定值未设置", secondary: "" };
     }
     if (mapping.sourceType === "header") {
-      const resolved = resolvedMappings.find((item) => item.field === field);
+      const mappingWorksheet =
+        kind === "shipping_export" && mapping.worksheetName
+          ? workbook?.worksheets.find(
+              (worksheet) => worksheet.name === mapping.worksheetName,
+            ) ?? null
+          : selectedWorksheet;
+      const resolved =
+        kind === "shipping_export" && mappingWorksheet
+          ? resolveOrderFileTemplateMappings(
+              mappingWorksheet,
+              draftToTemplate(editor.draft, selectedTemplate),
+            ).find((item) => item.field === field)
+          : resolvedMappings.find((item) => item.field === field);
       if (resolved?.resolvedColumn) {
         return {
           mapped: true,
-          primary: `自动识别 ${columnNumberToLabel(
+          primary: `自动识别 ${mapping.worksheetName ? `${mapping.worksheetName} / ` : ""}${columnNumberToLabel(
             resolved.resolvedColumn,
           )} 列`,
           secondary: resolved.matchedHeader,
@@ -404,7 +475,7 @@ export function OrderFileImportModal({
       sampleValues.find((cell) => cell.column === mapping.column)?.value ?? "";
     return {
       mapped: true,
-      primary: `${columnNumberToLabel(mapping.column)} 列（第 ${mapping.column} 列）`,
+      primary: `${mapping.worksheetName ? `${mapping.worksheetName} / ` : ""}${columnNumberToLabel(mapping.column)} 列（第 ${mapping.column} 列）`,
       secondary: sample || "当前样例行为空",
     };
   }
@@ -419,6 +490,10 @@ export function OrderFileImportModal({
       column: selectedSampleColumn,
       fixedValue: "",
       headerAliases: [],
+      worksheetName:
+        kind === "shipping_export"
+          ? selectedWorksheet?.name ?? editor.draft.worksheet_name
+          : "",
     });
     setSelectedSampleColumn(null);
     setFixedValueField(null);
@@ -430,6 +505,8 @@ export function OrderFileImportModal({
       column: null,
       fixedValue: "",
       headerAliases: [],
+      worksheetName:
+        fields.find((field) => field.key === selectedField)?.worksheetName ?? "",
     });
     setSelectedSampleColumn(null);
     setFixedValueField(null);
@@ -445,6 +522,7 @@ export function OrderFileImportModal({
             column: null,
             fixedValue: "",
             headerAliases: [],
+            worksheetName: field.worksheetName ?? "",
           },
         ]),
       ),
@@ -461,10 +539,36 @@ export function OrderFileImportModal({
         fixedValue: "",
         headerAliases: [],
       };
+    const mappingWorksheet =
+      kind === "shipping_export" && current.worksheetName
+        ? workbook?.worksheets.find(
+            (worksheet) => worksheet.name === current.worksheetName,
+          ) ?? null
+        : selectedWorksheet;
+    const mappingResolvedColumn = mappingWorksheet
+      ? resolveOrderFileTemplateMappings(
+          mappingWorksheet,
+          draftToTemplate(editor.draft, selectedTemplate),
+        ).find((item) => item.field === selectedField)?.resolvedColumn
+      : null;
+    const exportColumn =
+      current.column ??
+      mappingResolvedColumn ??
+      null;
+    if (isDownloadKind(kind) && !exportColumn) {
+      notifyWarning("请先为当前网站字段绑定一个表格列，再设置固定值");
+      return;
+    }
     updateMapping(selectedField, {
       ...current,
       sourceType: "fixed",
-      column: null,
+      column: isDownloadKind(kind) ? exportColumn : null,
+      worksheetName:
+        kind === "shipping_export"
+          ? current.worksheetName ||
+            selectedWorksheet?.name ||
+            editor.draft.worksheet_name
+          : current.worksheetName,
     });
     setSelectedSampleColumn(null);
     setFixedValueField(selectedField);
@@ -484,7 +588,11 @@ export function OrderFileImportModal({
           <div>
             <h2 className="text-base font-bold text-slate-900">{getTitle(kind)}</h2>
             <p className="mt-1 text-xs text-slate-500">
-              选择已有模板后只需选择文件并核对；新格式可以从样例数据中绑定字段并保存为模板。
+              {isDownloadKind(kind)
+                ? kind === "temu_upload"
+                  ? "选择已有模板和 Temu 表格样例，把网站字段绑定到目标列后下载所选订单。"
+                  : "选择已有模板和双工作表发货样例，把网站字段绑定到对应工作表的目标列后下载所选订单。"
+                : "选择已有模板后只需选择文件并核对；新格式可以从样例数据中绑定字段并保存为模板。"}
             </p>
           </div>
           <button
@@ -492,7 +600,11 @@ export function OrderFileImportModal({
             className="icon-btn h-8 w-8"
             onClick={onClose}
             disabled={busy}
-            aria-label="关闭文件上传"
+            aria-label={
+              isDownloadKind(kind)
+                ? `关闭${kind === "temu_upload" ? "下载上传表格" : "下载发货表格"}`
+                : "关闭文件上传"
+            }
           >
             <X size={17} />
           </button>
@@ -503,7 +615,7 @@ export function OrderFileImportModal({
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h3 className="text-sm font-bold text-slate-800">
-                  1. 选择模板与上传文件
+                  1. 选择模板与{isDownloadKind(kind) ? "表格样例" : "上传文件"}
                 </h3>
                 <p className="mt-1 text-xs text-slate-500">
                   自动生成的现有模板也可以删除，删除后不会再次自动生成。
@@ -533,7 +645,7 @@ export function OrderFileImportModal({
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">
-                上传模板
+                {isDownloadKind(kind) ? "下载模板" : "上传模板"}
                 <select
                   value={editor.templateId ?? ""}
                   onChange={(event) => handleTemplateChange(event.target.value)}
@@ -648,7 +760,9 @@ export function OrderFileImportModal({
             <div className="border-b border-slate-200 bg-slate-50/70 px-4 py-3">
               <h3 className="text-sm font-bold text-slate-800">2. 映射设置</h3>
               <p className="mt-1 text-xs text-slate-500">
-                已有模板不需要再次绑定；需要调整时，选择左侧字段和右侧样例列后点击“绑定”。
+                {isDownloadKind(kind)
+                  ? "已有模板不需要再次绑定；选择左侧网站字段和右侧目标列后点击“绑定”。"
+                  : "已有模板不需要再次绑定；需要调整时，选择左侧字段和右侧样例列后点击“绑定”。"}
               </p>
             </div>
 
@@ -760,9 +874,13 @@ export function OrderFileImportModal({
                           editor.draft.field_mappings[fixedValueField];
                         updateMapping(fixedValueField, {
                           sourceType: "fixed",
-                          column: null,
+                          column:
+                            isDownloadKind(kind)
+                              ? current?.column ?? null
+                              : null,
                           fixedValue: event.target.value,
                           headerAliases: current?.headerAliases ?? [],
+                          worksheetName: current?.worksheetName,
                         });
                       }}
                       className="h-9 w-full rounded-lg border border-line px-2 text-sm"
@@ -864,8 +982,8 @@ export function OrderFileImportModal({
               onClick={() => void handlePrepareImport()}
               disabled={busy || !workbook || !fileName || !canEdit}
             >
-              <Upload size={16} />
-              按模板核对导入
+              {isDownloadKind(kind) ? <Download size={16} /> : <Upload size={16} />}
+              {isDownloadKind(kind) ? "按模板下载" : "按模板核对导入"}
             </button>
           </div>
         </div>

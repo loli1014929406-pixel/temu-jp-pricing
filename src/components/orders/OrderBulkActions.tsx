@@ -236,7 +236,7 @@ export function OrderBulkActions({
                   className="btn-secondary h-9 px-3"
                 >
                   <Download size={16} />
-                  下载上传Temu表格（{selectedShippedRowCount}）
+                  下载上传表格（{selectedShippedRowCount}）
                 </button>
                 <button
                   type="button"
