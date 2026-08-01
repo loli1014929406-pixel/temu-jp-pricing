@@ -58,6 +58,11 @@ type ShippingMethodRow = {
   orderCount: number;
   shipmentCount: number;
   quantity: number;
+  weightG: number;
+  firstLegShipping: number;
+  actualLastLegShipping: number;
+  estimatedLastLegShipping: number;
+  lastLegShipping: number;
   actualShipping: number;
   estimatedShipping: number;
   totalShipping: number;
@@ -143,6 +148,11 @@ function formatCompactCurrency(value: number) {
 function formatShare(value: number, total: number) {
   if (!Number.isFinite(value) || !Number.isFinite(total) || total <= 0) return "0.00%";
   return `${((value / total) * 100).toFixed(2)}%`;
+}
+
+function formatShippingWeight(weightG: number) {
+  const weightKg = Math.max(0, Number(weightG || 0)) / 1000;
+  return `${weightKg.toLocaleString("zh-CN", { maximumFractionDigits: 3 })} kg`;
 }
 
 function getShippingMethodLabel(value: unknown) {
@@ -386,6 +396,11 @@ export function FinanceProfitPage({ user }: Props) {
           orderCount: 0,
           shipmentCount: 0,
           quantity: 0,
+          weightG: 0,
+          firstLegShipping: 0,
+          actualLastLegShipping: 0,
+          estimatedLastLegShipping: 0,
+          lastLegShipping: 0,
           actualShipping: 0,
           estimatedShipping: 0,
           totalShipping: 0,
@@ -417,12 +432,17 @@ export function FinanceProfitPage({ user }: Props) {
       obj.orderCount += 1;
       obj.shipmentCount += 1;
       obj.quantity += quantity;
+      obj.weightG += Math.max(0, Number(product?.package_weight_g ?? 0)) * quantity;
+      obj.firstLegShipping += shipping.firstLegShippingRmb;
+      obj.lastLegShipping += shipping.lastLegShippingRmb;
 
       if (shipping.shippingFeeSource === "actual") {
+        obj.actualLastLegShipping += shipping.lastLegShippingRmb;
         obj.actualShipping += shipping.lastLegShippingRmb;
         obj.estimatedShipping += shipping.firstLegShippingRmb;
         obj.totalShipping += shipping.shippingFeeRmb;
       } else if (shipping.shippingFeeSource === "estimated") {
+        obj.estimatedLastLegShipping += shipping.lastLegShippingRmb;
         obj.estimatedShipping += shipping.shippingFeeRmb;
         obj.totalShipping += shipping.shippingFeeRmb;
       } else {
@@ -440,6 +460,11 @@ export function FinanceProfitPage({ user }: Props) {
         return {
           ...row,
           quantity: roundMoney(row.quantity),
+          weightG: Number(row.weightG.toFixed(2)),
+          firstLegShipping: roundMoney(row.firstLegShipping),
+          actualLastLegShipping: roundMoney(row.actualLastLegShipping),
+          estimatedLastLegShipping: roundMoney(row.estimatedLastLegShipping),
+          lastLegShipping: roundMoney(row.lastLegShipping),
           actualShipping,
           estimatedShipping,
           totalShipping,
@@ -511,6 +536,11 @@ export function FinanceProfitPage({ user }: Props) {
         orderCount: 0,
         shipmentCount: 0,
         quantity: 0,
+        weightG: 0,
+        firstLegShipping: 0,
+        actualLastLegShipping: 0,
+        estimatedLastLegShipping: 0,
+        lastLegShipping: 0,
         actualShipping: 0,
         estimatedShipping: 0,
         totalShipping: 0,
@@ -519,6 +549,18 @@ export function FinanceProfitPage({ user }: Props) {
       current.orderCount += Number(raw.order_count ?? 0);
       current.shipmentCount += Number(raw.shipment_count ?? raw.order_count ?? 0);
       current.quantity += Number(raw.quantity ?? 0);
+      current.weightG += Number(raw.weight_g ?? 0);
+      const firstLegShipping = Number(raw.first_leg_shipping ?? 0);
+      const actualLastLegShipping = Number(raw.actual_last_leg_shipping ?? raw.actual_shipping ?? 0);
+      const estimatedLastLegShipping = Number(
+        raw.estimated_last_leg_shipping ?? Math.max(0, Number(raw.estimated_shipping ?? 0) - firstLegShipping),
+      );
+      current.firstLegShipping += firstLegShipping;
+      current.actualLastLegShipping += actualLastLegShipping;
+      current.estimatedLastLegShipping += estimatedLastLegShipping;
+      current.lastLegShipping += Number(
+        raw.last_leg_shipping ?? actualLastLegShipping + estimatedLastLegShipping,
+      );
       current.actualShipping += Number(raw.actual_shipping ?? 0);
       current.estimatedShipping += Number(raw.estimated_shipping ?? 0);
       current.totalShipping += Number(raw.total_shipping ?? 0);
@@ -529,6 +571,11 @@ export function FinanceProfitPage({ user }: Props) {
     return Array.from(merged.values()).map((row) => ({
       ...row,
       quantity: roundMoney(row.quantity),
+      weightG: Number(row.weightG.toFixed(2)),
+      firstLegShipping: roundMoney(row.firstLegShipping),
+      actualLastLegShipping: roundMoney(row.actualLastLegShipping),
+      estimatedLastLegShipping: roundMoney(row.estimatedLastLegShipping),
+      lastLegShipping: roundMoney(row.lastLegShipping),
       actualShipping: roundMoney(row.actualShipping),
       estimatedShipping: roundMoney(row.estimatedShipping),
       totalShipping: roundMoney(row.totalShipping),
@@ -541,16 +588,20 @@ export function FinanceProfitPage({ user }: Props) {
     return shippingMethodRows.reduce(
       (summary, row) => ({
         totalShipping: roundMoney(summary.totalShipping + row.totalShipping),
-        actualShipping: roundMoney(summary.actualShipping + row.actualShipping),
-        estimatedShipping: roundMoney(summary.estimatedShipping + row.estimatedShipping),
+        firstLegShipping: roundMoney(summary.firstLegShipping + row.firstLegShipping),
+        actualLastLegShipping: roundMoney(summary.actualLastLegShipping + row.actualLastLegShipping),
+        estimatedLastLegShipping: roundMoney(summary.estimatedLastLegShipping + row.estimatedLastLegShipping),
+        lastLegShipping: roundMoney(summary.lastLegShipping + row.lastLegShipping),
         shipmentCount: summary.shipmentCount + row.shipmentCount,
         quantity: roundMoney(summary.quantity + row.quantity),
         missingShippingCount: summary.missingShippingCount + row.missingShippingCount,
       }),
       {
         totalShipping: 0,
-        actualShipping: 0,
-        estimatedShipping: 0,
+        firstLegShipping: 0,
+        actualLastLegShipping: 0,
+        estimatedLastLegShipping: 0,
+        lastLegShipping: 0,
         shipmentCount: 0,
         quantity: 0,
         missingShippingCount: 0,
@@ -828,33 +879,40 @@ ${shippingCostLabel}: ${formatCurrency(shippingCost)}
               <Truck size={16} className="text-accent" />
               <span>仓库与发货方式运费分析</span>
             </h4>
-            <p className="mt-1 text-xs text-slate-400">按当前时间范围统计，实际运费优先；没有实际运费时使用页面核算估算值。</p>
+            <p className="mt-1 text-xs text-slate-400">按当前时间范围统计；头程为自动估算，尾程优先使用实际录入金额，没有实际运费时使用自动估算值。</p>
           </div>
           <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500">
             共 {shippingMethodRows.length} 组仓库 / 发货方式
           </span>
         </div>
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <div className="flex items-center gap-3 border-y border-slate-100 py-3">
             <ReceiptText size={18} className="text-[#29845a]" />
             <div>
               <div className="text-xs font-semibold text-slate-500">当月总运费</div>
-              <div className="money mt-1 text-lg font-bold text-slate-900">{formatCurrency(shippingMethodSummary.totalShipping)}</div>
+              <div className="mt-1 text-lg font-bold tabular-nums text-slate-900">{formatCurrency(shippingMethodSummary.totalShipping)}</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 border-y border-slate-100 py-3">
+            <Truck size={18} className="text-sky-500" />
+            <div>
+              <div className="text-xs font-semibold text-slate-500">自动估算头程运费</div>
+              <div className="mt-1 text-lg font-bold tabular-nums text-slate-900">{formatCurrency(shippingMethodSummary.firstLegShipping)}</div>
             </div>
           </div>
           <div className="flex items-center gap-3 border-y border-slate-100 py-3">
             <PackageCheck size={18} className="text-emerald-500" />
             <div>
-              <div className="text-xs font-semibold text-slate-500">实际录入运费</div>
-              <div className="money mt-1 text-lg font-bold text-slate-900">{formatCurrency(shippingMethodSummary.actualShipping)}</div>
+              <div className="text-xs font-semibold text-slate-500">实际录入尾程运费</div>
+              <div className="mt-1 text-lg font-bold tabular-nums text-slate-900">{formatCurrency(shippingMethodSummary.actualLastLegShipping)}</div>
             </div>
           </div>
           <div className="flex items-center gap-3 border-y border-slate-100 py-3">
             <Truck size={18} className="text-amber-500" />
             <div>
-              <div className="text-xs font-semibold text-slate-500">自动估算运费</div>
-              <div className="money mt-1 text-lg font-bold text-slate-900">{formatCurrency(shippingMethodSummary.estimatedShipping)}</div>
+              <div className="text-xs font-semibold text-slate-500">自动估算尾程运费</div>
+              <div className="mt-1 text-lg font-bold tabular-nums text-slate-900">{formatCurrency(shippingMethodSummary.estimatedLastLegShipping)}</div>
             </div>
           </div>
         </div>
@@ -863,13 +921,14 @@ ${shippingCostLabel}: ${formatCurrency(shippingCost)}
           <div className="min-w-0">
             <div className="mb-3 flex items-center justify-between text-xs font-bold text-slate-500">
               <span>运费占比 Top {topRows.length}</span>
-              <span>实际 / 估算</span>
+              <span>头程估算 / 尾程实际 / 尾程估算</span>
             </div>
             <div className="grid gap-3">
               {topRows.map((row) => {
                 const totalWidth = row.totalShipping > 0 ? Math.max(2, (row.totalShipping / maxShipping) * 100) : 0;
-                const actualShare = row.totalShipping > 0 ? (row.actualShipping / row.totalShipping) * 100 : 0;
-                const estimatedShare = row.totalShipping > 0 ? (row.estimatedShipping / row.totalShipping) * 100 : 0;
+                const firstLegShare = row.totalShipping > 0 ? (row.firstLegShipping / row.totalShipping) * 100 : 0;
+                const actualLastLegShare = row.totalShipping > 0 ? (row.actualLastLegShipping / row.totalShipping) * 100 : 0;
+                const estimatedLastLegShare = row.totalShipping > 0 ? (row.estimatedLastLegShipping / row.totalShipping) * 100 : 0;
                 return (
                   <div key={`${row.warehouse}-${row.method}`} className="grid gap-1.5">
                     <div className="flex items-center justify-between gap-3 text-xs">
@@ -878,8 +937,9 @@ ${shippingCostLabel}: ${formatCurrency(shippingCost)}
                     </div>
                     <div className="h-4 overflow-hidden rounded bg-slate-100">
                       <div className="flex h-full rounded" style={{ width: `${totalWidth}%` }}>
-                        <span className="h-full bg-[#29845a]" style={{ width: `${actualShare}%` }} />
-                        <span className="h-full bg-amber-400" style={{ width: `${estimatedShare}%` }} />
+                        <span className="h-full bg-sky-400" style={{ width: `${firstLegShare}%` }} />
+                        <span className="h-full bg-[#29845a]" style={{ width: `${actualLastLegShare}%` }} />
+                        <span className="h-full bg-amber-400" style={{ width: `${estimatedLastLegShare}%` }} />
                       </div>
                     </div>
                     <div className="flex justify-between text-[11px] text-slate-400">
@@ -895,15 +955,17 @@ ${shippingCostLabel}: ${formatCurrency(shippingCost)}
           <FinanceTable minWidth="min-w-max">
             <thead>
               <tr>
-                <th>仓库 / 发货方式</th>
-                <th className="number-cell px-3 py-2">票数</th>
-                <th className="number-cell px-3 py-2">件数</th>
-                <th className="number-cell px-3 py-2">实际运费</th>
-                <th className="number-cell px-3 py-2">估算运费</th>
-                <th className="number-cell px-3 py-2">总运费</th>
-                <th className="number-cell px-3 py-2">票均</th>
-                <th className="number-cell px-3 py-2">件均</th>
-                <th className="number-cell px-3 py-2">缺失</th>
+                <th className="whitespace-nowrap">仓库 / 发货方式</th>
+                <th className="table-column-align-center whitespace-nowrap px-3 py-2">票数</th>
+                <th className="table-column-align-center whitespace-nowrap px-3 py-2">件数</th>
+                <th className="table-column-align-center whitespace-nowrap px-3 py-2">重量</th>
+                <th className="table-column-align-center whitespace-nowrap px-3 py-2">估算头程</th>
+                <th className="table-column-align-center whitespace-nowrap px-3 py-2">实际尾程</th>
+                <th className="table-column-align-center whitespace-nowrap px-3 py-2">估算尾程</th>
+                <th className="table-column-align-center whitespace-nowrap px-3 py-2">总运费</th>
+                <th className="table-column-align-center whitespace-nowrap px-3 py-2">票均</th>
+                <th className="table-column-align-center whitespace-nowrap px-3 py-2">件均</th>
+                <th className="table-column-align-center whitespace-nowrap px-3 py-2">缺失</th>
               </tr>
             </thead>
             <tbody>
@@ -918,14 +980,16 @@ ${shippingCostLabel}: ${formatCurrency(shippingCost)}
                       detailTitle="仓库 / 发货方式"
                     />
                   </td>
-                  <td className="number-cell font-semibold px-3 py-2">{row.shipmentCount}</td>
-                  <td className="number-cell font-semibold px-3 py-2">{row.quantity}</td>
-                  <td className="money px-3 py-2 text-[#0c5132]">{formatCurrency(row.actualShipping)}</td>
-                  <td className="money px-3 py-2 text-amber-700">{formatCurrency(row.estimatedShipping)}</td>
-                  <td className="money px-3 py-2 font-bold text-slate-900">{formatCurrency(row.totalShipping)}</td>
-                  <td className="money px-3 py-2">{formatCurrency(row.averagePerShipment)}</td>
-                  <td className="money px-3 py-2">{formatCurrency(row.averagePerItem)}</td>
-                  <td className={`number-cell px-3 py-2 font-semibold ${row.missingShippingCount > 0 ? "text-rose-700" : "text-slate-400"}`}>
+                  <td className="table-column-align-center px-3 py-2 font-semibold tabular-nums">{row.shipmentCount}</td>
+                  <td className="table-column-align-center px-3 py-2 font-semibold tabular-nums">{row.quantity}</td>
+                  <td className="table-column-align-center whitespace-nowrap px-3 py-2 font-semibold tabular-nums text-slate-700">{formatShippingWeight(row.weightG)}</td>
+                  <td className="table-column-align-center px-3 py-2 tabular-nums text-sky-700">{formatCurrency(row.firstLegShipping)}</td>
+                  <td className="table-column-align-center px-3 py-2 tabular-nums text-[#0c5132]">{formatCurrency(row.actualLastLegShipping)}</td>
+                  <td className="table-column-align-center px-3 py-2 tabular-nums text-amber-700">{formatCurrency(row.estimatedLastLegShipping)}</td>
+                  <td className="table-column-align-center px-3 py-2 font-bold tabular-nums text-slate-900">{formatCurrency(row.totalShipping)}</td>
+                  <td className="table-column-align-center px-3 py-2 tabular-nums">{formatCurrency(row.averagePerShipment)}</td>
+                  <td className="table-column-align-center px-3 py-2 tabular-nums">{formatCurrency(row.averagePerItem)}</td>
+                  <td className={`table-column-align-center px-3 py-2 font-semibold tabular-nums ${row.missingShippingCount > 0 ? "text-rose-700" : "text-slate-400"}`}>
                     {row.missingShippingCount}
                   </td>
                 </tr>

@@ -112,9 +112,11 @@ npm run sync:backend-context
   - `/finance`、`/finance/ledger`、`/finance/expenses`、`/finance/settlement`、`/finance/profit` 共享订单、采购、费用、结算、实际运费和参数数据。
   - `get_finance_order_metrics`、`get_finance_orders_page`、`get_finance_order_analysis`、`get_finance_operating_overview`、`get_finance_ledger_page` 共同决定看板、对账、利润和流水口径。
   - 结算导入通过 `parseSettlementData`、`import_finance_settlement_atomic` 写入 `finance_settlement_files`、`finance_settlement_records`；退款/冲回体现在 `sales_reversal`、`freight_reversal`。
-  - 实际运费和物流付款通过 `finance_actual_shipping_fees`、`finance_logistics_settlements`、`finance_logistics_payments` 及其导入、报表、付款 RPC 进入财务结果。
+  - 实际运费和物流付款通过 `finance_actual_shipping_fees`、`finance_logistics_settlements`、`finance_logistics_payments` 及其导入、报表、付款 RPC 进入财务结果。利润报表按物流月结的 `shipping_month` 归属物流付款成本；真实付款日期 `paid_at` 只保留为付款与流水事实，不能用于利润报表的成本月份。
   - 商品成本依赖商品 SKU/BOM，物流估算依赖 `pricing_settings`、`logistics_methods`、`warehouse_logistics_methods`；订单号、包裹、物流单号、实际发货/签收时间会影响匹配、计费和月份归属。
   - 按件数阶梯尾程依赖四参数 `finance_dynamic_method_cost(..., p_quantity)`；拆包财务通过 `finance_split_method_cost` 传入包裹商品数量，继续保证尾程费用每个 `shipment_id` 只计算一次。
+  - 利润报表的仓库/发货方式重量由 `get_finance_order_analysis.shipping_methods.weight_g` 返回，按 `product_data.package_weight_g × quantity` 汇总，并与页面当前日期、结算状态、问题和搜索筛选保持同一范围；前端只负责换算为 kg 展示。
+  - 利润报表的仓库/发货方式运费同时返回估算头程、实际尾程和估算尾程；总运费仍是头程加最终尾程，现有成本与利润公式不变。尾程有实际值时只进入实际尾程，无实际值时才进入估算尾程。
 - 修改前需确认：
   - 确认结算匹配键和规范化规则。当前核心路径以结算 `po_number` 对订单 `order_no`，并结合 SKU 信息处理明细。
   - 确认收入是否包含销售/运费冲回，实际运费是否优先于估算运费，月份是否继续按实际发货时间归属。
@@ -126,6 +128,8 @@ npm run sync:backend-context
   - 用可变的物流名称代替稳定 `logistics_method_id` 会在重命名后破坏分组和费用公式。
   - 忽略 `sales_reversal`/`freight_reversal` 会高估收入，忽略实际运费优先级会让利润与对账不一致。
   - SQL 聚合与前端再次聚合并存；只改一侧可能使看板摘要和明细页出现不同数字。
+  - 发货方式重量不能用当前分页明细在前端小计，否则会随页码变化；必须在 `get_finance_order_analysis` 的完整筛选结果中聚合。SKU 未匹配或商品重量为 0 时会令重量偏低，排查时需同时检查 `sku_data`、`product_data` 和 `package_weight_g`。
+  - “自动估算运费”不能继续作为头程和尾程的混合展示；报表拆分时必须保证 `总运费 = 估算头程 + 实际尾程 + 估算尾程`，并保持实际与估算尾程互斥。
   - 若拆包财务上线时生产库仍只有三参数 `finance_dynamic_method_cost`，兼容分支会忽略数量并令 `quantity_tier` 返回 0；不能补跑会覆盖拆包财务 RPC 的旧迁移，应新增迁移补齐四参数函数并重新绑定 `finance_split_method_cost`。
   - 财务页面的样式调整也可能改变金额列、合计行、正负号或异常提示的可读性，不能只做截图级检查。
 
@@ -290,3 +294,6 @@ npm run sync:backend-context
 - 2026-07-31：“下载上传Temu表格”改为“下载上传表格”，新增独立的 Temu 上传表格映射模板和浏览器内模板写入下载。
 - 2026-07-31：“下载发货表格”新增双工作表映射模板下载，保持包裹行与商品申报行分离且不触发订单写入。
 - 2026-08-01：待分配订单新增独立合并包裹层，统一履约、追踪、导出和按“物流方式 ID + 物流单号”一次计费，同时保持拆包逻辑不变。
+- 2026-08-01：利润报表的仓库/发货方式分析新增 SKU 履约总重量，数据库按完整筛选范围聚合克数，前端统一换算为 kg 展示。
+- 2026-08-01：利润报表将自动估算运费拆分为估算头程、实际尾程和估算尾程，保持总运费及利润核算口径不变。
+- 2026-08-01：利润报表的实际物流付款成本改按物流月结 `shipping_month` 归月，付款日期继续保留为现金流水日期。
