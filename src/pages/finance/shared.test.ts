@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { formatDate, getDateKey, getMonthKey } from "./shared";
+import {
+  formatDate,
+  getDateKey,
+  getMonthKey,
+  isCombinedShippingSecondary,
+} from "./shared";
 
 describe("finance business dates", () => {
   it("keeps timezone-free Temu timestamps on their written calendar date", () => {
@@ -20,5 +25,22 @@ describe("finance business dates", () => {
     expect(getDateKey("2026-02-31")).toBe("");
     expect(getMonthKey("not-a-date")).toBe("未定");
     expect(formatDate("not-a-date")).toBe("not-a-date");
+  });
+});
+
+describe("combined parcel shipping ownership", () => {
+  it("identifies only non-primary members as zero-fee rows", () => {
+    expect(
+      isCombinedShippingSecondary({
+        is_combined_shipment: true,
+        combined_is_primary: false,
+      }),
+    ).toBe(true);
+    expect(
+      isCombinedShippingSecondary({
+        is_combined_shipment: true,
+        combined_is_primary: true,
+      }),
+    ).toBe(false);
   });
 });

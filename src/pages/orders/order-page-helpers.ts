@@ -488,7 +488,12 @@ export function getOrderExactSkuGroupKey(order: TemuOrderRecord) {
 }
 
 export function getOrderDisplayGroupKey(order: TemuOrderRecord) {
-  return order.shipment_id || getDisplayOrderNoKey(order.order_no) || order.id;
+  return (
+    order.combined_shipment_id ||
+    order.shipment_id ||
+    getDisplayOrderNoKey(order.order_no) ||
+    order.id
+  );
 }
 
 export function mergeOrderWithDraft(
@@ -515,6 +520,8 @@ export function buildOrderDisplayRowsWithDrafts(
   groups.forEach((groupOrders) => {
     const mergedGroupOrders = groupOrders.map((order) => mergeOrderWithDraft(order, drafts));
     const sortedGroupOrders = [...mergedGroupOrders].sort((left, right) => {
+      const byCombinedPrimary = Number(right.combined_is_primary) - Number(left.combined_is_primary);
+      if (byCombinedPrimary) return byCombinedPrimary;
       const bySku = getOrderExactSkuGroupKey(left).localeCompare(
         getOrderExactSkuGroupKey(right),
       );

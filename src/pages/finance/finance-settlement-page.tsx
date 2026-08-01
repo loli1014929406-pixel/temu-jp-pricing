@@ -9,6 +9,7 @@ import {
   getReconciliationIssues,
   getAccountingStatus,
   formatCurrency,
+  isCombinedShippingSecondary,
   roundMoney,
   type FinanceOrderRow,
 } from "./shared";
@@ -573,7 +574,14 @@ export function FinanceSettlementPage({ user }: Props) {
                         </td>
                         <td>{renderLogisticsMethodCell(row)}</td>
                         <td className="money px-3 py-2">
-                          {editingOrderId === row.order.id ? (
+                          {isCombinedShippingSecondary(row.order) ? (
+                            <div className="text-right">
+                              <span className="font-semibold text-slate-500">{formatCurrency(0)}</span>
+                              <span className="mt-1 block max-w-48 text-[10px] leading-4 text-violet-600">
+                                合并包裹，运费仅在主订单 {row.order.combined_primary_order_no} 计算
+                              </span>
+                            </div>
+                          ) : editingOrderId === row.order.id ? (
                             <div className="flex items-center gap-1 justify-end">
                               <input
                                 type="number"
@@ -877,7 +885,14 @@ export function FinanceSettlementPage({ user }: Props) {
                           </td>
                           {/* 尾程运费 */}
                           <td className="px-3 py-2 text-right">
-                            {editingOrderId === row.order.id ? (
+                            {isCombinedShippingSecondary(row.order) ? (
+                              <div>
+                                <span className="money font-semibold text-slate-500">{formatCurrency(0)}</span>
+                                <span className="mt-1 block max-w-48 text-[10px] leading-4 text-violet-600">
+                                  合并包裹，运费仅在主订单 {row.order.combined_primary_order_no} 计算
+                                </span>
+                              </div>
+                            ) : editingOrderId === row.order.id ? (
                               <div className="inline-flex items-center gap-1 justify-end">
                                 <input
                                   type="number"

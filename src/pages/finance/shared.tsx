@@ -175,6 +175,12 @@ export function hasActualShippingFee(row: FinanceOrderRow) {
   return Number(row.order.actual_shipping_fee_rmb || 0) > 0;
 }
 
+export function isCombinedShippingSecondary(
+  order: Pick<TemuOrderRecord, "is_combined_shipment" | "combined_is_primary">,
+) {
+  return order.is_combined_shipment && !order.combined_is_primary;
+}
+
 export function hasShippingActivity(row: FinanceOrderRow) {
   return Boolean(
     row.order.actual_ship_time ||
@@ -185,7 +191,11 @@ export function hasShippingActivity(row: FinanceOrderRow) {
 }
 
 export function needsShippingFeeAttention(row: FinanceOrderRow) {
-  return row.shippingFeeSource === "missing" && hasShippingActivity(row);
+  return (
+    !isCombinedShippingSecondary(row.order) &&
+    row.shippingFeeSource === "missing" &&
+    hasShippingActivity(row)
+  );
 }
 
 export function needsShippingMethodAttention(row: FinanceOrderRow) {
@@ -373,6 +383,18 @@ export function estimateOrderShippingBreakdown({
   logisticsMethods: LogisticsMethod[];
   warehouseLogisticsMethods: WarehouseLogisticsMethod[];
 }) {
+  if (isCombinedShippingSecondary(order)) {
+    return {
+      firstLegShippingRmb: 0,
+      lastLegShippingRmb: 0,
+      cashShippingFeeRmb: 0,
+      estimatedShippingRmb: 0,
+      shippingFeeRmb: 0,
+      shippingFeeSource: "estimated" as const,
+      isShippingFeeEstimated: false,
+      warehouseLogisticsIssue: "",
+    };
+  }
   const actualShippingFeeRmb = Number(order.actual_shipping_fee_rmb || 0);
   const estimatedLastLegShippingRmb = estimateOrderLastLegShippingFee(
     order,

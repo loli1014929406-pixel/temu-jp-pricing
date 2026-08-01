@@ -722,8 +722,25 @@ export const OrderTableRow = memo(function OrderTableRow({
           className="h-4 w-4 rounded border-slate-300 text-sky-700 focus:ring-sky-500"
         />
       </td>
-      <td className="order-no-col">
-        <span>{primaryOrder.order_no}</span>
+      <td
+        className="order-no-col"
+        title={
+          primaryOrder.is_combined_shipment
+            ? `合并订单：${Array.from(new Set(rowOrders.map((order) => order.order_no))).join("、")}`
+            : undefined
+        }
+      >
+        <span>{primaryOrder.combined_shipment_no || primaryOrder.order_no}</span>
+        {primaryOrder.is_combined_shipment && (
+          <>
+            <span className="mt-1 block w-fit rounded-md bg-violet-50 px-1.5 py-0.5 text-[11px] font-semibold text-violet-700 ring-1 ring-violet-200">
+              合并发货 · {primaryOrder.combined_member_count} 个订单
+            </span>
+            <span className="mt-1 block text-[11px] font-medium text-slate-500">
+              主订单 {primaryOrder.combined_primary_order_no}
+            </span>
+          </>
+        )}
         {primaryOrder.is_split && (
           <span className="mt-1 block w-fit rounded-md bg-sky-50 px-1.5 py-0.5 text-[11px] font-semibold text-sky-700 ring-1 ring-sky-200">
             包裹 {primaryOrder.package_sequence}/{primaryOrder.package_count}

@@ -13,7 +13,9 @@ type TrackingOrder = {
   order_no: string;
   order_status: string;
   warehouse_name: string;
+  logistics_method_id: string | null;
   logistics_method: string;
+  combined_shipment_id: string | null;
   logistics_tracking_no: string;
   actual_ship_time: string | null;
   actual_signed_time: string | null;
@@ -187,7 +189,9 @@ function groupTrackingOrders(rows: TrackingOrder[]) {
   rows.forEach((row) => {
     const trackingNo = row.logistics_tracking_no.trim();
     if (!trackingNo) return;
-    const key = row.id || `${row.order_no.trim().toLowerCase()}\u0000${trackingNo}`;
+    const logisticsIdentity =
+      row.logistics_method_id?.trim() || row.logistics_method.trim().toLowerCase();
+    const key = `${logisticsIdentity}\u0000${trackingNo.toLowerCase()}`;
     const group = groups.get(key) ?? [];
     group.push(row);
     groups.set(key, group);

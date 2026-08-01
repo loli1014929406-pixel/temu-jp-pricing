@@ -186,4 +186,87 @@ describe("tracking file package matching", () => {
       "duplicate_tracking_no",
     ]);
   });
+
+  it("imports repeated tracking rows once when child rows belong to one unsplit shipment", () => {
+    const preview = buildTrackingImportPreview(
+      [
+        record({ subOrderNo: "SUB-1", trackingNo: "628600000010" }),
+        record({ sourceRowNumber: 3, subOrderNo: "SUB-2", trackingNo: "628600000010" }),
+      ],
+      [
+        order({ sub_order_no: "SUB-1" }),
+        order({ id: "line-2", source_order_id: "source-2", shipment_item_id: "item-2", sub_order_no: "SUB-2" }),
+      ],
+    );
+
+    expect(preview.rows.every((row) => row.status === "importable")).toBe(true);
+    expect(preview.matches).toHaveLength(1);
+    expect(preview.matches[0].orders).toHaveLength(2);
+  });
+
+  it("imports one tracking number once for different orders in a confirmed combined parcel", () => {
+    const combined = {
+      combined_shipment_id: "combined-1",
+      combined_shipment_no: "MC-20260801-ABC",
+      combined_primary_shipment_id: "shipment-1",
+      combined_primary_order_no: "PO-1",
+      combined_member_count: 2,
+      is_combined_shipment: true,
+    };
+    const preview = buildTrackingImportPreview(
+      [
+        record({ orderNo: "PO-1", trackingNo: "628600000011" }),
+        record({ sourceRowNumber: 3, orderNo: "PO-2", trackingNo: "628600000011" }),
+      ],
+      [
+        order({ ...combined, combined_is_primary: true }),
+        order({
+          ...combined,
+          id: "line-2",
+          source_order_id: "source-2",
+          shipment_id: "shipment-2",
+          shipment_item_id: "item-2",
+          order_no: "PO-2",
+          sub_order_no: "SUB-2",
+          combined_is_primary: false,
+        }),
+      ],
+    );
+
+    expect(preview.rows.every((row) => row.status === "importable")).toBe(true);
+    expect(preview.matches).toHaveLength(1);
+    expect(preview.matches[0].shipmentId).toBe("shipment-1");
+    expect(preview.matches[0].orders).toHaveLength(2);
+  });
+
+  it("rejects different tracking numbers for one confirmed combined parcel", () => {
+    const shared = {
+      combined_shipment_id: "combined-1",
+      combined_shipment_no: "MC-20260801-ABC",
+      combined_primary_shipment_id: "shipment-1",
+      combined_primary_order_no: "PO-1",
+      combined_member_count: 2,
+      is_combined_shipment: true,
+    };
+    const preview = buildTrackingImportPreview(
+      [
+        record({ orderNo: "PO-1", trackingNo: "628600000012" }),
+        record({ sourceRowNumber: 3, orderNo: "PO-2", trackingNo: "628600000013" }),
+      ],
+      [
+        order({ ...shared, combined_is_primary: true }),
+        order({
+          ...shared,
+          id: "line-2",
+          shipment_id: "shipment-2",
+          shipment_item_id: "item-2",
+          order_no: "PO-2",
+          combined_is_primary: false,
+        }),
+      ],
+    );
+
+    expect(preview.matches).toHaveLength(0);
+    expect(preview.rows.every((row) => row.status === "conflicting_tracking_no")).toBe(true);
+  });
 });

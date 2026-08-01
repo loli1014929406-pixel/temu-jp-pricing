@@ -38,6 +38,10 @@ const textOrderFields = [
   "source_order_id",
   "shipment_id",
   "shipment_item_id",
+  "combined_shipment_id",
+  "combined_shipment_no",
+  "combined_primary_shipment_id",
+  "combined_primary_order_no",
   "owner_id",
   "order_no",
   "sub_order_no",
@@ -80,7 +84,7 @@ const temuOrderLegacySelectFields =
 const temuOrderActualFeeSelectFields = `${temuOrderLegacySelectFields}, actual_shipping_fee_rmb`;
 const temuOrderLogisticsMethodSelectFields = `${temuOrderActualFeeSelectFields}, logistics_method_id`;
 const temuOrderSelectFields = `${temuOrderLogisticsMethodSelectFields}, logistics_status_detail, tracking_category, tracking_event_time, tracking_last_checked_at, tracking_last_query_error, tracking_last_query_error_at, tracking_is_exception, tracking_exception_reason, tracking_exception_fingerprint, tracking_exception_handled_at, tracking_exception_handled_by`;
-const temuOrderFulfillmentSelectFields = `${temuOrderSelectFields}, source_order_id, shipment_id, shipment_item_id, package_sequence, package_count, is_split`;
+const temuOrderFulfillmentSelectFields = `${temuOrderSelectFields}, source_order_id, shipment_id, shipment_item_id, package_sequence, package_count, is_split, combined_shipment_id, combined_shipment_no, combined_primary_shipment_id, combined_primary_order_no, combined_member_count, combined_is_primary, is_combined_shipment`;
 
 function isMissingActualShippingFeeColumnError(error: unknown) {
   if (!error || typeof error !== "object") return false;
@@ -265,6 +269,9 @@ function normalizeTemuOrder(row: Partial<TemuOrderRecord>): TemuOrderRecord {
     | "package_sequence"
     | "package_count"
     | "is_split"
+    | "combined_member_count"
+    | "combined_is_primary"
+    | "is_combined_shipment"
   >;
 
   return {
@@ -293,6 +300,11 @@ function normalizeTemuOrder(row: Partial<TemuOrderRecord>): TemuOrderRecord {
     package_sequence: Math.max(1, Number(row.package_sequence ?? 1)),
     package_count: Math.max(1, Number(row.package_count ?? 1)),
     is_split: Boolean(row.is_split ?? Number(row.package_count ?? 1) > 1),
+    combined_member_count: Math.max(0, Number(row.combined_member_count ?? 0)),
+    combined_is_primary: Boolean(row.combined_is_primary),
+    is_combined_shipment: Boolean(
+      row.is_combined_shipment ?? normalized.combined_shipment_id,
+    ),
     customer_history_status: normalizeOrderCustomerHistoryStatus(
       row.customer_history_status,
     ),
@@ -717,6 +729,23 @@ async function fetchShipmentLines(
   return ((data ?? []) as Partial<TemuOrderRecord>[]).map(normalizeTemuOrder);
 }
 
+async function fetchCombinedShipmentLines(
+  supabase: Awaited<ReturnType<typeof requireSession>>["supabase"],
+  combinedShipmentId: string,
+) {
+  const { data, error } = await withTimeout(
+    supabase
+      .from("temu_order_fulfillment_lines")
+      .select(temuOrderFulfillmentSelectFields)
+      .eq("combined_shipment_id", combinedShipmentId)
+      .order("combined_is_primary", { ascending: false })
+      .order("id", { ascending: true }),
+    "加载合并包裹明细",
+  );
+  if (error) throw error;
+  return ((data ?? []) as Partial<TemuOrderRecord>[]).map(normalizeTemuOrder);
+}
+
 export async function fetchTemuOrderFulfillmentByOrderNo(orderNo: string) {
   const { supabase } = await requireSession();
   const { data, error } = await withTimeout(
@@ -732,7 +761,7 @@ export async function fetchTemuOrderFulfillmentByOrderNo(orderNo: string) {
   return ((data ?? []) as Partial<TemuOrderRecord>[]).map(normalizeTemuOrder);
 }
 
-type AssignTemuOrderShipmentInput = {
+export type AssignTemuOrderShipmentInput = {
   shipmentId: string;
   warehouseId: string;
   logisticsMethodId: string;
@@ -806,6 +835,104 @@ export async function releaseTemuOrderShipmentInventory(
   const payload = (data ?? {}) as { changes?: TemuShipmentInventoryChange[] };
   return {
     orders: await fetchShipmentLines(supabase, shipmentId),
+    changes: Array.isArray(payload.changes) ? payload.changes : [],
+  };
+}
+
+export async function combineTemuOrderShipments(
+  shipmentIds: string[],
+  primaryShipmentId: string,
+) {
+  const { supabase } = await requireSession();
+  const { data, error } = await withTimeout(
+    supabase.rpc("combine_temu_order_shipments", {
+      p_shipment_ids: shipmentIds,
+      p_primary_shipment_id: primaryShipmentId,
+    }),
+    "合并订单包裹",
+    { requestKind: "rpc" },
+  );
+  if (error) throw error;
+  const payload = (data ?? {}) as {
+    combined_shipment_id?: string;
+    combined_shipment_no?: string;
+    primary_shipment_id?: string;
+    member_count?: number;
+  };
+  if (!payload.combined_shipment_id) {
+    throw new Error("合并包裹创建成功，但未返回包裹标识。");
+  }
+  return {
+    ...payload,
+    orders: await fetchCombinedShipmentLines(
+      supabase,
+      payload.combined_shipment_id,
+    ),
+  };
+}
+
+export async function cancelTemuCombinedShipment(combinedShipmentId: string) {
+  const { supabase } = await requireSession();
+  const { data, error } = await withTimeout(
+    supabase.rpc("cancel_temu_combined_shipment", {
+      p_combined_shipment_id: combinedShipmentId,
+    }),
+    "取消合并包裹",
+    { requestKind: "rpc" },
+  );
+  if (error) throw error;
+  return (data ?? {}) as {
+    combined_shipment_id?: string;
+    combined_shipment_no?: string;
+    shipment_ids?: string[];
+  };
+}
+
+export async function assignTemuCombinedShipment(
+  input: Omit<AssignTemuOrderShipmentInput, "shipmentId"> & {
+    combinedShipmentId: string;
+  },
+) {
+  const { supabase } = await requireSession();
+  const { data, error } = await withTimeout(
+    supabase.rpc("assign_temu_combined_shipment", {
+      p_combined_shipment_id: input.combinedShipmentId,
+      p_warehouse_id: input.warehouseId,
+      p_logistics_method_id: input.logisticsMethodId,
+      p_reservations: input.reservations.map((reservation) => ({
+        shipment_item_id: reservation.shipmentItemId,
+        warehouse_sku_id: reservation.warehouseSkuId,
+      })),
+      p_reason: input.reason ?? "",
+    }),
+    "分配合并包裹",
+    { requestKind: "rpc" },
+  );
+  if (error) throw error;
+  const payload = (data ?? {}) as { changes?: TemuShipmentInventoryChange[] };
+  return {
+    orders: await fetchCombinedShipmentLines(supabase, input.combinedShipmentId),
+    changes: Array.isArray(payload.changes) ? payload.changes : [],
+  };
+}
+
+export async function releaseTemuCombinedShipmentInventory(
+  combinedShipmentId: string,
+  reason = "",
+) {
+  const { supabase } = await requireSession();
+  const { data, error } = await withTimeout(
+    supabase.rpc("release_temu_combined_shipment_inventory", {
+      p_combined_shipment_id: combinedShipmentId,
+      p_reason: reason,
+    }),
+    "释放合并包裹库存",
+    { requestKind: "rpc" },
+  );
+  if (error) throw error;
+  const payload = (data ?? {}) as { changes?: TemuShipmentInventoryChange[] };
+  return {
+    orders: await fetchCombinedShipmentLines(supabase, combinedShipmentId),
     changes: Array.isArray(payload.changes) ? payload.changes : [],
   };
 }

@@ -435,6 +435,13 @@ export type TemuOrderRecord = {
   package_sequence: number;
   package_count: number;
   is_split: boolean;
+  combined_shipment_id: string;
+  combined_shipment_no: string;
+  combined_primary_shipment_id: string;
+  combined_primary_order_no: string;
+  combined_member_count: number;
+  combined_is_primary: boolean;
+  is_combined_shipment: boolean;
   owner_id: string;
   order_no: string;
   sub_order_no: string;

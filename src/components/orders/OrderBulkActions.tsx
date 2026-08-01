@@ -4,11 +4,13 @@ import {
   CheckCircle2,
   Download,
   Eye,
+  PackagePlus,
   Save,
   Scissors,
   Sparkles,
   Trash2,
   Undo2,
+  Unlink,
   X,
 } from "lucide-react";
 import type { LogisticsMethod, Warehouse } from "../../types";
@@ -31,6 +33,9 @@ type OrderBulkActionsProps = {
   selectedSingleOrderInView: boolean;
   canSplitSelectedOrder: boolean;
   selectedOrderIsSplit: boolean;
+  canMergeSelectedOrders: boolean;
+  mergeSelectionIssue: string;
+  selectedOrderIsCombined: boolean;
   canManageSelectedShippedOrders: boolean;
   hasSelectedCompletedOrders: boolean;
   bulkWarehouseId: string;
@@ -43,6 +48,8 @@ type OrderBulkActionsProps = {
   onShowSelectedDetail: () => void;
   onOpenSplitOrder: () => void;
   onCancelSplitOrder: () => void;
+  onOpenMergeShipment: () => void;
+  onCancelMergeShipment: () => void;
   onMoveNewOrdersToPendingAssignment: () => void;
   onMovePendingShippingOrdersToNewOrder: () => void;
   onMoveNewOrdersToPendingShipping: () => void;
@@ -77,6 +84,9 @@ export function OrderBulkActions({
   selectedSingleOrderInView,
   canSplitSelectedOrder,
   selectedOrderIsSplit,
+  canMergeSelectedOrders,
+  mergeSelectionIssue,
+  selectedOrderIsCombined,
   canManageSelectedShippedOrders,
   hasSelectedCompletedOrders,
   bulkWarehouseId,
@@ -89,6 +99,8 @@ export function OrderBulkActions({
   onShowSelectedDetail,
   onOpenSplitOrder,
   onCancelSplitOrder,
+  onOpenMergeShipment,
+  onCancelMergeShipment,
   onMoveNewOrdersToPendingAssignment,
   onMovePendingShippingOrdersToNewOrder,
   onMoveNewOrdersToPendingShipping,
@@ -180,6 +192,29 @@ export function OrderBulkActions({
                   </button>
                 )}
               </>
+            )}
+            {canEdit && activeStage === "pending_assignment" && selectedInViewCount >= 2 && (
+              <button
+                type="button"
+                disabled={Boolean(busyKey) || !canMergeSelectedOrders}
+                onClick={onOpenMergeShipment}
+                title={canMergeSelectedOrders ? undefined : mergeSelectionIssue}
+                className="btn-secondary h-9 px-3"
+              >
+                <PackagePlus size={16} />
+                合并发货（{selectedInViewCount}）
+              </button>
+            )}
+            {canEdit && activeStage === "pending_assignment" && selectedOrderIsCombined && (
+              <button
+                type="button"
+                disabled={Boolean(busyKey)}
+                onClick={onCancelMergeShipment}
+                className="btn-secondary h-9 px-3"
+              >
+                <Unlink size={16} />
+                取消合并
+              </button>
             )}
             {canEdit && selectedSingleOrderInView && onCreateReshipOrder && (
               <button

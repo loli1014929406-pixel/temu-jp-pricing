@@ -12,6 +12,7 @@ import {
   type TrackingAlertFilter,
 } from "../components/orders/OrderPageChrome";
 import { ReshipOrderModal } from "../components/orders/ReshipOrderModal";
+import { MergeShipmentModal } from "../components/orders/MergeShipmentModal";
 import { SplitOrderModal } from "../components/orders/SplitOrderModal";
 import {
   OrderFileImportModal,
@@ -46,13 +47,17 @@ import {
 } from "../lib/warehouse-logistics";
 import {
   assignTemuOrderShipment,
+  assignTemuCombinedShipment,
   autoAssignTemuOrderShipment,
+  cancelTemuCombinedShipment,
   cancelTemuOrderSplit,
+  combineTemuOrderShipments,
   deleteTemuOrder,
   fetchTemuOrderFulfillmentByOrderNo,
   findNewTemuOrderImportRows,
   importTemuOrders,
   releaseTemuOrderShipmentInventory,
+  releaseTemuCombinedShipmentInventory,
   saveTemuOrderSplit,
   updateTemuOrder,
   type TemuOrderImportRow,
@@ -127,7 +132,6 @@ import {
   parseFulfillmentQuantity,
   getOrderNoKey,
   getOrderLineKey,
-  getOrderLineSkuKey,
   getOrderLineLabel,
   dedupeImportRowsByOrderLine,
   getFullAddress,
@@ -274,6 +278,9 @@ export function OrdersPage({ user }: OrdersPageProps) {
     TemuOrderRecord[]
   >([]);
   const [splitOrderLines, setSplitOrderLines] = useState<TemuOrderRecord[] | null>(
+    null,
+  );
+  const [mergeOrderLines, setMergeOrderLines] = useState<TemuOrderRecord[] | null>(
     null,
   );
 
@@ -552,9 +559,70 @@ export function OrdersPage({ user }: OrdersPageProps) {
     selectedOrderRowsInView.length === 1 ? selectedOrderRowsInView[0].primaryOrder : null;
   const selectedSingleOrderRow =
     selectedOrderRowsInView.length === 1 ? selectedOrderRowsInView[0] : null;
+  const mergeSelectionIssue = useMemo(() => {
+    if (selectedOrderRowsInView.length < 2) {
+      return "合并发货至少需要选择 2 个不同订单。";
+    }
+    if (
+      selectedOrderRowsInView.some((row) =>
+        row.orders.some(
+          (order) =>
+            getOrderStage(order) !== "pending_assignment" ||
+            order.is_split ||
+            order.package_count > 1,
+        ),
+      )
+    ) {
+      return "只能合并待分配的未拆包订单；拆包订单不能参与合并。";
+    }
+    if (
+      selectedOrderRowsInView.some((row) =>
+        row.orders.some((order) => order.is_combined_shipment),
+      )
+    ) {
+      return "已确认合并的包裹不能再次参与合并。";
+    }
+    const orderNos = new Set(
+      selectedOrderRowsInView.map((row) => row.primaryOrder.order_no.trim().toLowerCase()),
+    );
+    if (orderNos.size !== selectedOrderRowsInView.length || orderNos.has("")) {
+      return "合并发货只能选择不同且有效的原始订单号。";
+    }
+    if (
+      selectedOrderRowsInView.some(
+        (row) => new Set(row.orders.map((order) => order.shipment_id)).size !== 1,
+      )
+    ) {
+      return "所选订单的包裹结构不唯一，不能合并。";
+    }
+    const recipientKeys = new Set(
+      selectedOrderRowsInView.flatMap((row) =>
+        row.orders.map((order) =>
+          [
+            order.recipient_name,
+            order.recipient_phone,
+            order.postal_code,
+            order.province,
+            order.city,
+            order.district,
+            order.address_line1,
+            order.address_line2,
+          ]
+            .map((value) => value.trim().toLowerCase())
+            .join("\u0000"),
+        ),
+      ),
+    );
+    if (recipientKeys.size !== 1) {
+      return "收件人、电话、邮编和完整地址必须完全一致。";
+    }
+    return "";
+  }, [selectedOrderRowsInView]);
+  const canMergeSelectedOrders = mergeSelectionIssue === "";
   const canSplitSelectedOrder = Boolean(
     selectedSingleOrderInView &&
       getOrderStage(selectedSingleOrderInView) === "pending_assignment" &&
+      !selectedSingleOrderInView.is_combined_shipment &&
       (selectedSingleOrderInView.is_split ||
         (selectedSingleOrderRow?.quantity ?? 0) > 1),
   );
@@ -985,7 +1053,9 @@ export function OrdersPage({ user }: OrdersPageProps) {
       const preview = buildTrackingImportPreview(
         records,
         allOrders.filter(
-          (order) => getOrderStage(order) === "pending_shipping",
+          (order) =>
+            getOrderStage(order) === "pending_shipping" &&
+            !order.logistics_tracking_no.trim(),
         ),
       );
       setPendingFileImport({
@@ -1373,7 +1443,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
 
     const entriesByShipment = new Map<string, typeof entries>();
     entries.forEach((entry) => {
-      const shipmentKey = entry.order.shipment_id || entry.order.id;
+      const shipmentKey = getOrderDisplayGroupKey(entry.order);
       entriesByShipment.set(shipmentKey, [
         ...(entriesByShipment.get(shipmentKey) ?? []),
         entry,
@@ -1424,26 +1494,42 @@ export function OrdersPage({ user }: OrdersPageProps) {
             throw new Error("仓库和尾程发货方式必须同时选择。");
           }
 
-          const assignShipment = options.autoMatch
-            ? autoAssignTemuOrderShipment
-            : assignTemuOrderShipment;
-          const result = await assignShipment({
-            shipmentId: entry.order.shipment_id,
-            warehouseId,
-            logisticsMethodId,
-            reservations: stockDeductionResult.deductions.map((deduction) => ({
-              shipmentItemId: deduction.orderId,
-              warehouseSkuId: deduction.stock.id,
-            })),
-            reason: `订单包裹库存占用：${getOrderLineLabel(entry.order)}`,
-          });
+          const reservations = stockDeductionResult.deductions.map((deduction) => ({
+            shipmentItemId: deduction.orderId,
+            warehouseSkuId: deduction.stock.id,
+          }));
+          const reason = entry.order.is_combined_shipment
+            ? `合并包裹库存占用：${entry.order.combined_shipment_no}`
+            : `订单包裹库存占用：${getOrderLineLabel(entry.order)}`;
+          const result = entry.order.combined_shipment_id
+            ? await assignTemuCombinedShipment({
+                combinedShipmentId: entry.order.combined_shipment_id,
+                warehouseId,
+                logisticsMethodId,
+                reservations,
+                reason,
+              })
+            : await (options.autoMatch
+                ? autoAssignTemuOrderShipment
+                : assignTemuOrderShipment)({
+                shipmentId: entry.order.shipment_id,
+                warehouseId,
+                logisticsMethodId,
+                reservations,
+                reason,
+              });
           nextShipmentOrders = result.orders;
           shipmentInventoryChanges = result.changes;
         } else if (shouldReleaseInventory) {
-          const result = await releaseTemuOrderShipmentInventory(
-            entry.order.shipment_id,
-            `订单库存释放：${getOrderLineLabel(entry.order)}`,
-          );
+          const result = entry.order.combined_shipment_id
+            ? await releaseTemuCombinedShipmentInventory(
+                entry.order.combined_shipment_id,
+                `合并包裹库存释放：${entry.order.combined_shipment_no}`,
+              )
+            : await releaseTemuOrderShipmentInventory(
+                entry.order.shipment_id,
+                `订单库存释放：${getOrderLineLabel(entry.order)}`,
+              );
           nextShipmentOrders = result.orders;
           shipmentInventoryChanges = result.changes;
         }
@@ -1463,12 +1549,21 @@ export function OrdersPage({ user }: OrdersPageProps) {
             nextShipmentOrders.length > 0
               ? nextShipmentOrders
               : allOrders.filter(
-                  (order) => order.shipment_id === entry.order.shipment_id,
+                  (order) =>
+                    getOrderDisplayGroupKey(order) ===
+                    getOrderDisplayGroupKey(entry.order),
                 );
           nextShipmentOrders = shipmentSource.map((order) => ({
             ...order,
             ...Object.fromEntries(
-              shipmentDraftFields.map((field) => [field, updated[field]]),
+              shipmentDraftFields.map((field) => [
+                field,
+                field === "actual_shipping_fee_rmb" &&
+                order.is_combined_shipment &&
+                !order.combined_is_primary
+                  ? 0
+                  : updated[field],
+              ]),
             ),
           }));
         }
@@ -1840,6 +1935,67 @@ export function OrdersPage({ user }: OrdersPageProps) {
     }
   }
 
+  function handleOpenMergeShipment() {
+    if (!canEdit) return;
+    if (mergeSelectionIssue) {
+      setErrorMessage(mergeSelectionIssue);
+      return;
+    }
+    setErrorMessage("");
+    setMergeOrderLines(selectedOrderRowsInView.flatMap((row) => row.orders));
+  }
+
+  async function handleSaveMergedShipment(primaryShipmentId: string) {
+    if (!mergeOrderLines || mergeOrderLines.length === 0) return;
+    const shipmentIds = Array.from(
+      new Set(mergeOrderLines.map((order) => order.shipment_id).filter(Boolean)),
+    );
+    setBusyKey("save-merged-shipment");
+    setErrorMessage("");
+    try {
+      const result = await combineTemuOrderShipments(
+        shipmentIds,
+        primaryShipmentId,
+      );
+      updateOrdersState(result.orders);
+      setMergeOrderLines(null);
+      setSelectedOrderIds([]);
+      reloadOrders();
+      setNoticeMessage(
+        `已创建合并包裹 ${result.combined_shipment_no ?? ""}，共 ${result.member_count ?? shipmentIds.length} 个订单。`,
+      );
+    } catch (error) {
+      setErrorMessage(getOrdersErrorMessage(error, "合并发货失败"));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
+  async function handleCancelMergedShipment() {
+    const combinedShipmentId = selectedSingleOrderInView?.combined_shipment_id;
+    if (!canEdit || !combinedShipmentId) return;
+    if (
+      !(await confirmAction(
+        `确认取消合并包裹 ${selectedSingleOrderInView.combined_shipment_no}，恢复为各自独立的待分配订单吗？`,
+      ))
+    ) {
+      return;
+    }
+
+    setBusyKey("cancel-merged-shipment");
+    setErrorMessage("");
+    try {
+      await cancelTemuCombinedShipment(combinedShipmentId);
+      setSelectedOrderIds([]);
+      reloadOrders();
+      setNoticeMessage("已取消合并包裹，成员订单恢复为独立待分配订单。");
+    } catch (error) {
+      setErrorMessage(getOrdersErrorMessage(error, "取消合并发货失败"));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
   async function handleDeleteSelectedOrders() {
     if (!canDelete) {
       setErrorMessage("当前账号没有删除权限。");
@@ -1851,6 +2007,10 @@ export function OrdersPage({ user }: OrdersPageProps) {
     }
     if (hasSelectedCompletedOrders) {
       setErrorMessage("已完成订单不能删除。");
+      return;
+    }
+    if (selectedOrdersInView.some((order) => order.is_combined_shipment)) {
+      setErrorMessage("合并包裹成员不能直接删除，请先在待分配阶段取消合并。");
       return;
     }
 
@@ -2035,9 +2195,17 @@ export function OrdersPage({ user }: OrdersPageProps) {
     }
     const targetOrders = (
       selectedOrderLineInViewCount > 0 ? selectedOrdersInView : filteredOrders
-    ).filter((order) => getOrderStage(mergeOrderDraft(order)) === "pending_assignment");
+    ).filter(
+      (order) =>
+        getOrderStage(mergeOrderDraft(order)) === "pending_assignment" &&
+        !order.is_combined_shipment,
+    );
     if (targetOrders.length === 0) {
-      setNoticeMessage("当前没有需要匹配的待分配订单。");
+      setNoticeMessage(
+        selectedOrdersInView.some((order) => order.is_combined_shipment)
+          ? "合并包裹不参与自动匹配，请手动选择统一的仓库和发货方式。"
+          : "当前没有需要匹配的待分配订单。",
+      );
       return;
     }
 
@@ -2295,7 +2463,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
         shipment_phone: formatRecipientPhone(merged.recipient_phone),
         shipment_package_count: 1,
         shipment_destination: "TYO",
-        shipment_order_no: merged.order_no,
+        shipment_order_no: merged.combined_shipment_no || merged.order_no,
         shipment_service_type: "NEP",
         shipment_store_name: "",
         shipment_store_note: "",
@@ -2342,7 +2510,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
       });
 
       return Array.from(declarationGroups.values()).map((group, index) => ({
-        item_order_no: row.primaryOrder.order_no,
+        item_order_no:
+          row.primaryOrder.combined_shipment_no || row.primaryOrder.order_no,
         item_code: index + 1,
         item_name: group.declaration.product.product_name_en,
         item_description: group.declaration.product.material_en,
@@ -3046,6 +3215,11 @@ export function OrdersPage({ user }: OrdersPageProps) {
           selectedSingleOrderInView={Boolean(selectedSingleOrderInView)}
           canSplitSelectedOrder={canSplitSelectedOrder}
           selectedOrderIsSplit={Boolean(selectedSingleOrderInView?.is_split)}
+          canMergeSelectedOrders={canMergeSelectedOrders}
+          mergeSelectionIssue={mergeSelectionIssue}
+          selectedOrderIsCombined={Boolean(
+            selectedSingleOrderInView?.is_combined_shipment,
+          )}
           canManageSelectedShippedOrders={canManageSelectedShippedOrders}
           hasSelectedCompletedOrders={hasSelectedCompletedOrders}
           bulkWarehouseId={bulkWarehouseId}
@@ -3060,6 +3234,8 @@ export function OrdersPage({ user }: OrdersPageProps) {
           }}
           onOpenSplitOrder={() => void handleOpenSplitOrder()}
           onCancelSplitOrder={() => void handleCancelOrderSplit()}
+          onOpenMergeShipment={handleOpenMergeShipment}
+          onCancelMergeShipment={() => void handleCancelMergedShipment()}
           onMoveNewOrdersToPendingAssignment={() =>
             void handleMoveSelectedNewOrdersToPendingAssignment()
           }
@@ -3153,13 +3329,25 @@ export function OrdersPage({ user }: OrdersPageProps) {
                       />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start justify-between gap-2">
-                          <h3 className="break-all text-sm font-bold text-slate-900">{order.order_no}</h3>
+                          <div>
+                            <h3 className="break-all text-sm font-bold text-slate-900">
+                              {order.combined_shipment_no || order.order_no}
+                            </h3>
+                            {order.is_combined_shipment && (
+                              <p className="mt-0.5 text-[11px] font-semibold text-sky-700">
+                                合并发货 · 主订单 {order.combined_primary_order_no}
+                              </p>
+                            )}
+                          </div>
                           <span className="shrink-0 rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">{stage.label}</span>
                         </div>
                         <p className="mt-1 text-xs text-slate-500">
                           {orderRow.orders.length} 个明细 / {orderRow.quantity} 件
                           {order.is_split
                             ? ` · 包裹 ${order.package_sequence}/${order.package_count}`
+                            : ""}
+                          {order.is_combined_shipment
+                            ? ` · ${order.combined_member_count} 个订单合并`
                             : ""}
                         </p>
                       </div>
@@ -3310,6 +3498,19 @@ export function OrdersPage({ user }: OrdersPageProps) {
             if (busyKey !== "save-order-split") setSplitOrderLines(null);
           }}
           onSave={(packages) => void handleSaveOrderSplit(packages)}
+        />
+      )}
+
+      {mergeOrderLines && (
+        <MergeShipmentModal
+          orders={mergeOrderLines}
+          saving={busyKey === "save-merged-shipment"}
+          onClose={() => {
+            if (busyKey !== "save-merged-shipment") setMergeOrderLines(null);
+          }}
+          onSave={(primaryShipmentId) =>
+            void handleSaveMergedShipment(primaryShipmentId)
+          }
         />
       )}
     </section>

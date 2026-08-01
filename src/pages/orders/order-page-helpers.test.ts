@@ -83,4 +83,36 @@ describe("order display rows", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].quantity).toBe(3);
   });
+
+  it("renders confirmed merged orders as one row with the persisted primary order", () => {
+    const combined = {
+      combined_shipment_id: "combined-1",
+      combined_shipment_no: "MC-20260801-ABC",
+      combined_primary_shipment_id: "shipment-2",
+      combined_primary_order_no: "PO-2",
+      combined_member_count: 2,
+      is_combined_shipment: true,
+    };
+    const rows = buildOrderDisplayRowsWithDrafts(
+      [
+        order({ ...combined, combined_is_primary: false }),
+        order({
+          ...combined,
+          id: "item-2",
+          source_order_id: "source-2",
+          shipment_id: "shipment-2",
+          shipment_item_id: "item-2",
+          order_no: "PO-2",
+          sub_order_no: "SUB-2",
+          combined_is_primary: true,
+          fulfillment_quantity: 2,
+        }),
+      ],
+      {},
+    );
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].quantity).toBe(3);
+    expect(rows[0].primaryOrder.order_no).toBe("PO-2");
+  });
 });
