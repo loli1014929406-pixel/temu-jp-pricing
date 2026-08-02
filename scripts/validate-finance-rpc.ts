@@ -44,14 +44,20 @@ for (const row of settlementResult.data ?? []) {
 }
 const expected = { orderCount: orders.length, quantity: 0, productCost: 0, firstLegShipping: 0, lastLegShipping: 0, shipping: 0, bill: 0, actualRevenue: 0, settledCount: 0, unsettledCount: 0, unmatchedCount: 0, missingShippingCount: 0 };
 const expectedFirstLegById = new Map<string, number>();
+const revenueOrderNos = new Set<string>();
 for (const order of orders) {
   const sku = getOrderSku(order, skuLookup);
   const product = sku?.product_id ? productsById.get(sku.product_id) ?? null : null;
   const quantity = getOrderQuantity(order);
   const productCost = roundMoney((sku ? getSkuUnitCostRmb(sku, itemsById) : 0) * quantity);
   const shipping = estimateOrderShippingBreakdown({ order, product, settings, logisticsMethods, warehouseLogisticsMethods: warehouseLinks });
-  const settlement = settlementByPo.get(order.order_no.trim());
-  const revenue = roundMoney((settlement?.sales ?? 0) + (settlement?.freight ?? 0));
+  const orderNo = order.order_no.trim();
+  const settlement = settlementByPo.get(orderNo);
+  const isFirstRevenueRow = Boolean(settlement) && !revenueOrderNos.has(orderNo);
+  const revenue = isFirstRevenueRow
+    ? roundMoney((settlement?.sales ?? 0) + (settlement?.freight ?? 0))
+    : 0;
+  if (isFirstRevenueRow) revenueOrderNos.add(orderNo);
   expected.quantity = roundMoney(expected.quantity + quantity);
   expected.productCost = roundMoney(expected.productCost + productCost);
   expected.firstLegShipping = roundMoney(expected.firstLegShipping + shipping.firstLegShippingRmb);
