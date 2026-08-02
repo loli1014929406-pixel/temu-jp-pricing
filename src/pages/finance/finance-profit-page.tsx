@@ -512,7 +512,14 @@ export function FinanceProfitPage({ user }: Props) {
     logisticsCash.data.monthly.forEach((payment) => {
       const paymentDate = `${payment.month}-01`;
       if (period.mode !== "all" && !isDateInPeriod(paymentDate, period)) return;
-      ensure(payment.month).logisticsPaid += payment.paidAmountRmb;
+      const row = ensure(payment.month);
+      row.logisticsPaid += payment.paidAmountRmb;
+      if (payment.hasFirstLegActual) {
+        const estimatedFirstLeg = Number(
+          analysis.monthly.find((item) => String(item.month) === payment.month)?.first_leg_shipping ?? 0,
+        );
+        row.shipping = row.shipping - estimatedFirstLeg + payment.firstLegActualAmountRmb;
+      }
     });
     return Array.from(rows.values()).sort((a, b) => b.month.localeCompare(a.month)).map((row) => ({
       ...row,
@@ -608,6 +615,45 @@ export function FinanceProfitPage({ user }: Props) {
       },
     );
   }, [shippingMethodRows]);
+
+  const resolvedShippingSummary = useMemo(() => {
+    const actualByMonth = new Map(
+      logisticsCash.data.monthly
+        .filter((item) => item.hasFirstLegActual)
+        .map((item) => [item.month, item.firstLegActualAmountRmb]),
+    );
+    let resolvedFirstLegShipping = 0;
+    let confirmedMonthCount = 0;
+    let includedMonthCount = 0;
+
+    analysis.monthly.forEach((raw) => {
+      const month = String(raw.month ?? "");
+      if (!month) return;
+      includedMonthCount += 1;
+      const canUseMonthlyActual = period.mode !== "custom"
+        || (period.start <= getMonthStart(month) && period.end >= getMonthEnd(month));
+      const actualAmount = canUseMonthlyActual ? actualByMonth.get(month) : undefined;
+      if (actualAmount !== undefined) {
+        resolvedFirstLegShipping += actualAmount;
+        confirmedMonthCount += 1;
+      } else {
+        resolvedFirstLegShipping += Number(raw.first_leg_shipping ?? 0);
+      }
+    });
+
+    const firstLegShipping = roundMoney(resolvedFirstLegShipping);
+    return {
+      firstLegShipping,
+      totalShipping: roundMoney(
+        shippingMethodSummary.totalShipping
+          - shippingMethodSummary.firstLegShipping
+          + firstLegShipping,
+      ),
+      confirmedMonthCount,
+      includedMonthCount,
+      allMonthsConfirmed: includedMonthCount > 0 && confirmedMonthCount === includedMonthCount,
+    };
+  }, [analysis.monthly, logisticsCash.data.monthly, period, shippingMethodSummary]);
 
   const paginatedMonthly = getPaginatedRows("finance-monthly-profit", monthlyRows, monthlyPage, monthlyPageSize);
 
@@ -879,7 +925,7 @@ ${shippingCostLabel}: ${formatCurrency(shippingCost)}
               <Truck size={16} className="text-accent" />
               <span>仓库与发货方式运费分析</span>
             </h4>
-            <p className="mt-1 text-xs text-slate-400">按当前时间范围统计；头程为自动估算，尾程优先使用实际录入金额，没有实际运费时使用自动估算值。</p>
+            <p className="mt-1 text-xs text-slate-400">按当前时间范围统计；头程优先使用已确认的月份实际合计，未确认时使用自动估算；尾程优先使用实际录入金额。</p>
           </div>
           <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500">
             共 {shippingMethodRows.length} 组仓库 / 发货方式
@@ -891,14 +937,20 @@ ${shippingCostLabel}: ${formatCurrency(shippingCost)}
             <ReceiptText size={18} className="text-[#29845a]" />
             <div>
               <div className="text-xs font-semibold text-slate-500">当月总运费</div>
-              <div className="mt-1 text-lg font-bold tabular-nums text-slate-900">{formatCurrency(shippingMethodSummary.totalShipping)}</div>
+              <div className="mt-1 text-lg font-bold tabular-nums text-slate-900">{formatCurrency(resolvedShippingSummary.totalShipping)}</div>
             </div>
           </div>
           <div className="flex items-center gap-3 border-y border-slate-100 py-3">
             <Truck size={18} className="text-sky-500" />
             <div>
-              <div className="text-xs font-semibold text-slate-500">自动估算头程运费</div>
-              <div className="mt-1 text-lg font-bold tabular-nums text-slate-900">{formatCurrency(shippingMethodSummary.firstLegShipping)}</div>
+              <div className="text-xs font-semibold text-slate-500">
+                {resolvedShippingSummary.allMonthsConfirmed
+                  ? "实际头程运费"
+                  : resolvedShippingSummary.confirmedMonthCount > 0
+                    ? "头程运费（实际优先）"
+                    : "自动估算头程运费"}
+              </div>
+              <div className="mt-1 text-lg font-bold tabular-nums text-slate-900">{formatCurrency(resolvedShippingSummary.firstLegShipping)}</div>
             </div>
           </div>
           <div className="flex items-center gap-3 border-y border-slate-100 py-3">
@@ -923,6 +975,9 @@ ${shippingCostLabel}: ${formatCurrency(shippingCost)}
               <span>运费占比 Top {topRows.length}</span>
               <span>头程估算 / 尾程实际 / 尾程估算</span>
             </div>
+            {resolvedShippingSummary.confirmedMonthCount > 0 && (
+              <p className="mb-3 text-[11px] text-sky-700">实际头程只保存月份合计，以下仓库/发货方式明细继续显示系统估算，不进行人为分摊。</p>
+            )}
             <div className="grid gap-3">
               {topRows.map((row) => {
                 const totalWidth = row.totalShipping > 0 ? Math.max(2, (row.totalShipping / maxShipping) * 100) : 0;
@@ -962,7 +1017,7 @@ ${shippingCostLabel}: ${formatCurrency(shippingCost)}
                 <th className="table-column-align-center whitespace-nowrap px-3 py-2">估算头程</th>
                 <th className="table-column-align-center whitespace-nowrap px-3 py-2">实际尾程</th>
                 <th className="table-column-align-center whitespace-nowrap px-3 py-2">估算尾程</th>
-                <th className="table-column-align-center whitespace-nowrap px-3 py-2">总运费</th>
+                <th className="table-column-align-center whitespace-nowrap px-3 py-2">估算口径总运费</th>
                 <th className="table-column-align-center whitespace-nowrap px-3 py-2">票均</th>
                 <th className="table-column-align-center whitespace-nowrap px-3 py-2">件均</th>
                 <th className="table-column-align-center whitespace-nowrap px-3 py-2">缺失</th>

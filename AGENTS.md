@@ -112,7 +112,7 @@ npm run sync:backend-context
   - `/finance`、`/finance/ledger`、`/finance/expenses`、`/finance/settlement`、`/finance/profit` 共享订单、采购、费用、结算、实际运费和参数数据。
   - `get_finance_order_metrics`、`get_finance_orders_page`、`get_finance_order_analysis`、`get_finance_operating_overview`、`get_finance_ledger_page` 共同决定看板、对账、利润和流水口径。
   - 结算导入通过 `parseSettlementData`、`import_finance_settlement_atomic` 写入 `finance_settlement_files`、`finance_settlement_records`；退款/冲回体现在 `sales_reversal`、`freight_reversal`。
-  - 实际运费和物流付款通过 `finance_actual_shipping_fees`、`finance_logistics_settlements`、`finance_logistics_payments` 及其导入、报表、付款 RPC 进入财务结果。利润报表按物流月结的 `shipping_month` 归属物流付款成本；真实付款日期 `paid_at` 只保留为付款与流水事实，不能用于利润报表的成本月份。
+  - 实际运费和物流付款通过 `finance_actual_shipping_fees`、`finance_logistics_settlements`、`finance_logistics_payments` 及其导入、报表、付款 RPC 进入财务结果。头程月结继续沿用 `get_finance_order_analysis` 的现有月份估算合计，不增加订单级实际头程；用户只在 `finance_first_leg_monthly_settlements` 确认或修改当月实际合计，并通过 `finance_first_leg_payments` 记录部分付款、付款时间、作废和状态。确认实际头程后，利润报表的月度利润、头程合计和总运费只在对应月份合计层以实际头程替换该月预估头程，不向订单、商品、仓库或发货方式分摊；分组明细必须明确保留“估算口径”标识，不能与实际月份合计混称。利润报表按物流月结的 `shipping_month` 归属物流付款成本；真实付款日期 `paid_at` 只保留为付款与流水事实，不能用于利润报表的成本月份。
   - 商品成本依赖商品 SKU/BOM，物流估算依赖 `pricing_settings`、`logistics_methods`、`warehouse_logistics_methods`；订单号、包裹、物流单号、实际发货/签收时间会影响匹配、计费和月份归属。
   - 按件数阶梯尾程依赖四参数 `finance_dynamic_method_cost(..., p_quantity)`；拆包财务通过 `finance_split_method_cost` 传入包裹商品数量，继续保证尾程费用每个 `shipment_id` 只计算一次。
   - 利润报表的仓库/发货方式重量由 `get_finance_order_analysis.shipping_methods.weight_g` 返回，按 `product_data.package_weight_g × quantity` 汇总，并与页面当前日期、结算状态、问题和搜索筛选保持同一范围；前端只负责换算为 kg 展示。
@@ -297,3 +297,5 @@ npm run sync:backend-context
 - 2026-08-01：利润报表的仓库/发货方式分析新增 SKU 履约总重量，数据库按完整筛选范围聚合克数，前端统一换算为 kg 展示。
 - 2026-08-01：利润报表将自动估算运费拆分为估算头程、实际尾程和估算尾程，保持总运费及利润核算口径不变。
 - 2026-08-01：利润报表的实际物流付款成本改按物流月结 `shipping_month` 归月，付款日期继续保留为现金流水日期。
+- 2026-08-01：物流商月结新增头程当月合计确认，仅允许修改月份实际合计，并复用尾程的部分付款、付款记录与作废流程，不增加订单级实际头程。
+- 2026-08-01：利润报表的头程合计和总运费改为优先显示已确认月份实际头程；仓库/发货方式明细因无实际分摊数据继续标记为估算口径。

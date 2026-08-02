@@ -44,19 +44,26 @@ import {
 } from "../../lib/actual-shipping-fee-templates";
 import {
   fetchActualShippingFeeReport,
+  fetchFirstLegMonthlySettlements,
+  fetchFirstLegPaymentRecords,
   fetchLogisticsPaymentRecords,
   importActualShippingFees,
   previewActualShippingFeeImport,
+  recordFirstLegPayment,
   recordLogisticsPayment,
+  saveFirstLegMonthlyActual,
   updateActualShipTimeForShipment,
+  voidFirstLegPayment,
   voidLogisticsPayment,
   type ActualShippingFeeImportPreview,
   type ActualShippingFeePreviewStatus,
   type ActualShippingFeeReport,
   type ActualShippingFeeReportRow,
+  type FirstLegMonthlySettlementRecord,
   type LogisticsPaymentRecord,
   type LogisticsSettlementSummary,
 } from "../../lib/actual-shipping-fees";
+import { fetchFinanceOrderAnalysis } from "../../lib/finance-queries";
 import { confirmAction, confirmSave } from "../../utils/confirmations";
 import { getErrorMessage } from "../../utils/errors";
 import { notifyError, notifySuccess, notifyWarning } from "../../lib/notifications";
@@ -76,6 +83,30 @@ type PendingImport = {
 type TemplateEditorState = {
   templateId: string | null;
   draft: ActualShippingFeeImportTemplateInput;
+};
+
+type FirstLegMonthView = {
+  shippingMonth: string;
+  shipmentCount: number;
+  estimatedAmountRmb: number;
+  actualAmountRmb: number | null;
+  paidAmountRmb: number;
+  outstandingAmountRmb: number;
+  lastPaidAt: string;
+  status: LogisticsSettlementSummary["status"];
+};
+
+type PaymentTarget = {
+  kind: "first_leg" | "last_leg";
+  logisticsMethodId: string;
+  logisticsMethodName: string;
+  shippingMonth: string;
+  shipmentCount: number;
+  payableAmountRmb: number;
+  paidAmountRmb: number;
+  outstandingAmountRmb: number;
+  lastPaidAt: string;
+  status: LogisticsSettlementSummary["status"];
 };
 
 const websiteFieldMeta: Array<{
@@ -204,7 +235,13 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
   const [editingActualShipTimeId, setEditingActualShipTimeId] = useState<string | null>(null);
   const [editingActualShipTimeValue, setEditingActualShipTimeValue] = useState("");
   const [savingActualShipTimeId, setSavingActualShipTimeId] = useState<string | null>(null);
-  const [paymentTarget, setPaymentTarget] = useState<LogisticsSettlementSummary | null>(null);
+  const [firstLegMonths, setFirstLegMonths] = useState<FirstLegMonthView[]>([]);
+  const [firstLegLoading, setFirstLegLoading] = useState(true);
+  const [firstLegError, setFirstLegError] = useState("");
+  const [editingFirstLegMonth, setEditingFirstLegMonth] = useState<string | null>(null);
+  const [editingFirstLegAmount, setEditingFirstLegAmount] = useState("");
+  const [savingFirstLegActual, setSavingFirstLegActual] = useState(false);
+  const [paymentTarget, setPaymentTarget] = useState<PaymentTarget | null>(null);
   const [paymentRecords, setPaymentRecords] = useState<LogisticsPaymentRecord[]>([]);
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentDateTime, setPaymentDateTime] = useState(getLocalDateTimeInputValue);
@@ -240,6 +277,66 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
   useEffect(() => {
     void loadReport();
   }, [loadReport]);
+
+  const loadFirstLegData = useCallback(async () => {
+    setFirstLegLoading(true);
+    setFirstLegError("");
+    try {
+      const [analysis, persistedRows] = await Promise.all([
+        fetchFinanceOrderAnalysis({ page: 1, pageSize: 1 }),
+        fetchFirstLegMonthlySettlements(),
+      ]);
+      const persistedByMonth = new Map<string, FirstLegMonthlySettlementRecord>(
+        persistedRows.map((row) => [row.shippingMonth, row]),
+      );
+      const nextByMonth = new Map<string, FirstLegMonthView>();
+
+      analysis.monthly.forEach((raw) => {
+        const shippingMonth = String(raw.month ?? "");
+        if (!shippingMonth) return;
+        const persisted = persistedByMonth.get(shippingMonth);
+        nextByMonth.set(shippingMonth, {
+          shippingMonth,
+          shipmentCount: Number(raw.order_count ?? 0),
+          estimatedAmountRmb: Number(raw.first_leg_shipping ?? 0),
+          actualAmountRmb: persisted ? persisted.actualAmountRmb : null,
+          paidAmountRmb: persisted?.paidAmountRmb ?? 0,
+          outstandingAmountRmb: persisted?.outstandingAmountRmb ?? 0,
+          lastPaidAt: persisted?.lastPaidAt ?? "",
+          status: persisted?.status ?? "unpaid",
+        });
+      });
+
+      persistedRows.forEach((persisted) => {
+        if (nextByMonth.has(persisted.shippingMonth)) return;
+        nextByMonth.set(persisted.shippingMonth, {
+          shippingMonth: persisted.shippingMonth,
+          shipmentCount: 0,
+          estimatedAmountRmb: persisted.estimatedAmountSnapshotRmb,
+          actualAmountRmb: persisted.actualAmountRmb,
+          paidAmountRmb: persisted.paidAmountRmb,
+          outstandingAmountRmb: persisted.outstandingAmountRmb,
+          lastPaidAt: persisted.lastPaidAt,
+          status: persisted.status,
+        });
+      });
+
+      setFirstLegMonths(
+        Array.from(nextByMonth.values()).sort((a, b) =>
+          b.shippingMonth.localeCompare(a.shippingMonth),
+        ),
+      );
+    } catch (loadError) {
+      setFirstLegMonths([]);
+      setFirstLegError(getErrorMessage(loadError, "加载头程月结失败"));
+    } finally {
+      setFirstLegLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadFirstLegData();
+  }, [loadFirstLegData]);
 
   useEffect(() => {
     setPage(1);
@@ -306,6 +403,41 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
   }, [templateEditor, uploadedWorkbook]);
 
   const totalPages = Math.max(1, Math.ceil(report.totalCount / pageSize));
+  const monthOptions = useMemo(() => {
+    const merged = new Map<string, { month: string; shipmentCount: number }>();
+    report.months.forEach((item) => {
+      const key = item.month || "__missing__";
+      merged.set(key, { month: key, shipmentCount: item.shipmentCount });
+    });
+    firstLegMonths.forEach((item) => {
+      const existing = merged.get(item.shippingMonth);
+      merged.set(item.shippingMonth, {
+        month: item.shippingMonth,
+        shipmentCount: Math.max(existing?.shipmentCount ?? 0, item.shipmentCount),
+      });
+    });
+    return Array.from(merged.values()).sort((a, b) => {
+      if (a.month === "__missing__") return 1;
+      if (b.month === "__missing__") return -1;
+      return b.month.localeCompare(a.month);
+    });
+  }, [firstLegMonths, report.months]);
+  const selectedFirstLegMonth = useMemo(() => {
+    if (!month || month === "__missing__") return null;
+    return firstLegMonths.find((item) => item.shippingMonth === month) ?? {
+      shippingMonth: month,
+      shipmentCount: 0,
+      estimatedAmountRmb: 0,
+      actualAmountRmb: null,
+      paidAmountRmb: 0,
+      outstandingAmountRmb: 0,
+      lastPaidAt: "",
+      status: "unpaid" as const,
+    };
+  }, [firstLegMonths, month]);
+  const selectedFirstLegStatusMeta = !selectedFirstLegMonth || selectedFirstLegMonth.actualAmountRmb === null
+    ? { label: "待确认实际", className: "bg-sky-50 text-sky-700" }
+    : settlementStatusMeta(selectedFirstLegMonth.status);
   const importStats = useMemo(() => {
     if (!pendingImport) return null;
     return [
@@ -688,7 +820,7 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
   }
 
   async function openPaymentDialog(target: LogisticsSettlementSummary) {
-    setPaymentTarget(target);
+    setPaymentTarget({ kind: "last_leg", ...target });
     setPaymentAmount(target.outstandingAmountRmb > 0 ? String(target.outstandingAmountRmb) : "");
     setPaymentDateTime(getLocalDateTimeInputValue());
     setPaymentRemark("");
@@ -705,6 +837,67 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
       setPaymentRecords([]);
     } finally {
       setLoadingPayments(false);
+    }
+  }
+
+  async function openFirstLegPaymentDialog(target: FirstLegMonthView) {
+    if (target.actualAmountRmb === null) {
+      notifyWarning("请先确认当月实际头程运费");
+      return;
+    }
+    setPaymentTarget({
+      kind: "first_leg",
+      logisticsMethodId: "",
+      logisticsMethodName: "头程运费合计",
+      shippingMonth: target.shippingMonth,
+      shipmentCount: target.shipmentCount,
+      payableAmountRmb: target.actualAmountRmb,
+      paidAmountRmb: target.paidAmountRmb,
+      outstandingAmountRmb: target.outstandingAmountRmb,
+      lastPaidAt: target.lastPaidAt,
+      status: target.status,
+    });
+    setPaymentAmount(target.outstandingAmountRmb > 0 ? String(target.outstandingAmountRmb) : "");
+    setPaymentDateTime(getLocalDateTimeInputValue());
+    setPaymentRemark("");
+    setPaymentRequestKey(crypto.randomUUID());
+    setVoidReason("");
+    setLoadingPayments(true);
+    try {
+      setPaymentRecords(await fetchFirstLegPaymentRecords(target.shippingMonth));
+    } catch (paymentError) {
+      notifyError(getErrorMessage(paymentError, "加载头程付款记录失败"));
+      setPaymentRecords([]);
+    } finally {
+      setLoadingPayments(false);
+    }
+  }
+
+  async function handleSaveFirstLegActual(target: FirstLegMonthView) {
+    const amount = Number(editingFirstLegAmount);
+    if (!Number.isFinite(amount) || amount < 0) {
+      notifyWarning("请输入大于或等于 0 的实际头程运费");
+      return;
+    }
+    if (!await confirmSave(
+      `确认将 ${target.shippingMonth} 的实际头程运费保存为 ${formatPreciseRmb(amount)} 吗？`,
+    )) return;
+
+    setSavingFirstLegActual(true);
+    try {
+      await saveFirstLegMonthlyActual({
+        shippingMonth: target.shippingMonth,
+        estimatedAmountRmb: target.estimatedAmountRmb,
+        actualAmountRmb: amount,
+      });
+      setEditingFirstLegMonth(null);
+      setEditingFirstLegAmount("");
+      notifySuccess(`实际头程运费已保存：${formatPreciseRmb(amount)}。`);
+      await Promise.all([loadFirstLegData(), onImported()]);
+    } catch (saveError) {
+      notifyError(getErrorMessage(saveError, "保存实际头程运费失败"));
+    } finally {
+      setSavingFirstLegActual(false);
     }
   }
 
@@ -729,17 +922,24 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
 
     setSavingPayment(true);
     try {
-      await recordLogisticsPayment({
-        logisticsMethodId: paymentTarget.logisticsMethodId,
+      const paymentOptions = {
         shippingMonth: paymentTarget.shippingMonth,
         paidAmountRmb: amount,
         paidAt: new Date(paymentDateTime).toISOString(),
         remark: paymentRemark,
         requestKey: paymentRequestKey || crypto.randomUUID(),
-      });
+      };
+      if (paymentTarget.kind === "first_leg") {
+        await recordFirstLegPayment(paymentOptions);
+      } else {
+        await recordLogisticsPayment({
+          logisticsMethodId: paymentTarget.logisticsMethodId,
+          ...paymentOptions,
+        });
+      }
       notifySuccess(`物流付款已登记：${formatPreciseRmb(amount)}。`);
       setPaymentTarget(null);
-      await Promise.all([loadReport(), onImported()]);
+      await Promise.all([loadReport(), loadFirstLegData(), onImported()]);
     } catch (paymentError) {
       notifyError(getErrorMessage(paymentError, "登记物流付款失败"));
     } finally {
@@ -755,10 +955,14 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
     if (!confirmAction(`确认作废这笔 ${formatPreciseRmb(payment.amountRmb)} 的物流付款吗？`)) return;
     setVoidingPaymentId(payment.id);
     try {
-      await voidLogisticsPayment(payment.id, voidReason);
+      if (paymentTarget.kind === "first_leg") {
+        await voidFirstLegPayment(payment.id, voidReason);
+      } else {
+        await voidLogisticsPayment(payment.id, voidReason);
+      }
       notifySuccess("物流付款记录已作废，待付金额已恢复。");
       setPaymentTarget(null);
-      await Promise.all([loadReport(), onImported()]);
+      await Promise.all([loadReport(), loadFirstLegData(), onImported()]);
     } catch (voidError) {
       notifyError(getErrorMessage(voidError, "作废物流付款失败"));
     } finally {
@@ -1432,9 +1636,9 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
           结算月份（实际发货月）
           <select value={month} onChange={(event) => setMonth(event.target.value)} className="h-9 rounded-lg border border-line bg-white px-3">
             <option value="">全部月份</option>
-            {report.months.map((item) => (
-              <option key={item.month || "missing"} value={item.month || "__missing__"}>
-                {item.month || "待补实际发货时间"} · {item.shipmentCount}票
+            {monthOptions.map((item) => (
+              <option key={item.month} value={item.month}>
+                {item.month === "__missing__" ? "待补实际发货时间" : item.month} · {item.shipmentCount}票
               </option>
             ))}
           </select>
@@ -1462,6 +1666,119 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
           <button type="submit" className="btn-secondary h-9 px-3"><Search size={15} /> 搜索</button>
         </form>
       </div>
+
+      {month && month !== "__missing__" && selectedFirstLegMonth && (
+        <div className="overflow-hidden rounded-xl border border-sky-200 bg-white">
+          <div className="flex items-center gap-2 border-b border-sky-100 bg-sky-50 px-4 py-3">
+            <WalletCards size={16} className="text-sky-600" />
+            <span className="text-sm font-bold text-slate-800">{month} 头程运费合计</span>
+            <span className="text-xs text-slate-500">沿用当前头程核算公式</span>
+          </div>
+          {firstLegLoading ? (
+            <div className="p-4 text-sm text-slate-500">加载头程合计中...</div>
+          ) : (
+            <div className="grid gap-3 px-4 py-4 lg:grid-cols-[repeat(4,minmax(120px,1fr))_auto] lg:items-center">
+              <div>
+                <div className="text-[11px] font-semibold text-slate-400">系统预估头程</div>
+                <div className="mt-1 font-bold text-slate-800">{formatPreciseRmb(selectedFirstLegMonth.estimatedAmountRmb)}</div>
+              </div>
+              <div>
+                <div className="text-[11px] font-semibold text-slate-400">实际头程</div>
+                {editingFirstLegMonth === selectedFirstLegMonth.shippingMonth ? (
+                  <div className="mt-1 flex items-center gap-1.5">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.001"
+                      value={editingFirstLegAmount}
+                      onChange={(event) => setEditingFirstLegAmount(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") void handleSaveFirstLegActual(selectedFirstLegMonth);
+                        if (event.key === "Escape") {
+                          setEditingFirstLegMonth(null);
+                          setEditingFirstLegAmount("");
+                        }
+                      }}
+                      className="h-9 min-w-0 flex-1 rounded-lg border border-line bg-white px-2 text-sm font-bold outline-none focus:border-accent"
+                      aria-label={`${selectedFirstLegMonth.shippingMonth} 实际头程运费`}
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      className="icon-btn h-9 w-9 text-emerald-600"
+                      onClick={() => void handleSaveFirstLegActual(selectedFirstLegMonth)}
+                      disabled={savingFirstLegActual}
+                      aria-label="保存实际头程运费"
+                    >
+                      <Check size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-btn h-9 w-9 text-slate-400"
+                      onClick={() => {
+                        setEditingFirstLegMonth(null);
+                        setEditingFirstLegAmount("");
+                      }}
+                      disabled={savingFirstLegActual}
+                      aria-label="取消修改实际头程运费"
+                    >
+                      <X size={15} />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="mt-1 inline-flex items-center gap-1.5 font-bold text-sky-700 hover:text-sky-900 disabled:cursor-not-allowed disabled:text-slate-400"
+                    onClick={() => {
+                      setEditingFirstLegMonth(selectedFirstLegMonth.shippingMonth);
+                      setEditingFirstLegAmount(String(
+                        selectedFirstLegMonth.actualAmountRmb ?? selectedFirstLegMonth.estimatedAmountRmb,
+                      ));
+                    }}
+                    disabled={!canEdit}
+                  >
+                    {selectedFirstLegMonth.actualAmountRmb === null
+                      ? "点击确认实际金额"
+                      : formatPreciseRmb(selectedFirstLegMonth.actualAmountRmb)}
+                    {canEdit && <Pencil size={14} />}
+                  </button>
+                )}
+              </div>
+              <div>
+                <div className="text-[11px] font-semibold text-slate-400">已付</div>
+                <div className="mt-1 font-bold text-emerald-700">{formatPreciseRmb(selectedFirstLegMonth.paidAmountRmb)}</div>
+              </div>
+              <div>
+                <div className="text-[11px] font-semibold text-slate-400">待付</div>
+                <div className="mt-1 font-bold text-amber-700">
+                  {selectedFirstLegMonth.actualAmountRmb === null
+                    ? "--"
+                    : formatPreciseRmb(selectedFirstLegMonth.outstandingAmountRmb)}
+                </div>
+                <span className={`mt-1 inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${selectedFirstLegStatusMeta.className}`}>
+                  {selectedFirstLegStatusMeta.label}
+                </span>
+              </div>
+              <button
+                type="button"
+                className={selectedFirstLegMonth.status === "paid" && selectedFirstLegMonth.actualAmountRmb !== null
+                  ? "btn-secondary h-9 px-3 text-xs"
+                  : "btn-primary h-9 px-3 text-xs"}
+                onClick={() => void openFirstLegPaymentDialog(selectedFirstLegMonth)}
+                disabled={selectedFirstLegMonth.actualAmountRmb === null || (!canEdit && selectedFirstLegMonth.paidAmountRmb <= 0)}
+              >
+                {selectedFirstLegMonth.actualAmountRmb === null
+                  ? <><WalletCards size={15} /> 先确认实际金额</>
+                  : selectedFirstLegMonth.status === "paid"
+                    ? <><History size={15} /> 查看记录</>
+                    : selectedFirstLegMonth.status === "partial"
+                      ? <><WalletCards size={15} /> 继续付款</>
+                      : <><WalletCards size={15} /> 登记付款</>}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {month && month !== "__missing__" && report.summary.settlements.length > 0 && (
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
@@ -1511,14 +1828,14 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
 
       {(!month || month === "__missing__") && (
         <div className="rounded-lg border border-sky-100 bg-sky-50/50 px-3 py-2 text-xs font-medium text-sky-700">
-          请选择一个具体的实际发货月份，系统会按物流商分别显示付款按钮。
+          请选择一个具体的实际发货月份，系统会显示当月头程合计和各物流商尾程付款按钮。
         </div>
       )}
 
-      {error && (
+      {(error || firstLegError) && (
         <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
           <AlertTriangle size={18} className="mt-0.5 shrink-0" />
-          {error}
+          {error || firstLegError}
         </div>
       )}
 
@@ -1630,9 +1947,12 @@ export function ActualShippingFeesPanel({ canEdit, onImported }: Props) {
           <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-2xl border border-slate-200 bg-white shadow-2xl">
             <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-100 bg-white px-5 py-4">
               <div>
-                <h4 className="text-base font-bold text-slate-900">物流商月结付款</h4>
+                <h4 className="text-base font-bold text-slate-900">
+                  {paymentTarget.kind === "first_leg" ? "头程月结付款" : "物流商月结付款"}
+                </h4>
                 <p className="mt-1 text-xs text-slate-500">
-                  {paymentTarget.logisticsMethodName} · {paymentTarget.shippingMonth} 实际发货月 · {paymentTarget.shipmentCount}票
+                  {paymentTarget.logisticsMethodName} · {paymentTarget.shippingMonth} 实际发货月
+                  {paymentTarget.kind === "last_leg" && ` · ${paymentTarget.shipmentCount}票`}
                 </p>
               </div>
               <button type="button" className="icon-btn h-8 w-8" onClick={() => setPaymentTarget(null)} disabled={savingPayment || Boolean(voidingPaymentId)} aria-label="关闭付款窗口">

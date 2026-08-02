@@ -44,6 +44,8 @@ const tables = [
   "finance_settlement_files",
   "finance_settlement_records",
   "finance_actual_shipping_fees",
+  "finance_first_leg_monthly_settlements",
+  "finance_first_leg_payments",
   "finance_actual_shipping_fee_import_templates",
   "temu_order_file_import_templates",
 ];

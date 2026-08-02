@@ -106,11 +106,26 @@ export type LogisticsPaymentRecord = {
   createdAt: string;
 };
 
+export type FirstLegMonthlySettlementRecord = {
+  shippingMonth: string;
+  estimatedAmountSnapshotRmb: number;
+  actualAmountRmb: number;
+  paidAmountRmb: number;
+  outstandingAmountRmb: number;
+  lastPaidAt: string;
+  status: LogisticsSettlementStatus;
+};
+
 export type FinanceLogisticsCashSummary = {
   payableAmountRmb: number;
   paidAmountRmb: number;
   outstandingAmountRmb: number;
-  monthly: Array<{ month: string; paidAmountRmb: number }>;
+  monthly: Array<{
+    month: string;
+    paidAmountRmb: number;
+    firstLegActualAmountRmb: number;
+    hasFirstLegActual: boolean;
+  }>;
 };
 
 function numberValue(value: unknown) {
@@ -346,6 +361,112 @@ export async function voidLogisticsPayment(paymentId: string, reason: string) {
   return (data ?? {}) as Record<string, unknown>;
 }
 
+export async function fetchFirstLegMonthlySettlements(): Promise<FirstLegMonthlySettlementRecord[]> {
+  const { supabase } = await requireSession();
+  const { data, error } = await withTimeout(
+    supabase.rpc("get_first_leg_monthly_settlements"),
+    "加载头程月结",
+    { requestKind: "rpc" },
+  );
+  if (error) throw new Error(getStorageErrorMessage(error, "加载头程月结"));
+  const rows = Array.isArray(data) ? data : [];
+  return rows.map((row) => {
+    const item = row as Record<string, unknown>;
+    return {
+      shippingMonth: String(item.shippingMonth ?? ""),
+      estimatedAmountSnapshotRmb: numberValue(item.estimatedAmountSnapshotRmb),
+      actualAmountRmb: numberValue(item.actualAmountRmb),
+      paidAmountRmb: numberValue(item.paidAmountRmb),
+      outstandingAmountRmb: numberValue(item.outstandingAmountRmb),
+      lastPaidAt: String(item.lastPaidAt ?? ""),
+      status: String(item.status ?? "unpaid") as LogisticsSettlementStatus,
+    };
+  });
+}
+
+export async function saveFirstLegMonthlyActual(options: {
+  shippingMonth: string;
+  estimatedAmountRmb: number;
+  actualAmountRmb: number;
+}) {
+  const { supabase } = await requireSession();
+  const { data, error } = await withTimeout(
+    supabase.rpc("save_first_leg_monthly_actual", {
+      p_shipping_month: options.shippingMonth,
+      p_estimated_amount_rmb: options.estimatedAmountRmb,
+      p_actual_amount_rmb: options.actualAmountRmb,
+    }),
+    "保存实际头程运费",
+    { requestKind: "rpc" },
+  );
+  if (error) throw new Error(getStorageErrorMessage(error, "保存实际头程运费"));
+  return (data ?? {}) as Record<string, unknown>;
+}
+
+export async function recordFirstLegPayment(options: {
+  shippingMonth: string;
+  paidAmountRmb: number;
+  paidAt: string;
+  remark: string;
+  requestKey: string;
+}) {
+  const { supabase } = await requireSession();
+  const { data, error } = await withTimeout(
+    supabase.rpc("record_first_leg_payment", {
+      p_shipping_month: options.shippingMonth,
+      p_paid_amount_rmb: options.paidAmountRmb,
+      p_paid_at: options.paidAt,
+      p_remark: options.remark.trim(),
+      p_request_key: options.requestKey,
+    }),
+    "登记头程付款",
+    { requestKind: "rpc" },
+  );
+  if (error) throw new Error(getStorageErrorMessage(error, "登记头程付款"));
+  return (data ?? {}) as Record<string, unknown>;
+}
+
+export async function fetchFirstLegPaymentRecords(
+  shippingMonth: string,
+): Promise<LogisticsPaymentRecord[]> {
+  const { supabase } = await requireSession();
+  const { data, error } = await withTimeout(
+    supabase.rpc("get_first_leg_payment_records", {
+      p_shipping_month: shippingMonth,
+    }),
+    "加载头程付款记录",
+    { requestKind: "rpc" },
+  );
+  if (error) throw new Error(getStorageErrorMessage(error, "加载头程付款记录"));
+  const rows = Array.isArray(data) ? data : [];
+  return rows.map((row) => {
+    const item = row as Record<string, unknown>;
+    return {
+      id: String(item.id ?? ""),
+      amountRmb: numberValue(item.amountRmb),
+      paidAt: String(item.paidAt ?? ""),
+      remark: String(item.remark ?? ""),
+      voidedAt: String(item.voidedAt ?? ""),
+      voidReason: String(item.voidReason ?? ""),
+      createdAt: String(item.createdAt ?? ""),
+    };
+  });
+}
+
+export async function voidFirstLegPayment(paymentId: string, reason: string) {
+  const { supabase } = await requireSession();
+  const { data, error } = await withTimeout(
+    supabase.rpc("void_first_leg_payment", {
+      p_payment_id: paymentId,
+      p_reason: reason.trim(),
+    }),
+    "作废头程付款",
+    { requestKind: "rpc" },
+  );
+  if (error) throw new Error(getStorageErrorMessage(error, "作废头程付款"));
+  return (data ?? {}) as Record<string, unknown>;
+}
+
 export async function fetchFinanceLogisticsCashSummary(): Promise<FinanceLogisticsCashSummary> {
   const { supabase } = await requireSession();
   const { data, error } = await withTimeout(
@@ -366,6 +487,8 @@ export async function fetchFinanceLogisticsCashSummary(): Promise<FinanceLogisti
       return {
         month: String(item.month ?? ""),
         paidAmountRmb: numberValue(item.paidAmountRmb),
+        firstLegActualAmountRmb: numberValue(item.firstLegActualAmountRmb),
+        hasFirstLegActual: Boolean(item.hasFirstLegActual),
       };
     }),
   };
