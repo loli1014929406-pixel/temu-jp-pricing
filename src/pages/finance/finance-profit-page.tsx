@@ -33,6 +33,7 @@ import { buildSettlementLookup } from "../../lib/settlement";
 import { normalizeLogisticsMethodName } from "../../lib/logistics-methods";
 import { TABLE_COLUMN_WIDTH } from "../../components/ui/table-layout";
 import { useFinanceLogisticsCash } from "./use-finance-logistics-cash";
+import { buildFinanceMonthlyProfitRows } from "./monthly-profit";
 
 type Props = {
   user: User;
@@ -487,48 +488,13 @@ export function FinanceProfitPage({ user }: Props) {
   void legacyShippingMethodRows;
 
   const monthlyRows = useMemo(() => {
-    const rows = new Map<string, any>();
-    const ensure = (month: string) => {
-      if (!rows.has(month)) rows.set(month, { month, settledIncome: 0, estimatedIncome: 0, purchase: 0, productCost: 0, shipping: 0, cashShipping: 0, logisticsPaid: 0, otherExpense: 0 });
-      return rows.get(month)!;
-    };
-    analysis.monthly.forEach((raw) => {
-      const row = ensure(String(raw.month));
-      row.settledIncome = Number(raw.actual_revenue ?? 0);
-      row.estimatedIncome = Number(raw.estimated_income ?? 0);
-      row.productCost = Number(raw.product_cost ?? 0);
-      row.shipping = Number(raw.shipping ?? 0);
-      row.cashShipping = Number(raw.cash_shipping ?? 0);
+    return buildFinanceMonthlyProfitRows({
+      analysisMonthly: analysis.monthly,
+      purchases: data.purchases,
+      expenses,
+      logisticsMonthly: logisticsCash.data.monthly,
+      period,
     });
-    data.purchases.forEach((purchase) => {
-      const date = formatDate(purchase.purchased_at);
-      if (period.mode !== "all" && !isDateInPeriod(date, period)) return;
-      ensure(getMonthKey(date)).purchase += getPurchaseTotalRmb(purchase);
-    });
-    expenses.forEach((expense) => {
-      if (period.mode !== "all" && !isDateInPeriod(expense.expense_date, period)) return;
-      ensure(getMonthKey(expense.expense_date)).otherExpense += expense.amount_rmb;
-    });
-    logisticsCash.data.monthly.forEach((payment) => {
-      const paymentDate = `${payment.month}-01`;
-      if (period.mode !== "all" && !isDateInPeriod(paymentDate, period)) return;
-      const row = ensure(payment.month);
-      row.logisticsPaid += payment.paidAmountRmb;
-      if (payment.hasFirstLegActual) {
-        const estimatedFirstLeg = Number(
-          analysis.monthly.find((item) => String(item.month) === payment.month)?.first_leg_shipping ?? 0,
-        );
-        row.shipping = row.shipping - estimatedFirstLeg + payment.firstLegActualAmountRmb;
-      }
-    });
-    return Array.from(rows.values()).sort((a, b) => b.month.localeCompare(a.month)).map((row) => ({
-      ...row,
-      settledIncome: roundMoney(row.settledIncome), estimatedIncome: roundMoney(row.estimatedIncome),
-      purchase: roundMoney(row.purchase), productCost: roundMoney(row.productCost), shipping: roundMoney(row.shipping),
-      cashShipping: roundMoney(row.cashShipping), logisticsPaid: roundMoney(row.logisticsPaid), otherExpense: roundMoney(row.otherExpense),
-      cashProfit: roundMoney(row.settledIncome - row.purchase - row.logisticsPaid - row.otherExpense),
-      orderProfit: roundMoney(row.estimatedIncome - row.productCost - row.shipping - row.otherExpense),
-    }));
   }, [analysis.monthly, data.purchases, expenses, logisticsCash.data.monthly, period]);
 
   const shippingMethodRows = useMemo<ShippingMethodRow[]>(() => {

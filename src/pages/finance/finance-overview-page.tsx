@@ -32,6 +32,7 @@ import {
 import { useFinanceAnalysis } from "./use-finance-analysis";
 import { useFinanceLogisticsCash } from "./use-finance-logistics-cash";
 import { useFinanceOperatingOverview } from "./use-finance-operating-overview";
+import { buildFinanceMonthlyProfitRows } from "./monthly-profit";
 
 type Props = {
   user: User;
@@ -116,8 +117,13 @@ export function FinanceOverviewPage({ user }: Props) {
     ? (operating.summary.settledCount / operating.summary.orderCount) * 100
     : 0;
   const periodLabel = period.mode === "all" ? "全部实际发货订单" : `${period.start} 至 ${period.end}`;
-  const monthlyTrend = operating.monthly.slice(0, 6).reverse();
-  const trendMaximum = Math.max(1, ...monthlyTrend.map((row) => Math.abs(row.settledProfit)));
+  const monthlyTrend = useMemo(() => buildFinanceMonthlyProfitRows({
+    analysisMonthly: allAnalysis.monthly,
+    purchases: data.purchases,
+    expenses,
+    logisticsMonthly: logisticsCash.data.monthly,
+  }).slice(0, 6).reverse(), [allAnalysis.monthly, data.purchases, expenses, logisticsCash.data.monthly]);
+  const trendMaximum = Math.max(1, ...monthlyTrend.map((row) => Math.abs(row.orderProfit)));
   const pendingReconciliations = issues.rows;
   const loading = baseLoading || allAnalysis.loading || issues.loading || operating.loading || logisticsCash.loading;
   const error = baseError || allAnalysis.error || issues.error || operating.error || logisticsCash.error;
@@ -285,8 +291,8 @@ export function FinanceOverviewPage({ user }: Props) {
             <div className="rounded-2xl border border-line bg-white p-5 shadow-sm">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <div className="text-sm font-bold text-slate-800">近6个月已结算订单毛利</div>
-                  <p className="mt-1 text-xs text-slate-400">按实际发货月份归集，不含期间费用</p>
+                  <div className="text-sm font-bold text-slate-800">近6个月发货口径利润</div>
+                  <p className="mt-1 text-xs text-slate-400">与利润报表相同口径，含期间费用；已确认月份使用实际头程</p>
                 </div>
                 <Link to="/finance/profit" className="text-xs font-bold text-accent hover:text-accentDeep">查看利润报表 <ArrowRight size={13} className="inline" /></Link>
               </div>
@@ -294,14 +300,14 @@ export function FinanceOverviewPage({ user }: Props) {
                 {monthlyTrend.length === 0 ? (
                   <div className="py-8 text-center text-sm text-slate-400">暂无可绘制数据</div>
                 ) : monthlyTrend.map((row) => {
-                  const width = Math.max(2, (Math.abs(row.settledProfit) / trendMaximum) * 100);
+                  const width = Math.max(2, (Math.abs(row.orderProfit) / trendMaximum) * 100);
                   return (
                     <div key={row.month} className="grid grid-cols-[62px_1fr_86px] items-center gap-3">
                       <span className="text-xs font-semibold text-slate-500">{row.month}</span>
                       <div className="h-3 overflow-hidden rounded-full bg-slate-100">
-                        <div className={`h-full rounded-full ${row.settledProfit >= 0 ? "bg-emerald-500" : "bg-rose-500"}`} style={{ width: `${width}%` }} />
+                        <div className={`h-full rounded-full ${row.orderProfit >= 0 ? "bg-emerald-500" : "bg-rose-500"}`} style={{ width: `${width}%` }} />
                       </div>
-                      <span className={`text-right text-xs font-bold tabular-nums ${row.settledProfit >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{formatCompactCurrency(row.settledProfit)}</span>
+                      <span className={`text-right text-xs font-bold tabular-nums ${row.orderProfit >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{formatCompactCurrency(row.orderProfit)}</span>
                     </div>
                   );
                 })}
