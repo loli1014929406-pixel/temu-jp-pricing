@@ -22,8 +22,8 @@ if (/\.eq\(\s*["']owner_id["']/.test(ordersSource)) {
 if (/\.eq\(\s*["']owner_id["']/.test(purchasesSource)) {
   errors.push("src/lib/purchases.ts must not narrow team purchases by owner_id");
 }
-if (!ordersSource.includes('onConflict: "order_no,sub_order_no"')) {
-  errors.push("Temu order imports must deduplicate across the team order line key");
+if (!ordersSource.includes('onConflict: "shop_id,order_no,sub_order_no"')) {
+  errors.push("Temu order imports must deduplicate within the active shop order line key");
 }
 
 for (const table of [
@@ -53,5 +53,5 @@ if (errors.length > 0) {
   console.error(errors.map((error) => `ERROR ${error}`).join("\n"));
   process.exitCode = 1;
 } else {
-  console.log("团队运营数据口径检查通过：订单和采购共享，财务数据保持账号隔离。");
+  console.log("运营数据口径检查通过：订单导入按店铺去重，历史团队共享迁移保持完整。");
 }
