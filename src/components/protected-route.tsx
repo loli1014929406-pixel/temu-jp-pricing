@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate } from "react-router";
 import type { User } from "@supabase/supabase-js";
 
 type ProtectedRouteProps = {

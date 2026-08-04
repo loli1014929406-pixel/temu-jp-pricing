@@ -1,5 +1,5 @@
 import { Suspense, lazy } from "react";
-import { Link, Navigate, Route, Routes } from "react-router-dom";
+import { Link, Navigate, Route, Routes } from "react-router";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PageShell } from "./components/page-shell";
 import { ProtectedRoute } from "./components/protected-route";

@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import {
   fetchWarehouseItemStockAdjustments,
   fetchWarehouseSkuStockAdjustments,

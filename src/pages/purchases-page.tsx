@@ -1,5 +1,5 @@
 import { CheckCircle2, Plus, Search, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { Field, TextArea, TextInput } from "../components/form-controls";

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router";
 import { ProductForm } from "../components/product-form";
 import { BackToParentAction, PageHeader } from "../components/ui";
 import {

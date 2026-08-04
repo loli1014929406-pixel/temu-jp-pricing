@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate } from "react-router";
 import { useTenantContext } from "../hooks/use-tenant-context";
 
 export function EnterpriseRoleRoute({ children }: { children: ReactNode }) {

@@ -1,7 +1,7 @@
 import type { User } from "@supabase/supabase-js";
 import { ArrowRight } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { BackToParentAction, Badge, PageHeader, StatCard, StandardTable } from "../components/ui";
 import { getProductRouteKey } from "../lib/products";
 import { fetchProductWarehouseShippingLimitsByProductIds } from "../lib/product-warehouse-shipping-limits";

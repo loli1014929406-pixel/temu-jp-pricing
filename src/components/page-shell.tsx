@@ -21,7 +21,7 @@ import {
   X,
 } from "lucide-react";
 import { Suspense, useEffect, useState } from "react";
-import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation } from "react-router";
 import type { User } from "@supabase/supabase-js";
 import { getSupabaseClient } from "../lib/supabase";
 import { usePermissions } from "../hooks/use-permissions";

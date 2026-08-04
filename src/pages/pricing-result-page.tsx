@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Save } from "lucide-react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router";
 import type { User } from "@supabase/supabase-js";
 import {
   fetchProduct,

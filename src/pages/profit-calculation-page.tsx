@@ -1,7 +1,7 @@
 import { Save } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router";
 import { Field, TextInput } from "../components/form-controls";
 import { BackToParentAction, PageHeader } from "../components/ui";
 import { isSameDraft, readDraft, useDraftPersistence } from "../hooks/use-draft-persistence";

@@ -13,7 +13,7 @@ import {
   Truck,
   WalletCards,
 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { PageHeader, Badge, StandardTable } from "../../components/ui";
 import { useFinanceData } from "./use-finance-data";
 import {

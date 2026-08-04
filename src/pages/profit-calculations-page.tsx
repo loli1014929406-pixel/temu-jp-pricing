@@ -1,7 +1,7 @@
 import type { User } from "@supabase/supabase-js";
 import { ArrowDown, ArrowUp, ArrowUpDown, Calculator, Download, Megaphone, Save } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import {
   getProductRoutePath,
 } from "../lib/products";

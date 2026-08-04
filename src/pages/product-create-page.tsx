@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import type { User } from "@supabase/supabase-js";
 import { ProductForm } from "../components/product-form";
 import { BackToParentAction, PageHeader } from "../components/ui";

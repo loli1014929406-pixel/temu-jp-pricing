@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { Field, TextInput } from "../components/form-controls";
 import { getSupabaseClient, supabaseConfigError } from "../lib/supabase";
 

@@ -1,5 +1,5 @@
 import type { User } from "@supabase/supabase-js";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router";
 import { useEffect, useMemo, useState } from "react";
 import { Field, TextInput } from "../components/form-controls";
 import { BackToParentAction, Badge, PageHeader, StatCard } from "../components/ui";

@@ -1,7 +1,7 @@
 import { ChevronDown, ChevronRight, ChevronUp, Plus, Trash2, Settings, Search, MapPin, Truck, ArrowLeftRight, Edit3 } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router";
 import {
   addWarehouseProductInventory,
   createWarehouse,
