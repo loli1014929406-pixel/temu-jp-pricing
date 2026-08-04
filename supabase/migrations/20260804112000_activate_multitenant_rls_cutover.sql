@@ -101,6 +101,29 @@ revoke all on function private.current_user_can_read_shop(uuid, text)
 grant execute on function private.current_user_can_read_shop(uuid, text)
   to authenticated;
 
+-- Resolve the small set of readable shops once per statement. RLS policies
+-- can then use an initplan instead of repeating membership queries for every
+-- row participating in large order and finance views.
+create or replace function private.current_user_readable_shop_ids(
+  p_resource text
+)
+returns uuid[]
+language sql
+stable
+security definer
+set search_path = pg_catalog
+as $function$
+  select coalesce(array_agg(shop.id order by shop.id), array[]::uuid[])
+  from public.shops shop
+  where shop.status = 'active'
+    and private.current_user_can_read_shop(shop.id, p_resource)
+$function$;
+
+revoke all on function private.current_user_readable_shop_ids(text)
+  from public, anon;
+grant execute on function private.current_user_readable_shop_ids(text)
+  to authenticated;
+
 create or replace function private.enforce_finance_legacy_partition()
 returns trigger
 language plpgsql
@@ -641,7 +664,7 @@ begin
     end loop;
 
     execute format(
-      'create policy mt_select on public.%I for select to authenticated using (private.current_user_can_read_shop(shop_id, %L))',
+      'create policy mt_select on public.%I for select to authenticated using (shop_id = any (((select private.current_user_readable_shop_ids(%L)))::uuid[]))',
       v_rule.table_name,
       v_rule.resource
     );
