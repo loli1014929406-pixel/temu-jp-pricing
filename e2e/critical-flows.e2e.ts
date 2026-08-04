@@ -12,6 +12,27 @@ async function signIn(page: import("@playwright/test").Page) {
   await expect(page).not.toHaveURL(/\/login(?:\?|$)/);
 }
 
+async function enterFirstShopContext(page: import("@playwright/test").Page) {
+  const shopSelector = page.getByRole("combobox", { name: "当前店铺" });
+  if (!(await shopSelector.isVisible())) return;
+
+  const shopOptions = shopSelector.locator("option[value]:not([value=''])");
+  await expect.poll(() => shopOptions.count()).toBeGreaterThan(0);
+
+  const firstShopId = await shopOptions.first().getAttribute("value");
+  if (!firstShopId) return;
+
+  const savedContext = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      response.url().includes("/rpc/set_current_shop_context"),
+  );
+  await shopSelector.selectOption(firstShopId);
+  expect((await savedContext).ok()).toBe(true);
+  await page.reload();
+  await expect(page.getByRole("combobox", { name: "当前店铺" })).toHaveValue(firstShopId);
+}
+
 test("登录页只提供一个安全登录入口", async ({ page }) => {
   await page.goto("/login");
 
@@ -23,10 +44,13 @@ test("登录页只提供一个安全登录入口", async ({ page }) => {
 test("已登录账号可以完成关键业务只读回归", async ({ page }) => {
   test.skip(!email || !password, "需要设置 E2E_USER_EMAIL 和 E2E_USER_PASSWORD");
   await signIn(page);
-
   await page.goto("/orders");
+  await enterFirstShopContext(page);
   await expect(page.getByRole("heading", { name: "订单管理", exact: true })).toBeVisible();
   await expect(page.getByText(/订单后端分页尚未初始化/)).toHaveCount(0);
+  await expect(page.getByText("加载中...", { exact: true })).toHaveCount(0, {
+    timeout: 30_000,
+  });
 
   const search = page.getByPlaceholder("订单号 / 收货人 / 地址 / 物流");
   await search.fill("codex-e2e-no-match");
