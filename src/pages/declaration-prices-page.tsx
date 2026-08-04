@@ -13,6 +13,7 @@ import { PageHeader } from "../components/ui";
 import { StandardTable } from "../components/ui/StandardTable";
 import { usePermissions } from "../hooks/use-permissions";
 import { useAutoDismiss } from "../hooks/use-auto-dismiss";
+import { useTenantContext } from "../hooks/use-tenant-context";
 
 type DeclarationPricesPageProps = {
   user: User;
@@ -37,6 +38,7 @@ function formatPricingValue(
 
 export function DeclarationPricesPage({ user }: DeclarationPricesPageProps) {
   const { canEdit } = usePermissions();
+  const tenant = useTenantContext();
   const [products, setProducts] = useState<Product[]>([]);
   const [pricingSummaries, setPricingSummaries] = useState<
     Record<string, PricingSummary | null>
@@ -62,7 +64,7 @@ export function DeclarationPricesPage({ user }: DeclarationPricesPageProps) {
         const nextProducts = await loadCachedProducts();
         const [[items, skus], settings] = await Promise.all([
           loadCachedProductDetails(nextProducts.map((product) => product.id)),
-          fetchSettings(user.id),
+          fetchSettings(user.id, tenant.dataScope),
         ]);
         const itemsById = Object.fromEntries(
           items.flatMap((item) => (item.id ? [[item.id, item]] : [])),
@@ -128,7 +130,7 @@ export function DeclarationPricesPage({ user }: DeclarationPricesPageProps) {
     return () => {
       active = false;
     };
-  }, [user.id]);
+  }, [tenant.dataScope, user.id]);
 
   const paginatedProducts = products.slice((page - 1) * pageSize, page * pageSize);
 

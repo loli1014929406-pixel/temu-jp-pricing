@@ -9,6 +9,7 @@ import { fetchSettings } from "../lib/settings";
 import { fetchProductWarehouseShippingLimitsByProductIds } from "../lib/product-warehouse-shipping-limits";
 import { readDraft } from "../hooks/use-draft-persistence";
 import { useAutoDismiss } from "../hooks/use-auto-dismiss";
+import { useTenantContext } from "../hooks/use-tenant-context";
 import type { Product, ProfitCalculationInput } from "../types";
 import { getErrorMessage } from "../utils/errors";
 import { calculatePricing, formatCurrency } from "../utils/pricing";
@@ -48,6 +49,7 @@ function getDirectShipmentProfitPath(product: Pick<Product, "id" | "product_code
 }
 
 export function TestShippingPage({ user }: TestShippingPageProps) {
+  const tenant = useTenantContext();
   const [products, setProducts] = useState<Product[]>([]);
   const [summaries, setSummaries] = useState<
     Record<
@@ -87,7 +89,7 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
         const productIds = nextProducts.map((product) => product.id);
         const [[items, skus], nextSettings, warehouses] = await Promise.all([
           loadCachedProductDetails(productIds),
-          fetchSettings(user.id),
+          fetchSettings(user.id, tenant.dataScope),
           loadCachedWarehouses(),
         ]);
         const [savedCalculations, shippingLimits] = await Promise.all([
@@ -111,7 +113,7 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
         const itemsById = Object.fromEntries(
           items.flatMap((item) => (item.id ? [[item.id, item]] : [])),
         );
-        const draftKey = `profit-calculations-draft:v1:${user.id}`;
+        const draftKey = `profit-calculations-draft:v2:${tenant.storageScopeKey}`;
         const draftDiscountsByProductId =
           readDraft<ProfitCalculationsDraft>(draftKey)?.discountsByProductId ?? {};
         const skusByProductId = skus.reduce<Record<string, typeof skus>>(
@@ -282,7 +284,7 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
     return () => {
       active = false;
     };
-  }, [user.id]);
+  }, [tenant.dataScope, tenant.storageScopeKey, user.id]);
 
   const paginatedProducts = products.slice((page - 1) * pageSize, page * pageSize);
 

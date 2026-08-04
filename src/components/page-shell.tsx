@@ -12,10 +12,12 @@ import {
   ShoppingCart,
   Truck,
   Warehouse,
+  Boxes,
   WalletCards,
   ListOrdered,
   Settings,
   Activity,
+  Building2,
   X,
 } from "lucide-react";
 import { Suspense, useEffect, useState } from "react";
@@ -23,6 +25,8 @@ import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import type { User } from "@supabase/supabase-js";
 import { getSupabaseClient } from "../lib/supabase";
 import { usePermissions } from "../hooks/use-permissions";
+import { useTenantContext } from "../hooks/use-tenant-context";
+import type { PermissionResource } from "../lib/permissions";
 import { invalidateAsyncCache, setAsyncCacheScope } from "../lib/async-cache";
 import {
   fetchOrCreateCurrentAccountProfile,
@@ -30,44 +34,54 @@ import {
 } from "../lib/account-profiles";
 import type { AccountProfile } from "../types";
 
-const navSections = [
+const navSections: Array<{
+  title: string;
+  items: Array<{
+    to: string;
+    label: string;
+    icon: typeof ListOrdered;
+    resource: PermissionResource;
+  }>;
+}> = [
   {
     title: "销售履约",
     items: [
-      { to: "/orders", label: "订单管理", icon: ListOrdered }
+      { to: "/orders", label: "订单管理", icon: ListOrdered, resource: "orders" }
     ]
   },
   {
     title: "财务与报表",
     items: [
-      { to: "/finance", label: "财务总览", icon: CircleDollarSign },
-      { to: "/finance/ledger", label: "收支流水", icon: WalletCards },
-      { to: "/finance/expenses", label: "费用管理", icon: Receipt },
-      { to: "/finance/profit", label: "利润报表", icon: BarChart3 },
-      { to: "/finance/settlement", label: "对账中心", icon: FileCheck }
+      { to: "/finance", label: "财务总览", icon: CircleDollarSign, resource: "finance" },
+      { to: "/finance/ledger", label: "收支流水", icon: WalletCards, resource: "finance" },
+      { to: "/finance/expenses", label: "费用管理", icon: Receipt, resource: "finance" },
+      { to: "/finance/profit", label: "利润报表", icon: BarChart3, resource: "finance" },
+      { to: "/finance/settlement", label: "对账中心", icon: FileCheck, resource: "finance" }
     ]
   },
   {
     title: "定价与分析",
     items: [
-      { to: "/products", label: "商品管理", icon: PackageSearch },
-      { to: "/declaration-prices", label: "核算定价", icon: ClipboardList },
-      { to: "/profit-calculation", label: "利润分析", icon: Calculator },
-      { to: "/test-shipping", label: "直发测算", icon: Truck }
+      { to: "/products", label: "商品管理", icon: PackageSearch, resource: "products" },
+      { to: "/declaration-prices", label: "核算定价", icon: ClipboardList, resource: "pricing" },
+      { to: "/profit-calculation", label: "利润分析", icon: Calculator, resource: "pricing" },
+      { to: "/test-shipping", label: "直发测算", icon: Truck, resource: "pricing" }
     ]
   },
   {
     title: "仓储管理",
     items: [
-      { to: "/purchases/records", label: "采购管理", icon: ShoppingCart },
-      { to: "/inventory", label: "仓储库存", icon: Warehouse },
-      { to: "/inventory/transfer", label: "库存调拨", icon: ArrowLeftRight }
+      { to: "/purchases/records", label: "采购管理", icon: ShoppingCart, resource: "purchases" },
+      { to: "/inventory", label: "仓储库存", icon: Warehouse, resource: "inventory" },
+      { to: "/inventory/shared", label: "共享库存", icon: Boxes, resource: "inventory" },
+      { to: "/inventory/transfer", label: "库存调拨", icon: ArrowLeftRight, resource: "inventory" }
     ]
   },
   {
     title: "系统配置",
     items: [
-      { to: "/parameter-settings", label: "参数设置", icon: Settings }
+      { to: "/parameter-settings", label: "参数设置", icon: Settings, resource: "settings" },
+      { to: "/organization", label: "企业与成员", icon: Building2, resource: "shops" }
     ]
   }
 ];
@@ -81,11 +95,16 @@ function isNavItemActive(pathname: string, itemTo: string, isActive: boolean) {
   if (itemTo === "/inventory") {
     return (
       pathname === "/inventory" ||
-      (pathname.startsWith("/inventory/") && pathname !== "/inventory/transfer")
+      (pathname.startsWith("/inventory/") &&
+        pathname !== "/inventory/transfer" &&
+        pathname !== "/inventory/shared")
     );
   }
   if (itemTo === "/finance") {
     return canonicalPathname === "/finance";
+  }
+  if (itemTo === "/inventory/shared") {
+    return pathname === "/inventory/shared";
   }
   return canonicalPathname === itemTo || canonicalPathname.startsWith(`${itemTo}/`) || isActive;
 }
@@ -95,10 +114,21 @@ type PageShellProps = {
 };
 
 export function PageShell({ user }: PageShellProps) {
-  const { label, canDelete } = usePermissions();
+  const permissions = usePermissions();
+  const { label } = permissions;
+  const tenant = useTenantContext();
   const location = useLocation();
   const [profile, setProfile] = useState<AccountProfile | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [switchingShop, setSwitchingShop] = useState(false);
+  async function handleShopChange(shopId: string) {
+    setSwitchingShop(true);
+    try {
+      await tenant.switchShop(shopId || null);
+    } finally {
+      setSwitchingShop(false);
+    }
+  }
   async function handleSignOut() {
     invalidateAsyncCache();
     await getSupabaseClient().auth.signOut();
@@ -145,10 +175,55 @@ export function PageShell({ user }: PageShellProps) {
 
   const navigation = (
     <>
+      {!tenant.legacyFallback && (
+        <div className="mx-3 mb-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <div className="mb-2 flex items-center gap-2 text-[11px] font-bold text-slate-600">
+            <Building2 size={14} />
+            <span>{tenant.currentEnterprise?.name ?? "平台总览"}</span>
+          </div>
+          <select
+            aria-label="当前店铺"
+            value={tenant.currentShop?.id ?? ""}
+            disabled={tenant.loading || switchingShop || tenant.shops.length === 0}
+            onChange={(event) => void handleShopChange(event.target.value)}
+            className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-700"
+          >
+            {tenant.access.isPlatformOwner && (
+              <option value="">跨企业只读总览</option>
+            )}
+            {tenant.enterprises.map((enterprise) => (
+              <optgroup key={enterprise.id} label={enterprise.name}>
+                {tenant.shops
+                  .filter((shop) => shop.enterprise_id === enterprise.id)
+                  .map((shop) => (
+                    <option key={shop.id} value={shop.id}>
+                      {shop.name}
+                    </option>
+                  ))}
+              </optgroup>
+            ))}
+          </select>
+        </div>
+      )}
+      {!tenant.legacyFallback &&
+        (tenant.access.isPlatformOwner || tenant.access.enterpriseOwnerIds.length > 0) && (
+          <div className="erp-side-section">
+            <p className="erp-side-section-title">企业层面</p>
+            <NavLink
+              to="/enterprise-overview"
+              className={({ isActive }) =>
+                `erp-side-nav-item ${isActive ? "erp-side-nav-item-active" : ""}`
+              }
+            >
+              <BarChart3 size={16} />
+              <span>企业经营汇总</span>
+            </NavLink>
+          </div>
+        )}
       {navSections.map((section) => (
         <div key={section.title} className="erp-side-section">
           <p className="erp-side-section-title">{section.title}</p>
-          {section.items.map((item) => {
+          {section.items.filter((item) => permissions.can(item.resource, "view")).map((item) => {
             const Icon = item.icon;
             return (
               <NavLink
@@ -169,7 +244,7 @@ export function PageShell({ user }: PageShellProps) {
           })}
         </div>
       ))}
-      {canDelete && (
+      {permissions.can("diagnostics", "view") && (
         <div className="erp-side-section">
           <p className="erp-side-section-title">管理员</p>
           <NavLink
@@ -283,7 +358,7 @@ export function PageShell({ user }: PageShellProps) {
               </div>
             }
           >
-            <Outlet />
+            <Outlet key={tenant.currentShop?.id ?? "platform-all-shops"} />
           </Suspense>
         </main>
       </div>

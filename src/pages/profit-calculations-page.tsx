@@ -36,6 +36,7 @@ import { useAutoDismiss } from "../hooks/use-auto-dismiss";
 import { Badge, PageHeader } from "../components/ui";
 import { isSameDraft, readDraft, useDraftPersistence } from "../hooks/use-draft-persistence";
 import { usePermissions } from "../hooks/use-permissions";
+import { useTenantContext } from "../hooks/use-tenant-context";
 import { addObjectSheet, createWorkbook, downloadWorkbook } from "../lib/excel";
 import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../utils/sku-code";
 
@@ -383,8 +384,9 @@ function MetricTile({ label, value, tone = "default" }: MetricTileProps) {
 }
 
 export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
+  const tenant = useTenantContext();
   const { canEdit } = usePermissions();
-  const draftKey = getProfitCalculationsDraftKey(user.id);
+  const draftKey = getProfitCalculationsDraftKey(tenant.storageScopeKey);
   const [products, setProducts] = useState<Product[]>([]);
   const [temuPrices, setTemuPrices] = useState<Record<string, number | null>>({});
   const [discountSummaries, setDiscountSummaries] = useState<Record<string, DiscountSummary>>({});
@@ -447,7 +449,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
         const nextProducts = await loadCachedProducts();
         const [[items, skus], settings, orders] = await Promise.all([
           loadCachedProductDetails(nextProducts.map((product) => product.id)),
-          fetchSettings(user.id),
+          fetchSettings(user.id, tenant.dataScope),
           fetchTemuOrders(),
         ]);
         const nextSalesQuantities = buildProductSalesQuantities(
@@ -603,7 +605,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
     return () => {
       active = false;
     };
-  }, [draftKey, user.id]);
+  }, [draftKey, tenant.dataScope, user.id]);
 
   function updateProductDiscount(
     productId: string,
@@ -635,7 +637,7 @@ export function ProfitCalculationsPage({ user }: ProfitCalculationsPageProps) {
       ...state,
       [productId]: nextSummary,
     }));
-    writeProductDiscountDraft(user.id, productId, discounts);
+    writeProductDiscountDraft(tenant.storageScopeKey, productId, discounts);
   }
 
   async function handleSaveProduct(product: Product) {

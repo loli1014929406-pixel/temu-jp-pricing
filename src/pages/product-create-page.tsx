@@ -9,6 +9,7 @@ import {
   useDraftPersistence,
 } from "../hooks/use-draft-persistence";
 import { useAutoDismiss } from "../hooks/use-auto-dismiss";
+import { useTenantContext } from "../hooks/use-tenant-context";
 import {
   createEmptyItem,
   createEmptySku,
@@ -97,7 +98,8 @@ function isProductCreateDraftEmpty(draft: ProductCreateDraft) {
 
 export function ProductCreatePage({ user }: ProductCreatePageProps) {
   const navigate = useNavigate();
-  const draftKey = `product-create-draft:v1:${user.id}`;
+  const tenant = useTenantContext();
+  const draftKey = `product-create-draft:v2:${tenant.storageScopeKey}`;
   const restoredDraftRef = useRef(
     (() => {
       const draft = readDraft<ProductCreateDraft>(draftKey);

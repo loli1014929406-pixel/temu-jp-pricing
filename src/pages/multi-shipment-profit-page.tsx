@@ -27,6 +27,7 @@ import {
 import { useAutoDismiss } from "../hooks/use-auto-dismiss";
 import { PROFIT_CALCULATION_VERSION } from "../utils/profit-calculation";
 import { calculatePricing, formatCurrency, formatPercent } from "../utils/pricing";
+import { useTenantContext } from "../hooks/use-tenant-context";
 
 type MultiShipmentProfitPageProps = {
   user: User;
@@ -131,6 +132,7 @@ export function MultiShipmentProfitPage({
   user,
   mode,
 }: MultiShipmentProfitPageProps) {
+  const tenant = useTenantContext();
   const { productKey = "" } = useParams();
   const [product, setProduct] = useState<Product | null>(null);
   const [settings, setSettings] = useState<PricingSettings | null>(null);
@@ -150,7 +152,7 @@ export function MultiShipmentProfitPage({
       try {
         const [nextProduct, nextSettings] = await Promise.all([
           fetchProduct(productKey),
-          fetchSettings(user.id),
+          fetchSettings(user.id, tenant.dataScope),
         ]);
         const [items, skus, warehouses, shippingLimits] = await Promise.all([
           fetchProductItems(nextProduct.id),
@@ -225,7 +227,7 @@ export function MultiShipmentProfitPage({
     return () => {
       active = false;
     };
-  }, [productKey, user.id]);
+  }, [productKey, tenant.dataScope, user.id]);
 
   const calculations = useMemo<SkuShipmentCalculation[]>(() => {
     if (!product || !settings) return [];

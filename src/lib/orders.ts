@@ -558,7 +558,7 @@ export async function importTemuOrders(rows: TemuOrderImportRow[]) {
     supabase
       .from("temu_orders")
       .upsert(payload, {
-        onConflict: "order_no,sub_order_no",
+        onConflict: "shop_id,order_no,sub_order_no",
         ignoreDuplicates: true,
       })
       .select(temuOrderSelectFields),
@@ -569,7 +569,7 @@ export async function importTemuOrders(rows: TemuOrderImportRow[]) {
       supabase
         .from("temu_orders")
         .upsert(payload, {
-          onConflict: "order_no,sub_order_no",
+          onConflict: "shop_id,order_no,sub_order_no",
           ignoreDuplicates: true,
         })
         .select(temuOrderActualFeeSelectFields),
@@ -585,7 +585,7 @@ export async function importTemuOrders(rows: TemuOrderImportRow[]) {
         supabase
           .from("temu_orders")
           .upsert(payload, {
-            onConflict: "order_no,sub_order_no",
+            onConflict: "shop_id,order_no,sub_order_no",
             ignoreDuplicates: true,
           })
           .select(temuOrderLegacySelectFields),
@@ -603,7 +603,7 @@ export async function importTemuOrders(rows: TemuOrderImportRow[]) {
         supabase
           .from("temu_orders")
           .upsert(legacyPayload, {
-            onConflict: "order_no,sub_order_no",
+            onConflict: "shop_id,order_no,sub_order_no",
             ignoreDuplicates: true,
           })
           .select(temuOrderLegacySelectFields),

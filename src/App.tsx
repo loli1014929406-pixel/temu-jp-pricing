@@ -3,11 +3,13 @@ import { Link, Navigate, Route, Routes } from "react-router-dom";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PageShell } from "./components/page-shell";
 import { ProtectedRoute } from "./components/protected-route";
+import { EnterpriseRoleRoute, PlatformRoleRoute } from "./components/enterprise-role-route";
 import { DataTableCellFullText } from "./components/ui/DataTableCellFullText";
 import { DataTableColumnAlignment } from "./components/ui/DataTableColumnAlignment";
 import { NotificationCenter } from "./components/ui/notification-center";
 import { useAuth } from "./hooks/use-auth";
 import { PermissionGate, PermissionProvider } from "./hooks/use-permissions";
+import { TenantContextProvider } from "./hooks/use-tenant-context";
 import { AuthPage } from "./pages/auth-page";
 import { ForgotPasswordPage } from "./pages/forgot-password-page";
 import { ResetPasswordPage } from "./pages/reset-password-page";
@@ -19,6 +21,7 @@ const FinanceProfitPage = lazy(() => import('./pages/finance/finance-profit-page
 const FinanceSettlementPage = lazy(() => import('./pages/finance/finance-settlement-page').then(module => ({ default: module.FinanceSettlementPage })));
 const InventoryPage = lazy(() => import('./pages/inventory-page').then(module => ({ default: module.InventoryPage })));
 const InventoryTransferPage = lazy(() => import('./pages/inventory-transfer-page').then(module => ({ default: module.InventoryTransferPage })));
+const SharedInventoryPage = lazy(() => import('./pages/shared-inventory-page').then(module => ({ default: module.SharedInventoryPage })));
 const OrdersPage = lazy(() => import('./pages/orders-page').then(module => ({ default: module.OrdersPage })));
 const MultiShipmentProfitPage = lazy(() => import('./pages/multi-shipment-profit-page').then(module => ({ default: module.MultiShipmentProfitPage })));
 const MultiShipmentProductsPage = lazy(() => import('./pages/multi-shipment-products-page').then(module => ({ default: module.MultiShipmentProductsPage })));
@@ -34,6 +37,8 @@ const SettingsPage = lazy(() => import('./pages/settings-page').then(module => (
 const TestShippingPage = lazy(() => import('./pages/test-shipping-page').then(module => ({ default: module.TestShippingPage })));
 const UserPage = lazy(() => import('./pages/user-page').then(module => ({ default: module.UserPage })));
 const AdminDiagnosticsPage = lazy(() => import('./pages/admin-diagnostics-page').then(module => ({ default: module.AdminDiagnosticsPage })));
+const OrganizationPage = lazy(() => import('./pages/organization-page').then(module => ({ default: module.OrganizationPage })));
+const EnterpriseOverviewPage = lazy(() => import('./pages/enterprise-overview-page').then(module => ({ default: module.EnterpriseOverviewPage })));
 
 function NotFoundPage() {
   return (
@@ -72,9 +77,11 @@ export default function App() {
         <Route
           element={
             <ProtectedRoute user={user} loading={loading}>
-              <PermissionProvider user={user}>
-                <PageShell user={user} />
-              </PermissionProvider>
+              <TenantContextProvider user={user}>
+                <PermissionProvider user={user}>
+                  <PageShell user={user} />
+                </PermissionProvider>
+              </TenantContextProvider>
             </ProtectedRoute>
           }
         >
@@ -188,6 +195,16 @@ export default function App() {
             }
           />
           <Route
+            path="/inventory/shared"
+            element={
+              user ? (
+                <ErrorBoundary>
+                  <SharedInventoryPage />
+                </ErrorBoundary>
+              ) : null
+            }
+          />
+          <Route
             path="/inventory/:warehouseSlug"
             element={
               user ? (
@@ -202,7 +219,9 @@ export default function App() {
             element={user ? <ProfitCalculationPage user={user} /> : null}
           />
           <Route path="/parameter-settings" element={user ? <SettingsPage user={user} /> : null} />
-          <Route path="/admin/diagnostics" element={user ? <AdminDiagnosticsPage /> : null} />
+          <Route path="/organization" element={user ? <EnterpriseRoleRoute><OrganizationPage /></EnterpriseRoleRoute> : null} />
+          <Route path="/enterprise-overview" element={user ? <EnterpriseRoleRoute><EnterpriseOverviewPage /></EnterpriseRoleRoute> : null} />
+          <Route path="/admin/diagnostics" element={user ? <PlatformRoleRoute><AdminDiagnosticsPage /></PlatformRoleRoute> : null} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Routes>

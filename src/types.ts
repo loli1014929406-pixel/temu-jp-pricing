@@ -311,6 +311,12 @@ export type WarehouseSku = {
   stock_quantity: number;
   created_at: string;
   updated_at: string;
+  inventory_kind?: "independent" | "shared";
+  shared_inventory_group_id?: string;
+  shared_inventory_group_member_id?: string;
+  shared_inventory_balance_id?: string;
+  shared_quantity_base_units?: number;
+  base_units_per_sale_unit?: number;
 };
 
 export type WarehouseSkuStockAdjustment = {

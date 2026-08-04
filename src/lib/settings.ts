@@ -13,7 +13,16 @@ import {
 
 type FetchSettingsOptions = {
   createIfMissing?: boolean;
+  shopId?: string | null;
+  storageScopeKey?: string;
+  canCreate?: boolean;
+  tenantMode?: boolean;
 };
+
+type SaveSettingsOptions = Pick<
+  FetchSettingsOptions,
+  "shopId" | "storageScopeKey" | "tenantMode"
+>;
 
 const basePricingSettingsSelectFields =
   "id, owner_id, packaging_cost_rmb, exchange_rate_rmb_per_jpy, temu_shipping_subsidy_jpy, sf_first_weight_kg, sf_first_price_rmb, sf_extra_price_per_kg_rmb, huaian_air_price_per_kg_rmb, ocs_price_per_kg_rmb, osaka_lastmile_jpy, fukuoka_lastmile_jpy, test_ocs_3cm_first_price_rmb, test_ocs_3cm_extra_price_per_100g_rmb, test_ocs_small_parcel_first_price_rmb, test_ocs_small_parcel_extra_price_per_500g_rmb, target_profit_rate, target_post_ad_profit_rate, ocs_tariff_rate";
@@ -115,8 +124,8 @@ function normalizeLogisticsMethodConfigs(
     .filter((method): method is LogisticsMethodConfig => Boolean(method));
 }
 
-function getDynamicLogisticsSettingsStorageKey(userId: string) {
-  return `${dynamicLogisticsSettingsStoragePrefix}:${userId}`;
+function getDynamicLogisticsSettingsStorageKey(scopeKey: string) {
+  return `${dynamicLogisticsSettingsStoragePrefix}:${scopeKey}`;
 }
 
 function canUseLocalStorage() {
@@ -135,11 +144,11 @@ function hasOwnField(value: unknown, field: string) {
   );
 }
 
-function readCachedDynamicLogisticsSettings(userId: string) {
+function readCachedDynamicLogisticsSettings(scopeKey: string) {
   if (!canUseLocalStorage()) return {};
 
   try {
-    const cached = window.localStorage.getItem(getDynamicLogisticsSettingsStorageKey(userId));
+    const cached = window.localStorage.getItem(getDynamicLogisticsSettingsStorageKey(scopeKey));
     if (!cached) return {};
     const parsed = JSON.parse(cached) as Partial<PricingSettings>;
 
@@ -160,11 +169,11 @@ function readCachedDynamicLogisticsSettings(userId: string) {
   }
 }
 
-function writeCachedDynamicLogisticsSettings(userId: string, settings: PricingSettings) {
+function writeCachedDynamicLogisticsSettings(scopeKey: string, settings: PricingSettings) {
   if (!canUseLocalStorage()) return;
 
   window.localStorage.setItem(
-    getDynamicLogisticsSettingsStorageKey(userId),
+    getDynamicLogisticsSettingsStorageKey(scopeKey),
     JSON.stringify({
       first_leg_methods: normalizeLogisticsMethodConfigs(
         settings.first_leg_methods,
@@ -180,16 +189,16 @@ function writeCachedDynamicLogisticsSettings(userId: string, settings: PricingSe
   );
 }
 
-function applyCachedDynamicLogisticsSettings(userId: string, settings: unknown) {
+function applyCachedDynamicLogisticsSettings(scopeKey: string, settings: unknown) {
   if (hasOwnField(settings, "first_leg_methods") && hasOwnField(settings, "last_leg_methods")) {
     const normalized = initializeDefaultLogisticsSelections(
       normalizeSettings(settings as Partial<PricingSettings>),
     );
-    writeCachedDynamicLogisticsSettings(userId, normalized);
+    writeCachedDynamicLogisticsSettings(scopeKey, normalized);
     return normalized;
   }
 
-  const cached = readCachedDynamicLogisticsSettings(userId);
+  const cached = readCachedDynamicLogisticsSettings(scopeKey);
   return initializeDefaultLogisticsSelections(
     normalizeSettings({
       ...(settings as Partial<PricingSettings>),
@@ -267,20 +276,31 @@ export async function fetchSettings(
   options: FetchSettingsOptions = {},
 ) {
   const supabase = getSupabaseClient();
-  const settingsResult = await supabase
+  const scopeKey = options.storageScopeKey ?? userId;
+  if (options.tenantMode && !options.shopId) {
+    return applyCachedDynamicLogisticsSettings(scopeKey, {
+      ...defaultSettings,
+      owner_id: userId,
+    });
+  }
+  const settingsQuery = supabase
     .from("pricing_settings")
-    .select(pricingSettingsSelectFields)
-    .eq("owner_id", userId)
-    .maybeSingle();
+    .select(pricingSettingsSelectFields);
+  const settingsResult = await (options.shopId
+    ? settingsQuery.eq("shop_id", options.shopId)
+    : settingsQuery.eq("owner_id", userId)
+  ).maybeSingle();
   let data: unknown = settingsResult.data;
   let error = settingsResult.error;
 
   if (error && isDynamicSettingsColumnError(error)) {
-    const fallbackResult = await supabase
+    const fallbackQuery = supabase
       .from("pricing_settings")
-      .select(basePricingSettingsSelectFields)
-      .eq("owner_id", userId)
-      .maybeSingle();
+      .select(basePricingSettingsSelectFields);
+    const fallbackResult = await (options.shopId
+      ? fallbackQuery.eq("shop_id", options.shopId)
+      : fallbackQuery.eq("owner_id", userId)
+    ).maybeSingle();
     data = fallbackResult.data;
     error = fallbackResult.error;
   }
@@ -288,21 +308,23 @@ export async function fetchSettings(
   if (error) throw error;
 
   if (data) {
-    return applyCachedDynamicLogisticsSettings(userId, data);
+    return applyCachedDynamicLogisticsSettings(scopeKey, data);
   }
 
   const canCreate =
-    options.createIfMissing ??
+    options.createIfMissing ?? options.canCreate ??
     getPermissionCapabilities(await fetchCurrentAccountPermission()).canEdit;
 
   if (!canCreate) {
-    return applyCachedDynamicLogisticsSettings(userId, { ...defaultSettings, owner_id: userId });
+    return applyCachedDynamicLogisticsSettings(scopeKey, { ...defaultSettings, owner_id: userId });
   }
 
   const insertResult = await supabase
     .from("pricing_settings")
     .insert({
       ...defaultSettings,
+      owner_id: userId,
+      ...(options.shopId ? { shop_id: options.shopId } : {}),
     })
     .select(pricingSettingsSelectFields)
     .single();
@@ -318,6 +340,8 @@ export async function fetchSettings(
       .from("pricing_settings")
       .insert({
         ...baseDefaultSettings,
+        owner_id: userId,
+        ...(options.shopId ? { shop_id: options.shopId } : {}),
       })
       .select(basePricingSettingsSelectFields)
       .single();
@@ -326,15 +350,26 @@ export async function fetchSettings(
   }
 
   if (insertError) throw insertError;
-  return applyCachedDynamicLogisticsSettings(userId, created);
+  return applyCachedDynamicLogisticsSettings(scopeKey, created);
 }
 
-export async function saveSettings(userId: string, settings: PricingSettings) {
+export async function saveSettings(
+  userId: string,
+  settings: PricingSettings,
+  options: SaveSettingsOptions = {},
+) {
   const defaultSelectionError = validateDefaultLogisticsSelections(settings);
   if (defaultSelectionError) throw new Error(defaultSelectionError);
+  if (options.tenantMode && !options.shopId) {
+    throw new Error("请先进入具体店铺后再保存核价参数");
+  }
 
   const supabase = getSupabaseClient();
-  const previousSettings = await fetchSettings(userId, { createIfMissing: false });
+  const scopeKey = options.storageScopeKey ?? userId;
+  const previousSettings = await fetchSettings(userId, {
+    createIfMissing: false,
+    ...options,
+  });
   const normalizedSettings = normalizeSettings(settings);
   const syncedMethods = await syncLogisticsMethodsFromSettings(
     normalizedSettings,
@@ -348,12 +383,13 @@ export async function saveSettings(userId: string, settings: PricingSettings) {
     {
       ...settingsToSave,
       owner_id: userId,
+      ...(options.shopId ? { shop_id: options.shopId } : {}),
     },
-    { onConflict: "owner_id" },
+    { onConflict: options.shopId ? "shop_id" : "owner_id" },
   );
 
   if (!error) {
-    writeCachedDynamicLogisticsSettings(userId, settingsToSave);
+    writeCachedDynamicLogisticsSettings(scopeKey, settingsToSave);
     return;
   }
   if (!isDynamicSettingsColumnError(error)) throw error;
@@ -366,10 +402,11 @@ export async function saveSettings(userId: string, settings: PricingSettings) {
     {
       ...baseSettings,
       owner_id: userId,
+      ...(options.shopId ? { shop_id: options.shopId } : {}),
     },
-    { onConflict: "owner_id" },
+    { onConflict: options.shopId ? "shop_id" : "owner_id" },
   );
 
   if (fallbackError) throw fallbackError;
-  writeCachedDynamicLogisticsSettings(userId, settingsToSave);
+  writeCachedDynamicLogisticsSettings(scopeKey, settingsToSave);
 }

@@ -10,6 +10,8 @@ import {
 
 type TrackingOrder = {
   id: string;
+  enterprise_id: string;
+  shop_id: string;
   order_no: string;
   order_status: string;
   warehouse_name: string;
@@ -55,12 +57,14 @@ Deno.serve(async (request) => {
     const body = (await request.json().catch(() => ({}))) as RefreshRequest;
     const source = body.source === "cron" ? "cron" : "manual";
     let trackingProxySecret = "";
+    let manualClient: typeof serviceClient | null = null;
 
     if (source === "cron") {
       trackingProxySecret = await requireCronAuthorization(request);
     } else {
-      await requireEditorAuthorization(request);
+      const userClient = await requireEditorAuthorization(request);
       trackingProxySecret = await getTrackingProxySecret();
+      manualClient = userClient;
     }
 
     const orderIds =
@@ -78,7 +82,7 @@ Deno.serve(async (request) => {
       return jsonResponse({ error: "当前页面没有可查询的订单。" }, 400);
     }
 
-    const rows = await fetchOrderRows(orderIds);
+    const rows = await fetchOrderRows(orderIds, source === "manual" ? manualClient : null);
     const eligibleRows = rows.filter(isTrackingCandidate);
     const orderGroups = groupTrackingOrders(eligibleRows);
     const outcomes = await mapWithConcurrency(orderGroups, 5, (group) =>
@@ -127,11 +131,21 @@ async function requireEditorAuthorization(request: Request) {
   } = await userClient.auth.getUser(accessToken);
   if (userError || !user) throw httpError("登录状态已失效，请重新登录。", 401);
 
-  const { data: canEdit, error: permissionError } = await userClient.rpc(
-    "current_account_can_edit",
+  let { data: canEdit, error: permissionError } = await userClient.rpc(
+    "current_account_can",
+    { p_resource: "orders", p_action: "update" },
   );
+  if (
+    permissionError &&
+    (permissionError.code === "PGRST202" || permissionError.code === "42883")
+  ) {
+    const legacy = await userClient.rpc("current_account_can_edit");
+    canEdit = legacy.data;
+    permissionError = legacy.error;
+  }
   if (permissionError) throw permissionError;
   if (!canEdit) throw httpError("当前账号没有编辑权限，不能更新物流状态。", 403);
+  return userClient;
 }
 
 async function requireCronAuthorization(request: Request) {
@@ -159,8 +173,28 @@ async function getTrackingProxySecret() {
   return String(data);
 }
 
-async function fetchOrderRows(orderIds: string[]) {
-  const { data, error } = await serviceClient.rpc(
+async function saveTrackingResult(
+  shopId: string,
+  params: Record<string, unknown>,
+) {
+  const scoped = await serviceClient.rpc("save_temu_tracking_result", {
+    p_shop_id: shopId,
+    ...params,
+  });
+  if (
+    scoped.error &&
+    (scoped.error.code === "PGRST202" || scoped.error.code === "42883")
+  ) {
+    return serviceClient.rpc("save_temu_tracking_result", params);
+  }
+  return scoped;
+}
+
+async function fetchOrderRows(
+  orderIds: string[],
+  client: typeof serviceClient | null,
+) {
+  const { data, error } = await (client ?? serviceClient).rpc(
     "get_temu_tracking_candidates",
     { p_order_ids: orderIds.length > 0 ? orderIds : null },
   );
@@ -191,7 +225,7 @@ function groupTrackingOrders(rows: TrackingOrder[]) {
     if (!trackingNo) return;
     const logisticsIdentity =
       row.logistics_method_id?.trim() || row.logistics_method.trim().toLowerCase();
-    const key = `${logisticsIdentity}\u0000${trackingNo.toLowerCase()}`;
+    const key = `${row.shop_id}\u0000${logisticsIdentity}\u0000${trackingNo.toLowerCase()}`;
     const group = groups.get(key) ?? [];
     group.push(row);
     groups.set(key, group);
@@ -226,7 +260,7 @@ async function refreshOrderGroup(
       trackingResult.isException &&
       representative.tracking_exception_fingerprint === fingerprint &&
       Boolean(representative.tracking_exception_handled_at);
-    const { error } = await serviceClient.rpc("save_temu_tracking_result", {
+    const { error } = await saveTrackingResult(representative.shop_id, {
       p_order_no: orderNo,
       p_tracking_no: trackingNo,
       p_checked_at: checkedAt,
@@ -256,8 +290,8 @@ async function refreshOrderGroup(
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "承运商查询发生未知错误";
-    const { error: saveError } = await serviceClient.rpc(
-      "save_temu_tracking_result",
+    const { error: saveError } = await saveTrackingResult(
+      representative.shop_id,
       {
         p_order_no: orderNo,
         p_tracking_no: trackingNo,

@@ -37,6 +37,7 @@ import { PageHeader, StandardTable, TableCellPreview } from "../components/ui";
 import { readDraft, useDraftPersistence } from "../hooks/use-draft-persistence";
 import { usePermissions } from "../hooks/use-permissions";
 import { useAutoDismiss } from "../hooks/use-auto-dismiss";
+import { useTenantContext } from "../hooks/use-tenant-context";
 import { AsyncProductSelect } from "../components/inventory/AsyncProductSelect";
 import { fetchSettings } from "../lib/settings";
 import {
@@ -81,7 +82,8 @@ import {
 export function InventoryPage({ user }: InventoryPageProps) {
   const { warehouseSlug } = useParams();
   const { canEdit, canDelete } = usePermissions();
-  const draftKey = `inventory-draft:v1:${user.id}`;
+  const tenant = useTenantContext();
+  const draftKey = `inventory-draft:v2:${tenant.storageScopeKey}`;
   const restoredDraftRef = useRef(readDraft<InventoryDraft>(draftKey));
   const restoredDraft = restoredDraftRef.current;
   const [products, setProducts] = useState<Product[]>([]);
@@ -224,7 +226,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
 
         let nextSettings = null;
         try {
-          nextSettings = await fetchSettings(user.id);
+          nextSettings = await fetchSettings(user.id, tenant.dataScope);
         } catch (e) {
           console.error("Failed to fetch settings in inventory page:", e);
           if (active) {
@@ -288,7 +290,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
 
     void loadDictionaries();
     return () => { active = false; };
-  }, [draftKey, user.id]);
+  }, [draftKey, tenant.dataScope, user.id]);
 
   useEffect(() => {
     if (visibleWarehouses.length === 1) {
@@ -963,7 +965,7 @@ export function InventoryPage({ user }: InventoryPageProps) {
     setBusyKey(`sku-stock-${item.id}`);
     setErrorMessage("");
     try {
-      const nextItem = await updateWarehouseSkuStockQuantity(item, nextStock);
+      const nextItem = await updateWarehouseSkuStockQuantity(item, nextStock, reason);
       setWarehouseSkus((current) =>
         current.map((entry) => (entry.id === item.id ? nextItem : entry)),
       );
@@ -1983,9 +1985,19 @@ export function InventoryPage({ user }: InventoryPageProps) {
                                           </div>
                                         ) : (
                                           <div className="flex items-center gap-2">
-                                            <span className="min-w-12 text-right-num text-lg font-bold text-ink">
-                                              {item.stock_quantity}
-                                            </span>
+                                            <div className="grid justify-items-end gap-0.5">
+                                              <span className="min-w-12 text-right-num text-lg font-bold text-ink">
+                                                {item.stock_quantity}
+                                              </span>
+                                              {item.inventory_kind === "shared" && (
+                                                <span
+                                                  className="rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-bold text-violet-700"
+                                                  title={`共享余额 ${item.shared_quantity_base_units ?? 0} 基础单位；每件换算 ${item.base_units_per_sale_unit ?? 1}`}
+                                                >
+                                                  共享库存
+                                                </span>
+                                              )}
+                                            </div>
                                             {canEdit && (
                                               <button
                                                 type="button"

@@ -18,6 +18,7 @@ import { getErrorMessage } from "../utils/errors";
 import { BackToParentAction, PageHeader } from "../components/ui";
 import { confirmSave } from "../utils/confirmations";
 import { getDefaultPricingLogisticsSelection } from "../lib/default-pricing-logistics";
+import { useTenantContext } from "../hooks/use-tenant-context";
 
 type PricingResultPageProps = {
   user: User;
@@ -25,6 +26,7 @@ type PricingResultPageProps = {
 
 export function PricingResultPage({ user }: PricingResultPageProps) {
   const { canEdit } = usePermissions();
+  const tenant = useTenantContext();
   const { productId: productKey = "" } = useParams();
   const [product, setProduct] = useState<Product | null>(null);
   const [skuResults, setSkuResults] = useState<
@@ -50,7 +52,7 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
       try {
         const [nextProduct, settings] = await Promise.all([
           fetchProduct(productKey),
-          fetchSettings(user.id),
+          fetchSettings(user.id, tenant.dataScope),
         ]);
 
         const [nextItems, nextSkus] = await Promise.all([
@@ -110,7 +112,7 @@ export function PricingResultPage({ user }: PricingResultPageProps) {
     return () => {
       active = false;
     };
-  }, [productKey, user.id]);
+  }, [productKey, tenant.dataScope, user.id]);
 
   async function handleSaveResults() {
     if (!canEdit || !product) return;
