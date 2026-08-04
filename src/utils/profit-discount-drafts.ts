@@ -12,24 +12,24 @@ export type ProfitCalculationsDraft = {
   discountsByProductId: Record<string, ProfitDiscountFields>;
 };
 
-export function getProfitCalculationsDraftKey(userId: string) {
-  return `profit-calculations-draft:v1:${userId}`;
+export function getProfitCalculationsDraftKey(storageScopeKey: string) {
+  return `profit-calculations-draft:v2:${storageScopeKey}`;
 }
 
-export function readProductDiscountDraft(userId: string, productId: string) {
+export function readProductDiscountDraft(storageScopeKey: string, productId: string) {
   return (
     readDraft<ProfitCalculationsDraft>(
-      getProfitCalculationsDraftKey(userId),
+      getProfitCalculationsDraftKey(storageScopeKey),
     )?.discountsByProductId[productId] ?? null
   );
 }
 
 export function writeProductDiscountDraft(
-  userId: string,
+  storageScopeKey: string,
   productId: string,
   discounts: ProfitDiscountFields,
 ) {
-  const draftKey = getProfitCalculationsDraftKey(userId);
+  const draftKey = getProfitCalculationsDraftKey(storageScopeKey);
   const current = readDraft<ProfitCalculationsDraft>(draftKey);
 
   writeDraft<ProfitCalculationsDraft>(draftKey, {

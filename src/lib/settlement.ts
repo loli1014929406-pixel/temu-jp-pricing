@@ -242,6 +242,7 @@ function getSettlementStorageErrorMessage(error: { code?: string; message?: stri
 // ── Storage (Supabase) ─────────────────────────────────────────────────────
 
 export async function loadSettlementFiles(userId: string): Promise<SettlementFile[]> {
+  void userId;
   const supabase = getSupabaseClient();
   const { data: summaryData, error: summaryError } = await withTimeout(
     supabase.rpc("get_finance_settlement_summary"),
@@ -302,7 +303,6 @@ export async function loadSettlementFiles(userId: string): Promise<SettlementFil
           supabase
             .from("finance_settlement_files")
             .select("id, file_name, date_range_start, date_range_end, imported_at, total_sales_revenue, total_freight_revenue, record_count")
-            .eq("user_id", userId)
             .order("imported_at", { ascending: false })
             .order("id", { ascending: true })
             .range(from, to),
@@ -317,7 +317,6 @@ export async function loadSettlementFiles(userId: string): Promise<SettlementFil
           supabase
             .from("finance_settlement_records")
             .select("id, file_id, po_number, sku_id, sku_name, sku_code, quantity, declared_price, is_promotion_price, currency, sales_revenue, sales_discount_deducted, sales_reversal, freight_revenue, freight_discount_deducted, freight_reversal, total_revenue")
-            .eq("user_id", userId)
             .order("id", { ascending: true })
             .range(from, to),
           "加载结算明细",
@@ -439,6 +438,7 @@ export async function addSettlementFile(
   fileName: string,
   records: SettlementRecord[],
 ): Promise<SettlementImportResult> {
+  void userId;
   const supabase = getSupabaseClient();
   const importedAt = new Date().toISOString();
   type ExistingSettlementRecordKey = { po_number: string; sku_code: string };
@@ -449,7 +449,6 @@ export async function addSettlementFile(
     const { data, error } = await supabase
       .from("finance_settlement_records")
       .select("po_number, sku_code")
-      .eq("user_id", userId)
       .order("id", { ascending: true })
       .range(from, to);
     return { data: (data ?? []) as ExistingSettlementRecordKey[], error };

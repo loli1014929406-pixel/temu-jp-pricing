@@ -1,6 +1,6 @@
 import { Download, Plus, Save, Trash2, Upload, X } from "lucide-react";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router";
 import {
   deleteProduct,
   exportProductsData,

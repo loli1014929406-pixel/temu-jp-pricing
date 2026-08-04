@@ -6,6 +6,7 @@ import { loadCachedProductDetails, loadCachedProducts } from "../lib/cached-prod
 import { fetchProfitCalculationsBySkuIds } from "../lib/profit-calculations";
 import { fetchSettings } from "../lib/settings";
 import { useAutoDismiss } from "../hooks/use-auto-dismiss";
+import { useTenantContext } from "../hooks/use-tenant-context";
 import type {
   PricingResult,
   PricingSettings,
@@ -714,10 +715,11 @@ function AdviceChips({ row }: { row: RecommendationRow }) {
 export function PromotionRecommendationsPage({
   user,
 }: PromotionRecommendationsPageProps) {
+  const tenant = useTenantContext();
   const [candidates, setCandidates] = useState<RecommendationCandidate[]>([]);
   const [featureTogglesByProductId, setFeatureTogglesByProductId] = useState<
     Record<string, RecommendationFeatureToggles>
-  >(() => readStoredFeatureToggles(user.id));
+  >(() => readStoredFeatureToggles(tenant.storageScopeKey));
   const [missingRows, setMissingRows] = useState<MissingRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
@@ -730,8 +732,8 @@ export function PromotionRecommendationsPage({
   }, [pageSize]);
 
   useEffect(() => {
-    writeStoredFeatureToggles(user.id, featureTogglesByProductId);
-  }, [featureTogglesByProductId, user.id]);
+    writeStoredFeatureToggles(tenant.storageScopeKey, featureTogglesByProductId);
+  }, [featureTogglesByProductId, tenant.storageScopeKey]);
 
   useEffect(() => {
     let active = true;
@@ -743,7 +745,7 @@ export function PromotionRecommendationsPage({
       try {
         const [products, settings] = await Promise.all([
           loadCachedProducts(),
-          fetchSettings(user.id),
+          fetchSettings(user.id, tenant.dataScope),
         ]);
         const [items, skus] = await loadCachedProductDetails(
           products.map((product) => product.id),
@@ -846,7 +848,7 @@ export function PromotionRecommendationsPage({
     return () => {
       active = false;
     };
-  }, [user.id]);
+  }, [tenant.dataScope, user.id]);
 
   const rows = useMemo(
     () =>

@@ -1,11 +1,12 @@
 import { Save } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router";
 import { Field, TextInput } from "../components/form-controls";
 import { BackToParentAction, PageHeader } from "../components/ui";
 import { isSameDraft, readDraft, useDraftPersistence } from "../hooks/use-draft-persistence";
 import { usePermissions } from "../hooks/use-permissions";
+import { useTenantContext } from "../hooks/use-tenant-context";
 import { useAutoDismiss } from "../hooks/use-auto-dismiss";
 import { fetchProfitCalculationsBySkuIds, saveProfitCalculation } from "../lib/profit-calculations";
 import {
@@ -87,8 +88,9 @@ function getMultiShipmentProfitPath(
 
 export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
   const { canEdit } = usePermissions();
+  const tenant = useTenantContext();
   const { productId: productKey = "" } = useParams();
-  const draftKey = `profit-calculation-draft:v1:${user.id}:${productKey}`;
+  const draftKey = `profit-calculation-draft:v2:${tenant.storageScopeKey}:${productKey}`;
   const [product, setProduct] = useState<Product | null>(null);
   const [calculations, setCalculations] = useState<Record<string, SkuCalculationState>>({});
   const [settings, setSettings] = useState<PricingSettings | null>(null);
@@ -124,8 +126,8 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
 
   useEffect(() => {
     if (!product || loading) return;
-    writeProductDiscountDraft(user.id, product.id, productDiscounts);
-  }, [loading, product, productDiscounts, user.id]);
+    writeProductDiscountDraft(tenant.storageScopeKey, product.id, productDiscounts);
+  }, [loading, product, productDiscounts, tenant.storageScopeKey]);
 
   useEffect(() => {
     let active = true;
@@ -137,7 +139,7 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
       try {
         const [nextProduct, settings] = await Promise.all([
           fetchProduct(productKey),
-          fetchSettings(user.id),
+          fetchSettings(user.id, tenant.dataScope),
         ]);
 
         const [items, skus] = await Promise.all([
@@ -199,7 +201,10 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
             couponDiscountRate: firstCalculation?.input.couponDiscountRate ?? 0,
             adRoas: firstCalculation?.input.adRoas ?? 0,
           };
-          const sharedProductDiscounts = readProductDiscountDraft(user.id, nextProduct.id);
+          const sharedProductDiscounts = readProductDiscountDraft(
+            tenant.storageScopeKey,
+            nextProduct.id,
+          );
           const legacyProductDiscounts =
             latestDraft && !isSameDraft(latestDraft.productDiscounts, baseProductDiscounts)
               ? latestDraft.productDiscounts
@@ -253,7 +258,7 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
     return () => {
       active = false;
     };
-  }, [draftKey, productKey, user.id]);
+  }, [draftKey, productKey, tenant.dataScope, tenant.storageScopeKey, user.id]);
 
   const productPrice = useMemo(() => {
     const prices = Object.values(calculations).map(
@@ -315,7 +320,11 @@ export function ProfitCalculationPage({ user }: ProfitCalculationPageProps) {
     const nextProductDiscounts = { ...productDiscounts, [field]: value };
     setProductDiscounts(nextProductDiscounts);
     if (product) {
-      writeProductDiscountDraft(user.id, product.id, nextProductDiscounts);
+      writeProductDiscountDraft(
+        tenant.storageScopeKey,
+        product.id,
+        nextProductDiscounts,
+      );
     }
     setCalculations((state) =>
       Object.fromEntries(

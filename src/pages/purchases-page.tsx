@@ -1,5 +1,5 @@
 import { CheckCircle2, Plus, Search, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { Field, TextArea, TextInput } from "../components/form-controls";
@@ -11,6 +11,7 @@ import {
 } from "../hooks/use-draft-persistence";
 import { useAutoDismiss } from "../hooks/use-auto-dismiss";
 import { usePermissions } from "../hooks/use-permissions";
+import { useTenantContext } from "../hooks/use-tenant-context";
 import {
   createPurchaseOrder,
   createPurchasePackage,
@@ -72,9 +73,10 @@ import {
 
 export function PurchasesPage({ user, view }: PurchasesPageProps) {
   const { canEdit, canDelete } = usePermissions();
+  const tenant = useTenantContext();
   const navigate = useNavigate();
-  const createDraftKey = `purchase-create-draft:v1:${user.id}`;
-  const recordsDraftKey = `purchase-records-draft:v1:${user.id}`;
+  const createDraftKey = `purchase-create-draft:v2:${tenant.storageScopeKey}`;
+  const recordsDraftKey = `purchase-records-draft:v2:${tenant.storageScopeKey}`;
   const restoredCreateDraftRef = useRef(readDraft<PurchaseCreateDraft>(createDraftKey));
   const restoredRecordsDraftRef = useRef(readDraft<PurchaseRecordsDraft>(recordsDraftKey));
   const purchasePageRequestIdRef = useRef(0);

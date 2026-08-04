@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Trash2, Edit2, X, RefreshCw, Upload } from "lucide-react";
 import { PageHeader, StandardTable, TableCellPreview } from "../../components/ui";
 import { usePermissions } from "../../hooks/use-permissions";
+import { useTenantContext } from "../../hooks/use-tenant-context";
 import { useFinanceData } from "./use-finance-data";
 import { addExpense, addExpensesBulk, updateExpense, deleteExpense } from "../../lib/expenses";
 import { readTabularFileObjects } from "../../lib/excel";
@@ -253,6 +254,7 @@ function formatExpenseRemarkForDisplay(remark: string | null | undefined) {
 
 export function FinanceExpensesPage({ user }: Props) {
   const { canEdit } = usePermissions();
+  const tenant = useTenantContext();
   const { expenses, loading, error, reload } = useFinanceData(user.id, { expenses: true });
   const adPaymentFileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -277,6 +279,7 @@ export function FinanceExpensesPage({ user }: Props) {
 
   // LocalStorage Migration
   useEffect(() => {
+    if (!tenant.legacyFallback) return;
     const migrateLocalData = async () => {
       const localData = localStorage.getItem("codex_finance_other_expenses");
       if (localData) {
@@ -305,7 +308,7 @@ export function FinanceExpensesPage({ user }: Props) {
       }
     };
     void migrateLocalData();
-  }, [reload]);
+  }, [reload, tenant.legacyFallback]);
 
   const resetForm = () => {
     setFormOpen(false);

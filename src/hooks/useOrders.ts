@@ -49,6 +49,7 @@ import {
   loadCachedLogisticsMethods,
   loadCachedWarehouseLogisticsMethods,
 } from "../lib/cached-logistics";
+import { useTenantContext } from "./use-tenant-context";
 
 export type OrderDraft = Pick<
   TemuOrderRecord,
@@ -388,7 +389,8 @@ async function loadLatestProductsAndSkus() {
 }
 
 export function useOrders(user: User, orderQuery: FetchTemuOrdersPageOptions) {
-  const draftKey = `orders-draft:v1:${user.id}`;
+  const tenant = useTenantContext();
+  const draftKey = `orders-draft:v2:${tenant.storageScopeKey}`;
   const restoredDraftRef = useRef(readDraft<OrdersDraftState>(draftKey));
   const restoredDraft = restoredDraftRef.current;
   const knownOrdersByIdRef = useRef(new Map<string, TemuOrderRecord>());
@@ -458,7 +460,7 @@ export function useOrders(user: User, orderQuery: FetchTemuOrdersPageOptions) {
             loadCachedWarehouses(),
             loadCachedProducts({ includeNotSelling: true }),
             loadCachedLogisticsMethods(),
-            fetchSettings(user.id).catch(() => null),
+            fetchSettings(user.id, tenant.dataScope).catch(() => null),
             fetchOrderAutoMatchSettings(),
           ]);
         const productIds = nextProducts.map((product) => product.id);
@@ -512,7 +514,7 @@ export function useOrders(user: User, orderQuery: FetchTemuOrdersPageOptions) {
     return () => {
       active = false;
     };
-  }, [draftKey, restoredDraft, user.id]);
+  }, [draftKey, restoredDraft, tenant.dataScope, user.id]);
 
   useEffect(() => {
     let active = true;

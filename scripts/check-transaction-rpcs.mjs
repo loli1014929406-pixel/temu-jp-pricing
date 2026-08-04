@@ -89,9 +89,9 @@ const checks = [
     },
   },
   {
-    name: "record_logistics_payment",
+    name: "record_logistics_payment_v2",
     args: {
-      p_carrier: "",
+      p_logistics_method_id: null,
       p_shipping_month: "2026-05",
       p_paid_amount_rmb: 1,
       p_paid_at: new Date().toISOString(),

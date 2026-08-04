@@ -35,3 +35,67 @@ export async function fetchCurrentAccountPermission() {
 
   return normalizeAccountPermission(data);
 }
+
+export const permissionResources = [
+  "products",
+  "pricing",
+  "inventory",
+  "purchases",
+  "orders",
+  "finance",
+  "settings",
+  "shops",
+  "members",
+  "diagnostics",
+] as const;
+
+export type PermissionResource = (typeof permissionResources)[number];
+export type ResourcePermission = {
+  resource: PermissionResource;
+  action: string;
+  allowed: boolean;
+};
+
+export function getPermissionResourceForPath(pathname: string): PermissionResource {
+  if (pathname.startsWith("/orders")) return "orders";
+  if (pathname.startsWith("/finance")) return "finance";
+  if (pathname.startsWith("/inventory")) return "inventory";
+  if (pathname.startsWith("/purchases")) return "purchases";
+  if (pathname.startsWith("/parameter-settings")) return "settings";
+  if (pathname.startsWith("/organization")) return "shops";
+  if (pathname.startsWith("/enterprise-overview")) return "finance";
+  if (pathname.startsWith("/admin/diagnostics")) return "diagnostics";
+  if (
+    pathname.startsWith("/declaration-prices") ||
+    pathname.startsWith("/profit-calculation") ||
+    pathname.startsWith("/test-shipping")
+  ) {
+    return "pricing";
+  }
+  return "products";
+}
+
+export function getPrimaryEditAction(resource: PermissionResource) {
+  if (resource === "inventory") return "adjust";
+  if (resource === "shops" || resource === "members") return "manage";
+  if (resource === "diagnostics") return "view";
+  return "update";
+}
+
+export async function fetchShopOperatorPermissions(
+  userId: string,
+  shopId: string,
+) {
+  const { data, error } = await getSupabaseClient()
+    .from("shop_operator_permissions")
+    .select("resource, action, allowed")
+    .eq("user_id", userId)
+    .eq("shop_id", shopId);
+  if (error) throw error;
+  return (data ?? []).filter(
+    (item): item is ResourcePermission =>
+      permissionResources.includes(item.resource as PermissionResource) &&
+      typeof item.action === "string" &&
+      typeof item.allowed === "boolean",
+  );
+}

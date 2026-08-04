@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router";
 import { ProductForm } from "../components/product-form";
 import { BackToParentAction, PageHeader } from "../components/ui";
 import {
@@ -30,6 +30,7 @@ import type {
 import { getErrorMessage } from "../utils/errors";
 import { buildDefaultSkuCode, isLegacyDefaultSkuCode } from "../utils/sku-code";
 import { useAutoDismiss } from "../hooks/use-auto-dismiss";
+import { useTenantContext } from "../hooks/use-tenant-context";
 import { confirmCancelEdit, confirmSave } from "../utils/confirmations";
 
 type ProductEditDraftCache = {
@@ -246,6 +247,8 @@ function isDraftDifferentFromBase(
 
 export function ProductEditPage() {
   const { productId: productKey = "" } = useParams();
+  const tenant = useTenantContext();
+  const draftScopeKey = `${tenant.storageScopeKey}:${productKey}`;
   const navigate = useNavigate();
   const draftRef = useRef<ProductEditDraftCache | null>(null);
   const draftDirtyRef = useRef(false);
@@ -321,7 +324,7 @@ export function ProductEditPage() {
             nextWarehouseShippingLimits,
           ),
         };
-        const cachedDraft = readProductEditDraft(productKey);
+        const cachedDraft = readProductEditDraft(draftScopeKey);
         const nextDraft = mergeCachedDraft(serverDraft, cachedDraft);
         const restoredDraft =
           cachedDraft?.productId === serverDraft.productId &&
@@ -340,13 +343,13 @@ export function ProductEditPage() {
         );
         setDraftNotice(restoredDraft ? "已恢复上次未保存的编辑草稿，保存编辑后会自动清除。" : "");
         if (restoredDraft) {
-          writeProductEditDraft(productKey, nextDraft);
+          writeProductEditDraft(draftScopeKey, nextDraft);
         } else if (cachedDraft) {
-          clearProductEditDraft(productKey);
+          clearProductEditDraft(draftScopeKey);
         }
       } catch (error) {
         if (!active) return;
-        const cachedDraft = readProductEditDraft(productKey);
+        const cachedDraft = readProductEditDraft(draftScopeKey);
         if (isCompleteProductEditDraft(cachedDraft)) {
           const fallbackDraft = {
             ...cachedDraft,
@@ -375,15 +378,15 @@ export function ProductEditPage() {
     return () => {
       active = false;
     };
-  }, [productKey]);
+  }, [draftScopeKey, productKey]);
 
   const persistDraftNow = useCallback(
     (nextDraft: ProductEditDraftCache) => {
       draftDirtyRef.current = true;
       draftRef.current = nextDraft;
-      writeProductEditDraft(productKey, nextDraft);
+      writeProductEditDraft(draftScopeKey, nextDraft);
     },
-    [productKey],
+    [draftScopeKey],
   );
 
   useEffect(() => {
@@ -398,9 +401,9 @@ export function ProductEditPage() {
     };
     draftRef.current = nextDraft;
     if (draftDirtyRef.current) {
-      writeProductEditDraft(productKey, nextDraft);
+      writeProductEditDraft(draftScopeKey, nextDraft);
     }
-  }, [items, product, productId, productKey, skus, specs, warehouseShippingLimits]);
+  }, [draftScopeKey, items, product, productId, skus, specs, warehouseShippingLimits]);
 
   const handleProductChange = useCallback(
     (nextProduct: ProductDraft) => {
@@ -494,7 +497,7 @@ export function ProductEditPage() {
       draftDirtyRef.current = false;
       draftRef.current = null;
       editSnapshotRef.current = null;
-      clearProductEditDraft(productKey);
+      clearProductEditDraft(draftScopeKey);
       setIsEditing(false);
       navigate("/products");
     } catch (error) {
@@ -527,7 +530,7 @@ export function ProductEditPage() {
       setWarehouseShippingLimits(snapshot.warehouseShippingLimits);
       draftRef.current = null;
       draftDirtyRef.current = false;
-      clearProductEditDraft(productKey);
+      clearProductEditDraft(draftScopeKey);
     }
     editSnapshotRef.current = null;
     setIsEditing(false);

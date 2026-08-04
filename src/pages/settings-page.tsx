@@ -10,6 +10,7 @@ import {
 } from "../hooks/use-draft-persistence";
 import { useAutoDismiss } from "../hooks/use-auto-dismiss";
 import { usePermissions } from "../hooks/use-permissions";
+import { useTenantContext } from "../hooks/use-tenant-context";
 import { fetchSettings, saveSettings } from "../lib/settings";
 import {
   resolveFirstLegMethods,
@@ -637,9 +638,10 @@ function LogisticsSection({
 }
 
 export function SettingsPage({ user }: SettingsPageProps) {
+  const tenant = useTenantContext();
   const { canEdit } = usePermissions();
-  const legacyDraftKey = `settings-draft:v3:${user.id}`;
-  const draftKey = `settings-draft:v4:${user.id}`;
+  const legacyDraftKey = `settings-draft:v3:${tenant.storageScopeKey}`;
+  const draftKey = `settings-draft:v5:${tenant.storageScopeKey}`;
   const [settings, setSettings] = useState<PricingSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -689,7 +691,7 @@ export function SettingsPage({ user }: SettingsPageProps) {
       setErrorMessage("");
 
       try {
-        const nextSettings = await fetchSettings(user.id);
+        const nextSettings = await fetchSettings(user.id, tenant.dataScope);
         clearDraft(legacyDraftKey);
         const cachedDraft = readDraft<SettingsDraftState>(draftKey);
         const restoredSettings = resolveSettingsDraft(cachedDraft, nextSettings);
@@ -720,7 +722,7 @@ export function SettingsPage({ user }: SettingsPageProps) {
     return () => {
       active = false;
     };
-  }, [draftKey, legacyDraftKey, user.id]);
+  }, [draftKey, legacyDraftKey, tenant.dataScope, user.id]);
 
   function updateSettings(updates: Partial<PricingSettings>) {
     if (!settings) return;
@@ -762,8 +764,8 @@ export function SettingsPage({ user }: SettingsPageProps) {
     setErrorMessage("");
 
     try {
-      await saveSettings(user.id, settings);
-      const nextSettings = await fetchSettings(user.id);
+      await saveSettings(user.id, settings, tenant.dataScope);
+      const nextSettings = await fetchSettings(user.id, tenant.dataScope);
       setSettings(nextSettings);
       clearDraft(draftKey);
       setDraftNotice("");

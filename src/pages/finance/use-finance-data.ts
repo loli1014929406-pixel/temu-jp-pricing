@@ -29,6 +29,7 @@ import {
   loadCachedLogisticsMethods,
   loadCachedWarehouseLogisticsMethods,
 } from "../../lib/cached-logistics";
+import { useTenantContext } from "../../hooks/use-tenant-context";
 
 type FetchOptions = {
   purchases?: boolean;
@@ -40,6 +41,7 @@ type FetchOptions = {
 };
 
 export function useFinanceData(userId: string, options: FetchOptions) {
+  const tenant = useTenantContext();
   const purchasesEnabled = Boolean(options.purchases);
   const productsEnabled = Boolean(options.products);
   const inventoryEnabled = Boolean(options.inventory);
@@ -76,7 +78,7 @@ export function useFinanceData(userId: string, options: FetchOptions) {
           promises.push(
             getCachedAsync(
               `finance:${userId}:settings`,
-              () => fetchSettings(userId),
+              () => fetchSettings(userId, tenant.dataScope),
               { force },
             ).catch(() => null),
           );
@@ -200,6 +202,7 @@ export function useFinanceData(userId: string, options: FetchOptions) {
     productsEnabled,
     purchasesEnabled,
     settlementsEnabled,
+    tenant.dataScope,
     userId,
   ]);
 

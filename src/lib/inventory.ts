@@ -175,7 +175,68 @@ export async function fetchWarehouseSkus(warehouseIds: string[]) {
   });
 
   if (error) throw error;
-  return data ?? [];
+  const stocks = data ?? [];
+  if (stocks.length === 0) return stocks;
+
+  const skuIds = Array.from(new Set(stocks.map((stock) => stock.sku_id)));
+  const [warehouseResult, memberResult] = await Promise.all([
+    supabase
+      .from("warehouses")
+      .select("id, stock_location_id")
+      .in("id", warehouseIds),
+    supabase
+      .from("shared_inventory_group_members")
+      .select("id, group_id, sku_id, base_units_per_sale_unit")
+      .in("sku_id", skuIds)
+      .is("left_at", null),
+  ]);
+  // Frontend can be deployed before the additive database migrations. During
+  // that window the existing independent-inventory result remains valid.
+  if (warehouseResult.error || memberResult.error) return stocks;
+
+  const members = memberResult.data ?? [];
+  if (members.length === 0) return stocks;
+  const groupIds = Array.from(new Set(members.map((member) => member.group_id)));
+  const { data: balanceData, error: balanceError } = await supabase
+    .from("shared_inventory_balances")
+    .select("id, group_id, stock_location_id, quantity_base_units")
+    .in("group_id", groupIds);
+  if (balanceError) return stocks;
+
+  const locationByWarehouseId = new Map(
+    (warehouseResult.data ?? []).map((warehouse) => [
+      warehouse.id,
+      warehouse.stock_location_id as string | null,
+    ]),
+  );
+  const memberBySkuId = new Map(members.map((member) => [member.sku_id, member]));
+  const balanceByGroupLocation = new Map(
+    (balanceData ?? []).map((balance) => [
+      `${balance.group_id}:${balance.stock_location_id}`,
+      balance,
+    ]),
+  );
+
+  return stocks.map((stock) => {
+    const member = memberBySkuId.get(stock.sku_id);
+    const locationId = locationByWarehouseId.get(stock.warehouse_id);
+    if (!member || !locationId) {
+      return { ...stock, inventory_kind: "independent" as const };
+    }
+    const balance = balanceByGroupLocation.get(`${member.group_id}:${locationId}`);
+    const baseUnits = Number(balance?.quantity_base_units ?? 0);
+    const ratio = Number(member.base_units_per_sale_unit);
+    return {
+      ...stock,
+      stock_quantity: ratio > 0 ? Math.floor(baseUnits / ratio) : 0,
+      inventory_kind: "shared" as const,
+      shared_inventory_group_id: member.group_id,
+      shared_inventory_group_member_id: member.id,
+      shared_inventory_balance_id: balance?.id,
+      shared_quantity_base_units: baseUnits,
+      base_units_per_sale_unit: ratio,
+    };
+  });
 }
 
 export async function fetchWarehouseSkuStockAdjustments(warehouseIds: string[]) {
@@ -1057,8 +1118,46 @@ function parseWarehouseSkuStockInventoryChanges(data: unknown) {
 export async function updateWarehouseSkuStockQuantity(
   skuStock: WarehouseSku,
   stockQuantity: number,
+  reason = "手动调整库存",
 ) {
   const { supabase } = await requireSession();
+  const rpcResult = await withTimeout(
+    supabase.rpc("set_sku_inventory_quantity_atomic", {
+      p_warehouse_sku_id: skuStock.id,
+      p_quantity_sale_units: stockQuantity,
+      p_reason: reason,
+    }),
+    "更新 SKU 库存",
+  );
+  if (!rpcResult.error) {
+    const result = rpcResult.data as {
+      inventoryKind?: "independent" | "shared";
+      warehouseSku?: WarehouseSku;
+    } | null;
+    return {
+      ...(result?.warehouseSku ?? skuStock),
+      stock_quantity: stockQuantity,
+      inventory_kind: result?.inventoryKind ?? skuStock.inventory_kind,
+      shared_inventory_group_id: skuStock.shared_inventory_group_id,
+      shared_inventory_group_member_id: skuStock.shared_inventory_group_member_id,
+      shared_inventory_balance_id: skuStock.shared_inventory_balance_id,
+      shared_quantity_base_units:
+        skuStock.inventory_kind === "shared"
+          ? stockQuantity * (skuStock.base_units_per_sale_unit ?? 1)
+          : undefined,
+      base_units_per_sale_unit: skuStock.base_units_per_sale_unit,
+    } as WarehouseSku;
+  }
+  const rpcMessage = rpcResult.error.message.toLowerCase();
+  if (
+    !rpcMessage.includes("set_sku_inventory_quantity_atomic") &&
+    !rpcMessage.includes("schema cache") &&
+    rpcResult.error.code !== "PGRST202" &&
+    rpcResult.error.code !== "42883"
+  ) {
+    throw rpcResult.error;
+  }
+
   const { data, error } = await withTimeout(
     supabase
       .from("warehouse_skus")
