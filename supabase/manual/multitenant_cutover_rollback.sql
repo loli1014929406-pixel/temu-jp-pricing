@@ -8,6 +8,9 @@ set permission_mode = 'legacy',
     updated_at = now()
 where id = true;
 
+delete from supabase_migrations.schema_migrations
+where version = '20260804112000';
+
 drop index if exists public.pricing_settings_shop_unique;
 
 insert into public.pricing_settings
