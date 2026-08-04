@@ -3,6 +3,60 @@
 -- deployed and verified first. PostgreSQL applies the policy replacement and
 -- runtime-mode flip in one transaction.
 
+do $cutover_pricing_settings$
+declare
+  v_admin_id uuid;
+begin
+  select users.id
+  into v_admin_id
+  from auth.users users
+  join public.account_permissions permission
+    on lower(permission.email) = lower(users.email)
+  where permission.permission_level = 'admin'
+  order by users.created_at, users.id
+  limit 1;
+
+  -- Shop settings replace the legacy per-user settings model at the same
+  -- atomic boundary as RLS. Prefer the confirmed admin-owned configuration;
+  -- retain the most recently updated row only when no admin row exists.
+  delete from public.pricing_settings settings
+  where settings.id in (
+    select ranked.id
+    from (
+      select
+        candidate.id,
+        row_number() over (
+          partition by candidate.shop_id
+          order by
+            (candidate.owner_id = v_admin_id) desc,
+            candidate.updated_at desc nulls last,
+            candidate.created_at desc nulls last,
+            candidate.id
+        ) as position
+      from public.pricing_settings candidate
+    ) ranked
+    where ranked.position > 1
+  )
+    and exists (
+      select 1
+      from private.pricing_settings_legacy_user_backup backup
+      where backup.source_id = settings.id
+    );
+
+  if exists (
+    select 1
+    from public.pricing_settings settings
+    group by settings.shop_id
+    having count(*) > 1
+  ) then
+    raise exception 'pricing settings deduplication preflight failed';
+  end if;
+end
+$cutover_pricing_settings$;
+
+create unique index if not exists pricing_settings_shop_unique
+  on public.pricing_settings (shop_id);
+
 create or replace function private.current_user_can_read_shop(
   p_shop_id uuid,
   p_resource text
@@ -265,6 +319,11 @@ declare
   v_expected record;
   v_oid oid;
   v_definition text;
+  v_was_cut_over boolean := coalesce((
+    select state.cutover_at is not null
+    from private.multitenant_runtime_state state
+    where state.id = true
+  ), false);
 begin
   -- Preserve every existing finance formula verbatim. Only the legacy
   -- auth.uid() partition key and ON CONFLICT keys are mechanically replaced.
@@ -301,6 +360,17 @@ begin
     end if;
     v_definition := pg_get_functiondef(v_oid);
     if md5(v_definition) <> v_expected.definition_md5 then
+      if v_was_cut_over
+        and position('auth.uid()' in v_definition) = 0
+        and position('current_account_can_edit()' in v_definition) = 0
+        and (
+          position('private.current_shop_legacy_owner_id()' in v_definition) > 0
+          or position('public.current_account_can(' in v_definition) > 0
+        )
+      then
+        continue;
+      end if;
+
       raise exception using
         errcode = '55000',
         message = 'Multitenant cutover blocked: finance function drifted: ' || v_expected.signature;
@@ -713,46 +783,6 @@ alter table public.temu_order_sku_inventory_reservations
 alter table public.warehouses
   validate constraint warehouses_stock_location_fkey;
 
-drop index if exists public.idx_temu_orders_team_order_line;
-drop index if exists public.logistics_methods_name_unique;
-alter table public.purchase_orders
-  drop constraint if exists purchase_orders_order_code_key;
-drop index if exists public.temu_order_shipments_order_package_uidx;
-drop index if exists public.temu_order_combined_shipments_no_key;
-drop index if exists public.warehouses_auto_match_priority_unique;
-drop index if exists public.warehouses_name_exact_unique;
-drop index if exists public.finance_actual_shipping_fee_templates_user_name_uidx;
-drop index if exists public.finance_actual_shipping_fee_templates_user_system_uidx;
-drop index if exists public.temu_order_file_import_templates_user_name_uidx;
-drop index if exists public.temu_order_file_import_templates_user_system_uidx;
-
-alter table public.finance_actual_shipping_fees
-  drop constraint if exists finance_actual_shipping_fees_user_method_tracking_unique;
-alter table public.finance_first_leg_monthly_settlements
-  drop constraint if exists finance_first_leg_monthly_settlements_user_month_unique;
-alter table public.finance_first_leg_payments
-  drop constraint if exists finance_first_leg_payments_user_request_unique;
-alter table public.finance_logistics_payments
-  drop constraint if exists finance_logistics_payments_user_request_unique;
-alter table public.finance_logistics_settlements
-  drop constraint if exists finance_logistics_settlements_user_carrier_month_unique;
-alter table public.finance_logistics_settlements
-  drop constraint if exists finance_logistics_settlements_user_method_month_unique;
-alter table public.pricing_settings
-  drop constraint if exists pricing_settings_owner_unique;
-alter table public.product_strategy_states
-  drop constraint if exists product_strategy_states_owner_id_product_id_key;
-alter table public.products
-  drop constraint if exists products_owner_code_unique;
-alter table public.shipping_batches
-  drop constraint if exists shipping_batches_owner_code_unique;
-alter table public.strategy_rule_settings
-  drop constraint if exists strategy_rule_settings_owner_id_phase_key;
-alter table public.temu_orders
-  drop constraint if exists temu_orders_owner_id_order_no_sub_order_no_key;
-alter table public.temu_order_combined_shipments
-  drop constraint if exists temu_order_combined_shipments_combined_no_key;
-
 drop function if exists public.save_temu_tracking_result(
   text, text, timestamptz, text, text, text, text, timestamptz,
   boolean, text, text, boolean, boolean, text
@@ -769,6 +799,7 @@ drop function if exists public.get_logistics_payment_records(text, text);
 
 update private.multitenant_runtime_state
 set permission_mode = 'tenant',
+    cutover_at = coalesce(cutover_at, statement_timestamp()),
     updated_at = statement_timestamp()
 where id = true;
 

@@ -381,6 +381,19 @@ grant execute on function public.set_current_shop_context(uuid) to authenticated
 grant execute on function public.clear_current_shop_context() to authenticated;
 grant execute on function public.current_multitenant_context() to authenticated;
 
+-- Legacy pricing settings were user-scoped, so a single existing shop may
+-- have more than one row. Preserve every original row in the private schema
+-- before selecting the admin-owned row as the shop-level canonical settings.
+create table if not exists private.pricing_settings_legacy_user_backup (
+  source_id uuid primary key,
+  source_owner_id uuid,
+  source_row jsonb not null,
+  archived_at timestamptz not null default now()
+);
+
+revoke all on table private.pricing_settings_legacy_user_backup
+  from public, anon, authenticated;
+
 do $block$
 declare
   v_enterprise_id uuid;
@@ -440,6 +453,19 @@ begin
   where permission.permission_level = 'admin'
   order by users.created_at, users.id
   limit 1;
+
+  insert into private.pricing_settings_legacy_user_backup (
+    source_id,
+    source_owner_id,
+    source_row
+  )
+  select settings.id, settings.owner_id, to_jsonb(settings)
+  from public.pricing_settings settings
+  on conflict (source_id) do nothing;
+
+  -- Keep every legacy user-scoped settings row active while permission_mode is
+  -- still legacy. The atomic cutover selects one canonical row per shop only
+  -- after the compatible frontend and all pre-cutover checks are in place.
 
   insert into public.enterprises (code, name, created_by)
   values ('enterprise-1', '企业1', v_admin_id)
@@ -541,16 +567,20 @@ begin
       granted_by = excluded.granted_by;
 
   foreach v_table in array v_tables loop
-    execute format(
-      'update public.%I set enterprise_id = $1, shop_id = $2 where enterprise_id is null or shop_id is null',
-      v_table
-    ) using v_enterprise_id, v_shop_id;
-
+    -- Build the non-unique lookup index before the backfill. Several shipment
+    -- tables have deferred constraint triggers; creating an index after their
+    -- rows have been updated in the same transaction is rejected by Postgres
+    -- while those trigger events are still pending.
     execute format(
       'create index if not exists %I on public.%I (shop_id)',
       'mt_' || substr(md5(v_table), 1, 12) || '_shop_idx',
       v_table
     );
+
+    execute format(
+      'update public.%I set enterprise_id = $1, shop_id = $2 where enterprise_id is null or shop_id is null',
+      v_table
+    ) using v_enterprise_id, v_shop_id;
 
     execute format(
       'drop trigger if exists multitenant_fill_shop_scope on public.%I',
@@ -577,12 +607,15 @@ begin
 end
 $block$;
 
+-- Flush deferred foreign-key checks created by the backfill before building
+-- the tenant-native unique indexes below. This keeps the whole migration
+-- atomic while avoiding CREATE INDEX against tables with pending events.
+set constraints all immediate;
+
 -- Build the tenant-native uniqueness rules while keeping the legacy owner/user
 -- constraints in place until the atomic permission cutover. NULL shop values
 -- remain compatible during expansion, while full unique indexes can be inferred
 -- by PostgREST ON CONFLICT calls during the dual-model period.
-create unique index if not exists pricing_settings_shop_unique
-  on public.pricing_settings (shop_id);
 create unique index if not exists products_shop_code_unique
   on public.products (shop_id, product_code);
 create unique index if not exists product_strategy_states_shop_product_unique
