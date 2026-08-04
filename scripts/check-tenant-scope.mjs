@@ -5,6 +5,9 @@ import { fileURLToPath } from "node:url";
 const projectDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const migrationsDir = path.join(projectDir, "supabase", "migrations");
 const cutoverName = "20260804112000_activate_multitenant_rls_cutover.sql";
+const allowedPostCutoverNames = new Set([
+  "20260805024500_optimize_multitenant_read_policies.sql",
+]);
 const requiredBusinessTables = [
   "products", "product_items", "product_skus", "product_sku_items",
   "product_warehouse_shipping_limits", "pricing_results", "profit_calculations",
@@ -39,11 +42,29 @@ const migrationNames = (await readdir(migrationsDir))
   .sort();
 const multitenantNames = migrationNames.filter((name) => name.includes("multitenant") ||
   /shared_inventory|enterprise_|scope_tracking/.test(name));
-if (multitenantNames.at(-1) !== cutoverName) {
-  fail(`最终权限切换不是多租户迁移中的最后一步：${multitenantNames.at(-1) ?? "无"}`);
+const cutoverPosition = multitenantNames.indexOf(cutoverName);
+if (cutoverPosition < 0) fail("缺少最终权限切换迁移");
+const unexpectedPostCutover = multitenantNames
+  .slice(cutoverPosition + 1)
+  .filter((name) => !allowedPostCutoverNames.has(name));
+if (unexpectedPostCutover.length > 0) {
+  fail(`最终权限切换之后存在未经确认的多租户迁移：${unexpectedPostCutover.join(", ")}`);
 }
 
 const cutover = await readFile(path.join(migrationsDir, cutoverName), "utf8");
+const readPolicyOptimization = await readFile(
+  path.join(migrationsDir, "20260805024500_optimize_multitenant_read_policies.sql"),
+  "utf8",
+);
+for (const marker of [
+  "current_user_readable_shop_ids",
+  "shop_id = any",
+  "current_user_can_read_shop",
+]) {
+  if (!readPolicyOptimization.includes(marker)) {
+    fail(`读权限提速迁移缺少安全标记 ${marker}`);
+  }
+}
 for (const table of requiredBusinessTables) {
   if (!cutover.includes(`('${table}',`)) fail(`权限矩阵遗漏业务表 ${table}`);
 }
