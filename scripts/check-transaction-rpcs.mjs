@@ -43,6 +43,42 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
 if (authError) throw new Error(`RPC 检查登录失败：${authError.message}`);
 
+const { data: tenantContext, error: tenantContextError } = await supabase.rpc(
+  "current_multitenant_context",
+);
+if (tenantContextError && tenantContextError.code !== "PGRST202") {
+  throw new Error(`RPC 检查读取租户上下文失败：${tenantContextError.message}`);
+}
+if (
+  tenantContext &&
+  typeof tenantContext === "object" &&
+  tenantContext.permission_mode === "tenant"
+) {
+  let shopId =
+    typeof tenantContext.current_shop_id === "string"
+      ? tenantContext.current_shop_id
+      : typeof tenantContext.operator_shop_id === "string"
+        ? tenantContext.operator_shop_id
+        : "";
+  if (!shopId) {
+    const { data: shops, error: shopError } = await supabase
+      .from("shops")
+      .select("id")
+      .eq("status", "active")
+      .order("created_at", { ascending: true })
+      .limit(1);
+    if (shopError) throw new Error(`RPC 检查读取店铺失败：${shopError.message}`);
+    shopId = shops?.[0]?.id ?? "";
+  }
+  if (!shopId) throw new Error("RPC 检查没有可进入的店铺上下文。");
+  const { error: contextError } = await supabase.rpc("set_current_shop_context", {
+    p_shop_id: shopId,
+  });
+  if (contextError) {
+    throw new Error(`RPC 检查进入店铺上下文失败：${contextError.message}`);
+  }
+}
+
 const checks = [
   {
     name: "create_purchase_order_atomic",
