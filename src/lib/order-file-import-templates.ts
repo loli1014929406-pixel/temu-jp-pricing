@@ -67,6 +67,8 @@ export type OrderFileImportField =
 export type OrderFileFieldMapping = {
   sourceType: OrderFileMappingSource;
   column: number | null;
+  /** Ordered source columns used for composite fields. Legacy templates use column. */
+  columns?: number[];
   fixedValue: string;
   headerAliases: string[];
   worksheetName?: string;
@@ -369,6 +371,11 @@ function normalizeMapping(value: unknown): OrderFileFieldMapping {
       typeof mapping.column === "number" && Number.isFinite(mapping.column)
         ? Math.max(1, Math.trunc(mapping.column))
         : null,
+    columns: Array.isArray(mapping.columns)
+      ? mapping.columns
+          .filter((column) => typeof column === "number" && Number.isFinite(column))
+          .map((column) => Math.max(1, Math.trunc(column)))
+      : undefined,
     fixedValue: String(mapping.fixedValue ?? ""),
     headerAliases: Array.isArray(mapping.headerAliases)
       ? mapping.headerAliases.map((alias) => String(alias).trim()).filter(Boolean)

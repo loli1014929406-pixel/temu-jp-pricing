@@ -171,7 +171,7 @@ export function OrderFileImportModal({
     const mappedMaximum = Math.max(
       0,
       ...Object.values(editor.draft.field_mappings).map(
-        (mapping) => mapping.column ?? 0,
+        (mapping) => Math.max(mapping.column ?? 0, ...(mapping.columns ?? [])),
       ),
     );
     const columnCount = Math.max(row.length, mappedMaximum);
@@ -334,7 +334,7 @@ export function OrderFileImportModal({
       if (mapping.sourceType === "header") {
         return mapping.headerAliases.length === 0;
       }
-      return !mapping.column || mapping.column < 1;
+      return !(mapping.columns?.length || mapping.column);
     });
     return missing
       ? `请为必填字段“${missing.label}”绑定表格列或设置固定值`
@@ -453,12 +453,10 @@ export function OrderFileImportModal({
               draftToTemplate(editor.draft, selectedTemplate),
             ).find((item) => item.field === field)
           : resolvedMappings.find((item) => item.field === field);
-      if (resolved?.resolvedColumn) {
+      if (resolved?.resolvedColumns.length) {
         return {
           mapped: true,
-          primary: `自动识别 ${mapping.worksheetName ? `${mapping.worksheetName} / ` : ""}${columnNumberToLabel(
-            resolved.resolvedColumn,
-          )} 列`,
+          primary: `自动识别 ${mapping.worksheetName ? `${mapping.worksheetName} / ` : ""}${columnNumberToLabel(resolved.resolvedColumn!)} 列`,
           secondary: resolved.matchedHeader,
         };
       }
@@ -468,26 +466,45 @@ export function OrderFileImportModal({
         secondary: mapping.headerAliases.slice(0, 3).join(" / "),
       };
     }
-    if (!mapping.column) {
+    const columns = mapping.columns?.length
+      ? mapping.columns
+      : mapping.column
+        ? [mapping.column]
+        : [];
+    if (columns.length === 0) {
       return { mapped: false, primary: "未绑定", secondary: "" };
     }
-    const sample =
-      sampleValues.find((cell) => cell.column === mapping.column)?.value ?? "";
+    const sample = columns
+      .map((column) => sampleValues.find((cell) => cell.column === column)?.value ?? "")
+      .filter(Boolean)
+      .join(" ");
     return {
       mapped: true,
-      primary: `${mapping.worksheetName ? `${mapping.worksheetName} / ` : ""}${columnNumberToLabel(mapping.column)} 列（第 ${mapping.column} 列）`,
+      primary: `${mapping.worksheetName ? `${mapping.worksheetName} / ` : ""}${columns.map(columnNumberToLabel).join(" + ")} 列（空格组合）`,
       secondary: sample || "当前样例行为空",
     };
   }
 
-  function bindSelectedColumn() {
+  function bindSelectedColumn(append = false) {
     if (!selectedSampleColumn) {
       notifyWarning("请先从右侧样例数据中选择一个表格列");
       return;
     }
+    const current = editor.draft.field_mappings[selectedField];
+    const currentColumns = current?.sourceType === "column"
+      ? current.columns?.length
+        ? current.columns
+        : current.column
+          ? [current.column]
+          : []
+      : [];
+    const nextColumns = append && !isDownloadKind(kind) && currentColumns.length > 0
+      ? [...currentColumns, selectedSampleColumn]
+      : [selectedSampleColumn];
     updateMapping(selectedField, {
       sourceType: "column",
-      column: selectedSampleColumn,
+      column: nextColumns[0],
+      columns: nextColumns,
       fixedValue: "",
       headerAliases: [],
       worksheetName:
@@ -503,6 +520,7 @@ export function OrderFileImportModal({
     updateMapping(selectedField, {
       sourceType: "column",
       column: null,
+      columns: [],
       fixedValue: "",
       headerAliases: [],
       worksheetName:
@@ -520,6 +538,7 @@ export function OrderFileImportModal({
           {
             sourceType: "column",
             column: null,
+            columns: [],
             fixedValue: "",
             headerAliases: [],
             worksheetName: field.worksheetName ?? "",
@@ -562,6 +581,7 @@ export function OrderFileImportModal({
     updateMapping(selectedField, {
       ...current,
       sourceType: "fixed",
+      columns: undefined,
       column: isDownloadKind(kind) ? exportColumn : null,
       worksheetName:
         kind === "shipping_export"
@@ -837,11 +857,24 @@ export function OrderFileImportModal({
                 <button
                   type="button"
                   className="btn-primary justify-center text-xs"
-                  onClick={bindSelectedColumn}
+                  onClick={() => bindSelectedColumn(false)}
                   disabled={!selectedSampleColumn || busy || !canEdit}
                 >
                   <Link2 size={15} /> 绑定
                 </button>
+                {!isDownloadKind(kind) && (
+                  <button
+                    type="button"
+                    className="btn-secondary justify-center text-xs"
+                    onClick={() => bindSelectedColumn(true)}
+                    disabled={!selectedSampleColumn || busy || !canEdit || !(
+                      (editor.draft.field_mappings[selectedField]?.columns?.length ?? 0) > 0 ||
+                      editor.draft.field_mappings[selectedField]?.column
+                    )}
+                  >
+                    <Link2 size={15} /> 追加组合
+                  </button>
+                )}
                 <button
                   type="button"
                   className="btn-secondary justify-center text-xs"

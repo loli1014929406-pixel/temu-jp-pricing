@@ -15,6 +15,7 @@ export type ResolvedOrderFileMapping = {
   field: OrderFileImportField;
   mapping: OrderFileFieldMapping;
   resolvedColumn: number | null;
+  resolvedColumns: number[];
   matchedHeader: string;
 };
 
@@ -45,6 +46,12 @@ function normalizeCell(value: unknown) {
     return Number.isInteger(value) ? value.toFixed(0) : String(value);
   }
   return String(value).replace(/^\uFEFF/, "").trim();
+}
+
+function getMappingColumns(mapping: OrderFileFieldMapping) {
+  const columns = (mapping.columns ?? []).filter((column) => column >= 1);
+  if (columns.length > 0) return columns;
+  return mapping.column && mapping.column >= 1 ? [mapping.column] : [];
 }
 
 export function normalizeTemuOrderImportValue(
@@ -130,6 +137,7 @@ export function resolveOrderFileTemplateMappings(
           headerAliases: [],
         },
         resolvedColumn: null,
+        resolvedColumns: [],
         matchedHeader: "",
       };
     }
@@ -138,6 +146,7 @@ export function resolveOrderFileTemplateMappings(
         field: field.key,
         mapping,
         resolvedColumn: null,
+        resolvedColumns: [],
         matchedHeader: "",
       };
     }
@@ -145,7 +154,8 @@ export function resolveOrderFileTemplateMappings(
       return {
         field: field.key,
         mapping,
-        resolvedColumn: mapping.column,
+        resolvedColumn: getMappingColumns(mapping)[0] ?? null,
+        resolvedColumns: getMappingColumns(mapping),
         matchedHeader: "",
       };
     }
@@ -158,6 +168,7 @@ export function resolveOrderFileTemplateMappings(
       field: field.key,
       mapping,
       resolvedColumn: resolved.column,
+      resolvedColumns: resolved.column ? [resolved.column] : [],
       matchedHeader: resolved.header,
     };
   });
@@ -170,8 +181,10 @@ function readMappedValue(
   if (mapping.mapping.sourceType === "fixed") {
     return mapping.mapping.fixedValue;
   }
-  if (!mapping.resolvedColumn || mapping.resolvedColumn < 1) return "";
-  return normalizeCell(row[mapping.resolvedColumn - 1]);
+  return mapping.resolvedColumns
+    .map((column) => normalizeCell(row[column - 1]))
+    .filter(Boolean)
+    .join(" ");
 }
 
 export function parseOrderFileImportWorkbook(

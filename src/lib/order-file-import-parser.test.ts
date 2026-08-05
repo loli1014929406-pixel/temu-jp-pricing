@@ -122,6 +122,45 @@ describe("order file import parser", () => {
     });
   });
 
+  it("combines ordered source columns with a space", () => {
+    const result = parseOrderFileImportWorkbook(
+      createWorkbookFromSheets([
+        {
+          name: "Sheet1",
+          data: [
+            ["姓", "名", "订单号"],
+            ["山田", "太郎", "PO-3"],
+          ],
+        },
+      ]),
+      template({
+        field_mappings: {
+          order_no: {
+            sourceType: "column",
+            column: 3,
+            fixedValue: "",
+            headerAliases: [],
+          },
+          sub_order_no: {
+            sourceType: "fixed",
+            column: null,
+            fixedValue: "SUB-3",
+            headerAliases: [],
+          },
+          tracking_no: {
+            sourceType: "column",
+            column: 1,
+            columns: [1, 2],
+            fixedValue: "",
+            headerAliases: [],
+          },
+        },
+      }),
+    );
+
+    expect(result.rows[0].values.tracking_no).toBe("山田 太郎");
+  });
+
   it("blocks preview when a required header cannot be resolved", () => {
     const workbook = createWorkbookFromSheets([
       {
