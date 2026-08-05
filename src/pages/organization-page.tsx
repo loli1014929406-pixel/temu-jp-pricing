@@ -82,7 +82,8 @@ export function OrganizationPage() {
   }
 
   const canManageShops = permissions.can("shops", "manage");
-  const canManageMembers = permissions.can("members", "manage");
+  const canManageMembers =
+    tenant.access.isPlatformOwner || permissions.can("members", "manage");
 
   return (
     <section className="page-stack">
