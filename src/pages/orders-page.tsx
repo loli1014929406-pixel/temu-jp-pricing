@@ -338,21 +338,17 @@ export function OrdersPage({ user }: OrdersPageProps) {
   const logisticsMethodOptions = useMemo(
     () =>
       Array.from(
-        new Set([
-          ...logisticsMethods
-            .filter((method) => method.is_active)
-            .sort((left, right) => {
-              if (left.sort_order !== right.sort_order) return left.sort_order - right.sort_order;
-              return left.created_at.localeCompare(right.created_at);
-            })
-            .map((method) => normalizeLogisticsMethod(method.name))
-            .filter(Boolean),
-          ...allOrders
+        new Set(
+          allOrders
+            .filter(
+              (order) =>
+                !warehouseFilter || order.warehouse_id === warehouseFilter,
+            )
             .map((order) => normalizeLogisticsMethod(mergeOrderDraft(order).logistics_method))
             .filter(Boolean),
-        ]),
+        ),
       ),
-    [allOrders, logisticsMethods, mergeOrderDraft],
+    [allOrders, mergeOrderDraft, warehouseFilter],
   );
 
   const skuOrderLookup = useMemo(
@@ -3142,6 +3138,7 @@ export function OrdersPage({ user }: OrdersPageProps) {
         }}
         onWarehouseFilterChange={(warehouseId) => {
           setWarehouseFilter(warehouseId);
+          setLogisticsMethodFilter("");
           setSelectedOrderIds([]);
           setPage(1);
         }}
