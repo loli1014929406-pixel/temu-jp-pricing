@@ -23,6 +23,7 @@ export function OrganizationPage() {
   const [shopCode, setShopCode] = useState("");
   const [shopName, setShopName] = useState("");
   const [memberEmail, setMemberEmail] = useState("");
+  const [memberEnterpriseId, setMemberEnterpriseId] = useState(tenant.currentEnterprise?.id ?? "");
   const [memberShopId, setMemberShopId] = useState(tenant.currentShop?.id ?? "");
   const [memberRole, setMemberRole] = useState<"enterprise_owner" | "shop_operator">("shop_operator");
   const [busy, setBusy] = useState(false);
@@ -59,7 +60,10 @@ export function OrganizationPage() {
     if (!memberShopId && tenant.currentShop?.id) {
       setMemberShopId(tenant.currentShop.id);
     }
-  }, [memberShopId, shopEnterpriseId, tenant.currentEnterprise?.id, tenant.currentShop?.id]);
+    if (!memberEnterpriseId && tenant.currentEnterprise?.id) {
+      setMemberEnterpriseId(tenant.currentEnterprise.id);
+    }
+  }, [memberEnterpriseId, memberShopId, shopEnterpriseId, tenant.currentEnterprise?.id, tenant.currentShop?.id]);
 
   async function run(action: () => PromiseLike<{ error: { message: string } | null }>, success: string) {
     setBusy(true);
@@ -120,18 +124,27 @@ export function OrganizationPage() {
           <h2 className="mb-3 text-sm font-bold">分配现有账号</h2>
           <div className="grid gap-3">
             <Field label="登录邮箱"><TextInput type="email" value={memberEmail} onChange={(event) => setMemberEmail(event.target.value)} /></Field>
-            <Field label="店铺 / 所属企业">
-              <select value={memberShopId} onChange={(event) => setMemberShopId(event.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm">
-                <option value="">请选择</option>
-                {tenant.shops.map((shop) => <option key={shop.id} value={shop.id}>{tenant.enterprises.find((enterprise) => enterprise.id === shop.enterprise_id)?.name} / {shop.name}</option>)}
-              </select>
-            </Field>
             <Field label="身份">
               <select value={memberRole} onChange={(event) => setMemberRole(event.target.value as typeof memberRole)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm">
                 <option value="shop_operator">店铺操作员</option>
                 <option value="enterprise_owner">企业主</option>
               </select>
             </Field>
+            {memberRole === "enterprise_owner" ? (
+              <Field label="所属企业">
+                <select value={memberEnterpriseId} onChange={(event) => setMemberEnterpriseId(event.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm">
+                  <option value="">请选择企业</option>
+                  {tenant.enterprises.map((enterprise) => <option key={enterprise.id} value={enterprise.id}>{enterprise.name}</option>)}
+                </select>
+              </Field>
+            ) : (
+              <Field label="所属店铺">
+                <select value={memberShopId} onChange={(event) => setMemberShopId(event.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm">
+                  <option value="">请选择店铺</option>
+                  {tenant.shops.map((shop) => <option key={shop.id} value={shop.id}>{tenant.enterprises.find((enterprise) => enterprise.id === shop.enterprise_id)?.name} / {shop.name}</option>)}
+                </select>
+              </Field>
+            )}
           </div>
         </div>
       </div>
@@ -149,9 +162,10 @@ export function OrganizationPage() {
       )}
 
       <div className="flex justify-end">
-        <button type="button" disabled={busy || !canManageMembers || !memberEmail.trim() || !memberShopId} className="btn-primary" onClick={() => void run(() => getSupabaseClient().rpc("assign_existing_user_membership", {
+        <button type="button" disabled={busy || !canManageMembers || !memberEmail.trim() || (memberRole === "enterprise_owner" ? !memberEnterpriseId : !memberShopId)} className="btn-primary" onClick={() => void run(() => getSupabaseClient().rpc("assign_existing_user_membership_v2", {
           p_email: memberEmail.trim(),
-          p_shop_id: memberShopId,
+          p_enterprise_id: memberRole === "enterprise_owner" ? memberEnterpriseId : null,
+          p_shop_id: memberRole === "shop_operator" ? memberShopId : null,
           p_role: memberRole,
           p_permissions: memberRole === "shop_operator" ? catalog.filter((item) => selectedPermissions.has(`${item.resource}.${item.action}`)).map((item) => ({ resource: item.resource, action: item.action, allowed: true })) : [],
         }), "账号身份和权限已保存。")}>保存账号身份</button>
