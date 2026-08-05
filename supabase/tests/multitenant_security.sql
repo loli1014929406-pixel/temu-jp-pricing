@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select extensions.plan(11);
+select extensions.plan(13);
 
 select extensions.is(
   (select permission_mode from private.multitenant_runtime_state where id = true),
@@ -79,11 +79,41 @@ select extensions.ok(
       and procedure.prosecdef
       and procedure.proname not in (
         'get_temu_tracking_cron_secret',
+        'get_temu_tracking_candidates',
+        'save_temu_tracking_result',
         'verify_temu_tracking_proxy_secret',
         'rls_auto_enable'
       )
   ),
   'public business RPCs do not bypass caller RLS'
+);
+
+select extensions.ok(
+  has_function_privilege(
+    'service_role',
+    'public.get_temu_tracking_candidates(uuid[])',
+    'EXECUTE'
+  )
+  and not has_function_privilege(
+    'authenticated',
+    'public.get_temu_tracking_candidates(uuid[])',
+    'EXECUTE'
+  ),
+  'tracking candidate lookup is restricted to the authorized worker'
+);
+
+select extensions.ok(
+  has_function_privilege(
+    'service_role',
+    'public.save_temu_tracking_result(uuid,text,text,timestamptz,text,text,text,text,timestamptz,boolean,text,text,boolean,boolean,text)',
+    'EXECUTE'
+  )
+  and not has_function_privilege(
+    'authenticated',
+    'public.save_temu_tracking_result(uuid,text,text,timestamptz,text,text,text,text,timestamptz,boolean,text,text,boolean,boolean,text)',
+    'EXECUTE'
+  ),
+  'tracking persistence is restricted to the authorized worker'
 );
 
 select extensions.ok(

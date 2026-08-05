@@ -57,14 +57,12 @@ Deno.serve(async (request) => {
     const body = (await request.json().catch(() => ({}))) as RefreshRequest;
     const source = body.source === "cron" ? "cron" : "manual";
     let trackingProxySecret = "";
-    let manualClient: typeof serviceClient | null = null;
 
     if (source === "cron") {
       trackingProxySecret = await requireCronAuthorization(request);
     } else {
-      const userClient = await requireEditorAuthorization(request);
+      await requireEditorAuthorization(request);
       trackingProxySecret = await getTrackingProxySecret();
-      manualClient = userClient;
     }
 
     const orderIds =
@@ -82,7 +80,7 @@ Deno.serve(async (request) => {
       return jsonResponse({ error: "当前页面没有可查询的订单。" }, 400);
     }
 
-    const rows = await fetchOrderRows(orderIds, source === "manual" ? manualClient : null);
+    const rows = await fetchOrderRows(orderIds);
     const eligibleRows = rows.filter(isTrackingCandidate);
     const orderGroups = groupTrackingOrders(eligibleRows);
     const outcomes = await mapWithConcurrency(orderGroups, 5, (group) =>
@@ -192,9 +190,8 @@ async function saveTrackingResult(
 
 async function fetchOrderRows(
   orderIds: string[],
-  client: typeof serviceClient | null,
 ) {
-  const { data, error } = await (client ?? serviceClient).rpc(
+  const { data, error } = await serviceClient.rpc(
     "get_temu_tracking_candidates",
     { p_order_ids: orderIds.length > 0 ? orderIds : null },
   );
