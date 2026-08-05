@@ -27,6 +27,7 @@ const tables = [
   "shared_inventory_membership_operations",
   "shared_inventory_membership_operation_lines",
   "products",
+  "simple_product_sku_infos",
   "product_skus",
   "product_items",
   "product_sku_items",

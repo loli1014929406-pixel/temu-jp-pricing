@@ -32,6 +32,7 @@ const PricingResultPage = lazy(() => import('./pages/pricing-result-page').then(
 const ProductCreatePage = lazy(() => import('./pages/product-create-page').then(module => ({ default: module.ProductCreatePage })));
 const ProductEditPage = lazy(() => import('./pages/product-edit-page').then(module => ({ default: module.ProductEditPage })));
 const ProductsPage = lazy(() => import('./pages/products-page').then(module => ({ default: module.ProductsPage })));
+const SimpleProductSkuInfosPage = lazy(() => import('./pages/simple-product-sku-infos-page').then(module => ({ default: module.SimpleProductSkuInfosPage })));
 const PurchasesPage = lazy(() => import('./pages/purchases-page').then(module => ({ default: module.PurchasesPage })));
 const SettingsPage = lazy(() => import('./pages/settings-page').then(module => ({ default: module.SettingsPage })));
 const TestShippingPage = lazy(() => import('./pages/test-shipping-page').then(module => ({ default: module.TestShippingPage })));
@@ -88,6 +89,7 @@ export default function App() {
           <Route index element={<Navigate to="/orders" replace />} />
           <Route path="/user" element={user ? <UserPage /> : null} />
           <Route path="/products" element={user ? <ProductsPage user={user} /> : null} />
+          <Route path="/products/simple-skus" element={user ? <SimpleProductSkuInfosPage user={user} /> : null} />
           <Route
             path="/orders"
             element={

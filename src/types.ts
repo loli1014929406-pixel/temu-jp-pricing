@@ -20,6 +20,27 @@ export type Product = {
   updated_at: string;
 };
 
+export type SimpleProductSkuInfo = {
+  id: string;
+  enterprise_id: string;
+  shop_id: string;
+  owner_id: string;
+  product_code: string;
+  sku_code: string;
+  product_name_cn: string;
+  product_name_en: string;
+  material: string;
+  purchase_price_rmb: number;
+  purchase_url: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SimpleProductSkuInfoDraft = Omit<
+  SimpleProductSkuInfo,
+  "id" | "enterprise_id" | "shop_id" | "owner_id" | "created_at" | "updated_at"
+>;
+
 export type AccountProfile = {
   id?: string;
   owner_id: string;

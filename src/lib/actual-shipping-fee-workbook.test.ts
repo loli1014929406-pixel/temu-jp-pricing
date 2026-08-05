@@ -15,6 +15,23 @@ describe("readActualShippingFeeWorkbookBytes", () => {
     ]);
   });
 
+  it("reads a GBK CSV workbook used by Chinese ecommerce exports", () => {
+    const workbook = readActualShippingFeeWorkbookBytes(
+      // “订单号,商品名称\nPO-1,蓝色” encoded as GBK.
+      new Uint8Array([
+        0xB6, 0xA9, 0xB5, 0xA5, 0xBA, 0xC5, 0x2C, 0xC9, 0xCC, 0xC6,
+        0xB7, 0xC3, 0xFB, 0xB3, 0xC6, 0x0A, 0x50, 0x4F, 0x2D, 0x31, 0x2C, 0xC0,
+        0xB6, 0xC9, 0xAB,
+      ]),
+      "订单.csv",
+    );
+
+    expect(workbook.worksheets[0].data).toEqual([
+      ["订单号", "商品名称"],
+      ["PO-1", "蓝色"],
+    ]);
+  });
+
   it.each(["xls", "xlsx"] as const)("reads an %s workbook", (extension) => {
     const source = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(

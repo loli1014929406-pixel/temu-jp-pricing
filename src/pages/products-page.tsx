@@ -284,6 +284,9 @@ export function ProductsPage({ user }: ProductsPageProps) {
         description="管理商品尺寸、重量与申报材质"
         actions={
           <>
+            <Link to="/products/simple-skus" className="btn-secondary">
+              简化商品 SKU
+            </Link>
             <button
               type="button"
               onClick={() => void handleExcelExport()}

@@ -31,6 +31,37 @@ function decodeUtf8(bytes: Uint8Array) {
   }
 }
 
+function getDecodedTextScore(workbook: XLSX.WorkBook) {
+  const text = workbook.SheetNames.map((name) =>
+    JSON.stringify(
+      XLSX.utils.sheet_to_json(workbook.Sheets[name], {
+        header: 1,
+        raw: true,
+        defval: "",
+        blankrows: true,
+      }),
+    ),
+  ).join("\n");
+
+  // Wrong legacy-codepage guesses commonly produce replacement/private-use
+  // characters. Penalize those so GBK and Shift-JIS files can be selected
+  // without asking the user to configure an encoding manually.
+  return (
+    (text.match(/[\uFFFD\uF8FF]/g)?.length ?? 0) * 1000 +
+    (text.match(/[\uFF61-\uFF9F]/g)?.length ?? 0)
+  );
+}
+
+function readLegacyCsv(bytes: Uint8Array) {
+  const candidates = ["shift_jis", "gb18030"].map((encoding) => {
+    const text = new TextDecoder(encoding).decode(bytes);
+    const source = XLSX.read(text, { type: "string", raw: true });
+    return { source, score: getDecodedTextScore(source) };
+  });
+
+  return candidates.sort((left, right) => left.score - right.score)[0].source;
+}
+
 export function readActualShippingFeeWorkbookBytes(
   bytes: Uint8Array,
   fileName: string,
@@ -44,7 +75,7 @@ export function readActualShippingFeeWorkbookBytes(
     const utf8Text = decodeUtf8(bytes);
     const source = utf8Text !== null
       ? XLSX.read(utf8Text.replace(/^\uFEFF/, ""), { type: "string", raw: true })
-      : XLSX.read(bytes, { type: "array", codepage: 932, raw: true });
+      : readLegacyCsv(bytes);
     return workbookFromSheetJs(source);
   }
 
