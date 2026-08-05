@@ -7,6 +7,7 @@ const migrationsDir = path.join(projectDir, "supabase", "migrations");
 const cutoverName = "20260804112000_activate_multitenant_rls_cutover.sql";
 const allowedPostCutoverNames = new Set([
   "20260805024500_optimize_multitenant_read_policies.sql",
+  "20260805031018_restore_temu_tracking_worker_privileges.sql",
 ]);
 const requiredBusinessTables = [
   "products", "product_items", "product_skus", "product_sku_items",
