@@ -148,6 +148,20 @@ describe("multi-shipment profit", () => {
     expect(row.logisticsCostRmb).toBe(10);
   });
 
+  it("keeps two light units in one 3cm parcel when the configured capacity is 10", () => {
+    const row = calculateMultiShipmentProfitRow(
+      "direct",
+      buildProduct({ max_units_per_parcel: 10 }),
+      [buildItem()],
+      buildSettings({ test_ocs_small_parcel_first_price_rmb: 100 }),
+      buildInput(),
+      2,
+    );
+
+    expect(row.selectedMethodName).toBe("OCS Yamato");
+    expect(row.selectedPackageCount).toBe(1);
+  });
+
   it("uses OCS small parcel when it is cheaper than direct 3cm split parcels", () => {
     const row = calculateMultiShipmentProfitRow(
       "direct",

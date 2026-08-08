@@ -8,7 +8,7 @@ import { fetchProduct, fetchProductItems, fetchProductSkus } from "../lib/produc
 import { fetchSettings } from "../lib/settings";
 import { resolveLastLegMethods } from "../lib/defaults";
 import { loadCachedWarehouses } from "../lib/cached-warehouses";
-import { getPrimaryAutoMatchWarehouse } from "../lib/warehouse-identity";
+import { getSuzhouWarehouse } from "../lib/warehouse-identity";
 import { fetchProductWarehouseShippingLimits } from "../lib/product-warehouse-shipping-limits";
 import type {
   PricingSettings,
@@ -160,12 +160,12 @@ export function MultiShipmentProfitPage({
           loadCachedWarehouses(),
           fetchProductWarehouseShippingLimits(nextProduct.id),
         ]);
-        const primaryWarehouse = getPrimaryAutoMatchWarehouse(warehouses);
-        const primaryWarehouseLimit = primaryWarehouse
-          ? shippingLimits.find((limit) => limit.warehouse_id === primaryWarehouse.id)?.max_units_per_parcel
+        const suzhouWarehouse = getSuzhouWarehouse(warehouses);
+        const suzhouWarehouseLimit = suzhouWarehouse
+          ? shippingLimits.find((limit) => limit.warehouse_id === suzhouWarehouse.id)?.max_units_per_parcel
           : undefined;
-        if (primaryWarehouseLimit !== undefined) {
-          nextProduct.max_units_per_parcel = primaryWarehouseLimit;
+        if (suzhouWarehouseLimit !== undefined) {
+          nextProduct.max_units_per_parcel = suzhouWarehouseLimit;
         }
 
         const savedCalculations = await fetchProfitCalculationsBySkuIds(

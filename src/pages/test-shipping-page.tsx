@@ -26,7 +26,7 @@ import {
   loadCachedProducts,
 } from "../lib/cached-products";
 import { loadCachedWarehouses } from "../lib/cached-warehouses";
-import { getPrimaryAutoMatchWarehouse } from "../lib/warehouse-identity";
+import { getSuzhouWarehouse } from "../lib/warehouse-identity";
 import { resolveLastLegMethods } from "../lib/defaults";
 
 type TestShippingPageProps = {
@@ -99,9 +99,9 @@ export function TestShippingPage({ user }: TestShippingPageProps) {
           fetchProductWarehouseShippingLimitsByProductIds(productIds),
         ]);
 
-        const primaryWarehouse = getPrimaryAutoMatchWarehouse(warehouses);
+        const suzhouWarehouse = getSuzhouWarehouse(warehouses);
         const limitsByProductId = shippingLimits.reduce<Record<string, number>>((acc, limit) => {
-          if (primaryWarehouse && limit.product_id && limit.warehouse_id === primaryWarehouse.id) {
+          if (suzhouWarehouse && limit.product_id && limit.warehouse_id === suzhouWarehouse.id) {
             acc[limit.product_id] = limit.max_units_per_parcel;
           }
           return acc;

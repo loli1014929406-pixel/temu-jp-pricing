@@ -18,3 +18,7 @@ export function getPrimaryAutoMatchWarehouse(warehouses: Warehouse[]) {
       })[0] ?? null
   );
 }
+
+export function getSuzhouWarehouse(warehouses: Warehouse[]) {
+  return warehouses.find((warehouse) => warehouse.name === "苏州") ?? null;
+}
